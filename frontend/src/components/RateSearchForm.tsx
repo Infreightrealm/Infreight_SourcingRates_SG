@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import CarrierMultiSelect from "./CarrierMultiSelect";
+import PortAutocomplete from "./PortAutocomplete";
 import { CONTAINER_TYPES, type RateSearchRequest } from "@/lib/types";
 
 interface RateSearchFormProps {
@@ -11,7 +12,7 @@ interface RateSearchFormProps {
 export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormProps) {
   const [carriers, setCarriers] = useState<string[]>(["ALL"]);
   const [origin, setOrigin] = useState("Singapore");
-  const [destination, setDestination] = useState("Hamburg, Germany");
+  const [destination, setDestination] = useState("Hamburg");
   const [serviceTerm, setServiceTerm] = useState("CY/CY");
   const [containerType, setContainerType] = useState("DRY 40H");
   const [containerQty, setContainerQty] = useState(1);
@@ -49,14 +50,20 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
 
       {/* Route Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className={labelClass}>Origin</label>
-          <input type="text" value={origin} onChange={(e) => setOrigin(e.target.value)} className={inputClass} placeholder="e.g. Singapore" required />
-        </div>
-        <div>
-          <label className={labelClass}>Destination</label>
-          <input type="text" value={destination} onChange={(e) => setDestination(e.target.value)} className={inputClass} placeholder="e.g. Hamburg, Germany" required />
-        </div>
+        <PortAutocomplete
+          label="Origin"
+          value={origin}
+          onChange={setOrigin}
+          placeholder="e.g. Singapore"
+          required
+        />
+        <PortAutocomplete
+          label="Destination"
+          value={destination}
+          onChange={setDestination}
+          placeholder="e.g. Hamburg"
+          required
+        />
       </div>
 
       {/* Container Details */}

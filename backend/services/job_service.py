@@ -187,10 +187,12 @@ async def run_all_carrier_searches(
     carriers: list[str],
     request: RateSearchRequest,
 ):
-    """Run search jobs for all selected carriers concurrently, then update overall status."""
-    tasks = [
-        run_carrier_search(search_id, carrier, request)
-        for carrier in carriers
-    ]
+    """Run search jobs for all selected carriers concurrently, updating overall status as each finishes."""
+    async def run_and_update(c):
+        try:
+            await run_carrier_search(search_id, c, request)
+        finally:
+            await update_search_status(search_id)
+
+    tasks = [run_and_update(carrier) for carrier in carriers]
     await asyncio.gather(*tasks, return_exceptions=True)
-    await update_search_status(search_id)

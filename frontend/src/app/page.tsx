@@ -1,18 +1,21 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import RateSearchForm from "@/components/RateSearchForm";
 import ResultsTable from "@/components/ResultsTable";
 import LoadingState from "@/components/LoadingState";
 import StatusBadge from "@/components/StatusBadge";
-import { createRateSearch, pollRateSearch, healthCheck } from "@/lib/api";
+import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 
-export default function Home() {
+function HomeContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [searchResult, setSearchResult] = useState<RateSearchResultResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mockMode, setMockMode] = useState<boolean | null>(null);
-  const [searchId, setSearchId] = useState<string | null>(null);
+  const [searchId, setSearchId] = useState<string | null>(searchParams.get("id"));
 
   // Check backend health on mount
   useEffect(() => {
@@ -21,15 +24,41 @@ export default function Home() {
       .catch(() => setMockMode(null));
   }, []);
 
+  // Resume polling if searchId is in URL on mount
+  useEffect(() => {
+    const id = searchParams.get("id");
+    if (id && !searchResult && !isLoading) {
+      setIsLoading(true);
+      // Fetch initial data then start polling
+      getRateSearchResults(id)
+        .then(data => {
+          setSearchResult(data);
+          if (!["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status)) {
+            pollRateSearch(id, (updatedData) => {
+              setSearchResult(updatedData);
+            }).finally(() => setIsLoading(false));
+          } else {
+            setIsLoading(false);
+          }
+        })
+        .catch(err => {
+          setError("Could not recover search results: " + err.message);
+          setIsLoading(false);
+        });
+    }
+  }, []);
+
   const handleSearch = async (request: RateSearchRequest) => {
     setIsLoading(true);
     setError(null);
     setSearchResult(null);
-    setSearchId(null);
-
+    
     try {
       const { search_id } = await createRateSearch(request);
       setSearchId(search_id);
+      
+      // Update URL without refreshing
+      router.push(`/?id=${search_id}`, { scroll: false });
 
       // Poll for results
       await pollRateSearch(search_id, (data) => {
@@ -111,5 +140,13 @@ export default function Home() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <HomeContent />
+    </Suspense>
   );
 }

@@ -28,7 +28,7 @@ class ONEConnector(BaseCarrierConnector):
     async def _init_browser(self):
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
-            headless=True,
+            headless=False,
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
         )
         self.context = await self.browser.new_context(
@@ -143,7 +143,7 @@ class ONEConnector(BaseCarrierConnector):
         return False
 
     async def _click_submit(self) -> bool:
-        submit_sel = 'button:has-text("GetQuote"), button:has-text("Get Quote"), button:has-text("Search Rates"), button[type="submit"]'
+        submit_sel = 'button:has-text("GetQuote"), button:has-text("Get Quote"), button:has-text("Search Rates"), button:has-text("View Quote"), button:has-text("view Quote"), button[type="submit"]'
         try:
             submit_button = self.page.locator(submit_sel).first
             await submit_button.wait_for(state="visible", timeout=10_000)
@@ -182,8 +182,11 @@ class ONEConnector(BaseCarrierConnector):
                 except Exception:
                     continue
 
-            print(f"[ONE] {label} dropdown options did not contain a matching text")
-            return False
+            # Final last resort: just press Enter on what was typed and hope the portal accepts it
+            print(f"[ONE] {label} no dropdown match, pressing Enter as last resort for: {value}")
+            await self.page.keyboard.press("Enter")
+            await self.page.wait_for_timeout(1000)
+            return True
         except Exception as e:
             print(f"[ONE] {label} selection failed: {e}")
             return False
@@ -282,6 +285,18 @@ class ONEConnector(BaseCarrierConnector):
             print(f"[ONE] Login failed: {e}")
             return False
 
+    def _extract_port_code(self, text: str) -> str:
+        """Extracts 5-letter UN/LOCODE from strings like 'Singapore (SGSIN)'."""
+        if not text: return ""
+        match = re.search(r'\(([A-Z]{5})\)', text)
+        if match:
+            return match.group(1)
+        # Fallback: if it's already a 5-letter code
+        clean = text.strip()
+        if len(clean) == 5 and clean.isupper():
+            return clean
+        return text
+
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             print("[ONE] Starting search, navigating to spot rate page...")
@@ -293,24 +308,27 @@ class ONEConnector(BaseCarrierConnector):
             target_date = self._resolve_departure_date(request.departure_date)
             target_date_text = target_date.isoformat()
 
-            print(f"[ONE] Filling Origin: {request.origin}")
+            origin_code = self._extract_port_code(request.origin)
+            print(f"[ONE] Filling Origin: {origin_code} (extracted from {request.origin})")
             try:
                 origin_field = self.page.get_by_role("combobox", name="Please search location").nth(0)
                 await origin_field.click()
-                await self.page.keyboard.type(request.origin, delay=25)
+                await self.page.keyboard.type(origin_code, delay=25)
                 await self.page.wait_for_timeout(1500)
-                if not await self._select_dropdown_option("Origin", request.origin):
+                if not await self._select_dropdown_option("Origin", origin_code):
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
             except Exception as e:
                 print(f"[ONE] Origin combobox failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            print(f"[ONE] Filling Destination: {request.destination}")
+            destination_code = self._extract_port_code(request.destination)
+            print(f"[ONE] Filling Destination: {destination_code} (extracted from {request.destination})")
             try:
                 destination_field = self.page.get_by_role("combobox", name="Please search location").nth(1)
                 await destination_field.click()
-                await self.page.wait_for_timeout(1000)
-                if not await self._select_dropdown_option("Destination", request.destination):
+                await self.page.keyboard.type(destination_code, delay=25)
+                await self.page.wait_for_timeout(1500)
+                if not await self._select_dropdown_option("Destination", destination_code):
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
             except Exception as e:
                 print(f"[ONE] Destination combobox failed: {e}")
@@ -354,33 +372,168 @@ class ONEConnector(BaseCarrierConnector):
                 await commodity_field.click()
                 await self.page.wait_for_timeout(500)
                 await self.page.keyboard.type(request.commodity, delay=25)
-                await self.page.wait_for_timeout(1000)
-                commodity_options = self.page.locator('[role="option"]').filter(has_text=request.commodity.upper()).first
-                if await commodity_options.count() > 0:
-                    await commodity_options.click()
-                else:
+                
+                # Wait for dropdown options to appear
+                try:
+                    first_option = self.page.locator('[role="option"]').first
+                    await first_option.wait_for(state="visible", timeout=3000)
+                    
+                    # Try to find exact match first, fallback to first available option
+                    exact_match = self.page.locator('[role="option"]').filter(has_text=request.commodity.upper()).first
+                    if await exact_match.is_visible():
+                        await exact_match.click()
+                    else:
+                        await first_option.click()
+                except Exception:
+                    # Fallback to Enter key if no dropdown appears
                     await self.page.keyboard.press("Enter")
+                    
+                await self.page.wait_for_timeout(3000) # Wait for chip to form
             except Exception as e:
                 print(f"[ONE] Commodity selection failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
             print("[ONE] Opening date picker and accepting available sailing date...")
             try:
-                date_field = self.page.get_by_role("textbox", name="Please select vessel departure date at origin")
-                await date_field.wait_for(state="visible", timeout=10_000)
-                await date_field.click(force=True)
-                dialog = self.page.get_by_role("dialog", name="Vessel Available Date")
-                await dialog.wait_for(state="visible", timeout=10_000)
-                set_button = dialog.get_by_role("button", name="Set")
-                await set_button.click(force=True)
+                date_field = self.page.locator('text=/please select vessel departure date at origin/i').first
+                try:
+                    await date_field.wait_for(state="visible", timeout=5000)
+                except Exception:
+                    date_field = self.page.get_by_role("textbox", name="Please select vessel departure date at origin")
+                    await date_field.wait_for(state="visible", timeout=5000)
+                
+                # Ensure we scroll the date field into view and wait a bit for any dynamic overlays to settle
+                await date_field.scroll_into_view_if_needed()
                 await self.page.wait_for_timeout(1000)
-                print("[ONE] Date picker accepted")
-            except Exception as e:
-                print(f"[ONE] Date picker failed: {e}")
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
+                await date_field.click(force=True)
+                
+                # Wait for the calendar container to be visible
+                print("[ONE] Waiting for calendar to appear...")
+                try:
+                    calendar_sel = 'div[class*="Calendar"], .react-calendar, [class*="calendar-picker"], .MuiCalendarPicker-root'
+                    await self.page.locator(calendar_sel).first.wait_for(state="visible", timeout=10000)
+                    print("[ONE] Calendar visible")
+                except Exception:
+                    print("[ONE] Warning: Calendar container not detected, continuing with strategies")
 
-            if not await self._click_submit():
-                return CarrierResultStatus.UNKNOWN_ERROR
+                await self.page.wait_for_timeout(2000)
+                
+                date_selected = False
+                
+                # Strategy 1: Click "view Quote" directly if it's already there (e.g. from a previous search)
+                try:
+                    view_quote_btn = self.page.locator('button:has-text("View Quote"), button:has-text("view Quote"), text="View Quote", text="view Quote"').first
+                    await view_quote_btn.wait_for(state="visible", timeout=2000)
+                    await view_quote_btn.click(force=True)
+                    date_selected = True
+                    print("[ONE] Clicked 'view Quote' directly from calendar")
+                except Exception:
+                    pass
+                
+                # We wrap the main hunting strategies in a loop to handle "Next Month" if current month is empty
+                for month_attempt in range(2): # Current month + Next month
+                    if date_selected: break
+                    
+                    if month_attempt > 0:
+                        print(f"[ONE] No sailings in current view, trying Next Month (attempt {month_attempt})...")
+                        try:
+                            # Try to find the "Next Month" arrow button
+                            next_month_btn = self.page.locator('button[aria-label*="Next Month" i], button[class*="next"], .react-calendar__navigation__next-button').first
+                            if await next_month_btn.is_visible():
+                                await next_month_btn.click(force=True)
+                                await self.page.wait_for_timeout(3000) # Wait for new dates to render
+                            else:
+                                print("[ONE] Next Month button not found, skipping month jump")
+                                break
+                        except Exception as e:
+                            print(f"[ONE] Failed to click Next Month: {e}")
+                            break
+
+                    # Strategy 2: Click first calendar date that has ANY price (using highlight class)
+                    if not date_selected:
+                        try:
+                            # The debug screenshot showed prices in elements with "date-picker-date-highlight"
+                            price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted').first
+                            await price_locator.wait_for(state="visible", timeout=5000)
+
+                            await price_locator.click(force=True)
+                            date_selected = True
+                            price_text = await price_locator.inner_text()
+                            print(f"[ONE] Clicked highlighted date cell with price: {price_text}")
+                        except Exception:
+                            pass
+
+                    # Strategy 3: Search for ANY numeric price label (anchored regex) inside calendar tiles
+                    if not date_selected:
+                        try:
+                            # Broad search for 3-4 digit numbers or K-values inside anything that looks like a day tile
+                            price_tile = self.page.locator('.react-datepicker__day, [class*="day"], [class*="tile"]').get_by_text(
+                                re.compile(r"\d{3,4}|[\d.]+[kK]"), exact=False
+                            ).first
+                            await price_tile.wait_for(state="visible", timeout=3000)
+
+                            await price_tile.click(force=True)
+                            date_selected = True
+                            tile_text = await price_tile.inner_text()
+                            print(f"[ONE] Safety-net: clicked tile with numeric content: {tile_text}")
+                        except Exception:
+                            pass
+
+                # Strategy 4: Click any non-disabled calendar cell with content
+                if not date_selected:
+                    try:
+                        # Target anything that looks like a date cell and is not disabled
+                        any_cell = self.page.locator('[class*="Calendar"] button:not([disabled]), .react-calendar__tile:not([disabled]), [class*="Calendar"] [class*="available"]').first
+                        await any_cell.wait_for(state="visible", timeout=3000)
+                        await any_cell.click(force=True)
+                        date_selected = True
+                        print("[ONE] Clicked an available calendar cell (tile search)")
+                    except Exception:
+                        pass
+
+                # Strategy 5: Absolute fallback - click any element with a price-like number
+                if not date_selected:
+                    try:
+                        fallback_price = self.page.get_by_text(re.compile(r"^\d{3,4}$")).first
+                        await fallback_price.click(force=True, timeout=3000)
+                        date_selected = True
+                        print("[ONE] Clicked a 3-4 digit number as absolute fallback")
+                    except Exception:
+                        await self.page.screenshot(path=r"C:\Users\Brian\.gemini\antigravity\brain\ceb649b4-c6b6-446d-8bd7-1b3242bce92b\one_debug.png")
+                        print("[ONE] All date picker strategies failed (saved screenshot to artifacts)")
+
+                # Verify calendar closure or wait for state change
+                await self.page.wait_for_timeout(2000)
+                
+                # If calendar is still visible, try to click the body to close it
+                if await self.page.locator('div[class*="Calendar"], div[class*="calendar"], .react-calendar').is_visible():
+                    print("[ONE] Calendar still visible, attempting to close by clicking body")
+                    await self.page.mouse.click(10, 10)
+                    await self.page.wait_for_timeout(1000)
+
+                print(f"[ONE] Date picker step completed (selected: {date_selected})")
+            except Exception as e:
+                print(f"[ONE] Date picker interaction failed (non-fatal): {e}")
+
+            # Submit the search — wait for button to be truly enabled
+            try:
+                submit_btn = self.page.locator('button:has-text("GetQuote"), button:has-text("Get Quote"), button:has-text("Search Rates"), button:has-text("View Quote"), button:has-text("view Quote"), button[type="submit"]').first
+                await submit_btn.wait_for(state="visible", timeout=5000)
+                
+                # Poll for enabled state (some buttons use 'disabled' attribute, others use classes)
+                for _ in range(10):
+                    is_disabled = await submit_btn.get_attribute("disabled")
+                    if is_disabled is None:
+                        # Also check common "disabled" classes
+                        btn_class = await submit_btn.get_attribute("class") or ""
+                        if "disabled" not in btn_class.lower():
+                            break
+                    await self.page.wait_for_timeout(500)
+                
+                await submit_btn.click(force=True, timeout=5000)
+                print("[ONE] Search submitted (force click)")
+            except Exception as e:
+                print(f"[ONE] Submit click failed: {e}")
 
             print("[ONE] Waiting for search results to load...")
             try:
@@ -405,7 +558,7 @@ class ONEConnector(BaseCarrierConnector):
                 normalized_text = re.sub(r"\s+", " ", card_text)
 
                 summary_match = re.search(
-                    r"Origin\s+(\d{4}-\d{2}-\d{2})\s+(\d+)\s+day\(s\)\s+Direct\s+Destination\s+(\d{4}-\d{2}-\d{2})\s+Service Lane/ Vessel Voyage\s+([A-Z0-9]+)\s*/\s*([A-Z0-9 ().-]+?)\s+Status\s+([A-Za-z]+)\s+POL\s+(.+?)\s+POD\s+(.+?)\s+USD\s*([\d,]+\.\d{2})",
+                    r"Origin\s+(\d{4}-\d{2}-\d{2})\s+(\d+)\s+day\(s\)\s+(?:.*?)\s*Destination\s+(\d{4}-\d{2}-\d{2})\s+Service Lane/\s*Vessel Voyage\s+([A-Z0-9]+)\s*/\s*([A-Z0-9 ().-]+?)\s+Status\s+([A-Za-z]+)\s+POL\s+(.+?)\s+POD\s+(.+?)\s+USD\s*([\d,]+\.\d{2})",
                     normalized_text,
                 )
 
@@ -425,13 +578,23 @@ class ONEConnector(BaseCarrierConnector):
                     eta = summary_match.group(3)
                     service_lane = summary_match.group(4).strip()
                     vessel = summary_match.group(5).strip()
+                    if vessel == "---" or not vessel:
+                        vessel = "Sold out"
+                        
                     status = summary_match.group(6).strip()
                     pol = summary_match.group(7).strip()
                     pod = summary_match.group(8).strip()
                     total_price = float(summary_match.group(9).replace(",", ""))
-                    service_name = f"{service_lane} / {vessel}"
+                    service_name = f"{service_lane} / {vessel}" if vessel != "Sold out" else "Sold out"
                 else:
-                    print(f"[ONE] Could not parse quote summary for card {index + 1}")
+                    print(f"[ONE] Could not parse full quote summary for card {index + 1}. Fallback extraction...")
+                    price_match = re.search(r"USD\s*([\d,]+\.\d{2})", normalized_text)
+                    if price_match:
+                        total_price = float(price_match.group(1).replace(",", ""))
+                    etd_match = re.search(r"Origin\s+(\d{4}-\d{2}-\d{2})", normalized_text)
+                    if etd_match: etd = etd_match.group(1)
+                    eta_match = re.search(r"Destination\s+(\d{4}-\d{2}-\d{2})", normalized_text)
+                    if eta_match: eta = eta_match.group(1)
 
                 quotes.append({
                     "index": index,
@@ -464,34 +627,84 @@ class ONEConnector(BaseCarrierConnector):
                 return False
 
             card = quote_cards.nth(idx)
-            details_button = card.get_by_role("button", name="Details").first
-            await details_button.click()
-            await self.page.wait_for_timeout(800)
+            self.current_card = quote_cards.nth(idx)
+            
+            all_details_buttons = self.page.locator('button.NewQuoteSummary_breakdown-button__oIAYJ')
+            
+            # Close the previous accordion to prevent text stacking
+            if idx > 0:
+                try:
+                    prev_btn = None
+                    if await all_details_buttons.count() > (idx - 1):
+                        prev_btn = all_details_buttons.nth(idx - 1)
+                    else:
+                        prev_btn = self.page.locator('button:has-text("Details")').nth(idx - 1)
+                    
+                    if await prev_btn.is_visible():
+                        await prev_btn.scroll_into_view_if_needed()
+                        await prev_btn.click(timeout=3000)
+                    await self.page.wait_for_timeout(1000) # Wait for close animation
+                except Exception:
+                    pass
+            
+            details_count = await all_details_buttons.count()
+            print(f"[ONE] Found {details_count} Details button(s) on page for quote {idx}")
+            
+            if details_count > idx:
+                btn = all_details_buttons.nth(idx)
+                await btn.scroll_into_view_if_needed()
+                await self.page.wait_for_timeout(500)
+                await btn.click(timeout=5000)
+                print(f"[ONE] Clicked Details button for quote {idx}")
+            else:
+                # Fallback: try any button containing "Details" text on the page
+                btn = self.page.locator('button:has-text("Details")').nth(idx)
+                await btn.scroll_into_view_if_needed()
+                await self.page.wait_for_timeout(500)
+                await btn.click(timeout=5000)
+                print(f"[ONE] Clicked Details via fallback for quote {idx}")
 
-            freight_tab = self.page.get_by_role("tab", name="Freight Information").first
-            if await freight_tab.count() > 0:
-                await freight_tab.click()
-                await self.page.wait_for_timeout(800)
-
+            # Wait for the breakdown to render (look for Basic Ocean Freight text)
+            try:
+                bof_text = self.page.locator('text=/basic ocean freight/i').first
+                await bof_text.wait_for(state="visible", timeout=10000)
+            except Exception:
+                print(f"[ONE] Warning: 'Basic Ocean Freight' text did not appear within 10s for quote {idx}")
+            
+            # Short fallback wait just in case
+            await self.page.wait_for_timeout(1000)
             return True
         except Exception as e:
-            print(f"[ONE] Error opening breakdown: {e}")
+            print(f"[ONE] Error opening breakdown for quote {idx}: {e}")
             return False
 
     async def extract_charge_breakdown(self) -> list[dict]:
         try:
-            freight_panel = self.page.get_by_role("tabpanel", name="Freight Information").first
-            text = await freight_panel.inner_text()
-            if not text.strip():
+            text = ""
+            if hasattr(self, 'current_card') and self.current_card:
+                text = await self.current_card.inner_text()
+            
+            # If the charges aren't inside the card (e.g. rendered in a portal), fallback to body
+            if "BASIC OCEAN FREIGHT" not in text.upper() and "OCEAN FREIGHT" not in text.upper():
                 text = await self.page.locator("body").inner_text()
 
+            # Isolate the breakdown section to avoid parsing the card summary
+            if "BASIC OCEAN FREIGHT" in text.upper():
+                idx_bof = text.upper().find("BASIC OCEAN FREIGHT")
+                text = text[idx_bof:]
+            else:
+                # For debugging why the accordion didn't open or isn't extracted
+                print(f"[ONE] BASIC OCEAN FREIGHT not found! Attempted click failed to render charges.")
+                if hasattr(self, 'current_card') and self.current_card:
+                    html = await self.current_card.inner_html()
+                    print(f"[ONE] Card HTML snippet: {html[:5000]}")
+
             lines = [line.strip() for line in text.splitlines() if line.strip()]
-            amount_pattern = re.compile(r"^([A-Z]{3})\s*([\d,]+\.\d{2})$")
+            amount_pattern = re.compile(r"(?:^|\s)([A-Z]{3})\s*([\d,]+\.\d{2})$")
 
             def is_section_heading(line: str) -> bool:
                 normalized = line.strip().lower()
                 return normalized in {
-                    "basic ocean freight",
                     "freight charge",
                     "origin charge",
                     "destination charge",
@@ -500,31 +713,49 @@ class ONEConnector(BaseCarrierConnector):
                 } or normalized.startswith("what is special promotion service")
 
             def is_container_line(line: str) -> bool:
-                lowered = line.lower()
-                return " x " in lowered and "(" in line and ")" in line and any(currency in line for currency in ["USD", "SGD", "EUR"])
+                return "x" in line and "(" in line and ")" in line
 
-            charges: list[dict] = []
+            charges = []
             for index, line in enumerate(lines):
-                amount_match = amount_pattern.match(line)
+                amount_match = amount_pattern.search(line)
                 if not amount_match:
                     continue
 
                 currency = amount_match.group(1)
                 amount = float(amount_match.group(2).replace(",", ""))
 
-                name_index = index - 1
-                while name_index >= 0:
-                    candidate = lines[name_index]
-                    if not candidate or is_section_heading(candidate) or is_container_line(candidate):
-                        name_index -= 1
-                        continue
-                    if amount_pattern.match(candidate):
-                        name_index -= 1
-                        continue
-                    break
+                remaining_line = line[:amount_match.start()].strip()
+                name = ""
 
-                name = lines[name_index] if name_index >= 0 else f"Charge {len(charges) + 1}"
-                category, reason = classify_charge(name, amount)
+                if remaining_line and not is_container_line(remaining_line) and not is_section_heading(remaining_line):
+                    name = remaining_line
+                else:
+                    # Try to find the charge name by walking backwards
+                    name_index = index - 1
+                    while name_index >= 0:
+                        candidate = lines[name_index]
+                        if not candidate or is_section_heading(candidate) or is_container_line(candidate):
+                            name_index -= 1
+                            continue
+                        if amount_pattern.search(candidate):
+                            name_index -= 1
+                            continue
+                        break
+
+                    name = lines[name_index] if name_index >= 0 else f"Charge {len(charges) + 1}"
+
+                # Find the section heading for this charge
+                section_heading = "unknown"
+                sec_index = index - 1
+                while sec_index >= 0:
+                    candidate = lines[sec_index]
+                    if is_section_heading(candidate):
+                        section_heading = candidate.strip().lower()
+                        break
+                    sec_index -= 1
+
+                # Classify the charge
+                category, reason = classify_charge(name, amount, section_heading)
                 charges.append({
                     "name": name,
                     "amount": amount,

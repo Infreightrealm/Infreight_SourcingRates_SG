@@ -12,14 +12,24 @@ Classifies each charge into one of:
 from models.schemas import ChargeCategory
 
 
-def classify_charge(charge_name: str, amount: float) -> tuple[ChargeCategory, str]:
+def classify_charge(charge_name: str, amount: float, section_heading: str = None) -> tuple[ChargeCategory, str]:
     """
-    Classify a charge line item based on its name and amount.
+    Classify a charge line item based on its name, amount, and the section heading it falls under.
 
     Returns:
         tuple of (ChargeCategory, reason_string)
     """
     name_lower = charge_name.lower().strip()
+    section = section_heading.strip().lower() if section_heading else ""
+
+    # ── OVERRIDE BY SECTION HEADING ─────────────────────────
+    if section:
+        if "freight" in section:
+            return ChargeCategory.BASIC_OCEAN_FREIGHT, f"Forced by section header: '{section_heading}'"
+        elif "origin" in section:
+            return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, f"Forced by section header: '{section_heading}'"
+        elif "destination" in section:
+            return ChargeCategory.DESTINATION_CHARGE_EXCLUDED, f"Forced by section header: '{section_heading}'"
 
     # ── BASIC OCEAN FREIGHT ──────────────────────────────────
     basic_freight_keywords = [
@@ -62,6 +72,7 @@ def classify_charge(charge_name: str, amount: float) -> tuple[ChargeCategory, st
         "origin local",
         "loading charge",
         "origin haulage",
+        "terminal handling charge (l)",
     ]
     for kw in origin_keywords:
         if kw in name_lower:
@@ -88,6 +99,7 @@ def classify_charge(charge_name: str, amount: float) -> tuple[ChargeCategory, st
         "destination local",
         "discharge charge",
         "destination haulage",
+        "terminal handling charge (d)",
     ]
     for kw in destination_keywords:
         if kw in name_lower:
@@ -119,6 +131,9 @@ def classify_charge(charge_name: str, amount: float) -> tuple[ChargeCategory, st
         "vgm",
         "ams",
         "ens",
+        "panama canal",
+        "suez canal",
+        "canal surcharge",
     ]
     for kw in local_charge_keywords:
         if kw in name_lower:
@@ -159,9 +174,6 @@ def classify_charge(charge_name: str, amount: float) -> tuple[ChargeCategory, st
         "gri",
         "general rate increase",
         "one bunker",
-        "panama canal",
-        "suez canal",
-        "canal surcharge",
         "winter surcharge",
         "heavy weight surcharge",
         "overweight surcharge",

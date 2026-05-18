@@ -140,10 +140,10 @@ class BaseCarrierConnector(ABC):
             for raw_quote in raw_quotes:
                 try:
                     opened = await self.open_price_breakdown(raw_quote)
-                    if not opened:
-                        continue
-
-                    raw_charges = await self.extract_charge_breakdown()
+                    raw_charges = []
+                    if opened:
+                        raw_charges = await self.extract_charge_breakdown()
+                        
                     normalized = await self.normalize_result(raw_quote, raw_charges)
                     quotes.append(normalized)
                 except Exception as e:

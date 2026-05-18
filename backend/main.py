@@ -19,6 +19,7 @@ load_dotenv()
 
 from models.database import init_db
 from api.rate_search_routes import router as rate_search_router
+from api.port_routes import router as port_router
 
 
 @asynccontextmanager
@@ -52,6 +53,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(rate_search_router)
+app.include_router(port_router)
 
 
 @app.get("/health")

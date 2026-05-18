@@ -27,6 +27,12 @@ def calculate_final_freight_value(charges: list[dict]) -> float:
     for charge in charges:
         category = charge.get("category", ChargeCategory.UNCERTAIN_EXCLUDED)
         amount = float(charge.get("amount", 0.0))
+        currency = charge.get("currency", "USD").upper()
+        name_lower = charge.get("name", "").lower()
+
+        # ONLY sum USD values
+        if currency != "USD":
+            continue
 
         if category == ChargeCategory.BASIC_OCEAN_FREIGHT:
             final += amount
@@ -39,10 +45,10 @@ def calculate_final_freight_value(charges: list[dict]) -> float:
                 final += amount  # Already negative, just add
 
         elif category == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED:
+            # Include all freight-related surcharges in the final value (e.g. emergency fuel, bunker, peak season)
             final += amount
 
-        # All other categories (ORIGIN_CHARGE_EXCLUDED, DESTINATION_CHARGE_EXCLUDED,
-        # UNCERTAIN_EXCLUDED) are excluded from the final value
+        # All other categories are excluded from the final value
 
     return round(final, 2)
 
@@ -75,7 +81,16 @@ def classify_and_organize_charges(raw_charges: list[dict]) -> dict:
         amount = float(raw.get("amount", 0.0))
         currency = raw.get("currency", "USD")
 
-        category, reason = classify_charge(name, amount)
+        # Preserve the high-context classification from the carrier connector if present
+        raw_category_str = raw.get("category")
+        if raw_category_str:
+            try:
+                category = ChargeCategory(raw_category_str)
+                reason = raw.get("reason", "Preserved carrier connector classification")
+            except ValueError:
+                category, reason = classify_charge(name, amount)
+        else:
+            category, reason = classify_charge(name, amount)
 
         classified = {
             "name": name,
@@ -146,6 +161,8 @@ def normalize_quote(
     organized = classify_and_organize_charges(raw_charges)
 
     final_value = calculate_final_freight_value(organized["all_classified"])
+    if final_value == 0.0 and raw_quote.get("total_price"):
+        final_value = raw_quote.get("total_price")
 
     return QuoteSchema(
         etd=raw_quote.get("etd"),

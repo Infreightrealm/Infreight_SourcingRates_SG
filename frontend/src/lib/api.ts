@@ -30,7 +30,7 @@ export async function pollRateSearch(
   searchId: string,
   onUpdate: (data: RateSearchResultResponse) => void,
   intervalMs = 2000,
-  maxAttempts = 60,
+  maxAttempts = 450, // 15 minutes
 ): Promise<RateSearchResultResponse> {
   let attempts = 0;
   return new Promise((resolve, reject) => {
@@ -57,5 +57,12 @@ export async function pollRateSearch(
 
 export async function healthCheck(): Promise<{ status: string; mock_mode: boolean }> {
   const res = await fetch(`${API_URL}/health`);
+  return res.json();
+}
+
+export async function getPortSuggestions(query: string, limit = 5): Promise<any[]> {
+  if (!query || query.length < 2) return [];
+  const res = await fetch(`${API_URL}/api/ports/suggest?q=${encodeURIComponent(query)}&limit=${limit}`);
+  if (!res.ok) return [];
   return res.json();
 }

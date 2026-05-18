@@ -9,12 +9,14 @@ from carriers.base_connector import BaseCarrierConnector, NotAvailableConnector
 from carriers.mock_connector import MockCarrierConnector
 from carriers.maersk_connector import MaerskConnector
 from carriers.one_connector import ONEConnector
+from carriers.cma_connector import CMAConnector
 
 
 # Map carrier codes to their live connector classes
 LIVE_CONNECTORS: dict[str, type[BaseCarrierConnector]] = {
     "MAERSK": MaerskConnector,
     "ONE": ONEConnector,
+    "CMA_CGM": CMAConnector,
     # Other carriers return NotAvailableConnector until implemented
 }
 
