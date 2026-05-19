@@ -507,6 +507,8 @@ class MaerskConnector(BaseCarrierConnector):
             try:
                 print("[MAERSK] Checking for Cookie Consent modal...")
                 cookie_buttons = [
+                    '#onetrust-accept-btn-handler',
+                    'button#onetrust-accept-btn-handler',
                     'button:has-text("Allow all")',
                     'button:has-text("Accept All")',
                     'button:has-text("Essential only")',
@@ -527,12 +529,12 @@ class MaerskConnector(BaseCarrierConnector):
                 
             # Fill Username
             try:
-                # 1. Wait for the host component (#mc-input-username) to render on the page
+                # 1. Wait for the host component (#mc-input-username) to be attached to the DOM
                 user_host = self.page.locator('#mc-input-username').first
-                await user_host.wait_for(state="visible", timeout=30000)
+                await user_host.wait_for(state="attached", timeout=30000)
                 
                 # 2. Click/Focus the host component (so its inner input handles layout/visibility natively)
-                await user_host.click()
+                await user_host.click(force=True)
                 
                 # 3. Fill the nested input directly
                 user_input = self.page.locator('#mc-input-username input').first
@@ -552,10 +554,10 @@ class MaerskConnector(BaseCarrierConnector):
             try:
                 # 1. Wait for host
                 pass_host = self.page.locator('#mc-input-password').first
-                await pass_host.wait_for(state="visible", timeout=10000)
+                await pass_host.wait_for(state="attached", timeout=10000)
                 
                 # 2. Click host
-                await pass_host.click()
+                await pass_host.click(force=True)
                 
                 # 3. Fill nested input
                 pass_input = self.page.locator('#mc-input-password input').first
@@ -574,10 +576,10 @@ class MaerskConnector(BaseCarrierConnector):
             try:
                 # 1. Wait for host
                 submit_host = self.page.locator('#login-submit-button').first
-                await submit_host.wait_for(state="visible", timeout=10000)
+                await submit_host.wait_for(state="attached", timeout=10000)
                 
                 # 2. Click host
-                await submit_host.click()
+                await submit_host.click(force=True)
                 print("[MAERSK] Login form submitted successfully via MDS Host-Click.")
             except Exception as e:
                 print(f"[MAERSK] MDS Submit click failed: {e}. Trying fallback...")
