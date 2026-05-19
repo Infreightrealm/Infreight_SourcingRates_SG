@@ -401,10 +401,6 @@ class MaerskConnector(BaseCarrierConnector):
         # Local profile directory to persist cookies, logins, and session data
         profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_maersk")
         
-        # Check if Bright Data Web Unlocker proxy credentials are set
-        proxy_user = os.getenv("MAERSK_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
-        proxy_pass = os.getenv("MAERSK_PROXY_PASS") or os.getenv("BRIGHTDATA_PROXY_PASS")
-        
         is_prod = os.name != "nt"
         launch_kwargs = {
             "user_data_dir": profile_dir,
@@ -419,16 +415,10 @@ class MaerskConnector(BaseCarrierConnector):
         if not is_prod:
             launch_kwargs["channel"] = "chrome"
         
-        if proxy_user and proxy_pass:
-            proxy_server = os.getenv("BRIGHTDATA_PROXY_SERVER", "http://brd.superproxy.io:33335")
-            print(f"[MAERSK] Routing browser session through Bright Data Proxy ({proxy_server})...")
-            launch_kwargs["proxy"] = {
-                "server": proxy_server,
-                "username": proxy_user,
-                "password": proxy_pass,
-            }
-        else:
-            print("[MAERSK] Bright Data Proxy not configured in .env. Running on local system Chrome naturally...")
+        # NOTE: Bright Data Web Unlocker proxies break Playwright browser sessions (returns empty pages)
+        # because the Web Unlocker MITM-intercepts TLS and serves API-processed content, not live HTML.
+        # Patchright's stealth-compiled Chromium engine is used instead to pass Akamai fingerprint checks.
+        print("[MAERSK] Running via Patchright stealth engine (no proxy — Web Unlocker incompatible with browser sessions).")
             
         self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
         self.browser = None  # Handled by persistent context
@@ -470,25 +460,11 @@ class MaerskConnector(BaseCarrierConnector):
         try:
             await self._init_browser()
             print("[MAERSK] Navigating to Maersk Login page...")
-            await self.page.goto("https://www.maersk.com/login", wait_until="domcontentloaded", timeout=40000)
-            await self.page.wait_for_timeout(3000)
-            
-            # DEBUG: Dump what the proxy/browser actually loaded
-            _debug_url = self.page.url
-            _debug_title = await self.page.title()
-            _debug_content = await self.page.content()
-            print(f"[MAERSK-DEBUG] Post-navigation URL: {_debug_url}")
-            print(f"[MAERSK-DEBUG] Page title: {_debug_title}")
-            print(f"[MAERSK-DEBUG] Page content snippet (first 2000 chars):\n{_debug_content[:2000]}")
-            # Save full HTML to file for inspection
-            try:
-                import os as _os
-                _debug_path = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "scratch", "maersk_proxy_page.html")
-                with open(_debug_path, "w", encoding="utf-8") as _f:
-                    _f.write(_debug_content)
-                print(f"[MAERSK-DEBUG] Full page HTML saved to: {_debug_path}")
-            except Exception as _de:
-                print(f"[MAERSK-DEBUG] Could not save HTML: {_de}")
+            # Navigate and wait for the full page load (MDS web components need JS to hydrate)
+            await self.page.goto("https://www.maersk.com/login", wait_until="load", timeout=60000)
+            # Extra wait for MDS web components (<mc-input>, <mc-button>) to fully hydrate via JavaScript
+            await self.page.wait_for_timeout(5000)
+            print(f"[MAERSK] Landed on: {self.page.url}")
             
             # Check if we are already logged in (cookie session remembered in chrome_profile)
             current_url = self.page.url
