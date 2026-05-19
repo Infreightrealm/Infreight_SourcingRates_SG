@@ -46,8 +46,8 @@ class CMAConnector(BaseCarrierConnector):
         profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile")
         
         # Check if Bright Data Web Unlocker proxy credentials are set
-        proxy_user = os.getenv("BRIGHTDATA_PROXY_USER")
-        proxy_pass = os.getenv("BRIGHTDATA_PROXY_PASS")
+        proxy_user = os.getenv("CMA_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
+        proxy_pass = os.getenv("CMA_PROXY_PASS") or os.getenv("BRIGHTDATA_PROXY_PASS")
         
         is_prod = os.name != "nt"
         launch_kwargs = {
