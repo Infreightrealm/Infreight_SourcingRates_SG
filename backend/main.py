@@ -64,3 +64,17 @@ async def health():
         "service": "Infreight Rate Automation",
         "mock_mode": mock_mode,
     }
+
+
+@app.get("/api/vnc-status")
+async def vnc_status():
+    """Check if the VNC viewer is available (production only, where Xvfb runs)."""
+    is_prod = os.name != "nt"
+    return {
+        "available": is_prod,
+        "vnc_path": "/vnc/vnc.html?autoconnect=true&resize=scale&reconnect=true",
+        "message": "VNC viewer available — use the Live Browser View to interact with carrier portals."
+        if is_prod
+        else "VNC not available in local development mode.",
+    }
+

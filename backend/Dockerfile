@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright + VNC/noVNC HITL
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -21,6 +21,13 @@ RUN apt-get update && apt-get install -y \
     libxdamage1 \
     libxrandr2 \
     xdg-utils \
+    # VNC/noVNC dependencies
+    xvfb \
+    x11vnc \
+    novnc \
+    websockify \
+    nginx \
+    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -36,8 +43,11 @@ RUN patchright install chromium
 # Copy application code
 COPY . .
 
-# Expose port
+# Set display for Xvfb
+ENV DISPLAY=:99
+
+# Expose port (nginx reverse proxy handles routing)
 EXPOSE 8000
 
-# Start the server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start all services via supervisord
+CMD ["supervisord", "-c", "/app/supervisord.conf"]

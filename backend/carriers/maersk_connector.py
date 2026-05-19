@@ -402,14 +402,21 @@ class MaerskConnector(BaseCarrierConnector):
         profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_maersk")
         
         is_prod = os.name != "nt"
+        
+        # In production (Railway), Xvfb provides a virtual display at :99
+        # so we run NON-headless to allow VNC viewing for HITL 2FA verification
+        if is_prod:
+            os.environ["DISPLAY"] = ":99"
+        
         launch_kwargs = {
             "user_data_dir": profile_dir,
-            "headless": is_prod,
+            "headless": False,  # Always non-headless: local = real screen, prod = Xvfb virtual display
             "ignore_https_errors": True,
             "slow_mo": random.randint(50, 150) if not is_prod else 0,
             "viewport": {"width": 1920, "height": 1080},
             "args": [
                 "--disable-blink-features=AutomationControlled",  # Mask automation flag
+                "--no-sandbox",  # Required for Docker
             ]
         }
         if not is_prod:
@@ -418,7 +425,7 @@ class MaerskConnector(BaseCarrierConnector):
         # NOTE: Bright Data Web Unlocker proxies break Playwright browser sessions (returns empty pages)
         # because the Web Unlocker MITM-intercepts TLS and serves API-processed content, not live HTML.
         # Patchright's stealth-compiled Chromium engine is used instead to pass Akamai fingerprint checks.
-        print("[MAERSK] Running via Patchright stealth engine (no proxy — Web Unlocker incompatible with browser sessions).")
+        print("[MAERSK] Running via Patchright stealth engine (non-headless on Xvfb for VNC HITL).")
             
         self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
         self.browser = None  # Handled by persistent context

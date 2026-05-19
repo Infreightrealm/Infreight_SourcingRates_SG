@@ -5,6 +5,7 @@ import RateSearchForm from "@/components/RateSearchForm";
 import ResultsTable from "@/components/ResultsTable";
 import LoadingState from "@/components/LoadingState";
 import StatusBadge from "@/components/StatusBadge";
+import VncViewer from "@/components/VncViewer";
 import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 
@@ -152,6 +153,12 @@ function HomeContent() {
           Infreight Logistics — Ocean Carrier Rate Automation System
         </div>
       </footer>
+
+      {/* VNC Live Browser Viewer (HITL for 2FA/CAPTCHA) */}
+      <VncViewer
+        backendUrl={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}
+        isSearching={isLoading}
+      />
     </div>
   );
 }
