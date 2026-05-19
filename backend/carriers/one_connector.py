@@ -27,8 +27,9 @@ class ONEConnector(BaseCarrierConnector):
 
     async def _init_browser(self):
         self.playwright = await async_playwright().start()
+        is_prod = os.name != "nt"
         self.browser = await self.playwright.chromium.launch(
-            headless=False,
+            headless=is_prod,
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
         )
         self.context = await self.browser.new_context(

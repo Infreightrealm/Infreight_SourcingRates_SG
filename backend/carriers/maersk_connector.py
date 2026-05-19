@@ -405,16 +405,18 @@ class MaerskConnector(BaseCarrierConnector):
         proxy_user = os.getenv("BRIGHTDATA_PROXY_USER")
         proxy_pass = os.getenv("BRIGHTDATA_PROXY_PASS")
         
+        is_prod = os.name != "nt"
         launch_kwargs = {
             "user_data_dir": profile_dir,
-            "channel": "chrome",  # Launches your actual installed Google Chrome!
-            "headless": False,
-            "slow_mo": random.randint(50, 150),
+            "headless": is_prod,
+            "slow_mo": random.randint(50, 150) if not is_prod else 0,
             "viewport": {"width": 1920, "height": 1080},
             "args": [
                 "--disable-blink-features=AutomationControlled",  # Mask automation flag
             ]
         }
+        if not is_prod:
+            launch_kwargs["channel"] = "chrome"
         
         if proxy_user and proxy_pass:
             print("[MAERSK] Routing browser session through Bright Data Web Unlocker Proxy...")
