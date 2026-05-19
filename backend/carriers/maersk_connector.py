@@ -8,7 +8,7 @@ import random
 import asyncio
 from datetime import date, datetime, timedelta
 from dotenv import load_dotenv
-from playwright.async_api import async_playwright
+from patchright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
 from services.charge_classifier import classify_charge
 from services.normalizer import normalize_quote
