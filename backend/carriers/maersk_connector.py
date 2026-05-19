@@ -409,6 +409,7 @@ class MaerskConnector(BaseCarrierConnector):
         launch_kwargs = {
             "user_data_dir": profile_dir,
             "headless": is_prod,
+            "ignore_https_errors": True,
             "slow_mo": random.randint(50, 150) if not is_prod else 0,
             "viewport": {"width": 1920, "height": 1080},
             "args": [
