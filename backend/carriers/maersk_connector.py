@@ -419,9 +419,10 @@ class MaerskConnector(BaseCarrierConnector):
             launch_kwargs["channel"] = "chrome"
         
         if proxy_user and proxy_pass:
-            print("[MAERSK] Routing browser session through Bright Data Web Unlocker Proxy...")
+            proxy_server = os.getenv("BRIGHTDATA_PROXY_SERVER", "http://brd.superproxy.io:33335")
+            print(f"[MAERSK] Routing browser session through Bright Data Proxy ({proxy_server})...")
             launch_kwargs["proxy"] = {
-                "server": "http://brd.superproxy.io:22225",
+                "server": proxy_server,
                 "username": proxy_user,
                 "password": proxy_pass,
             }
