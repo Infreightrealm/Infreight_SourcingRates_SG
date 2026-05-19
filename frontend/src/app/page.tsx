@@ -88,6 +88,19 @@ function HomeContent() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {searchId && (
+              <button
+                onClick={() => {
+                  setSearchId(null);
+                  setSearchResult(null);
+                  setError(null);
+                  router.push("/");
+                }}
+                className="px-3.5 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white font-medium text-xs transition-all duration-200"
+              >
+                🔄 New Search
+              </button>
+            )}
             {mockMode !== null && (
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
                 mockMode
@@ -112,7 +125,7 @@ function HomeContent() {
             </svg>
             <h2 className="text-base font-semibold text-white">Search Parameters</h2>
           </div>
-          <RateSearchForm onSubmit={handleSearch} isLoading={isLoading} />
+          <RateSearchForm key={searchId || "new"} onSubmit={handleSearch} isLoading={isLoading} />
         </section>
 
         {/* Error */}
