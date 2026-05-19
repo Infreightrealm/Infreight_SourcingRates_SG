@@ -469,8 +469,8 @@ class MaerskConnector(BaseCarrierConnector):
 
         try:
             await self._init_browser()
-            print("[MAERSK] Navigating to Maersk Hub...")
-            await self.page.goto(self.BASE_URL, wait_until="domcontentloaded", timeout=40000)
+            print("[MAERSK] Navigating to Maersk Login page...")
+            await self.page.goto("https://www.maersk.com/login", wait_until="domcontentloaded", timeout=40000)
             await self.page.wait_for_timeout(2000)
             
             # Check if we are already logged in (cookie session remembered in chrome_profile)
@@ -639,7 +639,7 @@ class MaerskConnector(BaseCarrierConnector):
                 curr_url = self.page.url
                 
                 # Check for successful redirects (redirects to hub or dashboard)
-                if "login" not in curr_url.lower() and "auth" not in curr_url.lower() and ("hub" in curr_url.lower() or "dashboard" in curr_url.lower()):
+                if "login" not in curr_url.lower() and "auth" not in curr_url.lower() and ("hub" in curr_url.lower() or "dashboard" in curr_url.lower() or "book" in curr_url.lower()):
                     print("[MAERSK] Login successful!")
                     await self.page.wait_for_timeout(2000)
                     return True
