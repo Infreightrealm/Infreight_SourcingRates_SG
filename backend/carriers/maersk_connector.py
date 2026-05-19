@@ -526,121 +526,72 @@ class MaerskConnector(BaseCarrierConnector):
                 print(f"[MAERSK] Cookie consent bypass failed/skipped: {e}")
                 
             # Fill Username
-            user_selectors = [
-                '#mc-input-username input',
-                'mc-input#mc-input-username input',
-                'mc-input#mc-input-username',
-                '#mc-input-username',
-                'input#mc-input-username',
-                'input[name="username" i]',
-                'input[type="email" i]',
-                'input[placeholder*="username" i]',
-                'input[type="text" i]'
-            ]
-            user_field = None
-            for selector in user_selectors:
-                try:
-                    field = self.page.locator(selector).first
-                    if await field.is_visible(timeout=2000):
-                        user_field = field
-                        break
-                except Exception:
-                    continue
-            
-            if not user_field:
-                try:
-                    user_field = self.page.locator('#mc-input-username input').first
-                    await user_field.wait_for(state="visible", timeout=10000)
-                except Exception:
-                    pass
-
             try:
-                if user_field:
-                    await user_field.scroll_into_view_if_needed()
-                    await user_field.click()
-                    await user_field.fill("")
-                    await user_field.fill(username)
-                    print("[MAERSK] Username filled successfully.")
-                else:
-                    print("[MAERSK] Warning: Username field not found using cascading selectors.")
+                # 1. Wait for the host component (#mc-input-username) to render on the page
+                user_host = self.page.locator('#mc-input-username').first
+                await user_host.wait_for(state="visible", timeout=30000)
+                
+                # 2. Click/Focus the host component (so its inner input handles layout/visibility natively)
+                await user_host.click()
+                
+                # 3. Fill the nested input directly
+                user_input = self.page.locator('#mc-input-username input').first
+                await user_input.fill("")
+                await user_input.fill(username)
+                print("[MAERSK] Username filled successfully via MDS Host-Click.")
             except Exception as e:
-                print(f"[MAERSK] Error filling username: {e}")
+                print(f"[MAERSK] MDS Username fill failed: {e}. Trying fallback...")
+                # Fallback to standard selectors
+                try:
+                    await self.page.fill('input[name="username" i]', username)
+                    print("[MAERSK] Username filled successfully via fallback.")
+                except Exception as ex:
+                    print(f"[MAERSK] Fallback Username fill failed: {ex}")
 
             # Fill Password
-            pass_selectors = [
-                '#mc-input-password input',
-                'mc-input#mc-input-password input',
-                'mc-input#mc-input-password',
-                '#mc-input-password',
-                'input#mc-input-password',
-                'input[name="password" i]',
-                'input[type="password" i]',
-                'input[placeholder*="password" i]'
-            ]
-            pass_field = None
-            for selector in pass_selectors:
-                try:
-                    field = self.page.locator(selector).first
-                    if await field.is_visible(timeout=2000):
-                        pass_field = field
-                        break
-                except Exception:
-                    continue
-
-            if not pass_field:
-                try:
-                    pass_field = self.page.locator('#mc-input-password input').first
-                    await pass_field.wait_for(state="visible", timeout=5000)
-                except Exception:
-                    pass
-
             try:
-                if pass_field:
-                    await pass_field.scroll_into_view_if_needed()
-                    await pass_field.click()
-                    await pass_field.fill("")
-                    await pass_field.fill(password)
-                    print("[MAERSK] Password filled successfully.")
-                else:
-                    print("[MAERSK] Warning: Password field not found using cascading selectors.")
+                # 1. Wait for host
+                pass_host = self.page.locator('#mc-input-password').first
+                await pass_host.wait_for(state="visible", timeout=10000)
+                
+                # 2. Click host
+                await pass_host.click()
+                
+                # 3. Fill nested input
+                pass_input = self.page.locator('#mc-input-password input').first
+                await pass_input.fill("")
+                await pass_input.fill(password)
+                print("[MAERSK] Password filled successfully via MDS Host-Click.")
             except Exception as e:
-                print(f"[MAERSK] Error filling password: {e}")
+                print(f"[MAERSK] MDS Password fill failed: {e}. Trying fallback...")
+                try:
+                    await self.page.fill('input[name="password" i]', password)
+                    print("[MAERSK] Password filled successfully via fallback.")
+                except Exception as ex:
+                    print(f"[MAERSK] Fallback Password fill failed: {ex}")
 
             # Submit Login
-            submit_selectors = [
-                'mc-button#login-submit-button button',
-                '#login-submit-button button',
-                'mc-button#login-submit-button',
-                '#login-submit-button',
-                'button[type="submit"]',
-                'mc-button[type="submit"]',
-                'button:has-text("Log In")',
-                'button:has-text("Sign In")',
-                'button:has-text("Continue")',
-                'button:has-text("Submit")'
-            ]
-            submit_btn = None
-            for selector in submit_selectors:
-                try:
-                    btn = self.page.locator(selector).first
-                    if await btn.is_visible(timeout=2000):
-                        submit_btn = btn
-                        break
-                except Exception:
-                    continue
-
             try:
-                if submit_btn:
-                    await submit_btn.scroll_into_view_if_needed()
-                    await submit_btn.click(force=True)
-                    print("[MAERSK] Login form submitted.")
-                else:
-                    # Fallback click on submit type
-                    print("[MAERSK] Warning: Specific submit button not found, trying fallback...")
-                    await self.page.locator('button[type="submit"]').first.click(force=True)
-                    print("[MAERSK] Fallback login form submitted.")
+                # 1. Wait for host
+                submit_host = self.page.locator('#login-submit-button').first
+                await submit_host.wait_for(state="visible", timeout=10000)
+                
+                # 2. Click host
+                await submit_host.click()
+                print("[MAERSK] Login form submitted successfully via MDS Host-Click.")
             except Exception as e:
-                print(f"[MAERSK] Click submit failed: {e}")
+                print(f"[MAERSK] MDS Submit click failed: {e}. Trying fallback...")
+                try:
+                    # Target inner button
+                    await self.page.locator('#login-submit-button button').first.click(force=True)
+                    print("[MAERSK] Login form submitted successfully via inner button.")
+                except Exception as ex:
+                    try:
+                        # Target button type submit
+                        await self.page.locator('button[type="submit"]').first.click(force=True)
+                        print("[MAERSK] Login form submitted successfully via button[type='submit'].")
+                    except Exception as exc:
+                        print(f"[MAERSK] Fallback Submit click failed: {exc}")
 
             # Verification Loop (HITL Bypassing)
             print("[MAERSK] Waiting for verification gate or redirect...")
