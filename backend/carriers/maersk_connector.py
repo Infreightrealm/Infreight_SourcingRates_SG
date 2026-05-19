@@ -97,8 +97,11 @@ class MaerskConnector(BaseCarrierConnector):
                     break
                     
                 # B. Locate and count all cards currently visible on the page
-                quote_cards = self.page.locator('[class*="offer-card" i], [class*="result-card" i], [class*="schedule-card" i], .c-offer-card')
+                quote_cards = self.page.locator('article.new-sailings-card-article, article.sailings__card')
                 count = await quote_cards.count()
+                if count == 0:
+                    quote_cards = self.page.locator('[class*="offer-card" i], [class*="result-card" i], [class*="schedule-card" i], .c-offer-card')
+                    count = await quote_cards.count()
                 if count == 0:
                     quote_cards = self.page.locator('.card, .result-row, [class*="card" i]')
                     count = await quote_cards.count()
@@ -107,8 +110,8 @@ class MaerskConnector(BaseCarrierConnector):
                 
                 new_cards_processed_in_this_batch = 0
                 for index in range(count):
-                    if len(quotes) >= 3:
-                        print("[MAERSK] Already found 3 valid quotes. Stopping batch processing.")
+                    if len(quotes) >= 10:
+                        print("[MAERSK] Already found 10 valid quotes. Stopping batch processing.")
                         break
 
                     card = quote_cards.nth(index)
@@ -374,8 +377,8 @@ class MaerskConnector(BaseCarrierConnector):
 
                 quotes.sort(key=get_etd_date)
                 
-                # Enforce limit of exactly the top 3 quotes
-                quotes = quotes[:3]
+                # Enforce limit of exactly the top 10 quotes
+                quotes = quotes[:10]
                 print(f"[MAERSK] Sorted and sliced final result to {len(quotes)} quote(s).")
                 
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
@@ -1202,7 +1205,7 @@ class MaerskConnector(BaseCarrierConnector):
                     return CarrierResultStatus.NO_QUOTES_AVAILABLE
                 
                 # 1. Primary check: check for a real, fully-rendered sailing quote card with text
-                real_cards = self.page.locator('[class*="offer-card" i], [class*="result-card" i], [class*="schedule-card" i], .c-offer-card')
+                real_cards = self.page.locator('article.new-sailings-card-article, article.sailings__card, [class*="offer-card" i], [class*="result-card" i], [class*="schedule-card" i], .c-offer-card')
                 real_card_count = await real_cards.count()
                 real_card_loaded = False
                 if real_card_count > 0:
@@ -1235,20 +1238,28 @@ class MaerskConnector(BaseCarrierConnector):
                 # 3. Resolve results loaded status
                 cards_count = await self.page.locator('[class*="offer" i], [class*="result" i], [class*="card" i], [class*="sailing" i], .c-offer-card').count()
                 
+                is_results_url = any(word in curr_url.lower() for word in ["sailings", "schedules", "select-sailing", "results"])
+                
                 ready = False
-                if real_card_loaded:
+                if is_results_url and real_card_loaded:
                     print(f"[MAERSK] Confirmed real quote card fully rendered on page!")
                     ready = True
-                elif indicator_visible:
-                    print(f"[MAERSK] Found quote layout indicator on page!")
-                    ready = True
                 elif i >= 15:  # Fallback to URL and broad counts after 15 seconds of waiting
-                    if cards_count > 0 or "result" in curr_url.lower() or "price" in curr_url.lower() or "schedules" in curr_url.lower() or "select-sailing" in curr_url.lower():
+                    if cards_count > 0 or is_results_url or "price" in curr_url.lower():
                         print(f"[MAERSK] Fallback loading check succeeded after 15s wait (URL: {curr_url}).")
                         ready = True
                 
                 if ready:
                     print(f"[MAERSK] Results loaded successfully! Found {cards_count} options (URL: {curr_url}).")
+                    try:
+                        html = await self.page.content()
+                        import os
+                        os.makedirs("scratch", exist_ok=True)
+                        with open("scratch/debug_results.html", "w", encoding="utf-8") as f:
+                            f.write(html)
+                        print("[MAERSK] Saved results page HTML to scratch/debug_results.html")
+                    except Exception as e:
+                        print(f"[MAERSK] Warning: Could not save results page HTML: {e}")
                     results_loaded = True
                     break
                 
@@ -1291,9 +1302,11 @@ class MaerskConnector(BaseCarrierConnector):
                     continue
 
             # Versatile card locator: search for items containing prices
-            quote_cards = self.page.locator('[class*="offer-card" i], [class*="result-card" i], [class*="schedule-card" i], .c-offer-card')
+            quote_cards = self.page.locator('article.new-sailings-card-article, article.sailings__card')
             count = await quote_cards.count()
-            
+            if count == 0:
+                quote_cards = self.page.locator('[class*="offer-card" i], [class*="result-card" i], [class*="schedule-card" i], .c-offer-card')
+                count = await quote_cards.count()
             if count == 0:
                 # Last resort: grab general cards or rows
                 quote_cards = self.page.locator('.card, .result-row, [class*="card" i]')
@@ -1367,6 +1380,8 @@ class MaerskConnector(BaseCarrierConnector):
             
             # Locate the specific card container first for perfect scoping
             card_selectors = [
+                'article.new-sailings-card-article',
+                'article.sailings__card',
                 '[class*="offer-card" i]',
                 '[class*="result-card" i]',
                 '[class*="schedule-card" i]',
