@@ -527,11 +527,14 @@ class MaerskConnector(BaseCarrierConnector):
                 
             # Fill Username
             user_selectors = [
+                '#mc-input-username input',
+                'mc-input#mc-input-username input',
+                'mc-input#mc-input-username',
+                '#mc-input-username',
                 'input#mc-input-username',
                 'input[name="username" i]',
                 'input[type="email" i]',
                 'input[placeholder*="username" i]',
-                'input[placeholder*="email" i]',
                 'input[type="text" i]'
             ]
             user_field = None
@@ -546,7 +549,7 @@ class MaerskConnector(BaseCarrierConnector):
             
             if not user_field:
                 try:
-                    user_field = self.page.locator('input#mc-input-username').first
+                    user_field = self.page.locator('#mc-input-username input').first
                     await user_field.wait_for(state="visible", timeout=10000)
                 except Exception:
                     pass
@@ -565,6 +568,10 @@ class MaerskConnector(BaseCarrierConnector):
 
             # Fill Password
             pass_selectors = [
+                '#mc-input-password input',
+                'mc-input#mc-input-password input',
+                'mc-input#mc-input-password',
+                '#mc-input-password',
                 'input#mc-input-password',
                 'input[name="password" i]',
                 'input[type="password" i]',
@@ -582,7 +589,7 @@ class MaerskConnector(BaseCarrierConnector):
 
             if not pass_field:
                 try:
-                    pass_field = self.page.locator('input#mc-input-password').first
+                    pass_field = self.page.locator('#mc-input-password input').first
                     await pass_field.wait_for(state="visible", timeout=5000)
                 except Exception:
                     pass
@@ -603,7 +610,10 @@ class MaerskConnector(BaseCarrierConnector):
             submit_selectors = [
                 'mc-button#login-submit-button button',
                 '#login-submit-button button',
+                'mc-button#login-submit-button',
+                '#login-submit-button',
                 'button[type="submit"]',
+                'mc-button[type="submit"]',
                 'button:has-text("Log In")',
                 'button:has-text("Sign In")',
                 'button:has-text("Continue")',
