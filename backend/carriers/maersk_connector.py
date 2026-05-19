@@ -471,7 +471,24 @@ class MaerskConnector(BaseCarrierConnector):
             await self._init_browser()
             print("[MAERSK] Navigating to Maersk Login page...")
             await self.page.goto("https://www.maersk.com/login", wait_until="domcontentloaded", timeout=40000)
-            await self.page.wait_for_timeout(2000)
+            await self.page.wait_for_timeout(3000)
+            
+            # DEBUG: Dump what the proxy/browser actually loaded
+            _debug_url = self.page.url
+            _debug_title = await self.page.title()
+            _debug_content = await self.page.content()
+            print(f"[MAERSK-DEBUG] Post-navigation URL: {_debug_url}")
+            print(f"[MAERSK-DEBUG] Page title: {_debug_title}")
+            print(f"[MAERSK-DEBUG] Page content snippet (first 2000 chars):\n{_debug_content[:2000]}")
+            # Save full HTML to file for inspection
+            try:
+                import os as _os
+                _debug_path = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "scratch", "maersk_proxy_page.html")
+                with open(_debug_path, "w", encoding="utf-8") as _f:
+                    _f.write(_debug_content)
+                print(f"[MAERSK-DEBUG] Full page HTML saved to: {_debug_path}")
+            except Exception as _de:
+                print(f"[MAERSK-DEBUG] Could not save HTML: {_de}")
             
             # Check if we are already logged in (cookie session remembered in chrome_profile)
             current_url = self.page.url
