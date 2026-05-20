@@ -404,6 +404,17 @@ class MaerskConnector(BaseCarrierConnector):
             profile_dir = os.path.join(persistent_dir, "chrome_profile_maersk")
         else:
             profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_maersk")
+            
+        # Check if reset environment variable is set
+        if os.getenv("RESET_CHROME_PROFILES", "").lower() == "true":
+            print(f"[MAERSK] ⚠️ RESET_CHROME_PROFILES is active. Clearing persistent profile directory: {profile_dir}")
+            import shutil
+            if os.path.exists(profile_dir):
+                try:
+                    shutil.rmtree(profile_dir)
+                    print("[MAERSK] Persistent profile directory cleared successfully.")
+                except Exception as e:
+                    print(f"[MAERSK] Failed to clear persistent profile directory: {e}")
         
         is_prod = os.name != "nt"
         

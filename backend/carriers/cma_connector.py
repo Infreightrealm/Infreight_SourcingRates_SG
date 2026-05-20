@@ -48,6 +48,17 @@ class CMAConnector(BaseCarrierConnector):
             profile_dir = os.path.join(persistent_dir, "chrome_profile_cma")
         else:
             profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile")
+            
+        # Check if reset environment variable is set
+        if os.getenv("RESET_CHROME_PROFILES", "").lower() == "true":
+            print(f"[CMA] ⚠️ RESET_CHROME_PROFILES is active. Clearing persistent profile directory: {profile_dir}")
+            import shutil
+            if os.path.exists(profile_dir):
+                try:
+                    shutil.rmtree(profile_dir)
+                    print("[CMA] Persistent profile directory cleared successfully.")
+                except Exception as e:
+                    print(f"[CMA] Failed to clear persistent profile directory: {e}")
         
         # Check if Bright Data Web Unlocker proxy credentials are set
         proxy_user = os.getenv("CMA_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
