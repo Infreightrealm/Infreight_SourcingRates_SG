@@ -760,7 +760,7 @@ class MaerskConnector(BaseCarrierConnector):
 
             # Verification Loop (HITL Bypassing)
             print("[MAERSK] Waiting for verification gate or redirect...")
-            for i in range(90):
+            for i in range(300):
                 await asyncio.sleep(1)
                 curr_url = self.page.url
                 
@@ -774,7 +774,7 @@ class MaerskConnector(BaseCarrierConnector):
                 if i % 15 == 14:
                     print("[MAERSK] [ACTION REQUIRED] Maersk Verification/2FA Page Detected!")
                     print("[MAERSK] Please look at the opened Chromium window and manually complete the verification/CAPTCHA.")
-                    print(f"[MAERSK] Still waiting... {90 - i - 1} seconds remaining.")
+                    print(f"[MAERSK] Still waiting... {300 - i - 1} seconds remaining.")
 
             print("[MAERSK] [TIMEOUT] Login verification timed out.")
             return False
