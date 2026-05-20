@@ -437,6 +437,26 @@ class MaerskConnector(BaseCarrierConnector):
         if not is_prod:
             launch_kwargs["channel"] = "chrome"
         
+        # Check if Bright Data Web Unlocker or Residential proxy credentials are set
+        proxy_user = os.getenv("MAERSK_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
+        proxy_pass = os.getenv("MAERSK_PROXY_PASS") or os.getenv("BRIGHTDATA_PROXY_PASS")
+        
+        if proxy_user and proxy_pass:
+            proxy_server = os.getenv("BRIGHTDATA_RESIDENTIAL_PROXY_SERVER") or os.getenv("BRIGHTDATA_PROXY_SERVER")
+            if not proxy_server:
+                proxy_server = "http://brd.superproxy.io:22225"
+            elif ":33335" in proxy_server:
+                proxy_server = proxy_server.replace(":33335", ":22225") # Override Web Unlocker to standard Residential Proxy
+            
+            print(f"[MAERSK] [Proxy] Routing browser session through Bright Data Residential Proxy ({proxy_server})...")
+            launch_kwargs["proxy"] = {
+                "server": proxy_server,
+                "username": proxy_user,
+                "password": proxy_pass,
+            }
+        else:
+            print("[MAERSK] [Proxy] Bright Data Proxy not configured in .env. Running on local system Chrome naturally...")
+        
         # NOTE: Bright Data Web Unlocker proxies break Playwright browser sessions (returns empty pages)
         # because the Web Unlocker MITM-intercepts TLS and serves API-processed content, not live HTML.
         # Patchright's stealth-compiled Chromium engine is used instead to pass Akamai fingerprint checks.
