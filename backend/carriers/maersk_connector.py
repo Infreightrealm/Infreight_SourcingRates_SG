@@ -528,55 +528,123 @@ class MaerskConnector(BaseCarrierConnector):
                 print(f"[MAERSK] Cookie consent bypass failed/skipped: {e}")
                 
             # Fill Username
+            username_filled = False
             try:
-                # 1. Wait for the host component (#mc-input-username) to be attached to the DOM
+                # 1. Wait for either host element #mc-input-username or any standard username input to appear (timeout: 10s)
+                print("[MAERSK] Locating username field...")
                 user_host = self.page.locator('#mc-input-username').first
-                await user_host.wait_for(state="attached", timeout=30000)
-                
-                # 2. Click/Focus the host component (so its inner input handles layout/visibility natively)
-                await user_host.click(force=True)
-                
-                # 3. Fill the nested input directly
-                user_input = self.page.locator('#mc-input-username input').first
-                await user_input.fill("")
-                await user_input.fill(username)
-                print("[MAERSK] Username filled successfully via MDS Host-Click.")
-            except Exception as e:
-                print(f"[MAERSK] MDS Username fill failed: {e}. Trying fallback...")
-                # Fallback to standard selectors
                 try:
-                    await self.page.fill('input[name="username" i]', username)
-                    print("[MAERSK] Username filled successfully via fallback.")
-                except Exception as ex:
-                    print(f"[MAERSK] Fallback Username fill failed: {ex}")
+                    await user_host.wait_for(state="attached", timeout=10000)
+                except Exception:
+                    print("[MAERSK] Warning: #mc-input-username host not attached in 10s, trying fallback waiting...")
+
+                # Method A: Try filling the shadow-host directly (standard webcomponent playwright behavior)
+                try:
+                    await user_host.fill(username, timeout=3000)
+                    print("[MAERSK] Username filled via Direct Shadow Host Fill.")
+                    username_filled = True
+                except Exception:
+                    pass
+
+                # Method B: Try filling the nested input
+                if not username_filled:
+                    try:
+                        user_input = self.page.locator('#mc-input-username input').first
+                        await user_input.fill("", timeout=3000)
+                        await user_input.fill(username, timeout=3000)
+                        print("[MAERSK] Username filled via Nested input fill.")
+                        username_filled = True
+                    except Exception:
+                        pass
+
+                # Method C: Click/Focus the host element, and type via virtual keyboard (shadow DOM proof)
+                if not username_filled:
+                    try:
+                        await user_host.click(force=True, timeout=3000)
+                        await self.page.keyboard.press("Control+A")
+                        await self.page.keyboard.press("Backspace")
+                        await self.page.keyboard.type(username, delay=30)
+                        print("[MAERSK] Username filled via Keyboard focus & type.")
+                        username_filled = True
+                    except Exception:
+                        pass
+
+                # Method D: General Light DOM Input Fallbacks
+                if not username_filled:
+                    for selector in ['input[name="username" i]', 'input[type="email" i]', 'input[type="text" i]', 'input[id*="username" i]']:
+                        try:
+                            field = self.page.locator(selector).first
+                            if await field.is_visible(timeout=2000):
+                                await field.fill(username)
+                                print(f"[MAERSK] Username filled via fallback selector: {selector}")
+                                username_filled = True
+                                break
+                        except Exception:
+                            continue
+            except Exception as e:
+                print(f"[MAERSK] Username fill failed completely: {e}")
 
             # Fill Password
+            password_filled = False
             try:
-                # 1. Wait for host
+                print("[MAERSK] Locating password field...")
                 pass_host = self.page.locator('#mc-input-password').first
-                await pass_host.wait_for(state="attached", timeout=10000)
-                
-                # 2. Click host
-                await pass_host.click(force=True)
-                
-                # 3. Fill nested input
-                pass_input = self.page.locator('#mc-input-password input').first
-                await pass_input.fill("")
-                await pass_input.fill(password)
-                print("[MAERSK] Password filled successfully via MDS Host-Click.")
-            except Exception as e:
-                print(f"[MAERSK] MDS Password fill failed: {e}. Trying fallback...")
                 try:
-                    await self.page.fill('input[name="password" i]', password)
-                    print("[MAERSK] Password filled successfully via fallback.")
-                except Exception as ex:
-                    print(f"[MAERSK] Fallback Password fill failed: {ex}")
+                    await pass_host.wait_for(state="attached", timeout=5000)
+                except Exception:
+                    pass
+
+                # Method A: Try filling the shadow-host directly
+                try:
+                    await pass_host.fill(password, timeout=3000)
+                    print("[MAERSK] Password filled via Direct Shadow Host Fill.")
+                    password_filled = True
+                except Exception:
+                    pass
+
+                # Method B: Try filling the nested input
+                if not password_filled:
+                    try:
+                        pass_input = self.page.locator('#mc-input-password input').first
+                        await pass_input.fill("", timeout=3000)
+                        await pass_input.fill(password, timeout=3000)
+                        print("[MAERSK] Password filled via Nested input fill.")
+                        password_filled = True
+                    except Exception:
+                        pass
+
+                # Method C: Click/Focus the host element, and type via virtual keyboard
+                if not password_filled:
+                    try:
+                        await pass_host.click(force=True, timeout=3000)
+                        await self.page.keyboard.press("Control+A")
+                        await self.page.keyboard.press("Backspace")
+                        await self.page.keyboard.type(password, delay=30)
+                        print("[MAERSK] Password filled via Keyboard focus & type.")
+                        password_filled = True
+                    except Exception:
+                        pass
+
+                # Method D: General Light DOM Input Fallbacks
+                if not password_filled:
+                    for selector in ['input[name="password" i]', 'input[type="password" i]', 'input[id*="password" i]']:
+                        try:
+                            field = self.page.locator(selector).first
+                            if await field.is_visible(timeout=2000):
+                                await field.fill(password)
+                                print(f"[MAERSK] Password filled via fallback selector: {selector}")
+                                password_filled = True
+                                break
+                        except Exception:
+                            continue
+            except Exception as e:
+                print(f"[MAERSK] Password fill failed completely: {e}")
 
             # Submit Login
             try:
                 # 1. Wait for host
                 submit_host = self.page.locator('#login-submit-button').first
-                await submit_host.wait_for(state="attached", timeout=10000)
+                await submit_host.wait_for(state="attached", timeout=5000)
                 
                 # 2. Click host
                 await submit_host.click(force=True)
@@ -593,7 +661,12 @@ class MaerskConnector(BaseCarrierConnector):
                         await self.page.locator('button[type="submit"]').first.click(force=True)
                         print("[MAERSK] Login form submitted successfully via button[type='submit'].")
                     except Exception as exc:
-                        print(f"[MAERSK] Fallback Submit click failed: {exc}")
+                        try:
+                            # Final backup: Press enter on active element (which is password or input)
+                            await self.page.keyboard.press("Enter")
+                            print("[MAERSK] Login form submitted successfully via Keyboard Enter keypress.")
+                        except:
+                            print(f"[MAERSK] Fallback Submit click failed: {exc}")
 
             # Verification Loop (HITL Bypassing)
             print("[MAERSK] Waiting for verification gate or redirect...")
