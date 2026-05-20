@@ -39,6 +39,9 @@ class MaerskConnector(BaseCarrierConnector):
         super().__init__()
         self.playwright = None
         self.current_card = None
+        self.temp_profile_dir = None
+        self.master_profile_dir = None
+        self.is_login_successful = False
 
     # ────────────────────────────────────────
     # DYNAMIC SEARCH ENGINE OVERRIDE
@@ -396,26 +399,55 @@ class MaerskConnector(BaseCarrierConnector):
     # ────────────────────────────────────────
 
     async def _init_browser(self):
+        import uuid
+        import shutil
         self.playwright = await async_playwright().start()
         
         # Local profile directory to persist cookies, logins, and session data
         persistent_dir = os.getenv("PERSISTENT_PROFILES_DIR")
         if persistent_dir:
-            profile_dir = os.path.join(persistent_dir, "chrome_profile_maersk")
+            self.master_profile_dir = os.path.join(persistent_dir, "chrome_profile_maersk")
         else:
-            profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_maersk")
+            self.master_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_maersk")
             
         # Check if reset environment variable is set
         if os.getenv("RESET_CHROME_PROFILES", "").lower() == "true":
-            print(f"[MAERSK] ⚠️ RESET_CHROME_PROFILES is active. Clearing persistent profile directory: {profile_dir}")
-            import shutil
-            if os.path.exists(profile_dir):
+            print(f"[MAERSK] ⚠️ RESET_CHROME_PROFILES is active. Clearing persistent profile directory: {self.master_profile_dir}")
+            if os.path.exists(self.master_profile_dir):
                 try:
-                    shutil.rmtree(profile_dir)
+                    shutil.rmtree(self.master_profile_dir)
                     print("[MAERSK] Persistent profile directory cleared successfully.")
                 except Exception as e:
                     print(f"[MAERSK] Failed to clear persistent profile directory: {e}")
         
+        # Create a unique temporary copy of the master profile directory for this search instance
+        # to support concurrency and avoid Chromium database lock conflicts.
+        unique_id = str(uuid.uuid4())[:8]
+        if persistent_dir:
+            self.temp_profile_dir = os.path.join(persistent_dir, f"chrome_profile_maersk_tmp_{unique_id}")
+        else:
+            self.temp_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), f"chrome_profile_maersk_tmp_{unique_id}")
+
+        print(f"[MAERSK] Creating temporary isolated profile directory: {self.temp_profile_dir}")
+        if os.path.exists(self.master_profile_dir):
+            try:
+                shutil.copytree(self.master_profile_dir, self.temp_profile_dir, dirs_exist_ok=True)
+                # Remove Chromium singleton lock files to avoid launch blocks
+                lock_files = ["SingletonLock", "lock", "SingletonCookie"]
+                for root_dir, _, filenames in os.walk(self.temp_profile_dir):
+                    for filename in filenames:
+                        if filename in lock_files:
+                            try:
+                                os.remove(os.path.join(root_dir, filename))
+                            except Exception:
+                                pass
+                print("[MAERSK] Master profile copied successfully with lock files cleaned.")
+            except Exception as e:
+                print(f"[MAERSK] Warning: failed to copy master profile to temp: {e}. Running fresh profile instead.")
+        else:
+            print("[MAERSK] Master profile not found. Initializing a new isolated chrome profile.")
+            os.makedirs(self.temp_profile_dir, exist_ok=True)
+
         is_prod = os.name != "nt"
         
         # In production (Railway), Xvfb provides a virtual display at :99
@@ -424,7 +456,7 @@ class MaerskConnector(BaseCarrierConnector):
             os.environ["DISPLAY"] = ":99"
         
         launch_kwargs = {
-            "user_data_dir": profile_dir,
+            "user_data_dir": self.temp_profile_dir,
             "headless": False,  # Always non-headless: local = real screen, prod = Xvfb virtual display
             "ignore_https_errors": True,
             "slow_mo": random.randint(80, 150),
@@ -582,6 +614,7 @@ class MaerskConnector(BaseCarrierConnector):
             
             if is_logged_in:
                 print("[MAERSK] Session restored successfully! Already logged in.")
+                self.is_login_successful = True
                 return True
                 
             print(f"[MAERSK] Current URL: {current_url}. Initiating login flow...")
@@ -767,6 +800,7 @@ class MaerskConnector(BaseCarrierConnector):
                 # Check for successful redirects (redirects to hub or dashboard)
                 if "login" not in curr_url.lower() and "auth" not in curr_url.lower() and ("hub" in curr_url.lower() or "dashboard" in curr_url.lower() or "book" in curr_url.lower()):
                     print("[MAERSK] Login successful!")
+                    self.is_login_successful = True
                     await self.page.wait_for_timeout(2000)
                     return True
 
@@ -1771,3 +1805,39 @@ class MaerskConnector(BaseCarrierConnector):
                 await self.playwright.stop()
         except Exception:
             pass
+
+        # Concurrency cleanup: Copy successful login data back to master profile and remove temporary profile directory
+        try:
+            import shutil
+            if self.temp_profile_dir and os.path.exists(self.temp_profile_dir):
+                if self.is_login_successful and self.master_profile_dir:
+                    print(f"[MAERSK] Login was successful or restored. Syncing temporary profile back to master: {self.master_profile_dir}")
+                    # Clear master directory safely
+                    if os.path.exists(self.master_profile_dir):
+                        try:
+                            shutil.rmtree(self.master_profile_dir)
+                        except Exception:
+                            pass
+                    # Copy temp directory contents back to master
+                    try:
+                        shutil.copytree(self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True)
+                        # Remove Chromium lock files from the master copy
+                        lock_files = ["SingletonLock", "lock", "SingletonCookie"]
+                        for root_dir, _, filenames in os.walk(self.master_profile_dir):
+                            for filename in filenames:
+                                if filename in lock_files:
+                                    try:
+                                        os.remove(os.path.join(root_dir, filename))
+                                    except Exception:
+                                        pass
+                    except Exception as copy_err:
+                        print(f"[MAERSK] Failed to sync profile to master: {copy_err}")
+                
+                # Delete temporary directory completely
+                print(f"[MAERSK] Cleaning up temporary isolated profile directory: {self.temp_profile_dir}")
+                try:
+                    shutil.rmtree(self.temp_profile_dir)
+                except Exception as rmtree_err:
+                    print(f"[MAERSK] Failed to clean up temp profile directory: {rmtree_err}")
+        except Exception as e:
+            print(f"[MAERSK] Failed during profile synchronization and cleanup: {e}")
