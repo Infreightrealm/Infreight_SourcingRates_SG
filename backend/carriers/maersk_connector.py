@@ -416,7 +416,7 @@ class MaerskConnector(BaseCarrierConnector):
             "user_data_dir": profile_dir,
             "headless": False,  # Always non-headless: local = real screen, prod = Xvfb virtual display
             "ignore_https_errors": True,
-            "slow_mo": random.randint(50, 150) if not is_prod else 0,
+            "slow_mo": random.randint(80, 150),
             "viewport": {"width": 1920, "height": 1080},
             "args": [
                 "--disable-blink-features=AutomationControlled",  # Mask automation flag
@@ -456,6 +456,54 @@ class MaerskConnector(BaseCarrierConnector):
             "REEFER 40H": "40 Reefer High",
         }
         return mapping.get(normalized, "40 Dry High")
+
+    async def _human_type(self, locator, text: str, clear: bool = True):
+        """Types text character by character into a given locator or element handle with randomized human-like delays."""
+        try:
+            await locator.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        
+        # Human pre-click reaction delay
+        await self.page.wait_for_timeout(random.randint(300, 600))
+        
+        # Click with a slight delay to mimic mouse button release duration
+        await locator.click(delay=random.randint(100, 250))
+        await self.page.wait_for_timeout(random.randint(500, 900))
+        
+        if clear:
+            # Control + A / Backspace
+            await self.page.keyboard.press("Control+A")
+            await self.page.wait_for_timeout(random.randint(150, 300))
+            await self.page.keyboard.press("Backspace")
+            await self.page.wait_for_timeout(random.randint(250, 500))
+        
+        for char in text:
+            await self.page.keyboard.type(char)
+            # Randomized keystroke delays representing an average to slow human typing speed
+            await self.page.wait_for_timeout(random.randint(150, 320))
+            # 5% chance of a micro-pause (human thinking/resting)
+            if random.random() < 0.05:
+                await self.page.wait_for_timeout(random.randint(400, 800))
+        
+        # Post-typing pause
+        await self.page.wait_for_timeout(random.randint(800, 1500))
+
+    async def _human_click(self, locator, force: bool = True):
+        """Clicks an element with pre-click and post-click human-like reaction pauses."""
+        try:
+            await locator.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        
+        # Pre-click pause
+        await self.page.wait_for_timeout(random.randint(400, 800))
+        
+        # Click with randomized button-down/up duration
+        await locator.click(force=force, delay=random.randint(100, 250))
+        
+        # Post-click pause
+        await self.page.wait_for_timeout(random.randint(600, 1200))
 
     # ────────────────────────────────────────
     # LOGIN & VERIFICATION GATEWAY
@@ -525,7 +573,7 @@ class MaerskConnector(BaseCarrierConnector):
                     btn = self.page.locator(selector).first
                     if await btn.is_visible(timeout=3000):
                         print(f"[MAERSK] Dismissing cookie banner using selector: {selector}")
-                        await btn.click(force=True)
+                        await self._human_click(btn)
                         await self.page.wait_for_timeout(1500)
                         break
             except Exception as e:
@@ -542,38 +590,38 @@ class MaerskConnector(BaseCarrierConnector):
                 except Exception:
                     print("[MAERSK] Warning: #mc-input-username host not attached in 10s, trying fallback waiting...")
 
-                # Method A: Try filling the shadow-host directly (standard webcomponent playwright behavior)
+                # Primarily attempt slow human-like typing on the nested input or shadow host
                 try:
-                    await user_host.fill(username, timeout=3000)
-                    print("[MAERSK] Username filled via Direct Shadow Host Fill.")
+                    user_input = self.page.locator('#mc-input-username input').first
+                    target_element = user_input if await user_input.is_visible(timeout=2000) else user_host
+                    
+                    print("[MAERSK] Typing username via human-like keystrokes...")
+                    await self._human_type(target_element, username)
                     username_filled = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[MAERSK] Human typing failed for username: {e}. Trying fallback methods...")
 
-                # Method B: Try filling the nested input
+                # Fallback Method A: Try filling the shadow-host directly (standard webcomponent playwright behavior)
+                if not username_filled:
+                    try:
+                        await user_host.fill(username, timeout=3000)
+                        print("[MAERSK] Username filled via Direct Shadow Host Fill (fallback).")
+                        username_filled = True
+                    except Exception:
+                        pass
+
+                # Fallback Method B: Try filling the nested input
                 if not username_filled:
                     try:
                         user_input = self.page.locator('#mc-input-username input').first
                         await user_input.fill("", timeout=3000)
                         await user_input.fill(username, timeout=3000)
-                        print("[MAERSK] Username filled via Nested input fill.")
+                        print("[MAERSK] Username filled via Nested input fill (fallback).")
                         username_filled = True
                     except Exception:
                         pass
 
-                # Method C: Click/Focus the host element, and type via virtual keyboard (shadow DOM proof)
-                if not username_filled:
-                    try:
-                        await user_host.click(force=True, timeout=3000)
-                        await self.page.keyboard.press("Control+A")
-                        await self.page.keyboard.press("Backspace")
-                        await self.page.keyboard.type(username, delay=30)
-                        print("[MAERSK] Username filled via Keyboard focus & type.")
-                        username_filled = True
-                    except Exception:
-                        pass
-
-                # Method D: General Light DOM Input Fallbacks
+                # Fallback Method C: General Light DOM Input Fallbacks
                 if not username_filled:
                     for selector in ['input[name="username" i]', 'input[type="email" i]', 'input[type="text" i]', 'input[id*="username" i]']:
                         try:
@@ -598,38 +646,38 @@ class MaerskConnector(BaseCarrierConnector):
                 except Exception:
                     pass
 
-                # Method A: Try filling the shadow-host directly
+                # Primarily attempt slow human-like typing on the nested input or shadow host
                 try:
-                    await pass_host.fill(password, timeout=3000)
-                    print("[MAERSK] Password filled via Direct Shadow Host Fill.")
+                    pass_input = self.page.locator('#mc-input-password input').first
+                    target_element = pass_input if await pass_input.is_visible(timeout=2000) else pass_host
+                    
+                    print("[MAERSK] Typing password via human-like keystrokes...")
+                    await self._human_type(target_element, password)
                     password_filled = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[MAERSK] Human typing failed for password: {e}. Trying fallback methods...")
 
-                # Method B: Try filling the nested input
+                # Fallback Method A: Try filling the shadow-host directly
+                if not password_filled:
+                    try:
+                        await pass_host.fill(password, timeout=3000)
+                        print("[MAERSK] Password filled via Direct Shadow Host Fill (fallback).")
+                        password_filled = True
+                    except Exception:
+                        pass
+
+                # Fallback Method B: Try filling the nested input
                 if not password_filled:
                     try:
                         pass_input = self.page.locator('#mc-input-password input').first
                         await pass_input.fill("", timeout=3000)
                         await pass_input.fill(password, timeout=3000)
-                        print("[MAERSK] Password filled via Nested input fill.")
+                        print("[MAERSK] Password filled via Nested input fill (fallback).")
                         password_filled = True
                     except Exception:
                         pass
 
-                # Method C: Click/Focus the host element, and type via virtual keyboard
-                if not password_filled:
-                    try:
-                        await pass_host.click(force=True, timeout=3000)
-                        await self.page.keyboard.press("Control+A")
-                        await self.page.keyboard.press("Backspace")
-                        await self.page.keyboard.type(password, delay=30)
-                        print("[MAERSK] Password filled via Keyboard focus & type.")
-                        password_filled = True
-                    except Exception:
-                        pass
-
-                # Method D: General Light DOM Input Fallbacks
+                # Fallback Method C: General Light DOM Input Fallbacks
                 if not password_filled:
                     for selector in ['input[name="password" i]', 'input[type="password" i]', 'input[id*="password" i]']:
                         try:
@@ -646,27 +694,34 @@ class MaerskConnector(BaseCarrierConnector):
 
             # Submit Login
             try:
+                # Add a substantial delay (e.g., 2-3.5 seconds) after entering credentials before clicking submit
+                submit_wait = random.randint(2000, 3500)
+                print(f"[MAERSK] Credentials entered. Waiting {submit_wait/1000:.2f} seconds before submitting login form...")
+                await self.page.wait_for_timeout(submit_wait)
+                
                 # 1. Wait for host
                 submit_host = self.page.locator('#login-submit-button').first
                 await submit_host.wait_for(state="attached", timeout=5000)
                 
-                # 2. Click host
-                await submit_host.click(force=True)
+                # 2. Click host using human_click
+                await self._human_click(submit_host)
                 print("[MAERSK] Login form submitted successfully via MDS Host-Click.")
             except Exception as e:
                 print(f"[MAERSK] MDS Submit click failed: {e}. Trying fallback...")
                 try:
                     # Target inner button
-                    await self.page.locator('#login-submit-button button').first.click(force=True)
+                    btn = self.page.locator('#login-submit-button button').first
+                    await self._human_click(btn)
                     print("[MAERSK] Login form submitted successfully via inner button.")
                 except Exception as ex:
                     try:
                         # Target button type submit
-                        await self.page.locator('button[type="submit"]').first.click(force=True)
+                        btn = self.page.locator('button[type="submit"]').first
+                        await self._human_click(btn)
                         print("[MAERSK] Login form submitted successfully via button[type='submit'].")
                     except Exception as exc:
                         try:
-                            # Final backup: Press enter on active element (which is password or input)
+                            # Final backup: Press enter on active element
                             await self.page.keyboard.press("Enter")
                             print("[MAERSK] Login form submitted successfully via Keyboard Enter keypress.")
                         except:

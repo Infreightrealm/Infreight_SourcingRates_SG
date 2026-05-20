@@ -58,7 +58,7 @@ class CMAConnector(BaseCarrierConnector):
             "user_data_dir": profile_dir,
             "headless": is_prod,
             "ignore_https_errors": True,
-            "slow_mo": random.randint(50, 150) if not is_prod else 0,
+            "slow_mo": random.randint(80, 150),
             "viewport": {"width": 1920, "height": 1080},
             "args": [
                 "--disable-blink-features=AutomationControlled",  # Mask automation flag
