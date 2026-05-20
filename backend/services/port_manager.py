@@ -4,6 +4,21 @@ import re
 from difflib import get_close_matches
 from typing import List, Dict, Optional
 
+CARRIER_PORT_OVERRIDES = {
+    "maersk": {
+        "VNHPH": "Haiphong",
+        "VNSGN": "Ho Chi Minh City",
+        "SGSIN": "Singapore",
+        "DEHAM": "Hamburg",
+    },
+    "one": {
+        "VNHPH": "Hai Phong",
+        "VNSGN": "Ho Chi Minh",
+        "SGSIN": "Singapore",
+        "DEHAM": "Hamburg",
+    }
+}
+
 class PortManager:
     _instance = None
     _ports = {}
@@ -118,6 +133,57 @@ class PortManager:
         results = self.search_port(query)
         return results[:limit]
 
+    def resolve_port_for_carrier(self, text: str, carrier: str) -> str:
+        """
+        Resolves a port search text (e.g. 'Haiphong (VN HPH)', 'VN HPH', 'Hai Phong')
+        to the exact spelling required by the target carrier (e.g., 'Haiphong' for Maersk,
+        'Hai Phong' for ONE).
+        """
+        if not text:
+            return ""
+
+        carrier_key = carrier.strip().lower()
+
+        # 1. Try to extract UN/LOCODE from the text if possible
+        locode = None
+        # Pattern 1: (VN HPH) or (VNHPH)
+        paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+        if paren_match:
+            locode = (paren_match.group(1) + paren_match.group(2)).upper()
+        else:
+            # Pattern 2: Standalone or boundary-matched VN HPH or VNHPH
+            word_match = re.search(r'\b([A-Za-z]{2})\s*([A-Za-z]{3})\b', text)
+            if word_match:
+                candidate = (word_match.group(1) + word_match.group(2)).upper()
+                if candidate in self._ports:
+                    locode = candidate
+
+        # Standalone 5-letter word
+        if not locode:
+            clean = text.strip()
+            if len(clean) == 5 and clean.isalpha():
+                candidate = clean.upper()
+                if candidate in self._ports:
+                    locode = candidate
+
+        # 2. If no explicit LOCODE found, search our database for the port
+        if not locode or locode not in self._ports:
+            results = self.search_port(text)
+            if results:
+                locode = results[0]['code']
+
+        # 3. Resolve the spelling using our override table or database standard ASCII name
+        if locode and locode in self._ports:
+            if carrier_key in CARRIER_PORT_OVERRIDES and locode in CARRIER_PORT_OVERRIDES[carrier_key]:
+                return CARRIER_PORT_OVERRIDES[carrier_key][locode]
+            
+            port = self._ports[locode]
+            return port.get('name_ascii', port.get('name', ''))
+
+        # 4. Ultimate fallback: clean up parentheses from the input text
+        clean_text = re.sub(r'\s*\([^)]*\)', '', text)
+        return clean_text.strip()
+
 # Convenience functions
 def get_port_by_code(code: str):
     return PortManager().get_port_by_code(code)
@@ -130,3 +196,6 @@ def normalize_port_input(text: str):
 
 def suggest_ports(query: str, limit: int = 5):
     return PortManager().suggest_ports(query, limit)
+
+def resolve_port_for_carrier(text: str, carrier: str):
+    return PortManager().resolve_port_for_carrier(text, carrier)

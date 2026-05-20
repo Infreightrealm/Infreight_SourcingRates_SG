@@ -12,6 +12,7 @@ from patchright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
 from services.charge_classifier import classify_charge
 from services.normalizer import normalize_quote
+from services.port_manager import resolve_port_for_carrier
 from carriers.base_connector import BaseCarrierConnector
 
 # Load environment variables from .env
@@ -839,9 +840,9 @@ class MaerskConnector(BaseCarrierConnector):
             # Smart autofill attempt
             autofill_success = False
             try:
-                origin_name = self._extract_port_name(request.origin)
-                destination_name = self._extract_port_name(request.destination)
-                print(f"[MAERSK] Extracted origin name: {origin_name}, destination name: {destination_name}")
+                origin_name = resolve_port_for_carrier(request.origin, "maersk")
+                destination_name = resolve_port_for_carrier(request.destination, "maersk")
+                print(f"[MAERSK] Resolved origin name: {origin_name}, destination name: {destination_name}")
 
                 # 1. Origin Port input (From)
                 origin_selectors = [

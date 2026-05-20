@@ -12,6 +12,7 @@ from playwright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
 from services.charge_classifier import classify_charge
 from services.normalizer import normalize_quote
+from services.port_manager import resolve_port_for_carrier
 from carriers.base_connector import BaseCarrierConnector
 
 
@@ -310,27 +311,27 @@ class ONEConnector(BaseCarrierConnector):
             target_date = self._resolve_departure_date(request.departure_date)
             target_date_text = target_date.isoformat()
 
-            origin_code = self._extract_port_code(request.origin)
-            print(f"[ONE] Filling Origin: {origin_code} (extracted from {request.origin})")
+            origin_search = resolve_port_for_carrier(request.origin, "one")
+            print(f"[ONE] Filling Origin: {origin_search} (resolved from {request.origin})")
             try:
                 origin_field = self.page.get_by_role("combobox", name="Please search location").nth(0)
                 await origin_field.click()
-                await self.page.keyboard.type(origin_code, delay=25)
+                await self.page.keyboard.type(origin_search, delay=25)
                 await self.page.wait_for_timeout(1500)
-                if not await self._select_dropdown_option("Origin", origin_code):
+                if not await self._select_dropdown_option("Origin", origin_search):
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
             except Exception as e:
                 print(f"[ONE] Origin combobox failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            destination_code = self._extract_port_code(request.destination)
-            print(f"[ONE] Filling Destination: {destination_code} (extracted from {request.destination})")
+            destination_search = resolve_port_for_carrier(request.destination, "one")
+            print(f"[ONE] Filling Destination: {destination_search} (resolved from {request.destination})")
             try:
                 destination_field = self.page.get_by_role("combobox", name="Please search location").nth(1)
                 await destination_field.click()
-                await self.page.keyboard.type(destination_code, delay=25)
+                await self.page.keyboard.type(destination_search, delay=25)
                 await self.page.wait_for_timeout(1500)
-                if not await self._select_dropdown_option("Destination", destination_code):
+                if not await self._select_dropdown_option("Destination", destination_search):
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
             except Exception as e:
                 print(f"[ONE] Destination combobox failed: {e}")
