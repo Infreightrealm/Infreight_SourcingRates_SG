@@ -43,7 +43,11 @@ class CMAConnector(BaseCarrierConnector):
         self.playwright = await async_playwright().start()
         
         # Local profile directory to persist cookies, logins, and session data
-        profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile")
+        persistent_dir = os.getenv("PERSISTENT_PROFILES_DIR")
+        if persistent_dir:
+            profile_dir = os.path.join(persistent_dir, "chrome_profile_cma")
+        else:
+            profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile")
         
         # Check if Bright Data Web Unlocker proxy credentials are set
         proxy_user = os.getenv("CMA_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")

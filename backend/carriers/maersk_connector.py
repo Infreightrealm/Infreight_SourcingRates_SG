@@ -399,7 +399,11 @@ class MaerskConnector(BaseCarrierConnector):
         self.playwright = await async_playwright().start()
         
         # Local profile directory to persist cookies, logins, and session data
-        profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_maersk")
+        persistent_dir = os.getenv("PERSISTENT_PROFILES_DIR")
+        if persistent_dir:
+            profile_dir = os.path.join(persistent_dir, "chrome_profile_maersk")
+        else:
+            profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_maersk")
         
         is_prod = os.name != "nt"
         
