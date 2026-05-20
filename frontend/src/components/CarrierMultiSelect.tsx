@@ -37,7 +37,7 @@ export default function CarrierMultiSelect({ selected, onChange }: CarrierMultiS
 
   return (
     <div className="space-y-3">
-      <label className="block text-sm font-medium text-white/80">Select Carriers</label>
+      <label className="block text-sm font-medium text-slate-700 dark:text-white/80">Select Carriers</label>
 
       {/* All Carriers Toggle */}
       <button
@@ -46,7 +46,7 @@ export default function CarrierMultiSelect({ selected, onChange }: CarrierMultiS
         className={`w-full px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all duration-200 ${
           allSelected
             ? "bg-gradient-to-r from-blue-600 to-purple-600 border-blue-500/50 text-white shadow-lg shadow-blue-500/20"
-            : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10 hover:border-white/20"
+            : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200 hover:border-slate-300 dark:bg-white/5 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/10 dark:hover:border-white/20"
         }`}
       >
         ⚓ All Carriers
@@ -61,8 +61,8 @@ export default function CarrierMultiSelect({ selected, onChange }: CarrierMultiS
             onClick={() => toggleCarrier(carrier.code)}
             className={`relative px-3 py-2 rounded-lg border text-xs font-medium transition-all duration-200 ${
               isSelected(carrier.code)
-                ? "border-white/30 text-white shadow-md"
-                : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/70"
+                ? "border-slate-300 dark:border-white/30 text-slate-900 dark:text-white shadow-md bg-white dark:bg-transparent"
+                : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:bg-white/5 dark:border-white/10 dark:text-white/50 dark:hover:bg-white/10 dark:hover:text-white/70"
             }`}
             style={
               isSelected(carrier.code)

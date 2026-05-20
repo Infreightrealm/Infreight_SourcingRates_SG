@@ -54,10 +54,10 @@ export default function VncViewer({ backendUrl, isSearching }: VncViewerProps) {
           flex items-center gap-2
           ${
             isOpen
-              ? "bg-red-500/20 text-red-300 border border-red-500/30 border-b-0 hover:bg-red-500/30"
+              ? "bg-red-100 text-red-700 border border-red-200 border-b-0 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30 dark:hover:bg-red-500/30"
               : isSearching
-                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 border-b-0 hover:bg-emerald-500/30 animate-pulse"
-                : "bg-white/10 text-white/60 border border-white/10 border-b-0 hover:bg-white/20"
+                ? "bg-emerald-100 text-emerald-700 border border-emerald-200 border-b-0 hover:bg-emerald-200 animate-pulse dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30 dark:hover:bg-emerald-500/30"
+                : "bg-slate-200 text-slate-700 border border-slate-300 border-b-0 hover:bg-slate-300 dark:bg-white/10 dark:text-white/60 dark:border-white/10 dark:hover:bg-white/20"
           }
         `}
       >
@@ -83,27 +83,27 @@ export default function VncViewer({ backendUrl, isSearching }: VncViewerProps) {
         <div
           className="
             w-[820px] h-[520px]
-            bg-[#0a0a0f]/95 backdrop-blur-xl
-            border border-white/10 rounded-tl-2xl
-            shadow-2xl shadow-black/50
+            bg-slate-50/95 dark:bg-[#0a0a0f]/95 backdrop-blur-xl
+            border border-slate-300 dark:border-white/10 rounded-tl-2xl
+            shadow-2xl shadow-black/20 dark:shadow-black/50
             flex flex-col overflow-hidden
           "
         >
           {/* Panel Header */}
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10 bg-white/[0.03]">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-300 dark:border-white/10 bg-slate-200 dark:bg-white/[0.03]">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-medium text-white/70">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-medium text-slate-800 dark:text-white/70">
                 Live Browser — Carrier Portal View
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-white/30 font-mono">
+              <span className="text-[10px] text-slate-500 dark:text-white/30 font-mono">
                 VNC
               </span>
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1 rounded-lg hover:bg-white/10 text-white/40 hover:text-white/80 transition-colors"
+                className="p-1 rounded-lg hover:bg-slate-300 dark:hover:bg-white/10 text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white/80 transition-colors"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -113,7 +113,7 @@ export default function VncViewer({ backendUrl, isSearching }: VncViewerProps) {
           </div>
 
           {/* noVNC iframe */}
-          <div className="flex-1 relative">
+          <div className="flex-1 relative bg-white dark:bg-black">
             <iframe
               src={vncUrl}
               className="w-full h-full border-0"

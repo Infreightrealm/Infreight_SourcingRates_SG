@@ -1,13 +1,26 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --font-inter: "Inter", system-ui, sans-serif;
+  --bg-grid-color: rgba(0, 0, 0, 0.05);
+  --bg-glow-color: rgba(59, 130, 246, 0.15);
+}
+
+.dark {
+  --bg-grid-color: rgba(255, 255, 255, 0.02);
+  --bg-glow-color: rgba(59, 130, 246, 0.08);
 }
 
 /* Dark select/option styling */
-select option {
+.dark select option {
   background-color: #1a1f2e;
   color: white;
+}
+select option {
+  background-color: white;
+  color: black;
 }
 
 /* Scrollbar */
@@ -18,10 +31,16 @@ select option {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 3px;
 }
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
 ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
@@ -45,11 +64,12 @@ body::before {
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    linear-gradient(var(--bg-grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bg-grid-color) 1px, transparent 1px);
   background-size: 60px 60px;
   pointer-events: none;
   z-index: 0;
+  transition: background-image 0.3s ease;
 }
 
 /* Top gradient glow */
@@ -61,7 +81,8 @@ body::after {
   transform: translateX(-50%);
   width: 80%;
   height: 300px;
-  background: radial-gradient(ellipse, rgba(59, 130, 246, 0.08) 0%, transparent 70%);
+  background: radial-gradient(ellipse, var(--bg-glow-color) 0%, transparent 70%);
   pointer-events: none;
   z-index: 0;
+  transition: background 0.3s ease;
 }

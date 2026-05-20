@@ -40,8 +40,8 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
   };
 
   const inputClass =
-    "w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-white/30 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all";
-  const labelClass = "block text-sm font-medium text-white/80 mb-1.5";
+    "w-full px-4 py-2.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/30 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all";
+  const labelClass = "block text-sm font-medium text-slate-700 dark:text-white/80 mb-1.5";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
