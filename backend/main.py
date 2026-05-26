@@ -91,6 +91,12 @@ async def vnc_status():
                 "code": "one",
                 "path": "/vnc/one/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/one/websockify",
                 "ws_path": "/websockify/one"
+            },
+            {
+                "name": "Hapag-Lloyd",
+                "code": "hapag",
+                "path": "/vnc/hapag/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/hapag/websockify",
+                "ws_path": "/websockify/hapag"
             }
         ] if is_prod else [],
         "vnc_path": "/vnc/vnc.html?autoconnect=true&resize=scale&reconnect=true", # Legacy fallback

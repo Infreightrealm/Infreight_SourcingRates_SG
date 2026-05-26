@@ -73,6 +73,10 @@ export default function VncViewer({ backendUrl, isSearching }: VncViewerProps) {
         return isActive 
           ? "border-[#E4007F] text-[#E4007F] dark:text-[#ff52b9] dark:border-[#ff52b9] bg-[#E4007F]/10" 
           : "hover:text-[#E4007F] dark:hover:text-[#ff52b9] hover:bg-[#E4007F]/5 border-transparent";
+      case "hapag":
+        return isActive 
+          ? "border-[#FF5F00] text-[#FF5F00] dark:text-[#ff8137] dark:border-[#ff8137] bg-[#FF5F00]/10" 
+          : "hover:text-[#FF5F00] dark:hover:text-[#ff8137] hover:bg-[#FF5F00]/5 border-transparent";
       default:
         return isActive 
           ? "border-emerald-500 text-emerald-500 bg-emerald-500/10" 
@@ -85,6 +89,7 @@ export default function VncViewer({ backendUrl, isSearching }: VncViewerProps) {
       case "maersk": return "bg-[#004B8C] dark:bg-[#3a9fff]";
       case "cma": return "bg-[#ED1C24] dark:bg-[#ff4d5a]";
       case "one": return "bg-[#E4007F] dark:bg-[#ff52b9]";
+      case "hapag": return "bg-[#FF5F00] dark:bg-[#ff8137]";
       default: return "bg-emerald-500";
     }
   };
