@@ -467,6 +467,9 @@ class MaerskConnector(BaseCarrierConnector):
     async def _init_browser(self):
         import uuid
         import shutil
+        is_prod = os.name != "nt"
+        if is_prod:
+            os.environ["DISPLAY"] = ":99"
         self.playwright = await async_playwright().start()
         
         # Local profile directory to persist cookies, logins, and session data
@@ -515,11 +518,6 @@ class MaerskConnector(BaseCarrierConnector):
             os.makedirs(self.temp_profile_dir, exist_ok=True)
 
         is_prod = os.name != "nt"
-        
-        # In production (Railway), Xvfb provides a virtual display at :99
-        # so we run NON-headless to allow VNC viewing for HITL 2FA verification
-        if is_prod:
-            os.environ["DISPLAY"] = ":99"
         
         launch_kwargs = {
             "user_data_dir": self.temp_profile_dir,

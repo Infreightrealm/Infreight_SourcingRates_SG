@@ -40,10 +40,10 @@ class ONEConnector(BaseCarrierConnector):
         self.playwright = None
 
     async def _init_browser(self):
-        self.playwright = await async_playwright().start()
         is_prod = os.name != "nt"
         if is_prod:
             os.environ["DISPLAY"] = ":101"
+        self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=False,
             args=[
@@ -554,7 +554,7 @@ class ONEConnector(BaseCarrierConnector):
                         const el = document.querySelector('[role="combobox"][placeholder="Select an Equipment Type"], #downshift-0-input');
                         return el && !el.disabled;
                     }""",
-                    timeout=20000
+                    timeout=60000
                 )
                 print("[ONE] Equipment dropdown is now enabled.")
             except Exception:
@@ -642,7 +642,7 @@ class ONEConnector(BaseCarrierConnector):
                 # Wait for dropdown suggestions to appear
                 try:
                     first_option = self.page.locator('[role="option"]').first
-                    await first_option.wait_for(state="visible", timeout=5000)
+                    await first_option.wait_for(state="visible", timeout=10000)
 
                     # Try to find a case-insensitive match first, else pick the first option
                     commodity_upper = request.commodity.strip().upper()

@@ -48,6 +48,9 @@ class CMAConnector(BaseCarrierConnector):
         import uuid
         import shutil
         import subprocess
+        is_prod = os.name != "nt"
+        if is_prod:
+            os.environ["DISPLAY"] = ":100"
         self.playwright = await async_playwright().start()
 
         # ── Persistent profile setup (identical pattern to Maersk) ──────────────
@@ -106,8 +109,6 @@ class CMAConnector(BaseCarrierConnector):
 
         # ── Browser launch ───────────────────────────────────────────────────────
         is_prod = os.name != "nt"
-        if is_prod:
-            os.environ["DISPLAY"] = ":100"
 
         # On Windows: use the REAL Chrome binary to avoid DataDome fingerprint detection.
         # Patchright's bundled Chromium gets hard-blocked by DataDome ("Access is temporarily restricted").
