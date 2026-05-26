@@ -19,6 +19,11 @@ function HomeContent() {
   const [mockMode, setMockMode] = useState<boolean | null>(null);
   const [searchId, setSearchId] = useState<string | null>(searchParams.get("id"));
 
+  let backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  if (backendUrl && !backendUrl.startsWith("http://") && !backendUrl.startsWith("https://")) {
+    backendUrl = `https://${backendUrl}`;
+  }
+
   // Check backend health on mount
   useEffect(() => {
     healthCheck()
@@ -154,7 +159,7 @@ function HomeContent() {
 
       {/* VNC Live Browser Viewer (HITL for 2FA/CAPTCHA) */}
       <VncViewer
-        backendUrl={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}
+        backendUrl={backendUrl}
         isSearching={isLoading}
       />
     </div>
