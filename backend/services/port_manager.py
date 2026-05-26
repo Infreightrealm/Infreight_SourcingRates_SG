@@ -20,8 +20,8 @@ CARRIER_PORT_OVERRIDES = {
         "PKKHI": "Karachi",
         "INNSA": "Jawaharlal Nehru (MAHARASHTRA), India",
         "SAJED": "Jeddah, Saudi Arabia",
-        "EGAIS": "Ain Sukhna",
-        "EGALY": "Alexandria",
+        "EGAIS": "Ain Sukhna, Egypt",
+        "EGALY": "Alexandria, Egypt",
         "IDJKT": "Jakarta",
         "IDBTM": "Batam",
         "IDSUB": "Surabaya",
@@ -29,6 +29,22 @@ CARRIER_PORT_OVERRIDES = {
         "AUSYD": "Sydney (New South Wales), Australia",
         "THBKK": "Bangkok PAT, Thailand",
         "THLCH": "Laem Chabang",
+        # New port mappings requested
+        "KHKOS": "Sihanoukville, Cambodia",
+        "CASHV": "Sihanoukville, Cambodia",
+        "MYPEN": "Penang (Pulau Pinang), Malaysia",
+        "MYPGU": "Pasir Gudang (Johor), Malaysia",
+        "MYTPP": "Tanjung Pelepas (Johor), Malaysia",
+        "CNTAO": "Qingdao (Shandong), China",
+        "TWTXG": "Taichung, Taiwan China",
+        "VNVUT": "Vung Tau (Ba Ria - Vung Tau), Vietnam",
+        "INMAA": "Chennai (TAMIL NADU), India",
+        "AEJEA": "Jebel Ali, United Arab Emirates",
+        "OMSOH": "Sohar, Oman",
+        "EGSOK": "Sokhna, Egypt",
+        "IDSRG": "Semarang, Indonesia",
+        "THLKR": "Lat Krabang, Thailand",
+        "KNPNH": "Phnom Penh, Cambodia",
     },
     "one": {
         "VNHPH": "Hai Phong",
@@ -63,6 +79,23 @@ PORT_MAP_CMA_ONE = {
     "AUSYD": "AUSYD",
     "THBKK": "THBKK",
     "THLCH": "THLCH",
+    # New port LOCODE maps requested
+    "CASHV": "KHKOS",
+    "KHKOS": "KHKOS",
+    "MYPEN": "MYPEN",
+    "MYPGU": "MYPGU",
+    "MYTPP": "MYTPP",
+    "CNTAO": "CNTAO",
+    "TWTXG": "TWTXG",
+    "VNVUT": "VNVUT",
+    "INMAA": "INMAA",
+    "AEJEA": "AEJEA",
+    "OMSOH": "OMSOH",
+    "EGSOK": "EGSOK",
+    "EGALY": "EGALY",
+    "IDSRG": "IDSRG",
+    "THLKR": "THLKR",
+    "KNPNH": "KNPNH",
 }
 
 PORT_NAME_KEYWORD_MAP = {
@@ -92,7 +125,25 @@ PORT_NAME_KEYWORD_MAP = {
     "bangkok": "THBKK",
     "bangkok pat": "THBKK",
     "laem chabang": "THLCH",
-    "laemchabang": "THLCH"
+    "laemchabang": "THLCH",
+    # New port searchable keywords requested
+    "sihanoukville": "KHKOS",
+    "penang": "MYPEN",
+    "pasir gudang": "MYPGU",
+    "tanjung pelepas": "MYTPP",
+    "qingdao": "CNTAO",
+    "taichung": "TWTXG",
+    "vung tau": "VNVUT",
+    "chennai": "INMAA",
+    "madras": "INMAA",
+    "jebel ali": "AEJEA",
+    "sohar": "OMSOH",
+    "sokhna": "EGSOK",
+    "alexandria": "EGALY",
+    "semarang": "IDSRG",
+    "lat krabang": "THLKR",
+    "latkrabang": "THLKR",
+    "phnom penh": "KNPNH",
 }
 
 
@@ -703,6 +754,12 @@ class PortManager:
                 # ONE special override: Ain Sukhna (EGAIS) -> Alexandria (EGALY)
                 if carrier_key == "one" and target_locode == "EGAIS":
                     return "EGALY"
+                # CMA special override: Sokhna (EGSOK) -> Ain Sukhna (EGAIS)
+                if carrier_key == "cma" and target_locode == "EGSOK":
+                    return "EGAIS"
+                # Sihanoukville override: CASHV -> KHKOS
+                if target_locode == "CASHV":
+                    return "KHKOS"
                 return target_locode
 
             # E. Fallback: For CMA/ONE, also resolve any other valid port in the database to its standard LOCODE
@@ -733,6 +790,12 @@ class PortManager:
                 # ONE special override: Ain Sukhna (EGAIS) -> Alexandria (EGALY)
                 if carrier_key == "one" and extracted_locode == "EGAIS":
                     return "EGALY"
+                # CMA special override: Sokhna (EGSOK) -> Ain Sukhna (EGAIS)
+                if carrier_key == "cma" and extracted_locode == "EGSOK":
+                    return "EGAIS"
+                # Sihanoukville override: CASHV -> KHKOS
+                if extracted_locode == "CASHV":
+                    return "KHKOS"
                 return extracted_locode
 
         # Ultimate fallback: clean up parentheses from the input text
