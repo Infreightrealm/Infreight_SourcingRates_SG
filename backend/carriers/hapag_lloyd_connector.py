@@ -231,13 +231,72 @@ class HapagLloydConnector(BaseCarrierConnector):
             await new_quote_btn.click(force=True)
             await self._human_delay(3000, 5000)
 
-            # Wait for either form loading or redirect to login
-            try:
-                await self.page.wait_for_selector('input[type="email"], input[type="text"][name*="email" i], input[type="text"][placeholder*="Email" i]', timeout=8000)
+            # Wait for either the login form (credentials required) or the Quick Quote page (already logged in) to settle
+            print("[HAPAG] Waiting for page to settle (up to 90s) to detect if login is required or already logged in...")
+            is_logged_in = False
+            settle_start_time = asyncio.get_event_loop().time()
+            settled = False
+            
+            while asyncio.get_event_loop().time() - settle_start_time < 90:
+                # Check for login selectors
+                login_selectors = [
+                    'input#email',
+                    'input#signInName',
+                    'input[type="email"]',
+                    'input[name*="username" i]',
+                    'input[name*="email" i]',
+                    'input[placeholder*="Email" i]',
+                    'input[placeholder*="E-mail" i]'
+                ]
+                found_login = False
+                for sel in login_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=300):
+                            print(f"[HAPAG] Login field detected: {sel}")
+                            found_login = True
+                            break
+                    except:
+                        pass
+                
+                if found_login:
+                    is_logged_in = False
+                    settled = True
+                    break
+
+                # Check for quick quote form selectors (already logged in)
+                quote_selectors = [
+                    'input[placeholder*="Start" i]',
+                    '[id*="start" i] input',
+                    '[class*="start" i] input',
+                    'input[placeholder*="Origin" i]'
+                ]
+                found_quote = False
+                for sel in quote_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=300):
+                            print(f"[HAPAG] Quick Quote form field detected: {sel}")
+                            found_quote = True
+                            break
+                    except:
+                        pass
+
+                if found_quote:
+                    is_logged_in = True
+                    settled = True
+                    break
+
+                # Also print a status update every 5 seconds
+                elapsed = int(asyncio.get_event_loop().time() - settle_start_time)
+                if elapsed > 0 and elapsed % 5 == 0:
+                    print(f"[HAPAG] Still waiting for page to settle... (elapsed {elapsed}s). Solve Cloudflare in VNC if prompted.")
+                
+                await asyncio.sleep(1)
+
+            if not settled:
+                print("[HAPAG] Timeout waiting for page to settle. Proceeding under assumption that credentials might be needed.")
                 is_logged_in = False
-            except:
-                # If email box not found, we might already be on the quote page
-                is_logged_in = True
 
             if not is_logged_in:
                 # Need to log in
@@ -246,19 +305,92 @@ class HapagLloydConnector(BaseCarrierConnector):
                 email = os.getenv("HAPAG_LLOYD_USERNAME", "BOOKINGSG@IN-FREIGHT.COM")
                 password = os.getenv("HAPAG_LLOYD_PASSWORD", "IFSGb2020")
 
-                email_input = self.page.locator('input[type="email"], input[type="text"][name*="email" i], input[type="text"][placeholder*="Email" i]').first
+                # Define locator lists for the fields
+                email_selectors = [
+                    'input#email',
+                    'input#signInName',
+                    'input[type="email"]',
+                    'input[name*="username" i]',
+                    'input[name*="email" i]',
+                    'input[placeholder*="Email" i]',
+                    'input[placeholder*="E-mail" i]'
+                ]
+                
+                email_input = None
+                for sel in email_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            email_input = loc
+                            print(f"[HAPAG] Email input located using selector: {sel}")
+                            break
+                    except:
+                        pass
+                
+                if not email_input:
+                    email_input = self.page.locator('input[type="email"], input[type="text"]').first
+                    print("[HAPAG] Fallback to general input for email.")
+
                 await email_input.scroll_into_view_if_needed()
+                await email_input.click()  # Click to focus the email box
+                await self._human_delay(300, 600)
                 await email_input.fill("")
-                await email_input.type(email, delay=40)
+                await email_input.type(email, delay=random.randint(60, 120))
                 await self._human_delay(500, 1000)
 
-                password_input = self.page.locator('input[type="password"]').first
+                password_selectors = [
+                    'input#password',
+                    'input[type="password"]',
+                    'input[name*="password" i]'
+                ]
+                
+                password_input = None
+                for sel in password_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            password_input = loc
+                            print(f"[HAPAG] Password input located using selector: {sel}")
+                            break
+                    except:
+                        pass
+
+                if not password_input:
+                    password_input = self.page.locator('input[type="password"]').first
+                    print("[HAPAG] Fallback to standard password input.")
+
                 await password_input.scroll_into_view_if_needed()
+                await password_input.click()  # Click to focus the password box
+                await self._human_delay(300, 600)
                 await password_input.fill("")
-                await password_input.type(password, delay=40)
+                await password_input.type(password, delay=random.randint(60, 120))
                 await self._human_delay(1000, 1800)
 
-                submit_btn = self.page.locator('button:has-text("Log in"), button[type="submit"], button:has-text("Sign In")').first
+                submit_selectors = [
+                    'button#next',
+                    'button#logIn',
+                    'button:has-text("Log in")',
+                    'button[type="submit"]',
+                    'button:has-text("Sign In")',
+                    'input[type="submit"]'
+                ]
+                
+                submit_btn = None
+                for sel in submit_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            submit_btn = loc
+                            print(f"[HAPAG] Submit button located using selector: {sel}")
+                            break
+                    except:
+                        pass
+
+                if not submit_btn:
+                    submit_btn = self.page.locator('button:has-text("Log in"), button[type="submit"], button:has-text("Sign In")').first
+                    print("[HAPAG] Fallback to standard login/submit button.")
+
+                await submit_btn.scroll_into_view_if_needed()
                 await submit_btn.click()
                 print("[HAPAG] Login form submitted. Waiting for page redirect to Quick Quote page...")
                 await self.page.wait_for_load_state("networkidle")
