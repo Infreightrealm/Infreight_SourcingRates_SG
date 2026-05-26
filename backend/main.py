@@ -7,8 +7,9 @@ import asyncio
 import sys
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 # Fix for Windows: Use ProactorEventLoop for subprocess support (required for Playwright)
@@ -77,4 +78,58 @@ async def vnc_status():
         if is_prod
         else "VNC not available in local development mode.",
     }
+
+
+@app.websocket("/websockify")
+async def websockify_proxy(websocket: WebSocket):
+    """Proxy WebSocket connections to local x11vnc at localhost:5900."""
+    await websocket.accept()
+    try:
+        # Connect to local x11vnc server
+        reader, writer = await asyncio.open_connection("127.0.0.1", 5900)
+    except Exception as e:
+        print(f"[VNC Proxy] Failed to connect to x11vnc at 127.0.0.1:5900: {e}")
+        await websocket.close(code=1011)
+        return
+
+    async def ws_to_tcp():
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                writer.write(data)
+                await writer.drain()
+        except Exception:
+            pass
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def tcp_to_ws():
+        try:
+            while True:
+                data = await reader.read(4096)
+                if not data:
+                    break
+                await websocket.send_bytes(data)
+        except Exception:
+            pass
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+
+    await asyncio.gather(ws_to_tcp(), tcp_to_ws(), return_exceptions=True)
+
+
+# Mount noVNC static files if available
+novnc_dir = "/usr/share/novnc"
+if os.path.exists(novnc_dir):
+    app.mount("/vnc", StaticFiles(directory=novnc_dir, html=True), name="vnc")
+else:
+    print("[WARN] /usr/share/novnc not found. noVNC web client won't be served via FastAPI.")
+
 

@@ -3,6 +3,7 @@ import { useState } from "react";
 import CarrierMultiSelect from "./CarrierMultiSelect";
 import PortAutocomplete from "./PortAutocomplete";
 import { CONTAINER_TYPES, type RateSearchRequest } from "@/lib/types";
+import { toast } from "sonner";
 
 interface RateSearchFormProps {
   onSubmit: (request: RateSearchRequest) => void;
@@ -24,6 +25,12 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (carriers.length === 0) return;
+
+    if (destination.toLowerCase().includes("batam")) {
+      toast.warning("Warning: Batam is generally not accepted as a direct ocean destination by carriers. The search may return no results.", {
+        duration: 10000,
+      });
+    }
 
     onSubmit({
       carriers,
@@ -65,6 +72,16 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
           required
         />
       </div>
+
+      {destination.toLowerCase().includes("batam") && (
+        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-600 dark:text-amber-400 text-xs flex items-start gap-3 backdrop-blur-md animate-fade-in shadow-sm shadow-amber-500/5">
+          <span className="text-base flex-shrink-0">⚠️</span>
+          <div>
+            <span className="font-semibold block mb-0.5">Destination Warning</span>
+            Batam is generally not accepted as a direct ocean destination by major carriers. Searching with Batam may result in zero quotes or failed carrier connections.
+          </div>
+        </div>
+      )}
 
       {/* Container Details */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

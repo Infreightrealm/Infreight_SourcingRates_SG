@@ -8,11 +8,12 @@ Never hardcode credentials.
 import os
 import re
 from datetime import date, datetime, timedelta
+from typing import Optional
 from playwright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
 from services.charge_classifier import classify_charge
 from services.normalizer import normalize_quote
-from services.port_manager import resolve_port_for_carrier
+from services.port_manager import resolve_port_for_carrier, get_carrier_search_query, get_cached_carrier_port, set_cached_carrier_port
 from carriers.base_connector import BaseCarrierConnector
 
 
@@ -21,6 +22,18 @@ class ONEConnector(BaseCarrierConnector):
     carrier_name = "Ocean Network Express"
     LOGIN_URL = "https://ecomm.one-line.com/one-ecom/login"
     QUOTE_URL = "https://ecomm.one-line.com/one-ecom/prices/one-quote-booking"
+
+    # Maps internal container type codes to ONE portal dropdown labels.
+    # ONE uses the same naming convention as our internal codes \u2014 verified live from portal.
+    CONTAINER_TYPE_MAP = {
+        "DRY 20":    "DRY 20",
+        "DRY 40":    "DRY 40",
+        "DRY 40H":   "DRY 40H",
+        "DRY 45":    "DRY 40H",     # No 45' option on ONE; closest is 40H
+        "REEFER 20": "REEFER 20",
+        "REEFER 40": "REEFER 40H",  # No plain REEFER 40 on ONE; closest is 40H
+        "REEFER 40H":"REEFER 40H",
+    }
 
     def __init__(self):
         super().__init__()
@@ -31,7 +44,14 @@ class ONEConnector(BaseCarrierConnector):
         is_prod = os.name != "nt"
         self.browser = await self.playwright.chromium.launch(
             headless=is_prod,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+            ],
         )
         self.context = await self.browser.new_context(
             viewport={"width": 1920, "height": 1080},
@@ -157,39 +177,104 @@ class ONEConnector(BaseCarrierConnector):
             print(f"[ONE] Failed to click submit button: {e}")
             return False
 
-    async def _select_dropdown_option(self, label: str, value: str) -> bool:
+    async def _select_dropdown_option(self, label: str, value: str, locode: Optional[str] = None) -> bool:
+        """
+        Tries to click a matching option from ONE's visible dropdown.
+        Returns True only if an option was actually clicked.
+        Returns False if no match was found — caller must handle the fallback.
+        NOTE: We deliberately do NOT press Enter as a fallback here because ONE requires
+        an explicit dropdown click to confirm the port and unlock subsequent fields.
+        """
         normalized_value = value.strip().upper()
         option_candidates = [normalized_value]
         if "," in normalized_value:
             option_candidates.append(normalized_value.split(",", 1)[0].strip())
 
+        def _extract_locode_for_cache(option_text_upper: str, original_locode: str) -> str:
+            """
+            Extract the LOCODE that ONE actually uses from option text, so the cache
+            stores a valid ONE search query (e.g. 'CNSHA') not the full label text.
+            Falls back to original_locode if nothing found.
+            """
+            import re as _re
+            # ONE option text typically contains the LOCODE as a standalone 5-letter code
+            matches = _re.findall(r'\b([A-Z]{5})\b', option_text_upper)
+            if matches:
+                # Prefer the one that matches our original locode prefix (same country)
+                country = (original_locode or '')[:2].upper()
+                for m in matches:
+                    if country and m.startswith(country):
+                        return m
+                return matches[0]  # return first found
+            return original_locode or value
+
         try:
             options = self.page.locator('[role="option"]:visible')
             option_count = await options.count()
+            print(f"[ONE] {label}: {option_count} dropdown options visible (searching for '{value}', locode='{locode}')")
 
+            # 1. Try strict LOCODE matching first (handles cases where ONE shows a different LOCODE)
+            if locode:
+                normalized_locode = locode.strip().upper()
+                locode_candidates = [normalized_locode]
+                # Also try spaced format (e.g. "NL RTM" instead of "NLRTM")
+                if len(normalized_locode) == 5:
+                    locode_candidates.append(f"{normalized_locode[:2]} {normalized_locode[2:]}")
+
+                for index in range(option_count):
+                    option = options.nth(index)
+                    option_text = (await option.inner_text()).strip().upper()
+                    if locode == "AUMEL" and ("AUMELAS" in option_text or "FRYUH" in option_text):
+                        continue
+                    if any(cand in option_text for cand in locode_candidates):
+                        await option.click()
+                        cache_val = _extract_locode_for_cache(option_text, locode)
+                        print(f"[ONE] {label} selected by LOCODE match '{locode}': ONE code='{cache_val}'")
+                        set_cached_carrier_port("one", locode, cache_val)
+                        return True
+
+            # 2. Name-based substring matching
             for index in range(option_count):
                 option = options.nth(index)
                 option_text = (await option.inner_text()).strip().upper()
+                if locode == "AUMEL" and ("AUMELAS" in option_text or "FRYUH" in option_text):
+                    continue
                 if any(candidate in option_text for candidate in option_candidates):
                     await option.click()
-                    print(f"[ONE] {label} selected: {option_text}")
+                    if locode:
+                        cache_val = _extract_locode_for_cache(option_text, locode)
+                        print(f"[ONE] {label} selected by name match '{value}': ONE code='{cache_val}'")
+                        set_cached_carrier_port("one", locode, cache_val)
                     return True
 
+            # 3. Playwright filter-based fallback
             for candidate in option_candidates:
                 try:
-                    option = self.page.locator('[role="option"]').filter(has_text=candidate).first
-                    await option.wait_for(state="visible", timeout=2_000)
-                    await option.click()
-                    print(f"[ONE] {label} selected: {candidate}")
-                    return True
+                    filtered_options = self.page.locator('[role="option"]').filter(has_text=candidate)
+                    filtered_count = await filtered_options.count()
+                    matched_option = None
+                    matched_text = ""
+                    for idx in range(filtered_count):
+                        opt = filtered_options.nth(idx)
+                        opt_text = (await opt.inner_text()).strip().upper()
+                        if locode == "AUMEL" and ("AUMELAS" in opt_text or "FRYUH" in opt_text):
+                            continue
+                        matched_option = opt
+                        matched_text = opt_text
+                        break
+
+                    if matched_option:
+                        await matched_option.click()
+                        if locode:
+                            cache_val = _extract_locode_for_cache(matched_text, locode)
+                            print(f"[ONE] {label} selected by filter: {candidate} -> ONE code='{cache_val}'")
+                            set_cached_carrier_port("one", locode, cache_val)
+                        return True
                 except Exception:
                     continue
 
-            # Final last resort: just press Enter on what was typed and hope the portal accepts it
-            print(f"[ONE] {label} no dropdown match, pressing Enter as last resort for: {value}")
-            await self.page.keyboard.press("Enter")
-            await self.page.wait_for_timeout(1000)
-            return True
+            print(f"[ONE] {label}: no dropdown match found for '{value}' (locode='{locode}')")
+            return False
         except Exception as e:
             print(f"[ONE] {label} selection failed: {e}")
             return False
@@ -311,41 +396,214 @@ class ONEConnector(BaseCarrierConnector):
             target_date = self._resolve_departure_date(request.departure_date)
             target_date_text = target_date.isoformat()
 
-            origin_search = resolve_port_for_carrier(request.origin, "one")
-            print(f"[ONE] Filling Origin: {origin_search} (resolved from {request.origin})")
+            # Resolve origin locode for strict dropdown selection matching
+            origin_locode = resolve_port_for_carrier(request.origin, "one")
+            if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
+                origin_locode = self._extract_port_code(request.origin)
+                if len(origin_locode) != 5 or not origin_locode.isupper():
+                    from services.port_manager import search_port
+                    ports = search_port(request.origin)
+                    if ports:
+                        origin_locode = ports[0]['code']
+
+            origin_cached = get_cached_carrier_port("one", origin_locode) if origin_locode else None
+            origin_selected = False
+
             try:
                 origin_field = self.page.get_by_role("combobox", name="Please search location").nth(0)
-                await origin_field.click()
-                await self.page.keyboard.type(origin_search, delay=25)
-                await self.page.wait_for_timeout(1500)
-                if not await self._select_dropdown_option("Origin", origin_search):
+
+                if origin_cached:
+                    # Use the cached carrier-specific spelling directly
+                    print(f"[ONE] Origin (cached): typing '{origin_cached}' for LOCODE '{origin_locode}'")
+                    await origin_field.click()
+                    await self.page.keyboard.type(origin_cached, delay=25)
+                    await self.page.wait_for_timeout(1500)
+                    origin_selected = await self._select_dropdown_option("Origin", origin_cached, origin_locode)
+
+                if not origin_selected:
+                    # Step 1: Try typing LOCODE directly (works if ONE recognises this LOCODE)
+                    origin_locode_query = origin_locode if origin_locode else request.origin
+                    print(f"[ONE] Origin (step 1): typing LOCODE '{origin_locode_query}'")
+                    await origin_field.click()
+                    await self.page.keyboard.press("Control+A")
+                    await self.page.keyboard.press("Backspace")
+                    await self.page.keyboard.type(origin_locode_query, delay=25)
+                    await self.page.wait_for_timeout(1500)
+                    origin_selected = await self._select_dropdown_option("Origin", origin_locode_query, origin_locode)
+
+                if not origin_selected and origin_locode:
+                    # Step 2: LOCODE not recognised by ONE — fall back to port name from our database
+                    from services.port_manager import get_port_by_code
+                    port_obj = get_port_by_code(origin_locode)
+                    origin_name = port_obj.get('name_ascii') or port_obj.get('name') if port_obj else None
+                    if origin_name:
+                        print(f"[ONE] Origin (step 2): LOCODE unknown to ONE, trying port name '{origin_name}'")
+                        await origin_field.click()
+                        await self.page.keyboard.press("Control+A")
+                        await self.page.keyboard.press("Backspace")
+                        await self.page.keyboard.type(origin_name, delay=25)
+                        await self.page.wait_for_timeout(1500)
+                        origin_selected = await self._select_dropdown_option("Origin", origin_name, origin_locode)
+
+                if not origin_selected:
+                    print(f"[ONE] Origin: all input strategies failed for '{request.origin}'")
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
             except Exception as e:
                 print(f"[ONE] Origin combobox failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            destination_search = resolve_port_for_carrier(request.destination, "one")
-            print(f"[ONE] Filling Destination: {destination_search} (resolved from {request.destination})")
+            # Resolve destination locode for strict dropdown selection matching
+            destination_locode = resolve_port_for_carrier(request.destination, "one")
+            if not destination_locode or len(destination_locode) != 5 or not destination_locode.isupper():
+                destination_locode = self._extract_port_code(request.destination)
+                if len(destination_locode) != 5 or not destination_locode.isupper():
+                    from services.port_manager import search_port
+                    ports = search_port(request.destination)
+                    if ports:
+                        destination_locode = ports[0]['code']
+
+            destination_cached = get_cached_carrier_port("one", destination_locode) if destination_locode else None
+            destination_selected = False
+
             try:
                 destination_field = self.page.get_by_role("combobox", name="Please search location").nth(1)
-                await destination_field.click()
-                await self.page.keyboard.type(destination_search, delay=25)
-                await self.page.wait_for_timeout(1500)
-                if not await self._select_dropdown_option("Destination", destination_search):
+
+                if destination_cached:
+                    # Use cached carrier-specific spelling
+                    print(f"[ONE] Destination (cached): typing '{destination_cached}' for LOCODE '{destination_locode}'")
+                    await destination_field.click()
+                    await self.page.keyboard.type(destination_cached, delay=25)
+                    await self.page.wait_for_timeout(1500)
+                    destination_selected = await self._select_dropdown_option("Destination", destination_cached, destination_locode)
+
+                if not destination_selected:
+                    # Step 1: Try typing LOCODE directly
+                    dest_locode_query = destination_locode if destination_locode else request.destination
+                    print(f"[ONE] Destination (step 1): typing LOCODE '{dest_locode_query}'")
+                    await destination_field.click()
+                    await self.page.keyboard.press("Control+A")
+                    await self.page.keyboard.press("Backspace")
+                    await self.page.keyboard.type(dest_locode_query, delay=25)
+                    await self.page.wait_for_timeout(1500)
+                    destination_selected = await self._select_dropdown_option("Destination", dest_locode_query, destination_locode)
+
+                if not destination_selected and destination_locode:
+                    # Step 2: Fall back to port name from our database
+                    from services.port_manager import get_port_by_code
+                    port_obj = get_port_by_code(destination_locode)
+                    dest_name = port_obj.get('name_ascii') or port_obj.get('name') if port_obj else None
+                    if dest_name:
+                        print(f"[ONE] Destination (step 2): LOCODE unknown to ONE, trying port name '{dest_name}'")
+                        await destination_field.click()
+                        await self.page.keyboard.press("Control+A")
+                        await self.page.keyboard.press("Backspace")
+                        await self.page.keyboard.type(dest_name, delay=25)
+                        await self.page.wait_for_timeout(1500)
+                        destination_selected = await self._select_dropdown_option("Destination", dest_name, destination_locode)
+
+                if not destination_selected:
+                    print(f"[ONE] Destination: all input strategies failed for '{request.destination}'")
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
             except Exception as e:
                 print(f"[ONE] Destination combobox failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            print(f"[ONE] Setting Equipment Type: {request.container_type}")
+            # --- JS BYPASS FOR STUCK LOADING DIALOG ---
+            # We must immediately remove the stuck welcome/loading modal and backdrop to destroy the FocusTrap
+            # and allow the background form fields to transition out of their "disabled" state!
+            print("[ONE] Bypassing stuck loading/processing dialog if present...")
+            try:
+                await self.page.evaluate("""() => {
+                    const selectors = [
+                        '[class*="Modal_dialog"]',
+                        '[class*="CarouselLoadingPopup"]',
+                        '[class*="CommonModal"]',
+                        '[id^="headlessui-dialog"]',
+                        '.fixed.inset-0',
+                        'div[class*="backdrop"]',
+                        'div[class*="Backdrop"]',
+                        'div[role="presentation"]'
+                    ];
+                    let count = 0;
+                    selectors.forEach(sel => {
+                        document.querySelectorAll(sel).forEach(el => {
+                            if (el.tagName !== 'BODY' && el.tagName !== 'HTML') {
+                                el.remove();
+                                count++;
+                            }
+                        });
+                    });
+                    
+                    // Restore page scrolling
+                    document.body.style.overflow = 'unset';
+                    document.body.style.position = 'static';
+                    document.body.style.width = 'auto';
+                    document.documentElement.style.overflow = 'unset';
+                }""")
+                print("[ONE] Loading modal bypass completed successfully.")
+            except Exception as e:
+                print(f"[ONE] Warning: Stuck modal bypass injection failed: {e}")
+
+            # Wait for equipment dropdown to become enabled (only unlocks after both ports are confirmed and fully loaded in background)
+            print("[ONE] Waiting for Equipment Type dropdown to become enabled...")
+            try:
+                await self.page.wait_for_function(
+                    """() => {
+                        const el = document.querySelector('[role="combobox"][placeholder="Select an Equipment Type"], #downshift-0-input');
+                        return el && !el.disabled;
+                    }""",
+                    timeout=20000
+                )
+                print("[ONE] Equipment dropdown is now enabled.")
+            except Exception:
+                print("[ONE] Timed out waiting for equipment dropdown — proceeding anyway.")
+
+            one_container_label = self.CONTAINER_TYPE_MAP.get(request.container_type, request.container_type)
+            print(f"[ONE] Setting Equipment Type: '{request.container_type}' -> ONE label: '{one_container_label}'")
             try:
                 equipment_field = self.page.get_by_role("combobox", name="Select an Equipment Type").first
                 await equipment_field.click()
-                await self.page.wait_for_timeout(500)
-                equipment_option = self.page.get_by_role("option", name=request.container_type).first
-                await equipment_option.wait_for(state="visible", timeout=5_000)
-                await equipment_option.click()
-                print(f"[ONE] Equipment selected: {request.container_type}")
+                await self.page.wait_for_timeout(800)
+
+                # Iterate through all visible options and find the best match
+                # (avoids apostrophe/quoting issues with filter(has_text=...))
+                eq_options = self.page.locator('[role="option"]:visible')
+                eq_count = await eq_options.count()
+                print(f"[ONE] Equipment dropdown opened: {eq_count} options visible")
+                eq_selected = False
+
+                def _norm_eq(s):
+                    return s.strip().upper().replace("\u2019", "'").replace("\u2018", "'")
+
+                label_norm = _norm_eq(one_container_label)
+
+                # Pass 1: exact match
+                for i in range(eq_count):
+                    opt = eq_options.nth(i)
+                    opt_text = (await opt.inner_text()).strip()
+                    if _norm_eq(opt_text) == label_norm:
+                        await opt.click()
+                        print(f"[ONE] Equipment selected (exact): '{opt_text}'")
+                        eq_selected = True
+                        break
+
+                # Pass 2: option text starts with our label (e.g. 'DRY 40H' matches 'DRY 40H STD')
+                if not eq_selected:
+                    for i in range(eq_count):
+                        opt = eq_options.nth(i)
+                        opt_text = (await opt.inner_text()).strip()
+                        opt_norm = _norm_eq(opt_text)
+                        if opt_norm.startswith(label_norm) or label_norm.startswith(opt_norm + " "):
+                            await opt.click()
+                            print(f"[ONE] Equipment selected (prefix): '{opt_text}'")
+                            eq_selected = True
+                            break
+
+                if not eq_selected:
+                    available = [(await eq_options.nth(i).inner_text()).strip() for i in range(eq_count)]
+                    print(f"[ONE] Equipment: no match for '{one_container_label}'. Available: {available}")
+                    return CarrierResultStatus.INVALID_SEARCH_INPUT
+
                 await self.page.wait_for_timeout(750)
             except Exception as e:
                 print(f"[ONE] Equipment combobox failed: {e}")
@@ -369,29 +627,41 @@ class ONEConnector(BaseCarrierConnector):
                 print(f"[ONE] Cargo weight field failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            print(f"[ONE] Setting Commodity: {request.commodity}")
+            # --- COMMODITY ---
+            # Use the commodity exactly as typed by the user on the frontend (e.g. "Furniture").
+            # ONE has a searchable commodity field — type the name and pick the first matching suggestion.
+            print(f"[ONE] Setting Commodity: '{request.commodity}' (user-provided)")
             try:
                 commodity_field = self.page.get_by_role("combobox", name="Please input Commodity Name or HS code").first
                 await commodity_field.click()
                 await self.page.wait_for_timeout(500)
                 await self.page.keyboard.type(request.commodity, delay=25)
-                
-                # Wait for dropdown options to appear
+
+                # Wait for dropdown suggestions to appear
                 try:
                     first_option = self.page.locator('[role="option"]').first
-                    await first_option.wait_for(state="visible", timeout=3000)
-                    
-                    # Try to find exact match first, fallback to first available option
-                    exact_match = self.page.locator('[role="option"]').filter(has_text=request.commodity.upper()).first
-                    if await exact_match.is_visible():
-                        await exact_match.click()
-                    else:
+                    await first_option.wait_for(state="visible", timeout=5000)
+
+                    # Try to find a case-insensitive match first, else pick the first option
+                    commodity_upper = request.commodity.strip().upper()
+                    all_options = self.page.locator('[role="option"]:visible')
+                    opted = False
+                    for i in range(await all_options.count()):
+                        opt_text = (await all_options.nth(i).inner_text()).strip().upper()
+                        if commodity_upper in opt_text or opt_text.startswith(commodity_upper[:6]):
+                            await all_options.nth(i).click()
+                            print(f"[ONE] Commodity matched: '{(await all_options.nth(i).inner_text()).strip()}'")
+                            opted = True
+                            break
+                    if not opted:
                         await first_option.click()
+                        print("[ONE] Commodity: no exact match, selected first available option")
                 except Exception:
-                    # Fallback to Enter key if no dropdown appears
+                    # No dropdown appeared — press Enter and continue
+                    print("[ONE] Commodity: no dropdown appeared, pressing Enter")
                     await self.page.keyboard.press("Enter")
-                    
-                await self.page.wait_for_timeout(3000) # Wait for chip to form
+
+                await self.page.wait_for_timeout(3000)  # Wait for commodity chip to form
             except Exception as e:
                 print(f"[ONE] Commodity selection failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
@@ -419,7 +689,7 @@ class ONEConnector(BaseCarrierConnector):
                 except Exception:
                     print("[ONE] Warning: Calendar container not detected, continuing with strategies")
 
-                await self.page.wait_for_timeout(2000)
+                await self.page.wait_for_timeout(8000)  # Give calendar ample time to fetch sailings and render prices
                 
                 date_selected = False
                 
@@ -486,7 +756,13 @@ class ONEConnector(BaseCarrierConnector):
                 if not date_selected:
                     try:
                         # Target anything that looks like a date cell and is not disabled
-                        any_cell = self.page.locator('[class*="Calendar"] button:not([disabled]), .react-calendar__tile:not([disabled]), [class*="Calendar"] [class*="available"]').first
+                        any_cell = self.page.locator(
+                            '[class*="Calendar"] button:not([disabled]), '
+                            '.react-calendar__tile:not([disabled]), '
+                            '[class*="Calendar"] [class*="available"], '
+                            '.react-datepicker__day:not([class*="disabled"]):not([class*="outside"]), '
+                            '[role="gridcell"]:not([aria-disabled="true"]):not([class*="disabled"])'
+                        ).first
                         await any_cell.wait_for(state="visible", timeout=3000)
                         await any_cell.click(force=True)
                         date_selected = True
@@ -494,16 +770,17 @@ class ONEConnector(BaseCarrierConnector):
                     except Exception:
                         pass
 
-                # Strategy 5: Absolute fallback - click any element with a price-like number
+                # Strategy 5: Check if no sailing date could be selected (No Coverage)
                 if not date_selected:
+                    print("[ONE] No available sailing dates found in calendar (all dates are disabled). Route lacks spot coverage.")
+                    # Take debug screenshot to brain directory
                     try:
-                        fallback_price = self.page.get_by_text(re.compile(r"^\d{3,4}$")).first
-                        await fallback_price.click(force=True, timeout=3000)
-                        date_selected = True
-                        print("[ONE] Clicked a 3-4 digit number as absolute fallback")
+                        artifact_dir = r"C:\Users\Brian\.gemini\antigravity\brain\2febadc4-254a-470f-9d04-a43202bfc8dc"
+                        import os
+                        await self.page.screenshot(path=os.path.join(artifact_dir, "one_no_coverage.png"))
                     except Exception:
-                        await self.page.screenshot(path=r"C:\Users\Brian\.gemini\antigravity\brain\ceb649b4-c6b6-446d-8bd7-1b3242bce92b\one_debug.png")
-                        print("[ONE] All date picker strategies failed (saved screenshot to artifacts)")
+                        pass
+                    return CarrierResultStatus.NO_QUOTES_AVAILABLE
 
                 # Verify calendar closure or wait for state change
                 await self.page.wait_for_timeout(2000)
@@ -581,23 +858,59 @@ class ONEConnector(BaseCarrierConnector):
                     eta = summary_match.group(3)
                     service_lane = summary_match.group(4).strip()
                     vessel = summary_match.group(5).strip()
-                    if vessel == "---" or not vessel:
-                        vessel = "Sold out"
-                        
                     status = summary_match.group(6).strip()
                     pol = summary_match.group(7).strip()
                     pod = summary_match.group(8).strip()
                     total_price = float(summary_match.group(9).replace(",", ""))
-                    service_name = f"{service_lane} / {vessel}" if vessel != "Sold out" else "Sold out"
+                    service_name = f"{service_lane} / {vessel}"
                 else:
                     print(f"[ONE] Could not parse full quote summary for card {index + 1}. Fallback extraction...")
                     price_match = re.search(r"USD\s*([\d,]+\.\d{2})", normalized_text)
                     if price_match:
                         total_price = float(price_match.group(1).replace(",", ""))
+                    
                     etd_match = re.search(r"Origin\s+(\d{4}-\d{2}-\d{2})", normalized_text)
                     if etd_match: etd = etd_match.group(1)
+                    
                     eta_match = re.search(r"Destination\s+(\d{4}-\d{2}-\d{2})", normalized_text)
                     if eta_match: eta = eta_match.group(1)
+                    
+                    tt_match = re.search(r"(\d+)\s+day\(s\)", normalized_text)
+                    if tt_match:
+                        transit_time_days = int(tt_match.group(1))
+
+                    sv_match = re.search(r"Service Lane/\s*Vessel Voyage\s+(\S+)\s*/\s*([A-Za-z0-9 ().-]+?)(?:\s+POL|\s+Status|\s+POD)", normalized_text)
+                    if sv_match:
+                        service_lane = sv_match.group(1).strip()
+                        vessel = sv_match.group(2).strip()
+                        service_name = f"{service_lane} / {vessel}"
+                    
+                    pol_match = re.search(r"POL\s+(.+?)(?:\s+POD|\s+Status|\s+USD)", normalized_text)
+                    if pol_match:
+                        pol = pol_match.group(1).strip()
+                        
+                    pod_match = re.search(r"POD\s+(.+?)(?:\s+USD|\s+Status)", normalized_text)
+                    if pod_match:
+                        pod = pod_match.group(1).strip()
+
+                    status_match = re.search(r"Status\s+([A-Za-z ]+?)(?:\s+POL|\s+POD|\s+USD)", normalized_text)
+                    if status_match:
+                        status = status_match.group(1).strip()
+
+                # Robust check for Sold Out status
+                is_sold_out = False
+                if status and "sold" in status.lower():
+                    is_sold_out = True
+                if "sold out" in normalized_text.lower() or "soldout" in normalized_text.lower() or "notify me" in normalized_text.lower():
+                    is_sold_out = True
+                if vessel == "---" or not vessel or vessel == "Sold out":
+                    is_sold_out = True
+
+                if is_sold_out:
+                    vessel = "Sold out"
+                    service_name = "Sold out"
+                    status = "Sold Out"
+                    total_price = 0.0
 
                 quotes.append({
                     "index": index,

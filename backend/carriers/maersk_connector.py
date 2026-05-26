@@ -12,9 +12,10 @@ from patchright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
 from services.charge_classifier import classify_charge
 from services.normalizer import normalize_quote
-from services.port_manager import resolve_port_for_carrier
+from services.port_manager import resolve_port_for_carrier, get_carrier_search_query, get_cached_carrier_port, set_cached_carrier_port
 from carriers.base_connector import BaseCarrierConnector
 
+from typing import Optional
 # Load environment variables from .env
 load_dotenv()
 
@@ -28,6 +29,70 @@ SIZE_TYPE_MAP = {
     "REEFER 40H": "40' High Cube Reefer",
     "DRY 45": "45' High Cube Dry",
 }
+
+COUNTRY_CODE_TO_NAME = {
+    "MA": "Morocco",
+    "CL": "Chile",
+    "MY": "Malaysia",
+    "VN": "Vietnam",
+    "SG": "Singapore",
+    "DE": "Germany",
+    "IN": "India",
+    "CN": "China",
+    "US": "United States",
+    "GB": "United Kingdom",
+    "FR": "France",
+    "ES": "Spain",
+    "IT": "Italy",
+    "NL": "Netherlands",
+    "BE": "Belgium",
+    "BR": "Brazil",
+    "AR": "Argentina",
+    "MX": "Mexico",
+    "ZA": "South Africa",
+    "JP": "Japan",
+    "KR": "South Korea",
+    "TW": "Taiwan",
+    "HK": "Hong Kong",
+    "AE": "United Arab Emirates",
+    "SA": "Saudi Arabia",
+    "TR": "Turkey",
+    "EG": "Egypt",
+    "TH": "Thailand",
+    "ID": "Indonesia",
+    "PH": "Philippines",
+    "PK": "Pakistan",
+    "BD": "Bangladesh",
+    "LK": "Sri Lanka",
+    "RU": "Russia",
+    "AU": "Australia",
+    "NZ": "New Zealand",
+    "CA": "Canada",
+}
+
+def extract_locode_and_country(text: str) -> tuple[Optional[str], Optional[str]]:
+    """Extracts LOCODE and country name from text like 'CASABLANCA, MOROCCO (MACAS)'."""
+    if not text:
+        return None, None
+    
+    locode = None
+    country_name = None
+    
+    # 1. Try to extract UN/LOCODE from the text
+    paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+    if paren_match:
+        locode = (paren_match.group(1) + paren_match.group(2)).upper()
+        
+    # 2. Try to extract country name
+    parts = text.split(',')
+    if len(parts) > 1:
+        c_part = parts[-1].strip()
+        c_part = re.sub(r'\s*\([^)]*\)', '', c_part).strip()
+        if c_part:
+            country_name = c_part
+            
+    return locode, country_name
+
 
 
 class MaerskConnector(BaseCarrierConnector):
@@ -465,6 +530,9 @@ class MaerskConnector(BaseCarrierConnector):
             "args": [
                 "--disable-blink-features=AutomationControlled",  # Mask automation flag
                 "--no-sandbox",  # Required for Docker
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
             ]
         }
         if not is_prod:
@@ -568,6 +636,24 @@ class MaerskConnector(BaseCarrierConnector):
         
         # Post-click pause
         await self.page.wait_for_timeout(random.randint(600, 1200))
+
+    async def _stealth_fill_autocomplete(self, field, query: str, selector: str) -> bool:
+        """
+        Fills an autocomplete field using the proven original element-level click/fill/type sequence.
+        """
+        try:
+            await field.click()
+            await field.fill("")
+            await self.page.wait_for_timeout(500)
+            await field.type(query, delay=100)
+            
+            print(f"[MAERSK] Waiting for dropdown suggestions using selector: {selector}")
+            await self.page.locator(selector).first.wait_for(state="attached", timeout=6000)
+            await self.page.wait_for_timeout(500)
+            return True
+        except Exception as e:
+            print(f"[MAERSK] Autocomplete trigger failed: {e}")
+            return False
 
     # ────────────────────────────────────────
     # LOGIN & VERIFICATION GATEWAY
@@ -840,9 +926,126 @@ class MaerskConnector(BaseCarrierConnector):
             # Smart autofill attempt
             autofill_success = False
             try:
-                origin_name = resolve_port_for_carrier(request.origin, "maersk")
-                destination_name = resolve_port_for_carrier(request.destination, "maersk")
-                print(f"[MAERSK] Resolved origin name: {origin_name}, destination name: {destination_name}")
+                # Resolve origin locode
+                origin_locode, _ = extract_locode_and_country(request.origin)
+                if not origin_locode:
+                    clean = request.origin.strip()
+                    if len(clean) == 5 and clean.isalpha():
+                        origin_locode = clean.upper()
+                    else:
+                        from services.port_manager import search_port
+                        ports = search_port(request.origin)
+                        if ports:
+                            origin_locode = ports[0]['code']
+
+                # Resolve destination locode
+                destination_locode, _ = extract_locode_and_country(request.destination)
+                if not destination_locode:
+                    clean = request.destination.strip()
+                    if len(clean) == 5 and clean.isalpha():
+                        destination_locode = clean.upper()
+                    else:
+                        from services.port_manager import search_port
+                        ports = search_port(request.destination)
+                        if ports:
+                            destination_locode = ports[0]['code']
+
+                # Check cache first (retrieve cached values for fallback autocomplete matching)
+                origin_cached = get_cached_carrier_port("maersk", origin_locode) if origin_locode else None
+                destination_cached = get_cached_carrier_port("maersk", destination_locode) if destination_locode else None
+                
+                # ────────────────────────────────────────────────────────
+                # PREPARE SEARCH QUERIES
+                # ────────────────────────────────────────────────────────
+                # We want to let the user type and take it as what it is, avoiding auto-filling or auto-expanding.
+                # If they typed a friendly query (like "ho chi minh" or "ho ch minh city"), we type exactly that.
+                # If they provided a 5-letter LOCODE (like "VNSGN"), we resolve it to our clean overridden name.
+                def prepare_maersk_query(raw_input: str) -> str:
+                    if not raw_input:
+                        return ""
+                    
+                    # 0. Hardcoded overrides for problematic cities to bypass autocomplete overlaps
+                    raw_lower = raw_input.lower()
+                    if "karachi" in raw_lower:
+                        return "Karachi, Pakistan"
+                    if "melbourne" in raw_lower:
+                        return "Melbourne, Australia"
+                    if "sydney" in raw_lower or "ausyd" in raw_lower:
+                        return "Sydney (New South Wales), Australia"
+                    if "jeddah" in raw_lower or "sajed" in raw_lower:
+                        return "Jeddah, Saudi Arabia"
+                    if "shenzhen" in raw_lower or "cnszx" in raw_lower:
+                        return "Shenzhen (Guangdong), China"
+                    if "ningbo" in raw_lower or "cnngb" in raw_lower:
+                        return "Ningbo (Zhejiang), China"
+                    if "nhava sheva" in raw_lower or "jawaharlal" in raw_lower or "innsa" in raw_lower:
+                        return "Jawaharlal Nehru (MAHARASHTRA), India"
+                    if "bangkok" in raw_lower or "thbkk" in raw_lower:
+                        return "Bangkok PAT, Thailand"
+                    # 1. Remove parentheses (e.g. "Singapore (SGSIN)" -> "Singapore")
+                    cleaned = re.sub(r'\s*\([^)]*\)', '', raw_input).strip()
+                    # 2. Strip country suffix if present in the user input (e.g., "Singapore, Singapore" -> "Singapore")
+                    if ',' in cleaned:
+                        cleaned = cleaned.split(',')[0].strip()
+                    
+                    # 3. Handle common typos/spellings/abbreviations directly
+                    cleaned_lower = cleaned.lower()
+                    if "ho chi minh" in cleaned_lower or "ho ch minh" in cleaned_lower:
+                        return "Ho Chi Minh"
+                    if "haiphong" in cleaned_lower or "hai phong" in cleaned_lower:
+                        return "Haiphong"
+                    
+                    # 4. Check if it is a pure 5-letter LOCODE
+                    if len(cleaned) == 5 and cleaned.isalpha():
+                        locode_upper = cleaned.upper()
+                        # Use clean minimal spelling overrides for Maersk
+                        from services.port_manager import CARRIER_PORT_OVERRIDES, PortManager
+                        maersk_overrides = CARRIER_PORT_OVERRIDES.get("maersk", {})
+                        if locode_upper in maersk_overrides:
+                            return maersk_overrides[locode_upper]
+                        # Use cached name if available
+                        cached_val = get_cached_carrier_port("maersk", locode_upper)
+                        if cached_val:
+                            return prepare_maersk_query(cached_val)
+                        # Use database name
+                        port_obj = PortManager().get_port_by_code(locode_upper)
+                        if port_obj:
+                            name = port_obj.get("name", "")
+                            return prepare_maersk_query(name)
+                        return cleaned
+                    
+                    # 5. Clean common trailing noise words and country names for friendly inputs
+                    # e.g., "ho chi minh city vietnam" -> "ho chi minh"
+                    NOISE_WORDS = {"city", "port", "terminal", "container", "province", "state"}
+                    COUNTRY_NAMES = {name.lower() for name in COUNTRY_CODE_TO_NAME.values()}
+                    COUNTRY_NAMES.update({"viet nam", "usa", "uk", "uae", "spain", "france", "netherlands"})
+                    
+                    words = cleaned.split()
+                    while len(words) > 1:  # Never strip the last remaining word
+                        last_word_lower = words[-1].lower()
+                        if last_word_lower in NOISE_WORDS or last_word_lower in COUNTRY_NAMES:
+                            words.pop()
+                        elif len(words) >= 3 and f"{words[-2].lower()} {last_word_lower}" in COUNTRY_NAMES:
+                            words.pop()
+                            words.pop()
+                        else:
+                            break
+                    cleaned = " ".join(words)
+                    
+                    # Re-verify HCM or HP after popping suffixes
+                    cleaned_lower = cleaned.lower()
+                    if "ho chi minh" in cleaned_lower or "ho ch minh" in cleaned_lower:
+                        return "Ho Chi Minh"
+                    if "haiphong" in cleaned_lower or "hai phong" in cleaned_lower:
+                        return "Haiphong"
+                        
+                    return cleaned
+
+                origin_query = prepare_maersk_query(request.origin)
+                destination_query = prepare_maersk_query(request.destination)
+                
+                print(f"[MAERSK] Origin prepared query: '{origin_query}' (input: '{request.origin}')")
+                print(f"[MAERSK] Destination prepared query: '{destination_query}' (input: '{request.destination}')")
 
                 # 1. Origin Port input (From)
                 origin_selectors = [
@@ -859,50 +1062,238 @@ class MaerskConnector(BaseCarrierConnector):
                         break
                         
                 if origin_field:
-                    await origin_field.click()
-                    await origin_field.fill("")
-                    await origin_field.type(origin_name, delay=100)
+                    suggestions_union = 'li[role="option"], ul[role="listbox"] li, [class*="c-location-search" i] li, .c-location-search__result, [class*="location" i] [class*="result" i], [class*="suggestion" i] li'
+                    await self._stealth_fill_autocomplete(origin_field, origin_query, suggestions_union)
                     
-                    # Wait 1.5 seconds for Maersk's server API to fetch and render the dropdown suggestions
-                    await self.page.wait_for_timeout(1500)
+                    # Wait for autocomplete dropdown to appear, trying several known Maersk selector patterns
+                    suggestions_sel = None
+                    MAERSK_DROPDOWN_SELECTORS = [
+                        'li[role="option"]',
+                        'ul[role="listbox"] li',
+                        '[class*="c-location-search" i] li',
+                        '[class*="location-search" i] [class*="result" i]',
+                        '.c-location-search__result',
+                        '[class*="location" i] [class*="result" i]',
+                        '[class*="suggestion" i] li',
+                        '[class*="autocomplete" i] li',
+                    ]
+                    for _sel in MAERSK_DROPDOWN_SELECTORS:
+                        try:
+                            test_count = await self.page.locator(_sel).count()
+                            if test_count > 0:
+                                suggestions_sel = _sel
+                                print(f"[MAERSK] Autocomplete selector matched: {_sel!r} ({test_count} items)")
+                                break
+                        except Exception:
+                            continue
                     
-                    # Single-evaluation combined selector to instantly check if any match is visible
-                    suggestions_sel = (
-                        '[class*="location" i] [class*="result" i], '
-                        '[class*="location-search" i] [class*="result" i], '
-                        '.c-location-search__result, '
-                        'ul[role="listbox"] li, '
-                        '[class*="results" i] [class*="item" i], '
-                        '[class*="results" i] div, '
-                        '[class*="dropdown" i] div, '
-                        '[class*="dropdown" i] li, '
-                        '[class*="autocomplete" i] div, '
-                        '.autocomplete-suggestion, '
-                        '[class*="suggestion" i], '
-                        'li[role="option"]'
-                    )
+                    if not suggestions_sel:
+                        # Final fallback: broad selector
+                        suggestions_sel = 'li[role="option"], ul[role="listbox"] li, [class*="suggestion" i], [class*="location" i] [class*="result" i]'
                     
                     clicked = False
                     try:
-                        suggestion = self.page.locator(suggestions_sel).first
-                        if await suggestion.is_visible():
-                            tag_name = await suggestion.evaluate("el => el.tagName.toLowerCase()")
-                            if tag_name != "input":
-                                await suggestion.scroll_into_view_if_needed()
-                                await suggestion.click(force=True)
-                                print("[MAERSK] Clicked autocomplete suggestion element.")
-                                clicked = True
+                        # Scan suggestions to select the one that matches our target country code/name
+                        suggestion_locators = self.page.locator(suggestions_sel)
+                        sug_count = await suggestion_locators.count()
+                        print(f"[MAERSK] Found {sug_count} autocomplete suggestions for Origin.")
+                        
+                        locode, country_from_text = extract_locode_and_country(request.origin)
+                        expected_country_code = None
+                        if locode:
+                            from services.port_manager import PortManager
+                            port_obj = PortManager().get_port_by_code(locode)
+                            if port_obj:
+                                expected_country_code = port_obj.get("country", "").upper()
+                                
+                        country_keywords = []
+                        if country_from_text:
+                            country_keywords.append(country_from_text.lower())
+                        if expected_country_code:
+                            country_keywords.append(expected_country_code.lower())
+                            c_name = COUNTRY_CODE_TO_NAME.get(expected_country_code)
+                            if c_name:
+                                country_keywords.append(c_name.lower())
+                                
+                        print(f"[MAERSK] Origin expected country keywords: {country_keywords}")
+                        
+                        INVALID_SUGGESTION_KEYWORDS = [
+                            "no results found", "no matching location", "try another search", 
+                            "no matches", "loading", "please enter", "check your spelling",
+                            "english spelling", "full city name", "abbreviation",
+                            "location matching", "try using", "no location",
+                            "continue to book", "close", "sign in", "log in", "accept",
+                            "cookie", "subscribe", "submit", "cancel", "back",
+                            "select container", "select commodity", "price owner"
+                        ]
+                        
+                        valid_suggestions = [] # list of dicts: {"index": idx, "text": sug_text}
+                        for idx in range(sug_count):
+                            sug = suggestion_locators.nth(idx)
+                            sug_text = (await sug.inner_text()).strip()
+                            # Clean up potential multi-line layout formatting from LitElement components to ensure comma-splitting works
+                            sug_text = re.sub(r'\s*\n\s*', ', ', sug_text)
+                            sug_text = re.sub(r',\s*,', ',', sug_text).strip()
+                            sug_text_lower = sug_text.lower()
+                            print(f"[MAERSK] Dropdown Suggestion {idx}: '{sug_text}'")
+                            
+                            if not sug_text or any(kw in sug_text_lower for kw in INVALID_SUGGESTION_KEYWORDS):
+                                print(f"[MAERSK] -> Suggestion {idx} is invalid/no-results indicator. Skipping.")
+                                continue
+                            
+                            valid_suggestions.append({"index": idx, "text": sug_text})
+                            
+                        target_idx = None
+                        if valid_suggestions:
+                            # 1. Try exact LOCODE match first (e.g. "(AUMEL)" or "(SGSIN)" in text)
+                            if origin_locode:
+                                clean_locode = origin_locode.strip().upper()
+                                for vs in valid_suggestions:
+                                    vs_upper = vs["text"].upper()
+                                    if f"({clean_locode})" in vs_upper or f" {clean_locode} " in vs_upper or vs_upper == clean_locode:
+                                        print(f"[MAERSK] -> Exact LOCODE match! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 2. Try exact city name match (e.g. "Karachi, Pakistan" where city part before comma is exactly "Karachi")
+                            if target_idx is None:
+                                clean_query = origin_query.strip().lower()
+                                query_city_part = clean_query.split(",")[0].strip()
+                                query_city_part = re.sub(r'\s*\([^)]*\)', '', query_city_part).strip()
+                                for vs in valid_suggestions:
+                                    vs_lower = vs["text"].lower()
+                                    parts = vs_lower.split(",")
+                                    if parts:
+                                        city_part = parts[0].strip()
+                                        # Remove state parentheses if present, e.g. "Melbourne (Victoria)" -> "Melbourne"
+                                        city_part_clean = re.sub(r'\s*\([^)]*\)', '', city_part).strip()
+                                        if city_part_clean == query_city_part and (not country_keywords or any(kw in vs_lower for kw in country_keywords)):
+                                            print(f"[MAERSK] -> Matches exact city name and country! Picking index {vs['index']}: '{vs['text']}'")
+                                            target_idx = vs["index"]
+                                            break
+
+                            # 3. Try name AND country keywords match
+                            if target_idx is None:
+                                clean_query = origin_query.strip().lower()
+                                for vs in valid_suggestions:
+                                    vs_lower = vs["text"].lower()
+                                    if (clean_query in vs_lower or vs_lower in clean_query) and any(kw in vs_lower for kw in country_keywords):
+                                        print(f"[MAERSK] -> Matches query AND country keywords! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 4. Fallback to exact user-typed query match
+                            if target_idx is None:
+                                clean_query = origin_query.strip().lower()
+                                for vs in valid_suggestions:
+                                    if clean_query in vs["text"].lower() or vs["text"].lower() in clean_query:
+                                        print(f"[MAERSK] -> Matches typed query! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 4. Try to match exact cached name if available
+                            if target_idx is None and origin_cached:
+                                clean_cached = origin_cached.strip().lower()
+                                for vs in valid_suggestions:
+                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
+                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+                                        
+                            # 5. Try to match country keywords alone
+                            if target_idx is None:
+                                for vs in valid_suggestions:
+                                    if any(kw in vs["text"].lower() for kw in country_keywords):
+                                        print(f"[MAERSK] -> Matches target country keywords! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+                                        
+                            # 6. Fallback to first valid suggestion
+                            if target_idx is None:
+                                vs = valid_suggestions[0]
+                                print(f"[MAERSK] -> No specific match. Picking first valid index {vs['index']}: '{vs['text']}'")
+                                target_idx = vs["index"]
+                                
+                        if target_idx is not None:
+                            suggestion = suggestion_locators.nth(target_idx)
+                            if await suggestion.is_visible():
+                                tag_name = await suggestion.evaluate("el => el.tagName.toLowerCase()")
+                                if tag_name != "input":
+                                    selected_text = (await suggestion.inner_text()).strip()
+                                    await suggestion.scroll_into_view_if_needed()
+                                    await suggestion.click(force=True)
+                                    print(f"[MAERSK] Clicked autocomplete suggestion element at index {target_idx}: '{selected_text}'")
+                                    clicked = True
+                                    if origin_locode:
+                                        set_cached_carrier_port("maersk", origin_locode, selected_text)
+                        else:
+                            print("[MAERSK] No valid suggestions found in the dropdown list.")
                     except Exception as e:
                         print(f"[MAERSK] Dropdown click failed or selector not found: {e}")
                         
                     if not clicked:
-                        print("[MAERSK] Dropdown click bypassed. Sending keyboard selection directly to input field...")
+                        # JS shadow-DOM fallback: pierce custom mc- web components to find visible dropdown items
+                        try:
+                            js_result = await self.page.evaluate("""
+                                () => {
+                                    const INVALID = [
+                                        'no results', 'no matching', 'loading', 'please enter',
+                                        'check your spelling', 'english spelling', 'full city name',
+                                        'abbreviation', 'location matching', 'try using', 'no location',
+                                        'continue to book', 'close', 'sign in', 'log in', 'accept',
+                                        'cookie', 'subscribe', 'submit', 'cancel', 'back',
+                                        'select container', 'select commodity', 'price owner'
+                                    ];
+                                    // Walk all shadow roots looking for listbox/option elements
+                                    function findInShadow(root) {
+                                        const items = root.querySelectorAll('li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
+                                        return Array.from(items);
+                                    }
+                                    function collectAll(node) {
+                                        let found = findInShadow(node);
+                                        node.querySelectorAll('*').forEach(el => {
+                                            if (el.shadowRoot) found = found.concat(collectAll(el.shadowRoot));
+                                        });
+                                        return found;
+                                    }
+                                    const all = collectAll(document);
+                                    for (const el of all) {
+                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
+                                        el.click();
+                                        return txt;
+                                    }
+                                    return null;
+                                }
+                            """)
+                            if js_result:
+                                print(f"[MAERSK] JS shadow-DOM click succeeded: '{js_result}'")
+                                clicked = True
+                                if origin_locode:
+                                    set_cached_carrier_port("maersk", origin_locode, js_result)
+                                await self.page.wait_for_timeout(400)
+                            else:
+                                print("[MAERSK] JS shadow-DOM found no items. Falling back to keyboard.")
+                        except Exception as js_e:
+                            print(f"[MAERSK] JS shadow-DOM fallback failed: {js_e}")
+
+                    if not clicked:
                         try:
                             await origin_field.focus()
-                            await origin_field.press("ArrowDown")
-                            await self.page.wait_for_timeout(300)
+                            press_count = 1
+                            q_lower = origin_query.lower()
+                            if "karachi" in q_lower or "melbourne" in q_lower:
+                                press_count = 2
+                                print(f"[MAERSK] Origin Query is '{origin_query}', pressing ArrowDown {press_count} times to select CY/correct option.")
+                            else:
+                                print(f"[MAERSK] Sending keyboard ArrowDown+Enter to select first suggestion...")
+                                
+                            for _ in range(press_count):
+                                await origin_field.press("ArrowDown")
+                                await self.page.wait_for_timeout(300)
+                                
                             await origin_field.press("Enter")
-                            await self.page.wait_for_timeout(500)
+                            await self.page.wait_for_timeout(600)
                         except Exception as e:
                             print(f"[MAERSK] Keyboard selection failed: {e}")
                         
@@ -930,50 +1321,236 @@ class MaerskConnector(BaseCarrierConnector):
                         break
                         
                 if dest_field:
-                    await dest_field.click()
-                    await dest_field.fill("")
-                    await dest_field.type(destination_name, delay=100)
+                    suggestions_union = 'li[role="option"], ul[role="listbox"] li, [class*="c-location-search" i] li, .c-location-search__result, [class*="location" i] [class*="result" i], [class*="suggestion" i] li'
+                    await self._stealth_fill_autocomplete(dest_field, destination_query, suggestions_union)
                     
-                    # Wait 1.5 seconds for Maersk's server API to fetch and render the dropdown suggestions
-                    await self.page.wait_for_timeout(1500)
+                    # Wait for autocomplete dropdown to appear, trying several known Maersk selector patterns
+                    suggestions_sel = None
+                    MAERSK_DROPDOWN_SELECTORS_DEST = [
+                        'li[role="option"]',
+                        'ul[role="listbox"] li',
+                        '[class*="c-location-search" i] li',
+                        '[class*="location-search" i] [class*="result" i]',
+                        '.c-location-search__result',
+                        '[class*="location" i] [class*="result" i]',
+                        '[class*="suggestion" i] li',
+                        '[class*="autocomplete" i] li',
+                    ]
+                    for _sel in MAERSK_DROPDOWN_SELECTORS_DEST:
+                        try:
+                            test_count = await self.page.locator(_sel).count()
+                            if test_count > 0:
+                                suggestions_sel = _sel
+                                print(f"[MAERSK] Dest autocomplete selector matched: {_sel!r} ({test_count} items)")
+                                break
+                        except Exception:
+                            continue
                     
-                    # Single-evaluation combined selector to instantly check if any match is visible
-                    suggestions_sel = (
-                        '[class*="location" i] [class*="result" i], '
-                        '[class*="location-search" i] [class*="result" i], '
-                        '.c-location-search__result, '
-                        'ul[role="listbox"] li, '
-                        '[class*="results" i] [class*="item" i], '
-                        '[class*="results" i] div, '
-                        '[class*="dropdown" i] div, '
-                        '[class*="dropdown" i] li, '
-                        '[class*="autocomplete" i] div, '
-                        '.autocomplete-suggestion, '
-                        '[class*="suggestion" i], '
-                        'li[role="option"]'
-                    )
+                    if not suggestions_sel:
+                        suggestions_sel = 'li[role="option"], ul[role="listbox"] li, [class*="suggestion" i], [class*="location" i] [class*="result" i]'
                     
                     clicked = False
                     try:
-                        suggestion = self.page.locator(suggestions_sel).first
-                        if await suggestion.is_visible():
-                            tag_name = await suggestion.evaluate("el => el.tagName.toLowerCase()")
-                            if tag_name != "input":
-                                await suggestion.scroll_into_view_if_needed()
-                                await suggestion.click(force=True)
-                                print("[MAERSK] Clicked autocomplete suggestion element.")
-                                clicked = True
+                        # Scan suggestions to select the one that matches our target country code/name
+                        suggestion_locators = self.page.locator(suggestions_sel)
+                        sug_count = await suggestion_locators.count()
+                        print(f"[MAERSK] Found {sug_count} autocomplete suggestions for Destination.")
+                        
+                        locode, country_from_text = extract_locode_and_country(request.destination)
+                        expected_country_code = None
+                        if locode:
+                            from services.port_manager import PortManager
+                            port_obj = PortManager().get_port_by_code(locode)
+                            if port_obj:
+                                expected_country_code = port_obj.get("country", "").upper()
+                                
+                        country_keywords = []
+                        if country_from_text:
+                            country_keywords.append(country_from_text.lower())
+                        if expected_country_code:
+                            country_keywords.append(expected_country_code.lower())
+                            c_name = COUNTRY_CODE_TO_NAME.get(expected_country_code)
+                            if c_name:
+                                country_keywords.append(c_name.lower())
+                                
+                        print(f"[MAERSK] Destination expected country keywords: {country_keywords}")
+                        
+                        INVALID_SUGGESTION_KEYWORDS = [
+                            "no results found", "no matching location", "try another search",
+                            "no matches", "loading", "please enter", "check your spelling",
+                            "english spelling", "full city name", "abbreviation",
+                            "location matching", "try using", "no location",
+                            "continue to book", "close", "sign in", "log in", "accept",
+                            "cookie", "subscribe", "submit", "cancel", "back",
+                            "select container", "select commodity", "price owner"
+                        ]
+                        
+                        valid_suggestions = []  # list of dicts: {"index": idx, "text": sug_text}
+                        for idx in range(sug_count):
+                            sug = suggestion_locators.nth(idx)
+                            sug_text = (await sug.inner_text()).strip()
+                            # Clean up potential multi-line layout formatting from LitElement components to ensure comma-splitting works
+                            sug_text = re.sub(r'\s*\n\s*', ', ', sug_text)
+                            sug_text = re.sub(r',\s*,', ',', sug_text).strip()
+                            sug_text_lower = sug_text.lower()
+                            print(f"[MAERSK] Dropdown Suggestion {idx}: '{sug_text}'")
+                            
+                            if not sug_text or any(kw in sug_text_lower for kw in INVALID_SUGGESTION_KEYWORDS):
+                                print(f"[MAERSK] -> Suggestion {idx} is invalid/no-results indicator. Skipping.")
+                                continue
+                            
+                            valid_suggestions.append({"index": idx, "text": sug_text})
+                            
+                        target_idx = None
+                        if valid_suggestions:
+                            # 1. Try exact LOCODE match first (e.g. "(AUMEL)" or "(SGSIN)" in text)
+                            if destination_locode:
+                                clean_locode = destination_locode.strip().upper()
+                                for vs in valid_suggestions:
+                                    vs_upper = vs["text"].upper()
+                                    if f"({clean_locode})" in vs_upper or f" {clean_locode} " in vs_upper or vs_upper == clean_locode:
+                                        print(f"[MAERSK] -> Exact LOCODE match! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 2. Try exact city name match (e.g. "Karachi, Pakistan" where city part before comma is exactly "Karachi")
+                            if target_idx is None:
+                                clean_query = destination_query.strip().lower()
+                                query_city_part = clean_query.split(",")[0].strip()
+                                query_city_part = re.sub(r'\s*\([^)]*\)', '', query_city_part).strip()
+                                for vs in valid_suggestions:
+                                    vs_lower = vs["text"].lower()
+                                    parts = vs_lower.split(",")
+                                    if parts:
+                                        city_part = parts[0].strip()
+                                        # Remove state parentheses if present, e.g. "Melbourne (Victoria)" -> "Melbourne"
+                                        city_part_clean = re.sub(r'\s*\([^)]*\)', '', city_part).strip()
+                                        if city_part_clean == query_city_part and (not country_keywords or any(kw in vs_lower for kw in country_keywords)):
+                                            print(f"[MAERSK] -> Matches exact city name and country! Picking index {vs['index']}: '{vs['text']}'")
+                                            target_idx = vs["index"]
+                                            break
+
+                            # 3. Try name AND country keywords match
+                            if target_idx is None:
+                                clean_query = destination_query.strip().lower()
+                                for vs in valid_suggestions:
+                                    vs_lower = vs["text"].lower()
+                                    if (clean_query in vs_lower or vs_lower in clean_query) and any(kw in vs_lower for kw in country_keywords):
+                                        print(f"[MAERSK] -> Matches query AND country keywords! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 4. Fallback to exact user-typed query match
+                            if target_idx is None:
+                                clean_query = destination_query.strip().lower()
+                                for vs in valid_suggestions:
+                                    if clean_query in vs["text"].lower() or vs["text"].lower() in clean_query:
+                                        print(f"[MAERSK] -> Matches typed query! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 4. Try to match exact cached name if available
+                            if target_idx is None and destination_cached:
+                                clean_cached = destination_cached.strip().lower()
+                                for vs in valid_suggestions:
+                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
+                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+                                        
+                            # 5. Try to match country keywords alone
+                            if target_idx is None:
+                                for vs in valid_suggestions:
+                                    if any(kw in vs["text"].lower() for kw in country_keywords):
+                                        print(f"[MAERSK] -> Matches target country keywords! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+                                        
+                            # 6. Fallback to first valid suggestion
+                            if target_idx is None:
+                                vs = valid_suggestions[0]
+                                print(f"[MAERSK] -> No specific match. Picking first valid index {vs['index']}: '{vs['text']}'")
+                                target_idx = vs["index"]
+                                
+                        if target_idx is not None:
+                            suggestion = suggestion_locators.nth(target_idx)
+                            if await suggestion.is_visible():
+                                tag_name = await suggestion.evaluate("el => el.tagName.toLowerCase()")
+                                if tag_name != "input":
+                                    selected_text = (await suggestion.inner_text()).strip()
+                                    await suggestion.scroll_into_view_if_needed()
+                                    await suggestion.click(force=True)
+                                    print(f"[MAERSK] Clicked autocomplete suggestion element at index {target_idx}: '{selected_text}'")
+                                    clicked = True
+                                    if destination_locode:
+                                        set_cached_carrier_port("maersk", destination_locode, selected_text)
+                        else:
+                            print("[MAERSK] No valid suggestions found in the dropdown list.")
                     except Exception as e:
                         print(f"[MAERSK] Dropdown click failed or selector not found: {e}")
                         
                     if not clicked:
-                        print("[MAERSK] Dropdown click bypassed. Sending keyboard selection directly to input field...")
+                        # JS shadow-DOM fallback: pierce custom mc- web components to find visible dropdown items
+                        try:
+                            js_result = await self.page.evaluate("""
+                                () => {
+                                    const INVALID = [
+                                        'no results', 'no matching', 'loading', 'please enter',
+                                        'check your spelling', 'english spelling', 'full city name',
+                                        'abbreviation', 'location matching', 'try using', 'no location',
+                                        'continue to book', 'close', 'sign in', 'log in', 'accept',
+                                        'cookie', 'subscribe', 'submit', 'cancel', 'back',
+                                        'select container', 'select commodity', 'price owner'
+                                    ];
+                                    function findInShadow(root) {
+                                        const items = root.querySelectorAll('li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
+                                        return Array.from(items);
+                                    }
+                                    function collectAll(node) {
+                                        let found = findInShadow(node);
+                                        node.querySelectorAll('*').forEach(el => {
+                                            if (el.shadowRoot) found = found.concat(collectAll(el.shadowRoot));
+                                        });
+                                        return found;
+                                    }
+                                    const all = collectAll(document);
+                                    for (const el of all) {
+                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
+                                        el.click();
+                                        return txt;
+                                    }
+                                    return null;
+                                }
+                            """)
+                            if js_result:
+                                print(f"[MAERSK] JS shadow-DOM click succeeded: '{js_result}'")
+                                clicked = True
+                                if destination_locode:
+                                    set_cached_carrier_port("maersk", destination_locode, js_result)
+                                await self.page.wait_for_timeout(400)
+                            else:
+                                print("[MAERSK] JS shadow-DOM found no items. Falling back to keyboard.")
+                        except Exception as js_e:
+                            print(f"[MAERSK] JS shadow-DOM fallback failed: {js_e}")
+
+                    if not clicked:
                         try:
                             await dest_field.focus()
-                            await dest_field.press("ArrowDown")
-                            await self.page.wait_for_timeout(300)
+                            press_count = 1
+                            q_lower = destination_query.lower()
+                            if "karachi" in q_lower or "melbourne" in q_lower:
+                                press_count = 2
+                                print(f"[MAERSK] Destination Query is '{destination_query}', pressing ArrowDown {press_count} times to select CY/correct option.")
+                            else:
+                                print(f"[MAERSK] Sending keyboard ArrowDown+Enter to select first suggestion...")
+                                
+                            for _ in range(press_count):
+                                await dest_field.press("ArrowDown")
+                                await self.page.wait_for_timeout(300)
+                                
                             await dest_field.press("Enter")
-                            await self.page.wait_for_timeout(500)
+                            await self.page.wait_for_timeout(600)
                         except Exception as e:
                             print(f"[MAERSK] Keyboard selection failed: {e}")
                         
@@ -1265,15 +1842,18 @@ class MaerskConnector(BaseCarrierConnector):
                         except Exception:
                             continue
                             
-                    # 4.6 Click "Continue to book" with retry on temporary system error banner
+                    # 4.6 Click "Continue to book" / "Price booking" with retry on temporary system error banner
                     continue_book_selectors = [
                         'button:has-text("Continue to book")',
                         'a:has-text("Continue to book")',
+                        'button:has-text("Price booking")',
+                        'a:has-text("Price booking")',
+                        'text="Price booking"',
                         'text="Continue to book"',
                         '[class*="continue" i]'
                     ]
                     
-                    max_retries = 3
+                    max_retries = 5
                     for attempt in range(max_retries):
                         await self.page.wait_for_timeout(1000)
                         continue_clicked = False
@@ -1282,16 +1862,22 @@ class MaerskConnector(BaseCarrierConnector):
                             try:
                                 btn = self.page.locator(selector).first
                                 if await btn.is_visible(timeout=5000):
+                                    # Ensure button is not disabled before clicking
+                                    is_disabled = await btn.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
+                                    if is_disabled:
+                                        print(f"[MAERSK] Button {selector} is disabled, waiting 2 seconds...")
+                                        await self.page.wait_for_timeout(2000)
+                                    
                                     await btn.scroll_into_view_if_needed()
                                     await btn.click(force=True)
-                                    print(f"[MAERSK] Clicked Continue to book (Attempt {attempt + 1}/{max_retries}) using: {selector}")
+                                    print(f"[MAERSK] Clicked Submit Form (Attempt {attempt + 1}/{max_retries}) using: {selector}")
                                     continue_clicked = True
                                     break
                             except Exception:
                                 continue
                                 
                         if not continue_clicked:
-                            print("[MAERSK] Warning: Continue to book button not found or already submitted.")
+                            print("[MAERSK] Warning: Submit Form button not found or already submitted.")
                             
                         # Wait 3 seconds to see if the temporary system error banner appears
                         await self.page.wait_for_timeout(3000)
@@ -1317,8 +1903,8 @@ class MaerskConnector(BaseCarrierConnector):
                                 continue
                                 
                         if error_detected:
-                            print(f"[MAERSK] Maersk API reports a temporary issue. Waiting 15 seconds before retrying Continue to Book...")
-                            await self.page.wait_for_timeout(15000)
+                            print(f"[MAERSK] Maersk API reports a temporary issue. Waiting 5 seconds before retrying Submit Form...")
+                            await self.page.wait_for_timeout(5000)
                             # Let the loop continue and click again!
                         else:
                             # No error banner detected, we are good to go!
@@ -1410,7 +1996,7 @@ class MaerskConnector(BaseCarrierConnector):
                     print(f"[MAERSK] Confirmed real quote card fully rendered on page!")
                     ready = True
                 elif i >= 15:  # Fallback to URL and broad counts after 15 seconds of waiting
-                    if cards_count > 0 or is_results_url or "price" in curr_url.lower():
+                    if (cards_count > 0 or is_results_url or "price" in curr_url.lower()) and "/book/" not in curr_url.lower():
                         print(f"[MAERSK] Fallback loading check succeeded after 15s wait (URL: {curr_url}).")
                         ready = True
                 
@@ -1466,16 +2052,19 @@ class MaerskConnector(BaseCarrierConnector):
                 except Exception:
                     continue
 
-            # Versatile card locator: search for items containing prices
-            quote_cards = self.page.locator('article.new-sailings-card-article, article.sailings__card')
+            # Wait for the real sailing cards to appear in the DOM (up to 20s)
+            quote_cards = self.page.locator('article.new-sailings-card-article')
+            try:
+                await quote_cards.first.wait_for(state="visible", timeout=20000)
+                print("[MAERSK] Confirmed article.new-sailings-card-article is visible.")
+            except Exception:
+                print("[MAERSK] Warning: article.new-sailings-card-article not visible after 20s wait. Trying fallback selectors.")
+                quote_cards = self.page.locator('article.sailings__card, [class*="new-sailings-routes-offer-card" i], [class*="new-sailings-product-offer-card" i]')
+
             count = await quote_cards.count()
             if count == 0:
-                quote_cards = self.page.locator('[class*="offer-card" i], [class*="result-card" i], [class*="schedule-card" i], .c-offer-card')
-                count = await quote_cards.count()
-            if count == 0:
-                # Last resort: grab general cards or rows
-                quote_cards = self.page.locator('.card, .result-row, [class*="card" i]')
-                count = await quote_cards.count()
+                print("[MAERSK] No sailing cards found with primary selectors.")
+                return []
 
             print(f"[MAERSK] Found {count} raw quotation card(s) on page.")
             quotes = []
@@ -1483,7 +2072,7 @@ class MaerskConnector(BaseCarrierConnector):
             for index in range(count):
                 card = quote_cards.nth(index)
                 try:
-                    card_text = (await card.inner_text(timeout=3000)).strip()
+                    card_text = (await card.inner_text(timeout=5000)).strip()
                 except Exception as card_e:
                     print(f"[MAERSK] Warning: Failed to get card text at index {index}: {card_e}")
                     continue
@@ -1492,29 +2081,69 @@ class MaerskConnector(BaseCarrierConnector):
                     print(f"[MAERSK] Skipping card at index {index} - Vessel sold out or not open.")
                     continue
 
-                # Extract total price
-                price_match = re.search(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", card_text, re.IGNORECASE)
+                # --- Price: try data-test selector first, then regex fallback ---
                 total_price = 0.0
-                if price_match:
-                    total_price = float(price_match.group(1).replace(",", ""))
-                else:
-                    # Ignore cards with no price (like advertisement banners)
+                try:
+                    price_el = card.locator('[data-test="product-offer-price"] p, .product-offer-price p, .mds-price-breakdown').first
+                    price_text = (await price_el.inner_text(timeout=2000)).strip()
+                    price_match = re.search(r"([\d,]+\.?\d{0,2})", price_text)
+                    if price_match:
+                        total_price = float(price_match.group(1).replace(",", ""))
+                except Exception:
+                    # fallback to regex on full card text
+                    price_match = re.search(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", card_text, re.IGNORECASE)
+                    if price_match:
+                        total_price = float(price_match.group(1).replace(",", ""))
+
+                if total_price <= 0:
+                    print(f"[MAERSK] Skipping card {index} - no valid price found.")
                     continue
 
-                # Extract dates
-                dates = re.findall(r"\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{4}-\d{2}-\d{2}", card_text)
-                etd = dates[0] if len(dates) > 0 else date.today().isoformat()
-                eta = dates[1] if len(dates) > 1 else (date.today() + timedelta(days=20)).isoformat()
+                # --- Departure date: try <time datetime> attribute first ---
+                etd = date.today().isoformat()
+                eta = (date.today() + timedelta(days=20)).isoformat()
+                try:
+                    depart_time = card.locator('.new-sailings-card-date time, .new-sailings-group-header__departure-section time').first
+                    depart_dt = await depart_time.get_attribute("datetime", timeout=1000)
+                    if depart_dt:
+                        etd = depart_dt[:10]  # take just YYYY-MM-DD
+                except Exception:
+                    # fallback to text pattern
+                    dates = re.findall(r"\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{4}-\d{2}-\d{2}", card_text)
+                    if dates:
+                        etd = dates[0]
 
-                # Extract Transit Time
-                transit_match = re.search(r"(\d+)\s*day", card_text, re.IGNORECASE)
-                transit_time = int(transit_match.group(1)) if transit_match else 20
+                # --- Transit time: try durationinhours attribute first ---
+                transit_time = 20
+                try:
+                    dur_el = card.locator('mc-c-duration-display[durationinhours]').first
+                    dur_hours = await dur_el.get_attribute("durationinhours", timeout=1000)
+                    if dur_hours:
+                        transit_time = max(1, round(int(dur_hours) / 24))
+                except Exception:
+                    transit_match = re.search(r"(\d+)\s*day", card_text, re.IGNORECASE)
+                    if transit_match:
+                        transit_time = int(transit_match.group(1))
 
-                # Extract Vessel Name
-                vessel_match = re.search(r"vessel:\s*([A-Za-z0-9 ]+)|service:\s*([A-Za-z0-9 ]+)", card_text, re.IGNORECASE)
+                # ETA = ETD + transit_time
+                try:
+                    from datetime import date as _date, timedelta as _td
+                    etd_parsed = _date.fromisoformat(etd[:10])
+                    eta = (etd_parsed + _td(days=transit_time)).isoformat()
+                except Exception:
+                    pass
+
+                # --- Vessel / service name ---
                 vessel = "Maersk Vessel"
-                if vessel_match:
-                    vessel = (vessel_match.group(1) or vessel_match.group(2)).strip()
+                try:
+                    vessel_el = card.locator('[data-test*="vessel" i], .new-sailings-group-header__vessel-section .new-sailings-group-header__value').first
+                    vessel_text = (await vessel_el.inner_text(timeout=1000)).strip()
+                    if vessel_text:
+                        vessel = vessel_text
+                except Exception:
+                    vessel_match = re.search(r"vessel:\s*([A-Za-z0-9 ]+)|service:\s*([A-Za-z0-9 ]+)", card_text, re.IGNORECASE)
+                    if vessel_match:
+                        vessel = (vessel_match.group(1) or vessel_match.group(2)).strip()
 
                 quotes.append({
                     "index": index,
@@ -1525,8 +2154,9 @@ class MaerskConnector(BaseCarrierConnector):
                     "vessel": vessel,
                     "total_price": total_price,
                     "currency": "USD",
-                    "card_text": card_text
+                    "card_text": card_text[:500]  # truncate for logging
                 })
+                print(f"[MAERSK] Parsed card {index}: ETD={etd}, transit={transit_time}d, price=USD {total_price}")
 
             print(f"[MAERSK] Parsed {len(quotes)} valid quote(s) successfully.")
             return quotes

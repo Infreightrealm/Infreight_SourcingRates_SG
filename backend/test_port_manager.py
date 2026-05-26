@@ -22,26 +22,47 @@ def test():
 
     print("\nTesting resolve_port_for_carrier...")
     test_cases = [
-        ("VN HPH", "maersk", "Haiphong"),
-        ("VN HPH", "one", "Hai Phong"),
+        ("VN HPH", "maersk", "VN HPH"),
+        ("VN HPH", "one", "VNHPH"),
         ("Haiphong (VN HPH)", "maersk", "Haiphong"),
-        ("Haiphong (VN HPH)", "one", "Hai Phong"),
+        ("Haiphong (VN HPH)", "one", "VNHPH"),
         ("Haiphong", "maersk", "Haiphong"),
-        ("Haiphong", "one", "Hai Phong"),
-        ("Hai Phong", "maersk", "Haiphong"),
-        ("Hai Phong", "one", "Hai Phong"),
+        ("Haiphong", "one", "VNHPH"),
+        ("Hai Phong", "maersk", "Hai Phong"),
+        ("Hai Phong", "one", "VNHPH"),
         ("Ho Chi Minh City", "maersk", "Ho Chi Minh City"),
-        ("Ho Chi Minh City", "one", "Ho Chi Minh"),
-        ("VNSGN", "maersk", "Ho Chi Minh City"),
-        ("VNSGN", "one", "Ho Chi Minh"),
+        ("Ho Chi Minh City", "one", "VNSGN"),
+        ("VNSGN", "maersk", "VNSGN"),
+        ("VNSGN", "one", "VNSGN"),
         ("Singapore (SGSIN)", "maersk", "Singapore"),
-        ("Singapore (SGSIN)", "one", "Singapore"),
+        ("Singapore (SGSIN)", "one", "SGSIN"),
+        ("Ain Sukhna", "cma", "EGAIS"),
+        ("Ain Sukhna", "one", "EGALY"),
+        ("port klang", "maersk", "port klang"),
+        ("port klang", "cma", "MYPKG"),
+        ("port klang", "one", "MYPKG"),
     ]
 
     for q, carrier, expected in test_cases:
         resolved = resolve_port_for_carrier(q, carrier)
         success = resolved == expected
         print(f"[{'PASS' if success else 'FAIL'}] Input: '{q}' -> Carrier: {carrier} | Resolved: '{resolved}' | Expected: '{expected}'")
+
+    print("\nTesting get_carrier_search_query...")
+    query_cases = [
+        ("Casablanca (MACAS)", "Casablanca", "Casablanca, Morocco"),
+        ("Port Klang (MYPKG)", "Port Klang", "Port Klang, Malaysia"),
+        ("Singapore (SGSIN)", "Singapore", "Singapore"),
+        ("port klang", "Port Klang", "Port Klang"),
+        ("Casablanca, Morocco", "Casablanca", "Casablanca, Morocco"),
+        ("Casablanca, Chile (CLCAS)", "Casablanca", "Casablanca, Chile"),
+    ]
+
+    from services.port_manager import get_carrier_search_query
+    for orig, res, expected in query_cases:
+        query = get_carrier_search_query(orig, res)
+        success = query == expected
+        print(f"[{'PASS' if success else 'FAIL'}] Input: '{orig}' | Resolved: '{res}' | Query: '{query}' | Expected: '{expected}'")
 
 if __name__ == "__main__":
     test()
