@@ -104,12 +104,16 @@ class HapagLloydConnector(BaseCarrierConnector):
 
         proxy_config = None
         if proxy_user and proxy_pass:
+            if "-session-" not in proxy_user:
+                session_id = str(uuid.uuid4())[:8]
+                proxy_user = f"{proxy_user}-session-{session_id}"
+                
             proxy_config = {
                 "server": proxy_server,
                 "username": proxy_user,
                 "password": proxy_pass,
             }
-            print(f"[HAPAG] Using proxy configuration: {proxy_server} (user: {proxy_user[:8]}...)")
+            print(f"[HAPAG] [PROXY] Routing through ISP residential proxy ({proxy_server}) with session pinning ({proxy_user.split('-session-')[-1]})...")
         else:
             print("[HAPAG] [INFO] No proxy configured. Running on local IP directly.")
 
@@ -130,7 +134,19 @@ class HapagLloydConnector(BaseCarrierConnector):
             "--start-maximized",
         ]
 
-        # Use real Google Chrome in production to bypass advanced bot blocks
+        # On Windows: use the REAL Chrome binary to avoid fingerprint detection.
+        chrome_exe = None
+        if not is_prod:
+            chrome_candidates = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            ]
+            for path in chrome_candidates:
+                if os.path.exists(path):
+                    chrome_exe = path
+                    break
+
         executable_path = None
         if is_prod:
             executable_path = "/usr/bin/google-chrome-stable"
@@ -139,11 +155,15 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print("[HAPAG] [WARN] google-chrome-stable not found. Falling back to bundled Chromium.")
             else:
                 print(f"[HAPAG] Using real Chrome: {executable_path}")
+        elif chrome_exe:
+            executable_path = chrome_exe
+            print(f"[HAPAG] Using local real Chrome: {chrome_exe}")
 
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=self.temp_profile_dir,
             headless=False,  # Headless mode must be False for VNC rendering
             executable_path=executable_path,
+            slow_mo=random.randint(80, 150),
             args=args,
             proxy=proxy_config,
             no_viewport=True,
@@ -152,14 +172,6 @@ class HapagLloydConnector(BaseCarrierConnector):
 
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         
-        # Apply stealth scripts
-        await self.page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            window.chrome = { runtime: {} };
-            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-        """)
-
         # Custom timeouts
         self.page.set_default_timeout(45000)
         self.page.set_default_navigation_timeout(60000)
