@@ -416,13 +416,41 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Confirm quick quotes form is displayed
             try:
-                await self.page.wait_for_selector('input[placeholder*="Start" i], [class*="start" i], [id*="start" i]', timeout=20000)
-                print("[HAPAG] Quick Quote form successfully loaded.")
-                self.is_login_successful = True
-                return True
+                print("[HAPAG] Confirming Quick Quote form loading...")
+                quote_selectors = [
+                    'text="Start Location"',
+                    'text="End Location"',
+                    'text="New Quote"',
+                    'input[placeholder*="Start" i]',
+                    'div:has-text("Start Location")'
+                ]
+                
+                form_loaded = False
+                for sel in quote_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=5000):
+                            print(f"[HAPAG] Confirmed Quick Quote page loaded using: {sel}")
+                            form_loaded = True
+                            break
+                    except:
+                        pass
+                
+                if not form_loaded:
+                    # Try a fallback general wait for any input
+                    await self.page.wait_for_selector('input', timeout=5000)
+                    print("[HAPAG] Found inputs. Assuming form loaded.")
+                    form_loaded = True
+
+                if form_loaded:
+                    print("[HAPAG] Quick Quote form successfully verified.")
+                    self.is_login_successful = True
+                    return True
+                else:
+                    raise Exception("No confirming Quick Quote page elements were visible.")
+                    
             except Exception as e:
-                print(f"[HAPAG] [ERROR] Quick Quote form failed to load: {e}")
-                # Save screenshot of failure
+                print(f"[HAPAG] [ERROR] Quick Quote form verification failed: {e}")
                 await self.page.screenshot(path="hapag_login_fail.png")
                 return False
 
@@ -491,13 +519,37 @@ class HapagLloydConnector(BaseCarrierConnector):
             origin_cached = get_cached_carrier_port("hapag", origin_locode)
             print(f"[HAPAG] Filling Start Location: '{origin_locode}' (cached: '{origin_cached}')")
 
-            # Try to click input box below "Start Location"
-            start_field = self.page.locator('input[placeholder*="Start" i], [id*="start" i] input').first
-            if await start_field.count() == 0:
-                start_field = self.page.locator('div:has-text("Start Location") input, input').first
+            # Find Start Location text input
+            start_selectors = [
+                'div:has-text("Start Location") input',
+                'input[placeholder*="Start" i]',
+                'input[placeholder*="Origin" i]',
+                'input[type="text"]'  # Fallback to first text input
+            ]
             
+            start_field = None
+            for sel in start_selectors:
+                try:
+                    loc = self.page.locator(sel).first
+                    if await loc.is_visible(timeout=1000):
+                        start_field = loc
+                        print(f"[HAPAG] Start Location input found using selector: {sel}")
+                        break
+                except:
+                    pass
+            
+            if not start_field:
+                # Absolute fallback: first visible input
+                start_field = self.page.locator('input').first
+                print("[HAPAG] Fallback to first general input on page.")
+
+            await start_field.scroll_into_view_if_needed()
             await start_field.click()
+            await self._human_delay(300, 600)
+            await start_field.press("Control+A")
+            await start_field.press("Backspace")
             await start_field.fill("")
+            await self._human_delay(200, 400)
             await start_field.type(origin_locode, delay=35)
             await self._human_delay(1500, 2500)
             
@@ -512,12 +564,41 @@ class HapagLloydConnector(BaseCarrierConnector):
             dest_cached = get_cached_carrier_port("hapag", dest_locode)
             print(f"[HAPAG] Filling End Location: '{dest_locode}' (cached: '{dest_cached}')")
 
-            end_field = self.page.locator('input[placeholder*="End" i], [id*="end" i] input').first
-            if await end_field.count() == 0:
-                end_field = self.page.locator('div:has-text("End Location") input, input').nth(1)
+            # Find End Location text input
+            end_selectors = [
+                'div:has-text("End Location") input',
+                'input[placeholder*="End" i]',
+                'input[placeholder*="Destination" i]',
+                'input[type="text"]'  # Fallback to second text input
+            ]
             
+            end_field = None
+            for sel in end_selectors:
+                try:
+                    if sel == 'input[type="text"]':
+                        loc = self.page.locator(sel).nth(1)
+                    else:
+                        loc = self.page.locator(sel).first
+                        
+                    if await loc.is_visible(timeout=1000):
+                        end_field = loc
+                        print(f"[HAPAG] End Location input found using selector: {sel}")
+                        break
+                except:
+                    pass
+            
+            if not end_field:
+                # Absolute fallback: second visible input
+                end_field = self.page.locator('input').nth(1)
+                print("[HAPAG] Fallback to second general input on page.")
+
+            await end_field.scroll_into_view_if_needed()
             await end_field.click()
+            await self._human_delay(300, 600)
+            await end_field.press("Control+A")
+            await end_field.press("Backspace")
             await end_field.fill("")
+            await self._human_delay(200, 400)
             await end_field.type(dest_locode, delay=35)
             await self._human_delay(1500, 2500)
 
