@@ -276,21 +276,25 @@ class MaerskConnector(BaseCarrierConnector):
                     if freetime_text:
                         service_name = f"Maersk Spot (Incl. {freetime_text})"
 
-                    # Extract price
-                    price_match = re.search(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", card_text, re.IGNORECASE)
-                    price = float(price_match.group(1).replace(",", "")) if price_match else 0.0
+                    # Check if sold out / not open
+                    is_sold_out = "vessel sold out" in card_text_lower or "vessel not open" in card_text_lower or "vessel is not open" in card_text_lower
+                    
+                    if is_sold_out:
+                        price = 0.0
+                        if "vessel sold out" in card_text_lower:
+                            vessel_name = f"{vessel_name} (Sold out)"
+                        else:
+                            vessel_name = f"{vessel_name} (Not open)"
+                    else:
+                        # Extract price
+                        price_match = re.search(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", card_text, re.IGNORECASE)
+                        price = float(price_match.group(1).replace(",", "")) if price_match else 0.0
 
                     unique_key = f"{etd}_{eta}_{vessel_name}_{price}"
                     if unique_key in processed_keys:
                         continue
                         
-                    # Skip sold out / not open cards
-                    if "vessel sold out" in card_text_lower or "vessel not open" in card_text_lower or "vessel is not open" in card_text_lower:
-                        print(f"[MAERSK] Skipping card at index {index} - Vessel sold out or not open.")
-                        processed_keys.add(unique_key)
-                        continue
-                        
-                    if price == 0.0:
+                    if not is_sold_out and price == 0.0:
                         processed_keys.add(unique_key)
                         continue
                         
@@ -311,72 +315,74 @@ class MaerskConnector(BaseCarrierConnector):
                     # Click details button inside the scoped card
                     raw_charges = []
                     details_btn = None
-                    selectors_to_try = [
-                        'span.hyperlink-button:has-text("Price breakdown")',
-                        '.hyperlink-button:has-text("Price breakdown")',
-                        'button:has-text("Price breakdown & details")',
-                        'a:has-text("Price breakdown & details")',
-                        'span:has-text("Price breakdown & details")',
-                        'div:has-text("Price breakdown & details")',
-                    ]
                     
-                    for sel in selectors_to_try:
+                    if not is_sold_out:
                         try:
-                            btn = card.locator(sel).first
-                            if await btn.is_visible(timeout=1000):
-                                details_btn = btn
-                                break
-                        except Exception:
-                            continue
+                            selectors_to_try = [
+                                'span.hyperlink-button:has-text("Price breakdown")',
+                                '.hyperlink-button:has-text("Price breakdown")',
+                                'button:has-text("Price breakdown & details")',
+                                'a:has-text("Price breakdown & details")',
+                                'span:has-text("Price breakdown & details")',
+                                'div:has-text("Price breakdown & details")',
+                            ]
                             
-                    try:
-                        if details_btn:
-                            print(f"[MAERSK] Found price breakdown details button for card at index {index}. Clicking...")
-                            await details_btn.scroll_into_view_if_needed()
-                            await details_btn.click(force=True)
-                            await self.page.wait_for_timeout(2500)
-                            
-                            # Save a screenshot to inspect what opened
-                            try:
-                                ss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", f"breakdown_screenshot_{index}.png")
-                                await self.page.screenshot(path=ss_path, full_page=False)
-                                print(f"[MAERSK] Screenshot saved: {ss_path}")
-                                # Also save page HTML to inspect DOM
-                                html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", f"breakdown_html_{index}.html")
-                                content = await self.page.content()
-                                with open(html_path, "w", encoding="utf-8") as f:
-                                    f.write(content)
-                                print(f"[MAERSK] Page HTML saved: {html_path}")
-                            except Exception as ss_e:
-                                print(f"[MAERSK] Screenshot/HTML save failed: {ss_e}")
-                            
-                            # Scrape all text inside active page/breakdown panel scoped strictly to current card
-                            raw_charges = await self.extract_charge_breakdown(card)
-                            
-                            # Click details button again to close/collapse
-                            try:
-                                await details_btn.click(force=True)
-                                await self.page.wait_for_timeout(500)
-                            except:
-                                pass
-                        else:
-                            # Fallback pierce click if scoped card search failed
-                            print(f"[MAERSK] Scoped button search failed for card at index {index}. Trying fallback...")
-                            fallback_btn = self.page.locator('*:has-text("Price breakdown & details")').nth(index)
-                            if await fallback_btn.is_visible(timeout=1500):
-                                await fallback_btn.scroll_into_view_if_needed()
-                                await fallback_btn.click(force=True)
-                                await self.page.wait_for_timeout(2000)
-                                raw_charges = await self.extract_charge_breakdown(card)
+                            for sel in selectors_to_try:
                                 try:
-                                    await fallback_btn.click(force=True)
+                                    btn = card.locator(sel).first
+                                    if await btn.is_visible(timeout=1000):
+                                        details_btn = btn
+                                        break
+                                except Exception:
+                                    continue
+                                    
+                            if details_btn:
+                                print(f"[MAERSK] Found price breakdown details button for card at index {index}. Clicking...")
+                                await details_btn.scroll_into_view_if_needed()
+                                await details_btn.click(force=True)
+                                await self.page.wait_for_timeout(2500)
+                                
+                                # Save a screenshot to inspect what opened
+                                try:
+                                    ss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", f"breakdown_screenshot_{index}.png")
+                                    await self.page.screenshot(path=ss_path, full_page=False)
+                                    print(f"[MAERSK] Screenshot saved: {ss_path}")
+                                    # Also save page HTML to inspect DOM
+                                    html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", f"breakdown_html_{index}.html")
+                                    content = await self.page.content()
+                                    with open(html_path, "w", encoding="utf-8") as f:
+                                        f.write(content)
+                                    print(f"[MAERSK] Page HTML saved: {html_path}")
+                                except Exception as ss_e:
+                                    print(f"[MAERSK] Screenshot/HTML save failed: {ss_e}")
+                                
+                                # Scrape all text inside active page/breakdown panel scoped strictly to current card
+                                raw_charges = await self.extract_charge_breakdown(card)
+                                
+                                # Click details button again to close/collapse
+                                try:
+                                    await details_btn.click(force=True)
                                     await self.page.wait_for_timeout(500)
                                 except:
                                     pass
                             else:
-                                print(f"[MAERSK] Could not find details button for card at index {index} using fallback.")
-                    except Exception as e:
-                        print(f"[MAERSK] Warning: Could not open price details for card at index {index}: {e}")
+                                # Fallback pierce click if scoped card search failed
+                                print(f"[MAERSK] Scoped button search failed for card at index {index}. Trying fallback...")
+                                fallback_btn = self.page.locator('*:has-text("Price breakdown & details")').nth(index)
+                                if await fallback_btn.is_visible(timeout=1500):
+                                    await fallback_btn.scroll_into_view_if_needed()
+                                    await fallback_btn.click(force=True)
+                                    await self.page.wait_for_timeout(2000)
+                                    raw_charges = await self.extract_charge_breakdown(card)
+                                    try:
+                                        await fallback_btn.click(force=True)
+                                        await self.page.wait_for_timeout(500)
+                                    except:
+                                        pass
+                                else:
+                                    print(f"[MAERSK] Could not find details button for card at index {index} using fallback.")
+                        except Exception as e:
+                            print(f"[MAERSK] Warning: Could not open price details for card at index {index}: {e}")
                         
                     # Normalize and add
                     try:

@@ -929,6 +929,9 @@ class CMAConnector(BaseCarrierConnector):
 
     async def extract_quote_list(self) -> list[dict]:
         try:
+            # First scroll and click "More results" repeatedly to load all cards
+            await self._handle_more_results()
+
             cards_sel = 'article.card-route-horizontal, article[class*="card-route-horizontal"], div[class*="schedules-result"], div[class*="sailing-result"]'
             cards = self.page.locator(cards_sel)
             count = await cards.count()
@@ -938,7 +941,7 @@ class CMAConnector(BaseCarrierConnector):
                 cards = self.page.locator('div:has(button:has-text("Details")):has-text("USD")')
                 count = await cards.count()
 
-            print(f"[CMA] Found {count} quote cards.")
+            print(f"[CMA] Found {count} total quote cards after loading all results.")
             self._all_quotes = []
 
             for i in range(count):
@@ -1009,9 +1012,6 @@ class CMAConnector(BaseCarrierConnector):
                     "carrier_code": self.carrier_code
                 })
 
-            # Handle "More results"
-            await self._handle_more_results()
-
             return self._all_quotes
         except Exception as e:
             print(f"[CMA] Error extracting quotes: {e}")
@@ -1019,8 +1019,7 @@ class CMAConnector(BaseCarrierConnector):
 
     async def _handle_more_results(self):
         """
-        Repeatedly clicks 'More results' if visible to load ALL quotes on the page,
-        then parses and appends new unique quotes to self._all_quotes.
+        Repeatedly clicks 'More results' if visible to load ALL quotes on the page.
         """
         try:
             max_clicks = 5
@@ -1042,87 +1041,6 @@ class CMAConnector(BaseCarrierConnector):
                 else:
                     print("[CMA] No more 'More results' buttons visible.")
                     break
-
-            # Now that all cards are loaded, retrieve all quotes and append any new ones
-            cards_sel = 'article.card-route-horizontal, article[class*="card-route-horizontal"], div[class*="schedules-result"], div[class*="sailing-result"]'
-            new_cards = self.page.locator(cards_sel)
-            new_count = await new_cards.count()
-            
-            # Keep track of what we already have (ETD + Vessel)
-            existing_keys = { (q["etd"], q["vessel"]) for q in self._all_quotes }
-            
-            new_added_count = 0
-            for i in range(new_count):
-                card = new_cards.nth(i)
-                text = await card.inner_text()
-                
-                # Basic extraction for deduplication
-                date_pattern = r'(?:[A-Za-z]+,\s+)?\d{1,2}-[A-Za-z]+-\d{4}'
-                found_dates = re.findall(date_pattern, text)
-                etd_str = found_dates[0] if len(found_dates) > 0 else None
-                etd_iso = None
-                if etd_str:
-                    try:
-                        if "," in etd_str:
-                            etd_iso = datetime.strptime(etd_str, "%A, %d-%b-%Y").date().isoformat()
-                        else:
-                            etd_iso = datetime.strptime(etd_str, "%d-%b-%Y").date().isoformat()
-                    except: pass
-                
-                vessel_match = re.search(r'Vessel\s+(.+?)\s+CO2', text)
-                vessel = vessel_match.group(1).strip() if vessel_match else None
-                
-                if (etd_iso, vessel) not in existing_keys:
-                    # Full extraction for new card
-                    eta_str = found_dates[1] if len(found_dates) > 1 else None
-                    eta_iso = None
-                    if eta_str:
-                        try:
-                            if "," in eta_str:
-                                eta_iso = datetime.strptime(eta_str, "%A, %d-%b-%Y").date().isoformat()
-                            else:
-                                eta_iso = datetime.strptime(eta_str, "%d-%b-%Y").date().isoformat()
-                        except: pass
-
-                    tt_match = re.search(r'(\d+)\s*[Dd]ays?', text)
-                    transit_time = int(tt_match.group(1)) if tt_match else None
-                    
-                    if etd_iso and eta_iso and transit_time is None:
-                        try:
-                            d1 = datetime.strptime(etd_iso, "%Y-%m-%d").date()
-                            d2 = datetime.strptime(eta_iso, "%Y-%m-%d").date()
-                            transit_time = (d2 - d1).days
-                        except: pass
-
-                    service_match = re.search(r'First Service\s+(\S+)', text)
-                    service = service_match.group(1).strip() if service_match else None
-
-                    price_match = re.search(r'(\d[\d,]*)\s*USD', text)
-                    total_price = float(price_match.group(1).replace(",", "")) if price_match else 0.0
-
-                    tags = []
-                    if "EARLIEST ARRIVAL" in text: tags.append("EARLIEST ARRIVAL")
-                    if "EARLIEST DEPARTURE" in text: tags.append("EARLIEST DEPARTURE")
-                    if "LATE BOOKING" in text: tags.append("LATE BOOKING")
-
-                    self._all_quotes.append({
-                        "index": len(self._all_quotes),
-                        "etd": etd_iso,
-                        "eta": eta_iso,
-                        "transit_time_days": transit_time,
-                        "service_name": service,
-                        "vessel": vessel,
-                        "total_price": total_price,
-                        "currency": "USD",
-                        "tags": tags,
-                        "card_locator": card,
-                        "source": "carrier_portal",
-                        "carrier_code": self.carrier_code
-                    })
-                    existing_keys.add((etd_iso, vessel))
-                    new_added_count += 1
-            
-            print(f"[CMA] Loaded {new_added_count} new quotes. Total quotes: {len(self._all_quotes)}")
         except Exception as e:
             print(f"[CMA] Error handling more results: {e}")
 
