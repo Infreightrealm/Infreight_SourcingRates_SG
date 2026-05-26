@@ -549,7 +549,11 @@ class MaerskConnector(BaseCarrierConnector):
             elif ":33335" in proxy_server:
                 proxy_server = proxy_server.replace(":33335", ":22225") # Override Web Unlocker to standard Residential Proxy
             
-            print(f"[MAERSK] [Proxy] Routing browser session through Bright Data Residential Proxy ({proxy_server})...")
+            if "-session-" not in proxy_user:
+                import uuid
+                session_id = str(uuid.uuid4())[:8]
+                proxy_user = f"{proxy_user}-session-{session_id}"
+            print(f"[MAERSK] [Proxy] Routing browser session through Bright Data Residential Proxy ({proxy_server}) with session pinning ({proxy_user.split('-session-')[-1]})...")
             launch_kwargs["proxy"] = {
                 "server": proxy_server,
                 "username": proxy_user,
