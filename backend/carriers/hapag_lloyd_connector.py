@@ -302,8 +302,20 @@ class HapagLloydConnector(BaseCarrierConnector):
                 # Need to log in
                 print("[HAPAG] Credentials required. Automating login form...")
                 
-                email = os.getenv("HAPAG_LLOYD_USERNAME", "BOOKINGSG@IN-FREIGHT.COM")
-                password = os.getenv("HAPAG_LLOYD_PASSWORD", "IFSGb2020")
+                email = os.getenv("HAPAG_LLOYD_USERNAME")
+                if not email or not email.strip():
+                    email = "BOOKINGSG@IN-FREIGHT.COM"
+                else:
+                    email = email.strip()
+
+                password = os.getenv("HAPAG_LLOYD_PASSWORD")
+                if not password or not password.strip():
+                    password = "IFSGb2020"
+                else:
+                    password = password.strip()
+
+                mask_pass = f"{password[:2]}***{password[-2:]}" if len(password) > 4 else "***"
+                print(f"[HAPAG] Login profile setup: email='{email}', password='{mask_pass}' (length: {len(password)})")
 
                 # Define locator lists for the fields
                 email_selectors = [
@@ -334,7 +346,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await email_input.scroll_into_view_if_needed()
                 await email_input.click()  # Click to focus the email box
                 await self._human_delay(300, 600)
+                await email_input.press("Control+A")
+                await email_input.press("Backspace")
                 await email_input.fill("")
+                await self._human_delay(200, 400)
                 await email_input.type(email, delay=random.randint(60, 120))
                 await self._human_delay(500, 1000)
 
@@ -362,7 +377,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await password_input.scroll_into_view_if_needed()
                 await password_input.click()  # Click to focus the password box
                 await self._human_delay(300, 600)
+                await password_input.press("Control+A")
+                await password_input.press("Backspace")
                 await password_input.fill("")
+                await self._human_delay(200, 400)
                 await password_input.type(password, delay=random.randint(60, 120))
                 await self._human_delay(1000, 1800)
 
