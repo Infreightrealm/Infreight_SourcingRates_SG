@@ -398,6 +398,9 @@ class ONEConnector(BaseCarrierConnector):
             target_date = self._resolve_departure_date(request.departure_date)
             target_date_text = target_date.isoformat()
 
+            # Initialize fallback notice
+            self.port_fallback_notice = None
+
             # Resolve origin locode for strict dropdown selection matching
             origin_locode = resolve_port_for_carrier(request.origin, "one")
             if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
@@ -466,6 +469,14 @@ class ONEConnector(BaseCarrierConnector):
 
             destination_cached = get_cached_carrier_port("one", destination_locode) if destination_locode else None
             destination_selected = False
+
+            # Check if Ain Sukhna -> Alexandria fallback occurred
+            if "EGAIS" in (request.origin.upper() if request.origin else "") or "SUKHNA" in (request.origin.upper() if request.origin else ""):
+                if origin_locode == "EGALY":
+                    self.port_fallback_notice = "Ain Sukhna fell back to Alexandria"
+            elif "EGAIS" in (request.destination.upper() if request.destination else "") or "SUKHNA" in (request.destination.upper() if request.destination else ""):
+                if destination_locode == "EGALY":
+                    self.port_fallback_notice = "Ain Sukhna fell back to Alexandria"
 
             try:
                 destination_field = self.page.get_by_role("combobox", name="Please search location").nth(1)
@@ -1089,7 +1100,13 @@ class ONEConnector(BaseCarrierConnector):
             return []
 
     async def normalize_result(self, raw_quote, raw_charges):
-        return normalize_quote(self.carrier_code, raw_quote, raw_charges)
+        quote_schema = normalize_quote(self.carrier_code, raw_quote, raw_charges)
+        if hasattr(self, 'port_fallback_notice') and self.port_fallback_notice:
+            if quote_schema.vessel:
+                quote_schema.vessel = f"{quote_schema.vessel} ({self.port_fallback_notice})"
+            else:
+                quote_schema.vessel = f"({self.port_fallback_notice})"
+        return quote_schema
 
     async def close(self):
         try:

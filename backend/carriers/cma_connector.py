@@ -687,6 +687,9 @@ class CMAConnector(BaseCarrierConnector):
         try:
             print("[CMA] Starting search...")
             
+            # Initialize fallback notice
+            self.port_fallback_notice = None
+            
             # --- ORIGIN ---
             origin_locode = resolve_port_for_carrier(request.origin, "cma")
             if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
@@ -726,6 +729,14 @@ class CMAConnector(BaseCarrierConnector):
             # Check cache
             dest_cached = get_cached_carrier_port("cma", dest_locode) if dest_locode else None
             dest_query = dest_locode
+
+            # Check if Sokhna -> Ain Sukhna fallback occurred
+            if "EGSOK" in (request.origin.upper() if request.origin else "") or "SOKHNA" in (request.origin.upper() if request.origin else ""):
+                if origin_locode == "EGAIS":
+                    self.port_fallback_notice = "Sokhna fell back to Ain Sukhna"
+            elif "EGSOK" in (request.destination.upper() if request.destination else "") or "SOKHNA" in (request.destination.upper() if request.destination else ""):
+                if dest_locode == "EGAIS":
+                    self.port_fallback_notice = "Sokhna fell back to Ain Sukhna"
 
             print(f"[CMA] Filling Destination: '{dest_query}' (locode: {dest_locode}, cached: '{dest_cached}')")
             dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i]').nth(1)
@@ -1239,6 +1250,13 @@ class CMAConnector(BaseCarrierConnector):
                     vessel = f"{vessel} (Voy: {self._current_voyage})"
             else:
                 vessel = f"Voy: {self._current_voyage}"
+
+        # Append port fallback warning if any
+        if hasattr(self, 'port_fallback_notice') and self.port_fallback_notice:
+            if vessel:
+                vessel = f"{vessel} ({self.port_fallback_notice})"
+            else:
+                vessel = f"({self.port_fallback_notice})"
 
         return QuoteSchema(
             etd=raw_quote.get("etd"),
