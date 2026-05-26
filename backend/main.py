@@ -73,22 +73,90 @@ async def vnc_status():
     is_prod = os.name != "nt"
     return {
         "available": is_prod,
-        "vnc_path": "/vnc/vnc.html?autoconnect=true&resize=scale&reconnect=true",
-        "message": "VNC viewer available — use the Live Browser View to interact with carrier portals."
-        if is_prod
-        else "VNC not available in local development mode.",
+        "carriers": [
+            {
+                "name": "Maersk",
+                "code": "maersk",
+                "path": "/vnc/maersk/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/maersk/websockify",
+                "ws_path": "/websockify/maersk"
+            },
+            {
+                "name": "CMA CGM",
+                "code": "cma",
+                "path": "/vnc/cma/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/cma/websockify",
+                "ws_path": "/websockify/cma"
+            },
+            {
+                "name": "ONE",
+                "code": "one",
+                "path": "/vnc/one/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/one/websockify",
+                "ws_path": "/websockify/one"
+            }
+        ] if is_prod else [],
+        "vnc_path": "/vnc/vnc.html?autoconnect=true&resize=scale&reconnect=true", # Legacy fallback
+        "message": "Multi-tab VNC viewer available." if is_prod else "VNC not available in local development mode.",
     }
 
 
 @app.websocket("/websockify")
 async def websockify_proxy(websocket: WebSocket):
-    """Proxy WebSocket connections to local x11vnc at localhost:5900."""
+    """Proxy WebSocket connections to legacy local x11vnc at localhost:5900."""
     await websocket.accept()
     try:
-        # Connect to local x11vnc server
         reader, writer = await asyncio.open_connection("127.0.0.1", 5900)
     except Exception as e:
         print(f"[VNC Proxy] Failed to connect to x11vnc at 127.0.0.1:5900: {e}")
+        await websocket.close(code=1011)
+        return
+
+    async def ws_to_tcp():
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                writer.write(data)
+                await writer.drain()
+        except Exception:
+            pass
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def tcp_to_ws():
+        try:
+            while True:
+                data = await reader.read(4096)
+                if not data:
+                    break
+                await websocket.send_bytes(data)
+        except Exception:
+            pass
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+
+    await asyncio.gather(ws_to_tcp(), tcp_to_ws(), return_exceptions=True)
+
+
+@app.websocket("/websockify/{carrier}")
+async def websockify_carrier_proxy(websocket: WebSocket, carrier: str):
+    """Proxy WebSocket connections to specific carrier x11vnc servers."""
+    carrier_ports = {
+        "maersk": 5900,
+        "cma": 5901,
+        "one": 5902
+    }
+    port = carrier_ports.get(carrier.lower(), 5900)
+    
+    await websocket.accept()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    except Exception as e:
+        print(f"[VNC Proxy] Failed to connect to x11vnc for {carrier} at 127.0.0.1:{port}: {e}")
         await websocket.close(code=1011)
         return
 

@@ -107,7 +107,7 @@ class CMAConnector(BaseCarrierConnector):
         # ── Browser launch ───────────────────────────────────────────────────────
         is_prod = os.name != "nt"
         if is_prod:
-            os.environ["DISPLAY"] = ":99"
+            os.environ["DISPLAY"] = ":100"
 
         # On Windows: use the REAL Chrome binary to avoid DataDome fingerprint detection.
         # Patchright's bundled Chromium gets hard-blocked by DataDome ("Access is temporarily restricted").
@@ -133,6 +133,9 @@ class CMAConnector(BaseCarrierConnector):
             "args": [
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
+                "--disable-infobars",
+                "--disable-component-update",
+                "--disable-default-apps",
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
@@ -146,7 +149,14 @@ class CMAConnector(BaseCarrierConnector):
             launch_kwargs["channel"] = "chrome"
             print("[CMA] Using channel='chrome' (system Chrome)")
         else:
-            print("[CMA] Using Patchright bundled Chromium (production)")
+            # Use real Google Chrome Stable in production — Patchright's bundled
+            # Chromium gets hard-blocked by DataDome fingerprinting.
+            chrome_path = "/usr/bin/google-chrome-stable"
+            if os.path.exists(chrome_path):
+                launch_kwargs["executable_path"] = chrome_path
+                print(f"[CMA] Using real Google Chrome Stable: {chrome_path}")
+            else:
+                print("[CMA] WARNING: Real Chrome not found, falling back to Patchright bundled Chromium")
 
         if proxy_user and proxy_pass:
             proxy_server = os.getenv("BRIGHTDATA_PROXY_SERVER") or "http://brd.superproxy.io:22225"
