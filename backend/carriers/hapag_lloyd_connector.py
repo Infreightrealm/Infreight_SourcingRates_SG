@@ -411,8 +411,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await submit_btn.scroll_into_view_if_needed()
                 await submit_btn.click()
                 print("[HAPAG] Login form submitted. Waiting for page redirect to Quick Quote page...")
-                await self.page.wait_for_load_state("networkidle")
-                await self.page.wait_for_timeout(5000)
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except:
+                    pass
+                await self._human_delay(2000, 4000)
 
             # Confirm quick quotes form is displayed
             try:
@@ -426,28 +429,38 @@ class HapagLloydConnector(BaseCarrierConnector):
                 ]
                 
                 form_loaded = False
-                for sel in quote_selectors:
-                    try:
-                        loc = self.page.locator(sel).first
-                        if await loc.is_visible(timeout=5000):
-                            print(f"[HAPAG] Confirmed Quick Quote page loaded using: {sel}")
-                            form_loaded = True
-                            break
-                    except:
-                        pass
+                confirm_start_time = asyncio.get_event_loop().time()
+                
+                # Poll for up to 45 seconds for redirect/loading of the Quote form
+                while asyncio.get_event_loop().time() - confirm_start_time < 45:
+                    for sel in quote_selectors:
+                        try:
+                            loc = self.page.locator(sel).first
+                            if await loc.is_visible():
+                                print(f"[HAPAG] Confirmed Quick Quote page loaded using: {sel}")
+                                form_loaded = True
+                                break
+                        except:
+                            pass
+                    if form_loaded:
+                        break
+                    await asyncio.sleep(1)
                 
                 if not form_loaded:
                     # Try a fallback general wait for any input
-                    await self.page.wait_for_selector('input', timeout=5000)
-                    print("[HAPAG] Found inputs. Assuming form loaded.")
-                    form_loaded = True
+                    try:
+                        await self.page.wait_for_selector('input', timeout=5000)
+                        print("[HAPAG] Found inputs. Assuming form loaded.")
+                        form_loaded = True
+                    except:
+                        pass
 
                 if form_loaded:
                     print("[HAPAG] Quick Quote form successfully verified.")
                     self.is_login_successful = True
                     return True
                 else:
-                    raise Exception("No confirming Quick Quote page elements were visible.")
+                    raise Exception("No confirming Quick Quote page elements were visible after 45s.")
                     
             except Exception as e:
                 print(f"[HAPAG] [ERROR] Quick Quote form verification failed: {e}")
