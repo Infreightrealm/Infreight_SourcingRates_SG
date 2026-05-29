@@ -181,32 +181,90 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def _dismiss_hapag_modals(self):
         """
-        Dismisses any obscuring modal popups (like the 'Recently Searched' dialog).
+        Dismisses any obscuring modal popups (including multi-step tutorial dialogs).
+        """
+        print("[HAPAG] Dismissing any obscuring modal popups or onboarding wizards...")
+        try:
+            dismissed_any = False
+            for step in range(1, 6):
+                dismissed = await self._run_modal_dismissal_pass()
+                if not dismissed:
+                    break
+                print(f"[HAPAG] Tutorial step {step} popup dismissed successfully.")
+                dismissed_any = True
+                await self.page.wait_for_timeout(800)  # brief wait for transition to next step/dialog
+            return dismissed_any
+        except Exception as e:
+            print(f"[HAPAG] Error in modal dismissal loop: {e}")
+            return False
+
+    async def _run_modal_dismissal_pass(self) -> bool:
+        """
+        Performs a single modal dismissal check and attempt.
         """
         try:
-            print("[HAPAG] Checking for any obscuring modal popups...")
+            # 1. Run quick selector-based closes
             close_selectors = [
+                'button[aria-label*="close" i]',
                 'button:has-text("Close")',
                 'div[role="dialog"] button:has-text("Close")',
                 'div:has-text("Recently Searched") button:has-text("Close")',
                 'div:has-text("Recently Searched") button',
                 'span:has-text("Close")',
-                '.modal button:has-text("Close")'
+                '.modal button:has-text("Close")',
+                '.el-dialog__headerbtn',
+                '.el-dialog__close'
             ]
             for sel in close_selectors:
                 try:
                     close_btn = self.page.locator(sel).first
-                    if await close_btn.is_visible():
+                    if await close_btn.is_visible(timeout=200):
                         print(f"[HAPAG] Modal close button detected: {sel}. Clicking to dismiss...")
                         await close_btn.scroll_into_view_if_needed()
                         await close_btn.click()
-                        await self._human_delay(800, 1500)
                         return True
                 except:
                     pass
+            
+            # 2. Run advanced JavaScript evaluation to close custom overlay popups (e.g. currency onboarding)
+            js_close_result = await self.page.evaluate('''() => {
+                const dialogs = Array.from(document.querySelectorAll('div[role="dialog"], .el-dialog, .modal, .q-dialog, .q-card'));
+                for (const dialog of dialogs) {
+                    // Try to find close buttons or icons (like the X icon in top right)
+                    const closeBtn = dialog.querySelector('button[aria-label*="close" i], .el-dialog__headerbtn, [class*="close" i]');
+                    if (closeBtn && closeBtn.getBoundingClientRect().width > 0) {
+                        closeBtn.click();
+                        return "Clicked close button/icon";
+                    }
+                    
+                    // Scan all buttons/text/icons in this dialog for X symbols or "close" text
+                    const elements = Array.from(dialog.querySelectorAll('button, span, i, a'));
+                    for (const el of elements) {
+                        const txt = (el.textContent || "").trim();
+                        const cls = el.className || "";
+                        if (txt === '\u2715' || txt === '\u00d7' || txt === 'x' || txt.toLowerCase() === 'close' || cls.includes('close') || cls.includes('icon-close')) {
+                            el.click();
+                            return "Clicked text/class close symbol: " + txt;
+                        }
+                    }
+                    
+                    // Fallback to "Next" or "OK" buttons in onboarding modals
+                    const actionBtn = dialog.querySelector('button:has-text("Next"), button:has-text("OK"), button.orange');
+                    if (actionBtn && actionBtn.getBoundingClientRect().width > 0) {
+                        actionBtn.click();
+                        return "Clicked modal action button (Next/OK)";
+                    }
+                }
+                return null;
+            }''')
+            
+            if js_close_result:
+                print(f"[HAPAG] JavaScript popup manager: {js_close_result}")
+                return True
+                
             return False
         except Exception as e:
-            print(f"[HAPAG] Error in modal dismissal check: {e}")
+            print(f"[HAPAG] Error in single modal dismissal pass: {e}")
             return False
 
     async def login(self) -> bool:
@@ -505,6 +563,54 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] [ERROR] Login process crashed: {e}")
             await self.page.screenshot(path="hapag_login_crash.png")
             return False
+
+    def _normalize_date_string(self, date_str: str) -> str:
+        """
+        Normalize various date formats (e.g. 2026-05-31, 31.05.2026, 31 May 2026, 31 May) into ISO YYYY-MM-DD.
+        """
+        date_str = date_str.strip()
+        # Try YYYY-MM-DD
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            pass
+            
+        # Try DD.MM.YYYY
+        try:
+            return datetime.strptime(date_str, "%d.%m.%Y").date().isoformat()
+        except ValueError:
+            pass
+            
+        # Try DD-MM-YYYY
+        try:
+            return datetime.strptime(date_str, "%d-%m-%Y").date().isoformat()
+        except ValueError:
+            pass
+            
+        # Try DD MMM YYYY (e.g. 31 May 2026)
+        try:
+            return datetime.strptime(date_str, "%d %b %Y").date().isoformat()
+        except ValueError:
+            pass
+        try:
+            return datetime.strptime(date_str, "%d %B %Y").date().isoformat()
+        except ValueError:
+            pass
+            
+        # Try DD MMM (use current/next year)
+        try:
+            parsed = datetime.strptime(date_str, "%d %b")
+            current_year = date.today().year
+            res_date = parsed.replace(year=current_year).date()
+            if res_date < date.today():
+                res_date = res_date.replace(year=current_year + 1)
+            return res_date.isoformat()
+        except ValueError:
+            pass
+            
+        return date_str
+
+
 
     async def _select_hapag_dropdown_option(self, label: str, locode: str, cached_name: Optional[str] = None) -> bool:
         """
@@ -876,17 +982,88 @@ class HapagLloydConnector(BaseCarrierConnector):
                 return CarrierResultStatus.UNKNOWN_ERROR
 
             # Results detection
-            try:
-                # Wait for any schedule route cards, price tags, or results element
-                await self.page.wait_for_selector('text=/\\d{4}-\\d{2}-\\d{2}/, [class*="route" i], [class*="result" i], [class*="sailing" i], [class*="price" i], button:has-text("Book"), button:has-text("Select")', timeout=120000)
+            print("[HAPAG] Waiting for search results to load (up to 180s)...")
+            start_wait = asyncio.get_event_loop().time()
+            max_wait_seconds = 180
+            results_found = False
+            no_rates_found = False
+            
+            # Create scratch dir if not exists
+            os.makedirs("scratch", exist_ok=True)
+            
+            while asyncio.get_event_loop().time() - start_wait < max_wait_seconds:
+                elapsed = int(asyncio.get_event_loop().time() - start_wait)
+                
+                # Periodically take a screenshot and log status
+                if elapsed > 0 and elapsed % 15 == 0:
+                    print(f"[HAPAG] Still waiting for results... ({elapsed}s elapsed)")
+                    # Save a rolling diagnostic screenshot
+                    try:
+                        await self.page.screenshot(path=f"scratch/hapag_loading_{elapsed}s.png")
+                    except Exception as ss_err:
+                        print(f"[HAPAG] Diagnostic screenshot failed: {ss_err}")
+                
+                # Check if results are visible
+                try:
+                    # Check for date format YYYY-MM-DD or Price Breakdown or Select button
+                    results_selectors = [
+                        'text=/\\d{4}-\\d{2}-\\d{2}/',
+                        'text=/\\d{2}\\.\\d{2}\\.\\d{4}/',
+                        'text=/\\d{2}-\\d{2}-\\d{4}/',
+                        'text=/\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i',
+                        '[class*="route" i]',
+                        '[class*="result" i]',
+                        '[class*="sailing" i]',
+                        '[class*="price" i]',
+                        'button:has-text("Book")',
+                        'button:has-text("Select")',
+                        'button:has-text("Price Breakdown")'
+                    ]
+                    
+                    found_selector = None
+                    for sel in results_selectors:
+                        try:
+                            loc = self.page.locator(sel).first
+                            if await loc.is_visible(timeout=200):
+                                found_selector = sel
+                                break
+                        except:
+                            pass
+                            
+                    if found_selector:
+                        print(f"[HAPAG] Results detected via selector: '{found_selector}'")
+                        results_found = True
+                        break
+                except Exception as detect_err:
+                    print(f"[HAPAG] Error in selector check: {detect_err}")
+                
+                # Check for explicit "No rates" or "No schedules" messages
+                try:
+                    page_text = await self.page.inner_text('body')
+                    text_lower = page_text.lower()
+                    if any(msg in text_lower for msg in [
+                        "no result", 
+                        "no schedule", 
+                        "no rate",
+                        "no offer",
+                        "no routing found",
+                        "could not be found",
+                        "is not available"
+                    ]):
+                        print("[HAPAG] Explicitly reported: No quotes available.")
+                        no_rates_found = True
+                        break
+                except:
+                    pass
+                
+                await asyncio.sleep(2)
+                
+            if results_found:
                 print("[HAPAG] Sourced quotes successfully.")
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
-            except Exception:
-                page_text = await self.page.inner_text('body')
-                if 'no result' in page_text.lower() or 'no schedule' in page_text.lower() or 'no rate' in page_text.lower():
-                    print("[HAPAG] Explicitly reported: No quotes available.")
-                    return CarrierResultStatus.NO_QUOTES_AVAILABLE
-                
+            elif no_rates_found:
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE
+            else:
                 print("[HAPAG] Results wait timeout.")
                 await self.page.screenshot(path="hapag_results_fail.png")
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE
@@ -898,16 +1075,52 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def extract_quote_list(self) -> list[dict]:
         try:
+            # Dismiss any obscuring popups that might have appeared after results loaded
+            await self._dismiss_hapag_modals()
+
             print("[HAPAG] Locating departure columns in calendar grid...")
-            # Wait for calendar grid / departure dates to appear
-            await self.page.wait_for_selector('text=/\\d{4}-\\d{2}-\\d{2}/', timeout=15000)
-            
-            # Find unique visible date headers
+            # Wait for calendar grid / departure dates to appear using a robust fallback sequence
+            date_selectors = [
+                'text=/\\d{4}-\\d{2}-\\d{2}/',
+                'text=/\\d{2}\\.\\d{2}\\.\\d{4}/',
+                'text=/\\d{2}-\\d{2}-\\d{4}/',
+                'text=/\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i'
+            ]
+            found_date_element = False
+            for sel in date_selectors:
+                try:
+                    await self.page.wait_for_selector(sel, timeout=4000)
+                    found_date_element = True
+                    print(f"[HAPAG] Date element detected in grid using: '{sel}'")
+                    break
+                except:
+                    pass
+            if not found_date_element:
+                print("[HAPAG] Warning: No standard date headers found. Sifting page text elements directly...")
+
+            # Find unique visible date headers in the horizontal grid columns
             columns_data = await self.page.evaluate('''() => {
+                const patterns = [
+                    /^\\d{4}-\\d{2}-\\d{2}$/,
+                    /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
+                    /^\\d{2}-\\d{2}-\\d{4}$/,
+                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
+                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
+                ];
+                
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
                     if (el.children.length > 0) return false;
                     const txt = el.textContent ? el.textContent.trim() : '';
-                    return /^\\d{4}-\\d{2}-\\d{2}$/.test(txt);
+                    if (!patterns.some(pat => pat.test(txt))) return false;
+                    // Exclude elements inside hidden portal/dialog containers (q-portal, dialogs)
+                    let parent = el.parentElement;
+                    while (parent) {
+                        const id = parent.id || '';
+                        const cls = parent.className || '';
+                        if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
+                        parent = parent.parentElement;
+                    }
+                    return true;
                 });
                 
                 const cols = [];
@@ -928,11 +1141,12 @@ class HapagLloydConnector(BaseCarrierConnector):
             
             for col in columns_data:
                 idx = col["index"]
-                date_str = col["date"]
+                raw_date_str = col["date"]
+                normalized_date = self._normalize_date_string(raw_date_str)
                 
                 self._all_quotes.append({
                     "index": idx,
-                    "etd": date_str,
+                    "etd": normalized_date,
                     "eta": None,
                     "transit_time_days": None,
                     "via_routing": "",
@@ -957,10 +1171,27 @@ class HapagLloydConnector(BaseCarrierConnector):
             
             # Click the column
             clicked = await self.page.evaluate('''idx => {
+                const patterns = [
+                    /^\\d{4}-\\d{2}-\\d{2}$/,
+                    /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
+                    /^\\d{2}-\\d{2}-\\d{4}$/,
+                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
+                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
+                ];
+                
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
                     if (el.children.length > 0) return false;
                     const txt = el.textContent ? el.textContent.trim() : '';
-                    return /^\\d{4}-\\d{2}-\\d{2}$/.test(txt);
+                    if (!patterns.some(pat => pat.test(txt))) return false;
+                    // Exclude elements inside hidden portal/dialog containers (q-portal, dialogs)
+                    let parent = el.parentElement;
+                    while (parent) {
+                        const id = parent.id || '';
+                        const cls = parent.className || '';
+                        if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
+                        parent = parent.parentElement;
+                    }
+                    return true;
                 });
                 
                 const uniqueDates = [];
@@ -1028,9 +1259,15 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
             print(f"[HAPAG] Parsed transit time: {tt} days, via: '{via_routing}'")
             
+            # Dismiss any onboarding tutorial popups that might intercept the Price Breakdown click
+            print("[HAPAG] Dismissing any tutorial popups before clicking Price Breakdown...")
+            await self._dismiss_hapag_modals()
+            await self._human_delay(500, 800)
+            
             # Find Price Breakdown button
             pb_selectors = [
                 'button:has-text("Price Breakdown")',
+                'button[title="Price Breakdown"]',
                 'span:has-text("Price Breakdown")',
                 'div.price-breakdown button'
             ]
@@ -1050,10 +1287,18 @@ class HapagLloydConnector(BaseCarrierConnector):
                 quote_ref["is_sold_out"] = True
                 return False
                 
-            # Click Price Breakdown
+            # Click Price Breakdown — use JS click as fallback if intercepted by overlay
             print("[HAPAG] Clicking 'Price Breakdown' button...")
-            await pb_btn.scroll_into_view_if_needed()
-            await pb_btn.click()
+            try:
+                await pb_btn.scroll_into_view_if_needed()
+                await pb_btn.click(timeout=8000)
+            except Exception as click_err:
+                print(f"[HAPAG] Playwright click blocked ({click_err}). Falling back to JS click...")
+                await self.page.evaluate('''() => {
+                    const btns = Array.from(document.querySelectorAll('button[title="Price Breakdown"], button'));
+                    const pb = btns.find(b => b.textContent.includes("Price Breakdown") || b.title === "Price Breakdown");
+                    if (pb) pb.click();
+                }''')
             
             # Wait for modal dialog to open
             print("[HAPAG] Waiting for Price Breakdown modal...")
@@ -1131,11 +1376,21 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                     
                     if (cells.length >= 4) {
+                        // Skip table header elements
+                        if (row.closest('thead') || cells.some(c => c.tagName === 'TH' || c.getAttribute('role') === 'columnheader')) {
+                            continue;
+                        }
+                        
                         const name = cells[0].textContent ? cells[0].textContent.trim() : "";
                         const unit = cells[1].textContent ? cells[1].textContent.trim() : "";
                         const curr = cells[2].textContent ? cells[2].textContent.trim() : "";
                         
-                        if (name === "Freight Charges" || name === "Freight Surcharges" || name.includes("20STD") || name.includes("40STD")) {
+                        // Ignore header labels, section descriptors, or empty rows
+                        if (!name || name === "Freight Charges" || name === "Freight Surcharges" || 
+                            name === "Charge" || name === "Unit" || name === "Currency" || name === "Ctr." ||
+                            name.includes("20STD") || name.includes("40STD") || name.includes("40HC") ||
+                            curr.includes("20STD") || curr.includes("40STD") || curr.includes("40HC") ||
+                            curr.includes("20'STD") || curr.includes("40'STD") || curr.includes("40'HC")) {
                             continue;
                         }
                         
