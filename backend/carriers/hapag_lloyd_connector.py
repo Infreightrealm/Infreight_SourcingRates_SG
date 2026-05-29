@@ -1459,6 +1459,70 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
             print(f"[HAPAG] Parsed transit time: {tt} days, via: '{via_routing}'")
             
+            # Parse requested container type to check price directly on the card
+            container_type = "DRY 40"
+            if hasattr(self, 'current_request') and self.current_request:
+                container_type = self.current_request.container_type
+
+            # Parse card price directly for fallback and sold-out screening
+            self._last_parsed_price = None
+            try:
+                card_price_res = await self.page.evaluate(r'''containerType => {
+                    let sizeLabel = "40HC";
+                    if (containerType === "DRY 20") sizeLabel = "20STD";
+                    else if (containerType === "DRY 40") sizeLabel = "40STD";
+                    else if (containerType === "DRY 40H") sizeLabel = "40HC";
+
+                    // 1. Scan elements to find row text containing sizeLabel and USD or /Container
+                    const rows = Array.from(document.querySelectorAll('div, span, p, tr, td'));
+                    for (const row of rows) {
+                        if (row.children.length > 8) continue;
+                        const txt = (row.textContent || '').trim();
+                        if (txt.includes(sizeLabel) && (txt.includes("USD") || txt.includes("$") || txt.includes("/Container"))) {
+                            if (txt.includes("-") || txt.includes("not available") || txt.includes("sold out")) {
+                                return "sold_out";
+                            }
+                            const match = txt.match(/(?:USD|\$)\s*([\d,]+(?:\.\d+)?)/i);
+                            if (match) {
+                                const val = parseFloat(match[1].replace(/,/g, ''));
+                                if (!isNaN(val) && val > 0) {
+                                    return val;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 2. Fallback: scan lines of page innerText
+                    const allText = document.body.innerText || "";
+                    const lines = allText.split("\n");
+                    for (const line of lines) {
+                        if (line.includes(sizeLabel)) {
+                            if (line.includes("-") || line.includes("sold out") || line.includes("not available")) {
+                                return "sold_out";
+                            }
+                            const match = line.match(/(?:USD|\$)\s*([\d,]+(?:\.\d+)?)/i);
+                            if (match) {
+                                const val = parseFloat(match[1].replace(/,/g, ''));
+                                if (!isNaN(val) && val > 0) {
+                                    return val;
+                                }
+                            }
+                        }
+                    }
+                    return null;
+                }''', container_type)
+
+                print(f"[HAPAG] Card price evaluation result for {container_type}: {card_price_res}")
+                if card_price_res == "sold_out":
+                    print(f"[HAPAG] Card price indicates '{container_type}' is sold out for this departure.")
+                    quote_ref["is_sold_out"] = True
+                    return False
+                elif isinstance(card_price_res, (int, float)):
+                    self._last_parsed_price = float(card_price_res)
+                    quote_ref["total_price"] = self._last_parsed_price
+            except Exception as pe:
+                print(f"[HAPAG] Warning: Card price evaluation failed: {pe}")
+
             # Dismiss any onboarding tutorial popups that might intercept the Price Breakdown click
             print("[HAPAG] Dismissing any tutorial popups before clicking Price Breakdown...")
             await self._dismiss_hapag_modals()
@@ -1483,9 +1547,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                     pass
                     
             if not pb_btn:
-                print(f"[HAPAG] Price Breakdown button not found or not visible. Skipping sold out/unavailable departure.")
-                quote_ref["is_sold_out"] = True
-                return False
+                if self._last_parsed_price:
+                    print(f"[HAPAG] Price Breakdown button not found, but card rate is available: USD {self._last_parsed_price}. Falling back to card rate.")
+                    quote_ref["is_sold_out"] = False
+                    return True
+                else:
+                    print(f"[HAPAG] Price Breakdown button not found and no card rate available. Skipping sold out/unavailable departure.")
+                    quote_ref["is_sold_out"] = True
+                    return False
                 
             # Click Price Breakdown -- use JS click as fallback if intercepted by overlay
             print("[HAPAG] Clicking 'Price Breakdown' button...")
@@ -1644,6 +1713,15 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print(f"[HAPAG] Error closing modal: {close_err}")
                 
             await self._human_delay(800, 1500)
+            
+            if not charges and hasattr(self, '_last_parsed_price') and self._last_parsed_price:
+                print(f"[HAPAG] Modal not opened/found. Returning fallback Ocean Freight charge from card: USD {self._last_parsed_price}")
+                charges = [{
+                    "name": "Ocean Freight",
+                    "amount": self._last_parsed_price,
+                    "currency": "USD",
+                    "category": "BASIC_OCEAN_FREIGHT"
+                }]
             
         return charges
 
