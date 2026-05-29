@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-Hapag-Lloyd Live Connector — Playwright automation.
+Hapag-Lloyd Live Connector -- Playwright automation.
 
 Credentials read from env: HAPAG_LLOYD_USERNAME, HAPAG_LLOYD_PASSWORD
 Never hardcode credentials.
@@ -1078,7 +1079,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             # Dismiss any obscuring popups that might have appeared after results loaded
             await self._dismiss_hapag_modals()
 
-            print("[HAPAG] Locating departure columns in calendar grid...")
+            print("[HAPAG] Paginating through all departure columns in calendar grid...")
             # Wait for calendar grid / departure dates to appear using a robust fallback sequence
             date_selectors = [
                 'text=/\\d{4}-\\d{2}-\\d{2}/',
@@ -1098,8 +1099,10 @@ class HapagLloydConnector(BaseCarrierConnector):
             if not found_date_element:
                 print("[HAPAG] Warning: No standard date headers found. Sifting page text elements directly...")
 
-            # Find unique visible date headers in the horizontal grid columns
-            columns_data = await self.page.evaluate('''() => {
+            # ------------------------------------------------------------------
+            # JS helper: scrape all visible date columns (excluding portal/dialog)
+            # ------------------------------------------------------------------
+            JS_GET_VISIBLE_DATES = '''() => {
                 const patterns = [
                     /^\\d{4}-\\d{2}-\\d{2}$/,
                     /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
@@ -1107,12 +1110,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
                     /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
                 ];
-                
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
                     if (el.children.length > 0) return false;
                     const txt = el.textContent ? el.textContent.trim() : '';
                     if (!patterns.some(pat => pat.test(txt))) return false;
-                    // Exclude elements inside hidden portal/dialog containers (q-portal, dialogs)
                     let parent = el.parentElement;
                     while (parent) {
                         const id = parent.id || '';
@@ -1122,30 +1123,144 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                     return true;
                 });
-                
                 const cols = [];
-                dateEls.forEach((el, index) => {
+                dateEls.forEach(el => {
                     const rect = el.getBoundingClientRect();
                     if (rect.width > 0 && rect.height > 0) {
-                        cols.push({
-                            index: index,
-                            date: el.textContent.trim()
-                        });
+                        cols.push(el.textContent.trim());
                     }
                 });
-                return cols;
-            }''')
-            
-            print(f"[HAPAG] Found {len(columns_data)} visible columns in departures grid.")
+                // Deduplicate at JS level too (preserving insertion order)
+                return Array.from(new Set(cols));
+            }'''
+
+
+            # ------------------------------------------------------------------
+            # JS helper: check if the "No further departures" end-of-line message
+            # is visible anywhere on the page (tooltip or inline text)
+            # ------------------------------------------------------------------
+            JS_IS_END_OF_QUOTES = '''() => {
+                const needle = 'no further departures currently available for quoting';
+                const allEls = Array.from(document.querySelectorAll('*'));
+                return allEls.some(el => {
+                    if (el.children.length > 0) return false;
+                    const txt = (el.textContent || '').trim().toLowerCase();
+                    return txt.includes(needle);
+                });
+            }'''
+
+            # ------------------------------------------------------------------
+            # Selectors for the right-arrow navigation button in the calendar grid
+            # ------------------------------------------------------------------
+            ARROW_RIGHT_SELECTORS = [
+                'button[aria-label*="next" i]',
+                'button[aria-label*="forward" i]',
+                'button[aria-label*="right" i]',
+                '[class*="arrow-right" i]',
+                '[class*="next" i] button',
+                'button[class*="next" i]',
+                # Generic: a visible button with > or chevron that is NOT a submit/search button
+                'button.q-btn:not([type="submit"]):not([aria-label*="search" i])'
+            ]
+
+            all_dates_seen: list[str] = []       # ordered, de-duped list of all ETD strings
+            seen_set: set[str] = set()
+            max_pages = 25          # safety cap -- Hapag-Lloyd has at most ~8-12 weeks of departures
+            page_num = 0
+
+            # JS to click the rightmost visible arrow/chevron button in the grid
+            JS_CLICK_RIGHT_ARROW = '''() => {
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                const visible = candidates.filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+                // Score each button: prefer ones whose text/class/aria-label suggests a right-navigation
+                // and exclude search/submit buttons
+                const arrows = visible.filter(el => {
+                    const txt = (el.textContent || '').trim();
+                    const cls = (el.className || '').toLowerCase();
+                    const lbl = (el.getAttribute('aria-label') || '').toLowerCase();
+                    const isNav = (
+                        txt === '>' ||
+                        cls.includes('arrow-right') || cls.includes('chevron-right') ||
+                        cls.includes('next') ||
+                        lbl.includes('next') || lbl.includes('right') || lbl.includes('forward')
+                    );
+                    const isSearch = cls.includes('search') || lbl.includes('search') || el.type === 'submit';
+                    return isNav && !isSearch;
+                });
+                if (arrows.length > 0) {
+                    // Pick rightmost button (the > arrow in the calendar toolbar)
+                    arrows.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
+                    const btn = arrows[0];
+                    // Check if disabled
+                    if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return 'disabled';
+                    btn.click();
+                    return 'clicked';
+                }
+                return 'not_found';
+            }'''
+
+            while page_num < max_pages:
+                page_num += 1
+                await self._human_delay(600, 900)
+
+                # Read unique dates currently visible in the grid (JS dedupes with Set)
+                visible_dates: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
+                # Python-side incremental deduplication (fixes batch-filter bug)
+                new_count = 0
+                for d in visible_dates:
+                    if d not in seen_set:
+                        seen_set.add(d)
+                        all_dates_seen.append(d)
+                        new_count += 1
+
+                print(f"[HAPAG] Page {page_num}: {len(visible_dates)} columns visible, {new_count} new -> total {len(all_dates_seen)} unique dates so far")
+
+                # Try to click the right-arrow to advance to the next column window
+                # NOTE: we check the end sentinel only AFTER a click yields 0 new dates,
+                # because the tooltip is always present in the DOM even before it's hoverable.
+                arrow_result = await self.page.evaluate(JS_CLICK_RIGHT_ARROW)
+                print(f"[HAPAG] Right-arrow JS result: {arrow_result}")
+
+                if arrow_result == 'disabled':
+                    print("[HAPAG] Right-arrow is disabled -- end of departures reached.")
+                    break
+
+                if arrow_result == 'not_found':
+                    print("[HAPAG] No right-arrow button found -- assuming end of departures.")
+                    break
+
+                # Arrow was clicked -- wait for new columns to render
+                await self._human_delay(900, 1400)
+
+                # Check how many new dates appeared after the click
+                visible_after: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
+                new_after = sum(1 for d in visible_after if d not in seen_set)
+
+                if new_after == 0:
+                    # Grid did not advance -- we've reached the end
+                    end_reached = await self.page.evaluate(JS_IS_END_OF_QUOTES)
+                    if end_reached:
+                        print("[HAPAG] No new dates after arrow click and end sentinel confirmed -- done.")
+                    else:
+                        print("[HAPAG] No new dates after arrow click -- grid exhausted.")
+                    break
+
+            print(f"[HAPAG] Pagination complete. Total unique departure dates collected: {len(all_dates_seen)}")
+            for d in all_dates_seen:
+                print(f"  >> {d}")
+
             self._all_quotes = []
-            
-            for col in columns_data:
-                idx = col["index"]
-                raw_date_str = col["date"]
+            for seq_idx, raw_date_str in enumerate(all_dates_seen):
                 normalized_date = self._normalize_date_string(raw_date_str)
-                
                 self._all_quotes.append({
-                    "index": idx,
+                    # seq_idx is the logical position (0-based) across all paginated pages
+                    # page_offset will be calculated in open_price_breakdown to know how many
+                    # arrow clicks are needed to bring this date into view
+                    "seq_idx": seq_idx,
+                    "raw_date": raw_date_str,
                     "etd": normalized_date,
                     "eta": None,
                     "transit_time_days": None,
@@ -1166,11 +1281,14 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def open_price_breakdown(self, quote_ref: dict) -> bool:
         try:
-            idx = quote_ref["index"]
-            print(f"[HAPAG] Sifting calendar: Selecting departure column index {idx} ({quote_ref['etd']})...")
-            
-            # Click the column
-            clicked = await self.page.evaluate('''idx => {
+            raw_date = quote_ref.get("raw_date", quote_ref.get("etd", ""))
+            seq_idx  = quote_ref.get("seq_idx", 0)
+            print(f"[HAPAG] Navigating to departure date '{raw_date}' (seq {seq_idx})...")
+
+            # ------------------------------------------------------------------
+            # JS helpers re-used in this method
+            # ------------------------------------------------------------------
+            JS_GET_VISIBLE_DATES = '''() => {
                 const patterns = [
                     /^\\d{4}-\\d{2}-\\d{2}$/,
                     /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
@@ -1178,12 +1296,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
                     /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
                 ];
-                
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
                     if (el.children.length > 0) return false;
                     const txt = el.textContent ? el.textContent.trim() : '';
                     if (!patterns.some(pat => pat.test(txt))) return false;
-                    // Exclude elements inside hidden portal/dialog containers (q-portal, dialogs)
                     let parent = el.parentElement;
                     while (parent) {
                         const id = parent.id || '';
@@ -1193,34 +1309,118 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                     return true;
                 });
-                
-                const uniqueDates = [];
-                dateEls.forEach(el => {
-                    const rect = el.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) {
-                        uniqueDates.push(el);
+                return dateEls.filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                }).map(el => el.textContent.trim());
+            }'''
+
+            # ------------------------------------------------------------------
+            # Step 1: navigate right until target date is visible in the grid
+            # ------------------------------------------------------------------
+            ARROW_RIGHT_SELECTORS = [
+                'button[aria-label*="next" i]',
+                'button[aria-label*="forward" i]',
+                'button[aria-label*="right" i]',
+                '[class*="arrow-right" i]',
+                'button[class*="next" i]',
+                'button.q-btn:not([type="submit"]):not([aria-label*="search" i])'
+            ]
+
+            for nav_attempt in range(30):    # safety: at most 30 arrow clicks
+                visible: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
+                if raw_date in visible:
+                    print(f"[HAPAG] Target date '{raw_date}' is now visible in grid.")
+                    break
+                # Click right arrow
+                arrow_clicked = False
+                for arrow_sel in ARROW_RIGHT_SELECTORS:
+                    try:
+                        loc = self.page.locator(arrow_sel).last
+                        if await loc.is_visible(timeout=500):
+                            if await loc.is_disabled():
+                                break
+                            await loc.click()
+                            await self._human_delay(500, 800)
+                            arrow_clicked = True
+                            print(f"[HAPAG] Arrow click #{nav_attempt+1}, looking for '{raw_date}'...")
+                            break
+                    except:
+                        continue
+                if not arrow_clicked:
+                    # JS fallback
+                    js_ok = await self.page.evaluate('''() => {
+                        const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                        const visible = candidates.filter(el => {
+                            const r = el.getBoundingClientRect();
+                            return r.width > 0 && r.height > 0;
+                        });
+                        const arrows = visible.filter(el => {
+                            const txt = (el.textContent || '').trim();
+                            const cls = el.className || '';
+                            const lbl = (el.getAttribute('aria-label') || '').toLowerCase();
+                            return (txt === '>' || cls.includes('arrow-right') || cls.includes('chevron-right') ||
+                                    cls.includes('next') || lbl.includes('next') || lbl.includes('right'))
+                                && !cls.includes('search') && !lbl.includes('search');
+                        });
+                        if (arrows.length > 0) {
+                            arrows.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
+                            arrows[0].click();
+                            return true;
+                        }
+                        return false;
+                    }''')
+                    if js_ok:
+                        await self._human_delay(500, 800)
+                    else:
+                        print(f"[HAPAG] Could not navigate to '{raw_date}' -- date may not be present.")
+                        break
+
+            # ------------------------------------------------------------------
+            # Step 2: Click the correct date column by text content (not DOM index)
+            # ------------------------------------------------------------------
+            clicked = await self.page.evaluate('''targetDate => {
+                const patterns = [
+                    /^\\d{4}-\\d{2}-\\d{2}$/,
+                    /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
+                    /^\\d{2}-\\d{2}-\\d{4}$/,
+                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
+                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
+                ];
+                const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
+                    if (el.children.length > 0) return false;
+                    const txt = el.textContent ? el.textContent.trim() : '';
+                    if (!patterns.some(pat => pat.test(txt))) return false;
+                    let parent = el.parentElement;
+                    while (parent) {
+                        const id = parent.id || '';
+                        const cls = parent.className || '';
+                        if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
+                        parent = parent.parentElement;
                     }
+                    return true;
                 });
-                
-                if (uniqueDates[idx]) {
-                    const elToClick = uniqueDates[idx];
-                    elToClick.click();
-                    
-                    // Also click its parent table cell container to be sure
-                    let parentCell = elToClick;
-                    while (parentCell && parentCell.tagName !== 'TH' && parentCell.tagName !== 'TD' && !parentCell.classList.contains('cell')) {
-                        parentCell = parentCell.parentElement;
+                const visible = dateEls.filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+                const target = visible.find(el => el.textContent.trim() === targetDate);
+                if (target) {
+                    target.click();
+                    // Also click parent cell (TH/TD)
+                    let cell = target;
+                    while (cell && cell.tagName !== 'TH' && cell.tagName !== 'TD' && !cell.classList.contains('cell')) {
+                        cell = cell.parentElement;
                     }
-                    if (parentCell) {
-                        parentCell.click();
-                    }
+                    if (cell) cell.click();
                     return true;
                 }
                 return false;
-            }''', idx)
+            }''', raw_date)
             
             if not clicked:
-                print(f"[HAPAG] Could not click column {idx}.")
+                print(f"[HAPAG] Could not click column '{raw_date}'.")
+
                 return False
                 
             # Buffer sleep for details to populate
@@ -1287,7 +1487,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 quote_ref["is_sold_out"] = True
                 return False
                 
-            # Click Price Breakdown — use JS click as fallback if intercepted by overlay
+            # Click Price Breakdown -- use JS click as fallback if intercepted by overlay
             print("[HAPAG] Clicking 'Price Breakdown' button...")
             try:
                 await pb_btn.scroll_into_view_if_needed()
@@ -1514,3 +1714,4 @@ class HapagLloydConnector(BaseCarrierConnector):
                 shutil.rmtree(self.temp_profile_dir)
             except:
                 pass
+
