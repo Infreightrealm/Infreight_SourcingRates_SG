@@ -722,13 +722,44 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- SEARCH ---
             print("[HAPAG] Clicking 'Search' (orange box)...")
             try:
-                search_btn = self.page.locator('button:has-text("Search"), button[type="submit"]:has-text("Search"), button.orange').first
-                if await search_btn.count() == 0:
-                    search_btn = self.page.locator('button:has-text("Get Quote"), button:has-text("Find Rates")').first
+                # Find the Search button robustly
+                search_selectors = [
+                    'button:has-text("Search")',
+                    'button[type="submit"]:has-text("Search")',
+                    'xpath=//button[contains(., "Search")]',
+                    'xpath=//*[contains(@class, "orange") or contains(@class, "button") or contains(@class, "btn")][contains(., "Search")]',
+                    'span:has-text("Search")',
+                    '[role="button"]:has-text("Search")',
+                    'button:has-text("Get Quote")',
+                    'button:has-text("Find Rates")'
+                ]
+                
+                search_btn = None
+                for sel in search_selectors:
+                    try:
+                        locs = self.page.locator(sel)
+                        count = await locs.count()
+                        for idx in range(count):
+                            candidate = locs.nth(idx)
+                            if await candidate.is_visible(timeout=500):
+                                tag = await candidate.evaluate("el => el.tagName.toLowerCase()")
+                                is_header = tag in ("h1", "h2", "h3", "h4", "h5", "h6")
+                                if not is_header:
+                                    search_btn = candidate
+                                    print(f"[HAPAG] Search button found using selector: {sel} (tag: {tag})")
+                                    break
+                        if search_btn:
+                            break
+                    except:
+                        pass
+                
+                if not search_btn:
+                    search_btn = self.page.locator('button:has-text("Search"), button.orange').first
+                    print("[HAPAG] Fallback to first Search button or orange button.")
                 
                 await search_btn.scroll_into_view_if_needed()
                 await search_btn.click()
-                print("[HAPAG] Quote search submitted!")
+                print("[HAPAG] Quote search submitted successfully!")
                 try:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
                 except:
