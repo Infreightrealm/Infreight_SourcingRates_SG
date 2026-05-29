@@ -179,6 +179,36 @@ class HapagLloydConnector(BaseCarrierConnector):
     async def _human_delay(self, min_ms=500, max_ms=1500):
         await self.page.wait_for_timeout(random.randint(min_ms, max_ms))
 
+    async def _dismiss_hapag_modals(self):
+        """
+        Dismisses any obscuring modal popups (like the 'Recently Searched' dialog).
+        """
+        try:
+            print("[HAPAG] Checking for any obscuring modal popups...")
+            close_selectors = [
+                'button:has-text("Close")',
+                'div[role="dialog"] button:has-text("Close")',
+                'div:has-text("Recently Searched") button:has-text("Close")',
+                'div:has-text("Recently Searched") button',
+                'span:has-text("Close")',
+                '.modal button:has-text("Close")'
+            ]
+            for sel in close_selectors:
+                try:
+                    close_btn = self.page.locator(sel).first
+                    if await close_btn.is_visible():
+                        print(f"[HAPAG] Modal close button detected: {sel}. Clicking to dismiss...")
+                        await close_btn.scroll_into_view_if_needed()
+                        await close_btn.click()
+                        await self._human_delay(800, 1500)
+                        return True
+                except:
+                    pass
+            return False
+        except Exception as e:
+            print(f"[HAPAG] Error in modal dismissal check: {e}")
+            return False
+
     async def login(self) -> bool:
         try:
             await self._init_browser()
@@ -459,7 +489,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                         pass
 
                 if form_loaded:
-                    print("[HAPAG] Quick Quote form successfully verified.")
+                    print("[HAPAG] Quick Quote form successfully verified. Dismissing any initial modals...")
+                    await self._dismiss_hapag_modals()
                     self.is_login_successful = True
                     return True
                 else:
@@ -526,6 +557,9 @@ class HapagLloydConnector(BaseCarrierConnector):
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             print("[HAPAG] Starting Quick Quote search...")
+            
+            # Dismiss any active modals (like "Recently Searched") before form filling
+            await self._dismiss_hapag_modals()
             
             # --- START LOCATION (ORIGIN) ---
             origin_locode = resolve_port_for_carrier(request.origin, "hapag")
