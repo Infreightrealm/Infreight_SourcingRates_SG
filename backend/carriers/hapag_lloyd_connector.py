@@ -1479,10 +1479,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                         if (row.children.length > 8) continue;
                         const txt = (row.textContent || '').trim();
                         if (txt.includes(sizeLabel) && (txt.includes("USD") || txt.includes("$") || txt.includes("/Container"))) {
-                            if (txt.includes("-") || txt.includes("not available") || txt.includes("sold out")) {
+                            const cleanTxt = txt.replace(/\s+/g, ' ');
+                            if (cleanTxt.includes("USD -") || cleanTxt.includes("- /Container") || cleanTxt.includes("-\u00a0/Container") || cleanTxt.includes("not available") || cleanTxt.includes("sold out")) {
                                 return "sold_out";
                             }
-                            const match = txt.match(/(?:USD|\$)\s*([\d,]+(?:\.\d+)?)/i);
+                            const match = cleanTxt.match(/(?:USD|\$)\s*([\d,]+(?:\.\d+)?)/i);
                             if (match) {
                                 const val = parseFloat(match[1].replace(/,/g, ''));
                                 if (!isNaN(val) && val > 0) {
@@ -1496,11 +1497,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                     const allText = document.body.innerText || "";
                     const lines = allText.split("\n");
                     for (const line of lines) {
-                        if (line.includes(sizeLabel)) {
-                            if (line.includes("-") || line.includes("sold out") || line.includes("not available")) {
+                        const cleanLine = line.replace(/\s+/g, ' ').trim();
+                        if (cleanLine.includes(sizeLabel)) {
+                            if (cleanLine.includes("USD -") || cleanLine.includes("- /Container") || cleanLine.includes("-\u00a0/Container") || cleanLine.includes("sold out") || cleanLine.includes("not available")) {
                                 return "sold_out";
                             }
-                            const match = line.match(/(?:USD|\$)\s*([\d,]+(?:\.\d+)?)/i);
+                            const match = cleanLine.match(/(?:USD|\$)\s*([\d,]+(?:\.\d+)?)/i);
                             if (match) {
                                 const val = parseFloat(match[1].replace(/,/g, ''));
                                 if (!isNaN(val) && val > 0) {
