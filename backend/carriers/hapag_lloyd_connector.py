@@ -1617,14 +1617,57 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
             print(f"[HAPAG] Parsing breakdown table for container size: '{container_type}'...")
             
-            charges = await self.page.evaluate('''containerType => {
+            # --- DEBUG DUMP MODAL ROWS ---
+            try:
+                dump_res = await self.page.evaluate('''() => {
+                    const rows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
+                    return rows.map((r, i) => {
+                        const cells = Array.from(r.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"]'));
+                        return `Row ${i} (${r.tagName}): ` + cells.map(c => `[${c.tagName}: ${c.textContent.trim()}]`).join(", ");
+                    });
+                }''')
+                print("[HAPAG] [DEBUG DUMP] Modal Rows:")
+                for line in dump_res:
+                    print(f"  >> {line}")
+            except Exception as de:
+                print(f"[HAPAG] Debug dump failed: {de}")
+            
+            charges = await self.page.evaluate(r'''containerType => {
                 let targetColIndex = 4; // default to 40STD (DRY 40)
-                if (containerType === "DRY 20") {
-                    targetColIndex = 3;
-                } else if (containerType === "DRY 40") {
-                    targetColIndex = 4;
-                } else if (containerType === "DRY 40H") {
-                    targetColIndex = 5;
+                if (containerType === "DRY 20") targetColIndex = 3;
+                else if (containerType === "DRY 40") targetColIndex = 4;
+                else if (containerType === "DRY 40H") targetColIndex = 5;
+
+                // Dynamically detect column header position
+                const allRows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
+                let headerRows = [];
+                for (const r of allRows) {
+                    const cells = Array.from(r.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"]'));
+                    if (cells.length >= 3) {
+                        const cellTexts = cells.map(c => (c.textContent || '').trim());
+                        if (cellTexts.includes("Unit") && (cellTexts.includes("Curr.") || cellTexts.includes("Currency"))) {
+                            headerRows.push(cells);
+                        }
+                    }
+                }
+
+                // Pick the matching header row with the maximum number of cells to align with data rows
+                headerRows.sort((a, b) => b.length - a.length);
+                let headerRow = headerRows[0] || null;
+
+                if (headerRow) {
+                    let searchTerms = [];
+                    if (containerType === "DRY 20") searchTerms = ["20STD", "20'STD", "20GP", "20'GP", "20'"];
+                    else if (containerType === "DRY 40") searchTerms = ["40STD", "40'STD", "40GP", "40'GP", "40'"];
+                    else if (containerType === "DRY 40H") searchTerms = ["40HC", "40'HC", "40HQ", "40'HQ", "High Cube"];
+
+                    for (let idx = 0; idx < headerRow.length; idx++) {
+                        const headerText = (headerRow[idx].textContent || '').trim().replace(/\s+/g, '');
+                        if (searchTerms.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
+                            targetColIndex = idx;
+                            break;
+                        }
+                    }
                 }
                 
                 const results = [];
