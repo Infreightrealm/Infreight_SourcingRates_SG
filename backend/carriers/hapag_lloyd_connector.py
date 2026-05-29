@@ -549,6 +549,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 item_text = (await item.inner_text()).strip().upper()
                 print(f"  Suggestion {idx}: '{item_text}'")
                 
+                # Filter out standard non-port option labels
+                if any(x in item_text for x in ["KG", "LB", "SELECT UNITS", "YOUR DOOR", "TERMINAL/RAMP"]):
+                    continue
+                
                 if target_match in item_text or (cached_name and cached_name.upper() in item_text):
                     print(f"[HAPAG] [MATCH] Found suggestion at index {idx}: '{item_text}'. Clicking...")
                     await item.click()
@@ -571,9 +575,48 @@ class HapagLloydConnector(BaseCarrierConnector):
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             print("[HAPAG] Starting Quick Quote search...")
+            self.current_request = request
             
             # Dismiss any active modals (like "Recently Searched") before form filling
             await self._dismiss_hapag_modals()
+            
+            # --- CHECK IF ALREADY ON RESULTS PAGE ---
+            is_results = False
+            try:
+                # Check if departures calendar grid or Price Breakdown button is visible
+                results_el = self.page.locator('text=/\\d{4}-\\d{2}-\\d{2}/, button:has-text("Price Breakdown")').first
+                if await results_el.is_visible(timeout=3000):
+                    is_results = True
+                    print("[HAPAG] Detected that browser is already on the results/Offer Selection page.")
+            except:
+                pass
+                
+            if is_results:
+                print("[HAPAG] Clicking 'Edit' button to expand search form...")
+                edit_selectors = [
+                    'button:has-text("Edit")',
+                    'span:has-text("Edit")',
+                    '.left-panel button',
+                    'div.search-summary button',
+                    'xpath=//button[contains(., "Edit")]'
+                ]
+                
+                edit_clicked = False
+                for sel in edit_selectors:
+                    try:
+                        btn = self.page.locator(sel).first
+                        if await btn.is_visible(timeout=1000):
+                            await btn.click()
+                            print(f"[HAPAG] Clicked Edit button using selector: {sel}")
+                            edit_clicked = True
+                            break
+                    except:
+                        pass
+                        
+                if edit_clicked:
+                    await self._human_delay(1500, 2500)
+                else:
+                    print("[HAPAG] Warning: Edit button not found or not clickable.")
             
             # --- START LOCATION (ORIGIN) ---
             origin_locode = resolve_port_for_carrier(request.origin, "hapag")
@@ -621,6 +664,9 @@ class HapagLloydConnector(BaseCarrierConnector):
             
             if not await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached):
                 print("[HAPAG] Warning: Origin suggestion selection failed.")
+
+            # Settle wait after origin suggestion selection before destination click/type
+            await self._human_delay(1200, 2000)
 
             # --- END LOCATION (DESTINATION) ---
             dest_locode = resolve_port_for_carrier(request.destination, "hapag")
@@ -684,13 +730,29 @@ class HapagLloydConnector(BaseCarrierConnector):
             # If the user selected 40HC (which is the default 40' GP High Cube), we don't need to change it
             if request.container_type != "DRY 40H":
                 try:
-                    container_box = self.page.locator('input[placeholder*="Container" i], [id*="container" i] input, label:has-text("Container Type") + div input').first
-                    await container_box.click()
+                    container_selectors = [
+                        'input.q-select__focus-target',
+                        'xpath=(//input[contains(@class, "q-select__focus-target")])[1]'
+                    ]
+                    container_box = None
+                    for sel in container_selectors:
+                        try:
+                            loc = self.page.locator(sel).first
+                            if await loc.is_visible(timeout=1000):
+                                container_box = loc
+                                print(f"[HAPAG] Container select input found using: {sel}")
+                                break
+                        except:
+                            pass
+                    if not container_box:
+                        container_box = self.page.locator('input.q-select__focus-target').first
+
+                    await container_box.click(timeout=5000)
                     await self._human_delay(1000, 1800)
                     
                     # Choose option containing container type name
-                    option = self.page.locator(f'[class*="option" i]:has-text("{hapag_container}"), li:has-text("{hapag_container}")').first
-                    if await option.is_visible(timeout=2000):
+                    option = self.page.locator(f'div.q-item:has-text("{hapag_container}"), .q-select__dialog .q-item:has-text("{hapag_container}")').first
+                    if await option.is_visible(timeout=5000):
                         await option.click()
                         print(f"[HAPAG] Container type selected successfully: {hapag_container}")
                 except Exception as container_err:
@@ -699,8 +761,29 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- CONTAINER QUANTITY ---
             print(f"[HAPAG] Setting Container Quantity: {request.container_quantity}")
             try:
-                qty_box = self.page.locator('input[placeholder*="Quantity" i], [id*="quantity" i] input, label:has-text("Quantity") + div input').first
+                qty_selectors = [
+                    'xpath=(//input[@type="number"])[1]',
+                    'input[type="number"]',
+                    'div:has-text("Container Quantity") input[type="number"]'
+                ]
+                qty_box = None
+                for sel in qty_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            qty_box = loc
+                            print(f"[HAPAG] Quantity input found using: {sel}")
+                            break
+                    except:
+                        pass
+                if not qty_box:
+                    qty_box = self.page.locator('xpath=(//input[@type="number"])[1]').first
+                
+                await qty_box.scroll_into_view_if_needed()
                 await qty_box.click()
+                await self._human_delay(200, 400)
+                await qty_box.press("Control+A")
+                await qty_box.press("Backspace")
                 await qty_box.fill("")
                 await qty_box.type(str(request.container_quantity), delay=50)
                 await self._human_delay(500, 1000)
@@ -708,11 +791,33 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print(f"[HAPAG] Quantity fill failed: {qty_err}")
 
             # --- CARGO WEIGHT ---
-            weight_val = max(int(request.weight_per_container_kg), 5000)
+            # Hapag-Lloyd max cargo weight is around 28470 kg. Cap it to 28000 to be safe and prevent validation blocks.
+            weight_val = min(max(int(request.weight_per_container_kg), 5000), 28000)
             print(f"[HAPAG] Setting Cargo Weight: {weight_val} kg")
             try:
-                weight_box = self.page.locator('input[placeholder*="Weight" i], [id*="weight" i] input, label:has-text("Weight") + div input').first
+                weight_selectors = [
+                    'xpath=(//input[@type="number"])[2]',
+                    'xpath=(//input[@type="number" or @class="q-field__native q-placeholder"])[2]',
+                    'div:has-text("Weight per Container") input[type="number"]'
+                ]
+                weight_box = None
+                for sel in weight_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            weight_box = loc
+                            print(f"[HAPAG] Weight input found using: {sel}")
+                            break
+                    except:
+                        pass
+                if not weight_box:
+                    weight_box = self.page.locator('xpath=(//input[@type="number"])[2]').first
+                
+                await weight_box.scroll_into_view_if_needed()
                 await weight_box.click()
+                await self._human_delay(200, 400)
+                await weight_box.press("Control+A")
+                await weight_box.press("Backspace")
                 await weight_box.fill("")
                 await weight_box.type(str(weight_val), delay=50)
                 await self._human_delay(500, 1000)
@@ -773,7 +878,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             # Results detection
             try:
                 # Wait for any schedule route cards, price tags, or results element
-                await self.page.wait_for_selector('[class*="route" i], [class*="result" i], [class*="sailing" i], [class*="price" i], button:has-text("Book"), button:has-text("Select")', timeout=30000)
+                await self.page.wait_for_selector('text=/\\d{4}-\\d{2}-\\d{2}/, [class*="route" i], [class*="result" i], [class*="sailing" i], [class*="price" i], button:has-text("Book"), button:has-text("Select")', timeout=120000)
                 print("[HAPAG] Sourced quotes successfully.")
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
             except Exception:
@@ -793,167 +898,299 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def extract_quote_list(self) -> list[dict]:
         try:
-            # Sift the schedule elements on Hapag-Lloyd results page
-            # Look for divs representing sailings cards
-            cards_sel = '[class*="route" i], [class*="result-card" i], div.schedules-card, div:has(button:has-text("Select")):has-text("USD")'
-            cards = self.page.locator(cards_sel)
-            count = await cards.count()
+            print("[HAPAG] Locating departure columns in calendar grid...")
+            # Wait for calendar grid / departure dates to appear
+            await self.page.wait_for_selector('text=/\\d{4}-\\d{2}-\\d{2}/', timeout=15000)
             
-            if count == 0:
-                # Generic container blocks
-                cards = self.page.locator('.card, .row:has-text("USD")')
-                count = await cards.count()
-
-            print(f"[HAPAG] Found {count} total quote cards.")
+            # Find unique visible date headers
+            columns_data = await self.page.evaluate('''() => {
+                const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
+                    if (el.children.length > 0) return false;
+                    const txt = el.textContent ? el.textContent.trim() : '';
+                    return /^\\d{4}-\\d{2}-\\d{2}$/.test(txt);
+                });
+                
+                const cols = [];
+                dateEls.forEach((el, index) => {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        cols.push({
+                            index: index,
+                            date: el.textContent.trim()
+                        });
+                    }
+                });
+                return cols;
+            }''')
+            
+            print(f"[HAPAG] Found {len(columns_data)} visible columns in departures grid.")
             self._all_quotes = []
-
-            for idx in range(count):
-                card = cards.nth(idx)
-                try:
-                    await card.scroll_into_view_if_needed()
-                except:
-                    pass
-
-                text = await card.inner_text()
-                text_lower = text.lower()
-
-                # Basic validation: Skip cards that are unrelated header segments
-                if "departure" not in text_lower and "eta" not in text_lower and "transit" not in text_lower and "usd" not in text_lower:
-                    continue
-
-                # 1. Parse departure/arrival dates
-                # Pattern: matches date formats like "18-May-2026", "2026-05-18", or "May 18, 2026"
-                date_pattern = r'\d{1,2}-[A-Za-z]{3}-\d{4}|\d{4}-\d{2}-\d{2}|[A-Za-z]{3}\s+\d{1,2},\s+\d{4}'
-                found_dates = re.findall(date_pattern, text)
+            
+            for col in columns_data:
+                idx = col["index"]
+                date_str = col["date"]
                 
-                etd_str = found_dates[0] if len(found_dates) > 0 else None
-                eta_str = found_dates[1] if len(found_dates) > 1 else None
-
-                etd = None
-                if etd_str:
-                    try:
-                        etd = datetime.strptime(etd_str, "%d-%b-%Y").date()
-                    except:
-                        try:
-                            etd = datetime.strptime(etd_str, "%Y-%m-%d").date()
-                        except:
-                            pass
-
-                eta = None
-                if eta_str:
-                    try:
-                        eta = datetime.strptime(eta_str, "%d-%b-%Y").date()
-                    except:
-                        try:
-                            eta = datetime.strptime(eta_str, "%Y-%m-%d").date()
-                        except:
-                            pass
-
-                # 2. Transit time
-                tt_match = re.search(r'(\d+)\s*[Dd]ays?', text)
-                transit_time = int(tt_match.group(1)) if tt_match else None
-                if etd and eta and transit_time is None:
-                    transit_time = (eta - etd).days
-
-                # 3. Service / Vessel info
-                service_match = re.search(r'(?:Service|Voyage|Vessel)\s+(\S+)', text)
-                service = service_match.group(1).strip() if service_match else "Hapag Service"
-                
-                vessel_match = re.search(r'Vessel\s+(.+?)(?:\r|\n|$)', text)
-                vessel = vessel_match.group(1).strip() if vessel_match else "Hapag Vessel"
-
-                # Check if sold out
-                is_sold_out = "sold out" in text_lower or "no availability" in text_lower or "unavailable" in text_lower
-
-                # 4. Total Price
-                price = 0.0
-                if not is_sold_out:
-                    price_match = re.search(r'(\d[\d,]*)\s*USD', text, re.IGNORECASE)
-                    if not price_match:
-                        price_match = re.search(r'\$\s*(\d[\d,]*)', text)
-                    
-                    if price_match:
-                        price = float(price_match.group(1).replace(",", ""))
-
                 self._all_quotes.append({
                     "index": idx,
-                    "etd": etd.isoformat() if etd else None,
-                    "eta": eta.isoformat() if eta else None,
-                    "transit_time_days": transit_time,
-                    "service_name": service,
-                    "vessel": vessel,
-                    "total_price": price,
+                    "etd": date_str,
+                    "eta": None,
+                    "transit_time_days": None,
+                    "via_routing": "",
+                    "service_name": "Hapag Service",
+                    "vessel": "Hapag Vessel",
+                    "total_price": 0.0,
                     "currency": "USD",
-                    "card_locator": card,
-                    "is_sold_out": is_sold_out,
+                    "is_sold_out": False,
                     "source": "carrier_portal",
                     "carrier_code": self.carrier_code
                 })
-
+                
             return self._all_quotes
         except Exception as e:
             print(f"[HAPAG] Quotes sifting error: {e}")
             return []
 
     async def open_price_breakdown(self, quote_ref: dict) -> bool:
-        """
-        Attempts to click detail/charges buttons to open the breakdown panel.
-        For sold-out quotes, immediately return False.
-        """
-        if quote_ref.get("is_sold_out"):
-            return False
-            
         try:
-            card = quote_ref["card_locator"]
-            await card.scroll_into_view_if_needed()
-            await self._human_delay(400, 800)
+            idx = quote_ref["index"]
+            print(f"[HAPAG] Sifting calendar: Selecting departure column index {idx} ({quote_ref['etd']})...")
             
-            # Locate "Details", "Price breakdown", "Charges" buttons
-            details_btn = card.locator('button:has-text("Details"), button:has-text("Charges"), a:has-text("Charges")').first
-            if await details_btn.count() > 0 and await details_btn.is_visible():
-                await details_btn.click()
-                await self._human_delay(1500, 2500)
+            # Click the column
+            clicked = await self.page.evaluate('''idx => {
+                const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
+                    if (el.children.length > 0) return false;
+                    const txt = el.textContent ? el.textContent.trim() : '';
+                    return /^\\d{4}-\\d{2}-\\d{2}$/.test(txt);
+                });
+                
+                const uniqueDates = [];
+                dateEls.forEach(el => {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        uniqueDates.push(el);
+                    }
+                });
+                
+                if (uniqueDates[idx]) {
+                    const elToClick = uniqueDates[idx];
+                    elToClick.click();
+                    
+                    // Also click its parent table cell container to be sure
+                    let parentCell = elToClick;
+                    while (parentCell && parentCell.tagName !== 'TH' && parentCell.tagName !== 'TD' && !parentCell.classList.contains('cell')) {
+                        parentCell = parentCell.parentElement;
+                    }
+                    if (parentCell) {
+                        parentCell.click();
+                    }
+                    return true;
+                }
+                return false;
+            }''', idx)
+            
+            if not clicked:
+                print(f"[HAPAG] Could not click column {idx}.")
+                return False
+                
+            # Buffer sleep for details to populate
+            await self._human_delay(2000, 3000)
+            
+            # --- PARSE DETAILS FROM LEFT PANEL ---
+            tt = None
+            via_routing = ""
+            try:
+                left_panel = self.page.locator('div:has-text("Estimated Transit Time"), [class*="search" i], [class*="summary" i]').first
+                left_panel_text = await left_panel.inner_text()
+                
+                tt_match = re.search(r'Estimated Transit Time\s*(\d+)\s*days?', left_panel_text, re.IGNORECASE)
+                if not tt_match:
+                    tt_match = re.search(r'(\d+)\s*days?', left_panel_text, re.IGNORECASE)
+                if tt_match:
+                    tt = int(tt_match.group(1))
+                    
+                via_match = re.search(r'via\s*:\s*([^\n\r]+)', left_panel_text, re.IGNORECASE)
+                if via_match:
+                    via_routing = via_match.group(1).strip()
+            except Exception as left_err:
+                print(f"[HAPAG] Warning: Left panel parsing failed: {left_err}")
+                
+            if tt:
+                quote_ref["transit_time_days"] = tt
+                try:
+                    etd_date = datetime.strptime(quote_ref["etd"], "%Y-%m-%d").date()
+                    eta_date = etd_date + timedelta(days=tt)
+                    quote_ref["eta"] = eta_date.isoformat()
+                except:
+                    pass
+            if via_routing:
+                quote_ref["via_routing"] = via_routing
+                quote_ref["service_name"] = f"Hapag Service (via {via_routing})"
+                
+            print(f"[HAPAG] Parsed transit time: {tt} days, via: '{via_routing}'")
+            
+            # Find Price Breakdown button
+            pb_selectors = [
+                'button:has-text("Price Breakdown")',
+                'span:has-text("Price Breakdown")',
+                'div.price-breakdown button'
+            ]
+            
+            pb_btn = None
+            for sel in pb_selectors:
+                try:
+                    loc = self.page.locator(sel).first
+                    if await loc.is_visible(timeout=1000):
+                        pb_btn = loc
+                        break
+                except:
+                    pass
+                    
+            if not pb_btn:
+                print(f"[HAPAG] Price Breakdown button not found or not visible. Skipping sold out/unavailable departure.")
+                quote_ref["is_sold_out"] = True
+                return False
+                
+            # Click Price Breakdown
+            print("[HAPAG] Clicking 'Price Breakdown' button...")
+            await pb_btn.scroll_into_view_if_needed()
+            await pb_btn.click()
+            
+            # Wait for modal dialog to open
+            print("[HAPAG] Waiting for Price Breakdown modal...")
+            modal_selectors = [
+                '[role="dialog"]',
+                '.el-dialog',
+                'div:has-text("Freight Charges")'
+            ]
+            
+            modal_opened = False
+            for sel in modal_selectors:
+                try:
+                    if await self.page.locator(sel).first.is_visible(timeout=5000):
+                        modal_opened = True
+                        print(f"[HAPAG] Price Breakdown modal opened successfully using: {sel}")
+                        break
+                except:
+                    pass
+                    
+            if not modal_opened:
+                try:
+                    await self.page.wait_for_selector('text="Freight Charges"', timeout=5000)
+                    modal_opened = True
+                    print("[HAPAG] Price Breakdown modal found via text search.")
+                except:
+                    pass
+                    
+            if modal_opened:
+                await self._human_delay(1000, 1800)
                 return True
+                
+            print("[HAPAG] Failed to detect Price Breakdown modal.")
             return False
+            
         except Exception as e:
-            print(f"[HAPAG] Pricing drawer open failed: {e}")
+            print(f"[HAPAG] open_price_breakdown failed: {e}")
             return False
 
     async def extract_charge_breakdown(self) -> list[dict]:
-        """
-        Extract detailed surcharge list items from the open pricing drawer.
-        """
         charges = []
         try:
-            # Locate breakdown table rows or lines
-            rows = self.page.locator('[class*="charge" i], [class*="breakdown" i] tr, .drawer-row')
-            count = await rows.count()
+            container_type = "DRY 40"
+            if hasattr(self, 'current_request') and self.current_request:
+                container_type = self.current_request.container_type
+                
+            print(f"[HAPAG] Parsing breakdown table for container size: '{container_type}'...")
             
-            for idx in range(count):
-                row_text = await rows.nth(idx).inner_text()
-                # Extract line item name and amount
-                # Pattern: Basic Freight 850.00 USD
-                parts = [p.strip() for p in row_text.splitlines() if p.strip()]
-                if len(parts) >= 2:
-                    name = parts[0]
-                    amount_str = parts[-1]
+            charges = await self.page.evaluate('''containerType => {
+                let targetColIndex = 4; // default to 40STD (DRY 40)
+                if (containerType === "DRY 20") {
+                    targetColIndex = 3;
+                } else if (containerType === "DRY 40") {
+                    targetColIndex = 4;
+                } else if (containerType === "DRY 40H") {
+                    targetColIndex = 5;
+                }
+                
+                const results = [];
+                const rows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
+                let currentSection = "";
+                
+                for (const row of rows) {
+                    const cells = Array.from(row.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"]'));
+                    if (cells.length === 0) continue;
                     
-                    price_match = re.search(r'([\d,]+\.?\d*)', amount_str)
-                    if price_match:
-                        amount = float(price_match.group(1).replace(",", ""))
-                        currency = "USD"
-                        if "EUR" in amount_str.upper(): currency = "EUR"
-                        elif "SGD" in amount_str.upper(): currency = "SGD"
+                    const firstCellText = cells[0].textContent ? cells[0].textContent.trim() : "";
+                    
+                    if (firstCellText.includes("Freight Charges") && cells.length < 3) {
+                        currentSection = "freight_charges";
+                        continue;
+                    }
+                    if ((firstCellText.includes("Surcharges") || firstCellText.includes("Freight Surcharges")) && cells.length < 3) {
+                        currentSection = "surcharges";
+                        continue;
+                    }
+                    
+                    if (cells.length >= 4) {
+                        const name = cells[0].textContent ? cells[0].textContent.trim() : "";
+                        const unit = cells[1].textContent ? cells[1].textContent.trim() : "";
+                        const curr = cells[2].textContent ? cells[2].textContent.trim() : "";
                         
-                        charges.append({
-                            "name": name,
-                            "amount": amount,
-                            "currency": currency
-                        })
-            return charges
+                        if (name === "Freight Charges" || name === "Freight Surcharges" || name.includes("20STD") || name.includes("40STD")) {
+                            continue;
+                        }
+                        
+                        const targetCell = cells[targetColIndex];
+                        if (!targetCell) continue;
+                        
+                        const valueStr = targetCell.textContent ? targetCell.textContent.trim() : "";
+                        if (!valueStr || valueStr === "-" || valueStr === "not applicable" || valueStr.toLowerCase() === "included") {
+                            continue;
+                        }
+                        
+                        const amount = parseFloat(valueStr.replace(/,/g, ''));
+                        if (!isNaN(amount) && amount > 0) {
+                            results.push({
+                                name: name,
+                                amount: amount,
+                                currency: curr || "USD",
+                                category: currentSection === "freight_charges" ? "BASIC_OCEAN_FREIGHT" : "FREIGHT_SURCHARGE_INCLUDED"
+                            });
+                        }
+                    }
+                }
+                return results;
+            }''', container_type)
+            
+            print(f"[HAPAG] Successfully extracted {len(charges)} charges for {container_type}: {charges}")
+            
         except Exception as e:
             print(f"[HAPAG] Surcharge details extraction error: {e}")
-            return []
+        finally:
+            try:
+                print("[HAPAG] Closing Price Breakdown modal...")
+                await self.page.keyboard.press("Escape")
+                await self._human_delay(500, 1000)
+                
+                close_selectors = [
+                    'div[role="dialog"] button i.el-icon-close',
+                    'button:has-text("Close")',
+                    'div[role="dialog"] button',
+                    'span:has-text("Close")'
+                ]
+                for sel in close_selectors:
+                    try:
+                        btn = self.page.locator(sel).first
+                        if await btn.is_visible(timeout=500):
+                            btn.click()
+                            break
+                    except:
+                        pass
+            except Exception as close_err:
+                print(f"[HAPAG] Error closing modal: {close_err}")
+                
+            await self._human_delay(800, 1500)
+            
+        return charges
 
     async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
         """
@@ -966,7 +1203,6 @@ class HapagLloydConnector(BaseCarrierConnector):
         from models.schemas import ChargeSchema
         from services.normalizer import classify_and_organize_charges, calculate_final_freight_value
         
-        # Organize and classify surcharge items
         organized = classify_and_organize_charges(raw_charges)
         basic_ocean_freight = organized["basic_ocean_freight"]
         included_freight_surcharges = organized["included_freight_surcharges"]
@@ -975,7 +1211,7 @@ class HapagLloydConnector(BaseCarrierConnector):
         
         final_value = calculate_final_freight_value(organized["all_classified"])
         
-        # Fallback to total price if no charges breakdown drawer was found
+        # Fallback to total price if no charges breakdown was found
         if final_value == 0.0 and raw_quote.get("total_price"):
             final_value = raw_quote["total_price"]
             
@@ -1010,7 +1246,6 @@ class HapagLloydConnector(BaseCarrierConnector):
         except:
             pass
             
-        # Copy temporary profile back to master to persist login sessions
         if self.temp_profile_dir and self.master_profile_dir and self.is_login_successful:
             try:
                 print("[HAPAG] Syncing temp profile back to master...")
@@ -1019,7 +1254,6 @@ class HapagLloydConnector(BaseCarrierConnector):
             except Exception as e:
                 print(f"[HAPAG] Warning: master profile sync failed: {e}")
                 
-        # Clean up temporary profiles
         if self.temp_profile_dir and os.path.exists(self.temp_profile_dir):
             try:
                 shutil.rmtree(self.temp_profile_dir)
