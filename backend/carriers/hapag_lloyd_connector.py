@@ -184,7 +184,10 @@ class HapagLloydConnector(BaseCarrierConnector):
             await self._init_browser()
             print("[HAPAG] Navigating to home page...")
             await self.page.goto(self.QUOTE_URL)
-            await self.page.wait_for_load_state("networkidle")
+            try:
+                await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+            except:
+                pass
             await self._human_delay(1500, 2500)
 
             # Accept cookies banner if present
@@ -674,7 +677,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await search_btn.scroll_into_view_if_needed()
                 await search_btn.click()
                 print("[HAPAG] Quote search submitted!")
-                await self.page.wait_for_load_state("networkidle")
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+                except:
+                    pass
                 await self._human_delay(5000, 8000)
             except Exception as submit_err:
                 print(f"[HAPAG] Submit failed: {submit_err}")
