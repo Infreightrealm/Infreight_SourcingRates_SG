@@ -513,19 +513,33 @@ class HapagLloydConnector(BaseCarrierConnector):
         """
         try:
             print(f"[HAPAG] Selecting dropdown option for {label}: '{locode}'...")
-            await self.page.wait_for_timeout(1500)
+            
+            # Combine all suggestions selectors
+            suggestions_selectors = [
+                '[class*="suggestion" i]',
+                '[class*="dropdown" i] li',
+                '[class*="option" i]',
+                '.el-autocomplete-suggestion li',
+                '.el-select-dropdown__item',
+                '[role="option"]',
+                'ul[role="listbox"] li'
+            ]
+            combined_selector = ", ".join(suggestions_selectors)
+            
+            # Wait up to 5 seconds for the suggestion popup to become visible
+            try:
+                await self.page.wait_for_selector(combined_selector, state="visible", timeout=5000)
+                print("[HAPAG] Dropdown suggestions became visible.")
+            except Exception as wait_err:
+                print(f"[HAPAG] Suggestions visible wait timeout: {wait_err}")
+
+            await self._human_delay(800, 1500)  # Small buffer time for suggestions to stabilize
             
             # Locate dropdown overlay suggestions
-            suggestions = self.page.locator('[class*="suggestion" i], [class*="dropdown" i] li, [class*="option" i]')
+            suggestions = self.page.locator(combined_selector)
             count = await suggestions.count()
-            print(f"[HAPAG] Suggestions visible: {count}")
+            print(f"[HAPAG] Suggestions visible count: {count}")
             
-            if count == 0:
-                # Try generic selectors
-                suggestions = self.page.locator('ul[role="listbox"] li, .el-select-dropdown__item')
-                count = await suggestions.count()
-                print(f"[HAPAG] Suggestion retry count: {count}")
-
             # Match criteria: locode or cached_name
             target_match = locode.upper()
             
@@ -538,14 +552,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                 if target_match in item_text or (cached_name and cached_name.upper() in item_text):
                     print(f"[HAPAG] [MATCH] Found suggestion at index {idx}: '{item_text}'. Clicking...")
                     await item.click()
-                    await self._human_delay(800, 1500)
+                    await self._human_delay(1000, 2000)  # Buffer time after selection click to let form settle
                     return True
 
             # If no suggestion matched, click the first suggestion as fallback
             if count > 0:
                 print(f"[HAPAG] No exact suggestion matched '{target_match}'. Falling back to first available option.")
                 await suggestions.first.click()
-                await self._human_delay(800, 1500)
+                await self._human_delay(1000, 2000)  # Buffer time after selection click to let form settle
                 return True
 
             print(f"[HAPAG] Dropdown suggestions did not appear for {label}.")
@@ -571,6 +585,8 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Find Start Location text input
             start_selectors = [
+                'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
+                'input:below(:text("Start Location"))',
                 'div:has-text("Start Location") input',
                 'input[placeholder*="Start" i]',
                 'input[placeholder*="Origin" i]',
@@ -616,6 +632,8 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Find End Location text input
             end_selectors = [
+                'xpath=(//*[contains(text(), "End Location")])[1]/following::input[1]',
+                'input:below(:text("End Location"))',
                 'div:has-text("End Location") input',
                 'input[placeholder*="End" i]',
                 'input[placeholder*="Destination" i]',
