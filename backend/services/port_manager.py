@@ -714,8 +714,8 @@ class PortManager:
             
             return clean_text
 
-        # Rule for CMA and ONE: Auto-translate to their PORT CODE (LOCODE)
-        if carrier_key in ("cma", "one"):
+        # Rule for CMA, ONE, and Hapag-Lloyd: Auto-translate to their PORT CODE (LOCODE)
+        if carrier_key in ("cma", "one", "hapag"):
             # A. Try matching commonly used port name keywords first
             norm_text = text.lower().strip()
             norm_text_clean = re.sub(r'\b(port|of|terminal|container)\b', '', norm_text)
