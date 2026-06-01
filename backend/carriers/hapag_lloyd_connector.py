@@ -395,16 +395,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print("[HAPAG] Credentials required. Automating login form...")
                 
                 email = os.getenv("HAPAG_LLOYD_USERNAME")
-                if not email or not email.strip():
-                    email = "BOOKINGSG@IN-FREIGHT.COM"
-                else:
-                    email = email.strip()
-
                 password = os.getenv("HAPAG_LLOYD_PASSWORD")
-                if not password or not password.strip():
-                    password = "IFSGb2020"
-                else:
-                    password = password.strip()
+                
+                if not email or not password:
+                    print("[HAPAG] [ERROR] HAPAG_LLOYD_USERNAME or HAPAG_LLOYD_PASSWORD environment variables are not set. Cannot perform login.")
+                    return False
+                    
+                email = email.strip()
+                password = password.strip()
 
                 mask_pass = f"{password[:2]}***{password[-2:]}" if len(password) > 4 else "***"
                 print(f"[HAPAG] Login profile setup: email='{email}', password='{mask_pass}' (length: {len(password)})")
