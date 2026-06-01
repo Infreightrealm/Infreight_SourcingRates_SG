@@ -7,10 +7,12 @@ from carriers.hapag_lloyd_connector import HapagLloydConnector
 from models.schemas import RateSearchRequest
 
 async def test_hapag():
-    if not os.getenv("HAPAG_LLOYD_USERNAME"):
-        os.environ["HAPAG_LLOYD_USERNAME"] = "BOOKINGSG@IN-FREIGHT.COM"
-    if not os.getenv("HAPAG_LLOYD_PASSWORD"):
-        os.environ["HAPAG_LLOYD_PASSWORD"] = "IFSGb2020"
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    if not os.getenv("HAPAG_LLOYD_USERNAME") or not os.getenv("HAPAG_LLOYD_PASSWORD"):
+        print("[TEST] [ERROR] HAPAG_LLOYD_USERNAME and HAPAG_LLOYD_PASSWORD must be configured in your environment or a .env file.")
+        return
 
     print("Initializing HapagLloydConnector...")
     connector = HapagLloydConnector()

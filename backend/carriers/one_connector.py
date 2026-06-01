@@ -688,10 +688,15 @@ class ONEConnector(BaseCarrierConnector):
             try:
                 date_field = self.page.locator('text=/please select vessel departure date at origin/i').first
                 try:
-                    await date_field.wait_for(state="visible", timeout=5000)
+                    await date_field.wait_for(state="visible", timeout=3000)
                 except Exception:
-                    date_field = self.page.get_by_role("textbox", name="Please select vessel departure date at origin")
-                    await date_field.wait_for(state="visible", timeout=5000)
+                    try:
+                        date_field = self.page.get_by_role("textbox", name="Please select vessel departure date at origin")
+                        await date_field.wait_for(state="visible", timeout=3000)
+                    except Exception:
+                        # Fallback to general date input selectors
+                        date_field = self.page.locator('input[placeholder*="date" i], input[aria-label*="date" i], input[name*="date" i], input[id*="date" i], input[placeholder*="YYYY-MM-DD" i]').first
+                        await date_field.wait_for(state="visible", timeout=5000)
                 
                 # Ensure we scroll the date field into view and wait a bit for any dynamic overlays to settle
                 await date_field.scroll_into_view_if_needed()
