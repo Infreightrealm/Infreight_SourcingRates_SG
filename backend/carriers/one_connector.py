@@ -41,9 +41,13 @@ class ONEConnector(BaseCarrierConnector):
 
     async def _init_browser(self):
         is_prod = os.name != "nt"
-        if is_prod:
-            os.environ["DISPLAY"] = ":101"
         self.playwright = await async_playwright().start()
+        
+        # Thread-safe virtual display environment injection
+        browser_env = os.environ.copy()
+        if is_prod:
+            browser_env["DISPLAY"] = ":101"
+
         self.browser = await self.playwright.chromium.launch(
             headless=False,
             args=[
@@ -54,6 +58,7 @@ class ONEConnector(BaseCarrierConnector):
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
             ],
+            env=browser_env,
         )
         self.context = await self.browser.new_context(
             viewport={"width": 1920, "height": 1080},

@@ -49,8 +49,6 @@ class CMAConnector(BaseCarrierConnector):
         import shutil
         import subprocess
         is_prod = os.name != "nt"
-        if is_prod:
-            os.environ["DISPLAY"] = ":100"
         self.playwright = await async_playwright().start()
 
         # ── Persistent profile setup (identical pattern to Maersk) ──────────────
@@ -125,12 +123,18 @@ class CMAConnector(BaseCarrierConnector):
                     chrome_exe = path
                     break
 
+        # Thread-safe virtual display environment injection
+        browser_env = os.environ.copy()
+        if is_prod:
+            browser_env["DISPLAY"] = ":100"
+
         launch_kwargs = {
             "user_data_dir": self.temp_profile_dir,
             "headless": False,
             "ignore_https_errors": True,
             "slow_mo": random.randint(80, 150),
             "viewport": {"width": 1920, "height": 1080},
+            "env": browser_env,
             "args": [
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",

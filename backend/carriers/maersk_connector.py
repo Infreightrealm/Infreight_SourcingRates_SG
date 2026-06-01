@@ -474,8 +474,6 @@ class MaerskConnector(BaseCarrierConnector):
         import uuid
         import shutil
         is_prod = os.name != "nt"
-        if is_prod:
-            os.environ["DISPLAY"] = ":99"
         self.playwright = await async_playwright().start()
         
         # Local profile directory to persist cookies, logins, and session data
@@ -525,12 +523,18 @@ class MaerskConnector(BaseCarrierConnector):
 
         is_prod = os.name != "nt"
         
+        # Thread-safe virtual display environment injection
+        browser_env = os.environ.copy()
+        if is_prod:
+            browser_env["DISPLAY"] = ":99"
+
         launch_kwargs = {
             "user_data_dir": self.temp_profile_dir,
             "headless": False,  # Always non-headless: local = real screen, prod = Xvfb virtual display
             "ignore_https_errors": True,
             "slow_mo": random.randint(80, 150),
             "viewport": {"width": 1920, "height": 1080},
+            "env": browser_env,
             "args": [
                 "--disable-blink-features=AutomationControlled",  # Mask automation flag
                 "--no-sandbox",  # Required for Docker

@@ -44,8 +44,6 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def _init_browser(self):
         is_prod = os.name != "nt"
-        if is_prod:
-            os.environ["DISPLAY"] = ":102"  # Hapag-Lloyd dedicated virtual display
         
         self.playwright = await async_playwright().start()
 
@@ -160,6 +158,11 @@ class HapagLloydConnector(BaseCarrierConnector):
             executable_path = chrome_exe
             print(f"[HAPAG] Using local real Chrome: {chrome_exe}")
 
+        # Thread-safe virtual display environment injection
+        browser_env = os.environ.copy()
+        if is_prod:
+            browser_env["DISPLAY"] = ":102"
+
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=self.temp_profile_dir,
             headless=False,  # Headless mode must be False for VNC rendering
@@ -169,6 +172,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             proxy=proxy_config,
             no_viewport=True,
             ignore_default_args=["--enable-automation"],
+            env=browser_env,
         )
 
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
