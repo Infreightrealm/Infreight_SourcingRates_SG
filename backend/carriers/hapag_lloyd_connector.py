@@ -1187,9 +1187,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
                     while (parent) {
-                        const id = parent.id || '';
-                        const cls = parent.className || '';
+                        const id = (parent.id || '').toLowerCase();
+                        const cls = (parent.className || '').toLowerCase();
                         if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
+                        if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || 
+                            cls.includes('criteria') || cls.includes('quick-quotes') ||
+                            id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
                         parent = parent.parentElement;
                     }
                     return true;
@@ -1373,9 +1376,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
                     while (parent) {
-                        const id = parent.id || '';
-                        const cls = parent.className || '';
+                        const id = (parent.id || '').toLowerCase();
+                        const cls = (parent.className || '').toLowerCase();
                         if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
+                        if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || 
+                            cls.includes('criteria') || cls.includes('quick-quotes') ||
+                            id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
                         parent = parent.parentElement;
                     }
                     return true;
@@ -1450,13 +1456,13 @@ class HapagLloydConnector(BaseCarrierConnector):
             # ------------------------------------------------------------------
             # Step 2: Click the correct date column by text content (not DOM index)
             # ------------------------------------------------------------------
-            clicked = await self.page.evaluate('''targetDate => {
+            clicked = await self.page.evaluate(r'''targetDate => {
                 const patterns = [
-                    /^\\d{4}-\\d{2}-\\d{2}$/,
-                    /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
-                    /^\\d{2}-\\d{2}-\\d{4}$/,
-                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
-                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
+                    /^\d{4}-\d{2}-\d{2}$/,
+                    /^\d{2}\.\d{2}\.\d{4}$/,
+                    /^\d{2}-\d{2}-\d{4}$/,
+                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}$/i,
+                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
                 ];
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
                     if (el.children.length > 0) return false;
@@ -1464,9 +1470,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
                     while (parent) {
-                        const id = parent.id || '';
-                        const cls = parent.className || '';
+                        const id = (parent.id || '').toLowerCase();
+                        const cls = (parent.className || '').toLowerCase();
                         if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
+                        if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || 
+                            cls.includes('criteria') || cls.includes('quick-quotes') ||
+                            id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
                         parent = parent.parentElement;
                     }
                     return true;
@@ -1750,13 +1759,22 @@ class HapagLloydConnector(BaseCarrierConnector):
                     if (cells.length === 0) continue;
                     
                     const firstCellText = cells[0].textContent ? cells[0].textContent.trim() : "";
+                    const lowerText = firstCellText.toLowerCase();
                     
-                    if (firstCellText.includes("Freight Charges") && cells.length < 3) {
+                    if (lowerText === "freight charges") {
                         currentSection = "freight_charges";
                         continue;
                     }
-                    if ((firstCellText.includes("Surcharges") || firstCellText.includes("Freight Surcharges")) && cells.length < 3) {
+                    if (lowerText === "freight surcharges" || lowerText === "surcharges") {
                         currentSection = "surcharges";
+                        continue;
+                    }
+                    if (lowerText === "export surcharges") {
+                        currentSection = "export_surcharges";
+                        continue;
+                    }
+                    if (lowerText === "import surcharges") {
+                        currentSection = "import_surcharges";
                         continue;
                     }
                     
@@ -1793,7 +1811,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                                 name: name,
                                 amount: amount,
                                 currency: curr || "USD",
-                                category: currentSection === "freight_charges" ? "BASIC_OCEAN_FREIGHT" : "FREIGHT_SURCHARGE_INCLUDED"
+                                category: currentSection === "freight_charges" ? "BASIC_OCEAN_FREIGHT" : null
                             });
                         }
                     }
