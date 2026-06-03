@@ -224,6 +224,10 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
                 matched = True
 
         if matched:
+            if any(x in name_lower for x in ["destination", "dest ", "pod", "import", "discharge"]):
+                return ChargeCategory.DESTINATION_CHARGE_EXCLUDED, f"Freight surcharge at destination excluded: '{kw}'"
+            if any(x in name_lower for x in ["origin", "orig ", "pol", "export"]):
+                return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, f"Freight surcharge at origin excluded: '{kw}'"
             return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Freight surcharge matched: '{kw}'"
 
     # ── OVERRIDE BY SECTION HEADING (FALLBACK) ────────────────
