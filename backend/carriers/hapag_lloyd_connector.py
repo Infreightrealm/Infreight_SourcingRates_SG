@@ -728,6 +728,339 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] Dropdown selection error for {label}: {e}")
             return False
 
+    async def search_sailing_schedules(self, request: RateSearchRequest) -> list[dict]:
+        """
+        Crawls Hapag-Lloyd sailing schedules from the Schedule tab.
+        """
+        schedules = []
+        try:
+            print("[HAPAG] Navigating to Schedule page...")
+            schedule_url = "https://www.hapag-lloyd.com/solutions/schedule/#/"
+            await self.page.goto(schedule_url)
+            try:
+                await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+            except:
+                pass
+            await self._human_delay(1500, 2500)
+
+            # Dismiss any active modals
+            await self._dismiss_hapag_modals()
+
+            # --- START LOCATION (ORIGIN) ---
+            origin_locode = resolve_port_for_carrier(request.origin, "hapag")
+            if not origin_locode or len(origin_locode) != 5:
+                origin_locode = request.origin[:5].upper()
+
+            origin_cached = get_cached_carrier_port("hapag", origin_locode)
+            print(f"[HAPAG] Schedule: Filling Start Location: '{origin_locode}' (cached: '{origin_cached}')")
+
+            start_selectors = [
+                'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
+                'input:below(:text("Start Location"))',
+                'div:has-text("Start Location") input',
+                'input[placeholder*="Location" i]',
+                'input[type="text"]'
+            ]
+
+            start_field = None
+            for sel in start_selectors:
+                try:
+                    loc = self.page.locator(sel).first
+                    if await loc.is_visible(timeout=1000):
+                        start_field = loc
+                        print(f"[HAPAG] Schedule Start input found: {sel}")
+                        break
+                except:
+                    pass
+
+            if not start_field:
+                start_field = self.page.locator('input').first
+
+            # Type and select
+            start_success = False
+            for attempt in range(1, 4):
+                await start_field.scroll_into_view_if_needed()
+                await start_field.click()
+                await self._human_delay(300, 600)
+                await start_field.press("Control+A")
+                await start_field.press("Backspace")
+                await start_field.fill("")
+                await self._human_delay(200, 400)
+                await start_field.type(origin_locode, delay=50)
+                await self._human_delay(1500, 2500)
+
+                if await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached):
+                    start_success = True
+                    break
+                else:
+                    print(f"[HAPAG] Attempt {attempt} failed to select Start Location dropdown on Schedule.")
+
+            if not start_success:
+                raise Exception("Failed to select Start Location on Schedule page.")
+
+            await self._human_delay(1000, 1800)
+
+            # --- END LOCATION (DESTINATION) ---
+            dest_locode = resolve_port_for_carrier(request.destination, "hapag")
+            if not dest_locode or len(dest_locode) != 5:
+                dest_locode = request.destination[:5].upper()
+
+            dest_cached = get_cached_carrier_port("hapag", dest_locode)
+            print(f"[HAPAG] Schedule: Filling End Location: '{dest_locode}' (cached: '{dest_cached}')")
+
+            end_selectors = [
+                'xpath=(//*[contains(text(), "End Location")])[1]/following::input[1]',
+                'input:below(:text("End Location"))',
+                'div:has-text("End Location") input',
+                'input[type="text"]'
+            ]
+
+            end_field = None
+            for sel in end_selectors:
+                try:
+                    if sel == 'input[type="text"]':
+                        loc = self.page.locator(sel).nth(1)
+                    else:
+                        loc = self.page.locator(sel).first
+                    if await loc.is_visible(timeout=1000):
+                        end_field = loc
+                        print(f"[HAPAG] Schedule End input found: {sel}")
+                        break
+                except:
+                    pass
+
+            if not end_field:
+                end_field = self.page.locator('input').nth(1)
+
+            end_success = False
+            for attempt in range(1, 4):
+                await end_field.scroll_into_view_if_needed()
+                await end_field.click()
+                await self._human_delay(300, 600)
+                await end_field.press("Control+A")
+                await end_field.press("Backspace")
+                await end_field.fill("")
+                await self._human_delay(200, 400)
+                await end_field.type(dest_locode, delay=50)
+                await self._human_delay(1500, 2500)
+
+                if await self._select_hapag_dropdown_option("End Location", dest_locode, dest_cached):
+                    end_success = True
+                    break
+                else:
+                    print(f"[HAPAG] Attempt {attempt} failed to select End Location dropdown on Schedule.")
+
+            if not end_success:
+                raise Exception("Failed to select End Location on Schedule page.")
+
+            # --- START DATE ---
+            target_start_date = date.today().isoformat()
+            if request.departure_date and request.departure_date != "tomorrow":
+                try:
+                    target_start_date = date.fromisoformat(request.departure_date).isoformat()
+                except:
+                    pass
+            elif request.departure_date == "tomorrow":
+                target_start_date = (date.today() + timedelta(days=1)).isoformat()
+
+            print(f"[HAPAG] Schedule: Setting Start Date: {target_start_date}")
+            try:
+                date_selectors = [
+                    'xpath=(//*[contains(text(), "Start Date")])[1]/following::input[1]',
+                    'input[placeholder*="YYYY-MM-DD" i]',
+                    'input[type="text"]'
+                ]
+                date_field = None
+                for sel in date_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            date_field = loc
+                            print(f"[HAPAG] Schedule Date input found: {sel}")
+                            break
+                    except:
+                        pass
+                if not date_field:
+                    date_field = self.page.locator('input').nth(2)
+
+                await date_field.scroll_into_view_if_needed()
+                await date_field.click()
+                await self._human_delay(200, 400)
+                await date_field.press("Control+A")
+                await date_field.press("Backspace")
+                await date_field.fill("")
+                await date_field.type(target_start_date, delay=50)
+                await self._human_delay(500, 1000)
+                await date_field.press("Enter")
+            except Exception as date_err:
+                print(f"[HAPAG] Schedule Date fill failed: {date_err}")
+
+            # --- SEARCH ---
+            print("[HAPAG] Schedule: Clicking Search...")
+            search_btn = None
+            search_selectors = [
+                'button:has-text("Search")',
+                'button[type="submit"]:has-text("Search")',
+                'span:has-text("Search")',
+                'button.orange'
+            ]
+            for sel in search_selectors:
+                try:
+                    loc = self.page.locator(sel).first
+                    if await loc.is_visible(timeout=1000):
+                        search_btn = loc
+                        break
+                except:
+                    pass
+            if not search_btn:
+                search_btn = self.page.locator('button:has-text("Search")').first
+
+            await search_btn.scroll_into_view_if_needed()
+            await search_btn.click()
+            await self._human_delay(4000, 6000)
+
+            # Wait for schedule results
+            print("[HAPAG] Waiting for schedule results (up to 45s)...")
+            try:
+                await self.page.wait_for_selector('text="Available sailings", [class*="result" i], button:has-text("Show Details")', timeout=45000)
+                print("[HAPAG] Schedule results loaded.")
+            except Exception as wait_err:
+                print(f"[HAPAG] Timeout waiting for schedule results: {wait_err}")
+                await self.page.screenshot(path="scratch/hapag_schedule_wait_timeout.png")
+                return []
+
+            # --- SCRAPE RESULTS ---
+            schedules = await self.page.evaluate('''() => {
+                const results = [];
+                const voyageLabels = Array.from(document.querySelectorAll('*')).filter(el => {
+                    if (el.children.length > 0) return false;
+                    return (el.textContent || "").includes("Voyage no.:");
+                });
+
+                voyageLabels.forEach(voyageEl => {
+                    let card = voyageEl.parentElement;
+                    let foundCard = false;
+                    for (let depth = 0; depth < 10; depth++) {
+                        if (!card) break;
+                        const text = (card.textContent || "");
+                        if (text.includes("Voyage no.:") && (text.includes("Show Details") || text.includes("Hide Details"))) {
+                            foundCard = true;
+                            break;
+                        }
+                        card = card.parentElement;
+                    }
+
+                    if (!foundCard || !card) return;
+
+                    const cardText = (card.textContent || "").replace(/\\s+/g, " ");
+
+                    const dateRegex = /\\b\\d{4}-\\d{2}-\\d{2}\\b/g;
+                    const dates = cardText.match(dateRegex) || [];
+
+                    if (dates.length < 2) return;
+                    const etd = dates[0];
+                    const eta = dates[1];
+
+                    const voyageMatch = cardText.match(/Voyage no\\.:\\s*(\\S+)/);
+                    const voyage = voyageMatch ? voyageMatch[1] : "";
+
+                    let vessel = "Hapag Vessel";
+                    let service = "Hapag Service";
+
+                    const voyageParent = voyageEl.parentElement;
+                    if (voyageParent) {
+                        const chips = Array.from(voyageParent.querySelectorAll('span, button, a, div'))
+                            .map(c => (c.textContent || "").trim())
+                            .filter(Boolean);
+                        
+                        const voyageIndex = chips.findIndex(c => c.includes("Voyage no.:"));
+                        if (voyageIndex !== -1) {
+                            if (voyageIndex > 0) {
+                                vessel = chips[voyageIndex - 1];
+                            }
+                            if (voyageIndex > 1) {
+                                service = chips[voyageIndex - 2];
+                            }
+                        }
+                    }
+
+                    const docCutoffMatch = cardText.match(/Doc Cut-off\\s+(\\d{4}-\\d{2}-\\d{2})/);
+                    const fclCutoffMatch = cardText.match(/FCL Cut-off\\s+(\\d{4}-\\d{2}-\\d{2})/);
+                    const vgmCutoffMatch = cardText.match(/VGM Cut-off\\s+(\\d{4}-\\d{2}-\\d{2})/);
+
+                    const doc_cutoff = docCutoffMatch ? docCutoffMatch[1] : "";
+                    const fcl_cutoff = fclCutoffMatch ? fclCutoffMatch[1] : "";
+                    const vgm_cutoff = vgmCutoffMatch ? vgmCutoffMatch[1] : "";
+
+                    let transit = null;
+                    try {
+                        const d1 = new Date(etd);
+                        const d2 = new Date(eta);
+                        const diffTime = Math.abs(d2 - d1);
+                        transit = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    } catch (e) {}
+
+                    results.push({
+                        etd: etd,
+                        eta: eta,
+                        transit_time_days: transit,
+                        voyage: voyage,
+                        vessel: vessel,
+                        service: service,
+                        doc_cutoff: doc_cutoff,
+                        fcl_cutoff: fcl_cutoff,
+                        vgm_cutoff: vgm_cutoff
+                    });
+                });
+
+                return results;
+            }''')
+
+            print(f"[HAPAG] Successfully crawled {len(schedules)} sailing schedules:")
+            for s in schedules:
+                print(f"  ETD={s['etd']} ETA={s['eta']} Vessel='{s['vessel']}' Voyage='{s['voyage']}' Service='{s['service']}'")
+
+        except Exception as e:
+            print(f"[HAPAG] [ERROR] Failed to crawl sailing schedules: {e}")
+            try:
+                await self.page.screenshot(path="scratch/hapag_schedule_crawl_crash.png")
+            except:
+                pass
+
+        return schedules
+
+    def _find_matching_schedule(self, quote_etd: str, schedules: list[dict]) -> Optional[dict]:
+        """
+        Fuzzy match quote ETD with crawled schedules within a window of +/- 2 days.
+        """
+        if not quote_etd or not schedules:
+            return None
+            
+        try:
+            q_date = datetime.strptime(quote_etd, "%Y-%m-%d").date()
+        except Exception as e:
+            print(f"[HAPAG] Error parsing quote ETD '{quote_etd}': {e}")
+            return None
+            
+        best_match = None
+        min_diff = 999
+        
+        for s in schedules:
+            if not s.get("etd"):
+                continue
+            try:
+                s_date = datetime.strptime(s["etd"], "%Y-%m-%d").date()
+            except Exception as e:
+                print(f"[HAPAG] Error parsing schedule ETD '{s['etd']}': {e}")
+                continue
+            diff = abs((q_date - s_date).days)
+            if diff <= 2:  # +/- 2 days window
+                if diff < min_diff:
+                    min_diff = diff
+                    best_match = s
+                    
+        return best_match
+
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             print("[HAPAG] Starting Quick Quote search...")
@@ -1901,6 +2234,111 @@ class HapagLloydConnector(BaseCarrierConnector):
             source="carrier_portal",
             raw_reference=f"HAPAG-{raw_quote.get('index', 0)}"
         )
+
+    async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        quotes: list[QuoteSchema] = []
+        try:
+            # Step 1: Login
+            login_ok = await self.login()
+            if not login_ok:
+                return CarrierResultStatus.LOGIN_FAILED, []
+
+            # Step 2: Search Sailing Schedules
+            schedules = []
+            try:
+                schedules = await self.search_sailing_schedules(request)
+            except Exception as se:
+                print(f"[HAPAG] Warning: Schedule crawling failed: {se}")
+
+            # Step 3: Transition to Quote Page
+            print("[HAPAG] Transitioning to Quote page...")
+            try:
+                await self.page.goto("https://www.hapag-lloyd.com/solutions/quote/#/")
+                await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+            except Exception as nav_err:
+                print(f"[HAPAG] Direct Quote navigation failed ({nav_err}). Trying menu click...")
+                try:
+                    quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+                    await quote_sidebar.scroll_into_view_if_needed()
+                    await quote_sidebar.click(force=True)
+                    await self._human_delay(800, 1500)
+                    new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+                    await new_quote_btn.scroll_into_view_if_needed()
+                    await new_quote_btn.click(force=True)
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except Exception as menu_err:
+                    print(f"[HAPAG] Quote menu click failed: {menu_err}")
+
+            await self._human_delay(2000, 4000)
+            await self._dismiss_hapag_modals()
+
+            # Step 4: Search quotes
+            search_status = await self.search_quotes(request)
+            if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                return search_status, []
+
+            # Step 5: Extract quote list
+            raw_quotes = await self.extract_quote_list()
+            if not raw_quotes:
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+            # Step 6: For each quote, get breakdown and normalize
+            for idx, raw_quote in enumerate(raw_quotes):
+                try:
+                    raw_quote["index"] = idx
+                    opened = await self.open_price_breakdown(raw_quote)
+                    raw_charges = []
+                    if opened:
+                        raw_charges = await self.extract_charge_breakdown()
+                        
+                    normalized = await self.normalize_result(raw_quote, raw_charges)
+
+                    # Step 7: Fuzzy match with sailing schedules by ETD
+                    matched_schedule = self._find_matching_schedule(normalized.etd, schedules)
+                    if matched_schedule:
+                        diff_days = abs((datetime.strptime(normalized.etd, '%Y-%m-%d').date() - datetime.strptime(matched_schedule['etd'], '%Y-%m-%d').date()).days)
+                        print(f"[HAPAG] [MATCH] Matched quote ETD {normalized.etd} with schedule ETD {matched_schedule['etd']} (diff {diff_days} days)")
+                        
+                        vessel_str = matched_schedule["vessel"]
+                        if matched_schedule["voyage"]:
+                            vessel_str = f"{vessel_str} (Voyage {matched_schedule['voyage']})"
+                        if raw_quote.get("is_sold_out"):
+                            vessel_str = f"{vessel_str} (Sold out)"
+                            
+                        normalized.vessel = vessel_str
+                        
+                        service_str = matched_schedule["service"]
+                        cutoffs = []
+                        if matched_schedule["doc_cutoff"]:
+                            cutoffs.append(f"Doc Cut-off: {matched_schedule['doc_cutoff']}")
+                        if matched_schedule["fcl_cutoff"]:
+                            cutoffs.append(f"FCL Cut-off: {matched_schedule['fcl_cutoff']}")
+                        if cutoffs:
+                            service_str = f"{service_str} ({', '.join(cutoffs)})"
+                        normalized.service_name = service_str
+                        
+                        if matched_schedule["eta"]:
+                            normalized.eta = matched_schedule["eta"]
+                        if matched_schedule["transit_time_days"] is not None:
+                            normalized.transit_time_days = matched_schedule["transit_time_days"]
+                    else:
+                        print(f"[HAPAG] [NO MATCH] No schedule matched quote ETD {normalized.etd}")
+
+                    quotes.append(normalized)
+                except Exception as e:
+                    print(f"[HAPAG] Error extracting quote: {e}")
+                    continue
+
+            if quotes:
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
+            else:
+                return CarrierResultStatus.EXTRACTION_FAILED, []
+
+        except Exception as e:
+            print(f"[HAPAG] Unexpected error in run_full_search: {e}")
+            return CarrierResultStatus.UNKNOWN_ERROR, []
+        finally:
+            await self.close()
 
     async def close(self):
         try:
