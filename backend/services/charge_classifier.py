@@ -9,6 +9,7 @@ Classifies each charge into one of:
 - DESTINATION_CHARGE_EXCLUDED
 - UNCERTAIN_EXCLUDED
 """
+import re
 from models.schemas import ChargeCategory
 
 
@@ -127,7 +128,15 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
         "canal surcharge",
     ]
     for kw in local_charge_keywords:
-        if kw in name_lower:
+        matched = False
+        if len(kw) <= 3:
+            if re.search(rf"\b{re.escape(kw)}\b", name_lower):
+                matched = True
+        else:
+            if kw in name_lower:
+                matched = True
+
+        if matched:
             # Classify as origin or destination based on context, default to origin
             if any(x in name_lower for x in ["destination", "pod", "import", "discharge"]):
                 return ChargeCategory.DESTINATION_CHARGE_EXCLUDED, f"Local charge at destination: '{kw}'"
@@ -173,7 +182,15 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
         "hazardous surcharge",
     ]
     for kw in freight_surcharge_keywords:
-        if kw in name_lower:
+        matched = False
+        if len(kw) <= 3:
+            if re.search(rf"\b{re.escape(kw)}\b", name_lower):
+                matched = True
+        else:
+            if kw in name_lower:
+                matched = True
+
+        if matched:
             return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Freight surcharge matched: '{kw}'"
 
     # ── OVERRIDE BY SECTION HEADING (FALLBACK) ────────────────

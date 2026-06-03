@@ -112,6 +112,19 @@ def test_section_override_precedence():
     assert cat == ChargeCategory.BASIC_OCEAN_FREIGHT
 
 
+def test_short_keyword_boundaries():
+    # 'Local Other Fees' should not match 'ees' (which is in 'fees')
+    cat, _ = classify_charge("Local Other Fees", 20, "destination charge")
+    assert cat == ChargeCategory.DESTINATION_CHARGE_EXCLUDED, f"Expected DESTINATION_CHARGE_EXCLUDED, got {cat}"
+
+    # 'EES' or 'ees surcharge' should match 'ees'
+    cat, _ = classify_charge("EES", 20)
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Expected FREIGHT_SURCHARGE_INCLUDED, got {cat}"
+
+    cat, _ = classify_charge("EES Surcharge", 25)
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Expected FREIGHT_SURCHARGE_INCLUDED, got {cat}"
+
+
 if __name__ == "__main__":
     test_basic_ocean_freight()
     test_discount()
@@ -121,4 +134,5 @@ if __name__ == "__main__":
     test_local_charges_excluded()
     test_uncertain()
     test_section_override_precedence()
+    test_short_keyword_boundaries()
     print("All charge classifier tests passed!")
