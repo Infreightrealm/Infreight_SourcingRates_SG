@@ -658,8 +658,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                 item_text = (await item.inner_text()).strip().upper()
                 print(f"  Suggestion {idx}: '{item_text}'")
                 
-                # Filter out standard non-port option labels
-                if any(x in item_text for x in ["KG", "LB", "SELECT UNITS", "YOUR DOOR", "TERMINAL/RAMP"]):
+                # Filter out standard non-port option labels (e.g. Door delivery options)
+                if any(x in item_text for x in ["KG", "LB", "SELECT UNITS", "DOOR", "TERMINAL/RAMP"]):
                     continue
                 
                 if target_match in item_text or (cached_name and cached_name.upper() in item_text):
@@ -668,11 +668,15 @@ class HapagLloydConnector(BaseCarrierConnector):
                     await self._human_delay(1000, 2000)  # Buffer time after selection click to let form settle
                     return True
 
-            # If no suggestion matched, click the first suggestion as fallback
-            if count > 0:
-                print(f"[HAPAG] No exact suggestion matched '{target_match}'. Falling back to first available option.")
-                await suggestions.first.click()
-                await self._human_delay(1000, 2000)  # Buffer time after selection click to let form settle
+            # If no exact match, fallback to the first valid (non-Door, non-unit) suggestion
+            for idx in range(count):
+                item = suggestions.nth(idx)
+                item_text = (await item.inner_text()).strip().upper()
+                if any(x in item_text for x in ["KG", "LB", "SELECT UNITS", "DOOR", "TERMINAL/RAMP"]):
+                    continue
+                print(f"[HAPAG] No exact suggestion matched '{target_match}'. Falling back to first valid option: '{item_text}'.")
+                await item.click()
+                await self._human_delay(1000, 2000)
                 return True
 
             print(f"[HAPAG] Dropdown suggestions did not appear for {label}.")
