@@ -2444,51 +2444,52 @@ class HapagLloydConnector(BaseCarrierConnector):
             if not raw_quotes:
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
-            # Step 6: For each quote, get breakdown and normalize
-            for idx, raw_quote in enumerate(raw_quotes):
+            # Step 6: For each schedule, map the corresponding quote price
+            for schedule in schedules:
                 try:
-                    raw_quote["index"] = idx
-                    opened = await self.open_price_breakdown(raw_quote)
-                    raw_charges = []
-                    if opened:
-                        raw_charges = await self.extract_charge_breakdown()
-                        
-                    normalized = await self.normalize_result(raw_quote, raw_charges)
-
-                    # Step 7: Fuzzy match with sailing schedules by ETD
-                    matched_schedule = self._find_matching_schedule(normalized.etd, schedules)
-                    if matched_schedule:
-                        diff_days = abs((datetime.strptime(normalized.etd, '%Y-%m-%d').date() - datetime.strptime(matched_schedule['etd'], '%Y-%m-%d').date()).days)
-                        print(f"[HAPAG] [MATCH] Matched quote ETD {normalized.etd} with schedule ETD {matched_schedule['etd']} (diff {diff_days} days)")
-                        
-                        vessel_str = matched_schedule["vessel"]
-                        if matched_schedule["voyage"]:
-                            vessel_str = f"{vessel_str} (Voyage {matched_schedule['voyage']})"
-                        if raw_quote.get("is_sold_out"):
-                            vessel_str = f"{vessel_str} (Sold out)"
+                    sched_etd = schedule["etd"]
+                    # Find matching raw quote from the Quote page
+                    matching_raw_quote = next((q for q in raw_quotes if q["etd"] == sched_etd), None)
+                    
+                    if matching_raw_quote:
+                        opened = await self.open_price_breakdown(matching_raw_quote)
+                        raw_charges = []
+                        if opened:
+                            raw_charges = await self.extract_charge_breakdown()
                             
-                        normalized.vessel = vessel_str
-                        
-                        service_str = matched_schedule["service"]
-                        cutoffs = []
-                        if matched_schedule["doc_cutoff"]:
-                            cutoffs.append(f"Doc Cut-off: {matched_schedule['doc_cutoff']}")
-                        if matched_schedule["fcl_cutoff"]:
-                            cutoffs.append(f"FCL Cut-off: {matched_schedule['fcl_cutoff']}")
-                        if cutoffs:
-                            service_str = f"{service_str} ({', '.join(cutoffs)})"
-                        normalized.service_name = service_str
-                        
-                        if matched_schedule["eta"]:
-                            normalized.eta = matched_schedule["eta"]
-                        if matched_schedule["transit_time_days"] is not None:
-                            normalized.transit_time_days = matched_schedule["transit_time_days"]
+                        normalized = await self.normalize_result(matching_raw_quote, raw_charges)
+                        print(f"[HAPAG] [MATCH] Schedule ETD {sched_etd} matched with quote price.")
                     else:
-                        print(f"[HAPAG] [NO MATCH] No schedule matched quote ETD {normalized.etd}")
+                        print(f"[HAPAG] [NO PRICE MATCH] Schedule ETD {sched_etd} has no matching price quote. Emitting schedule without price.")
+                        normalized = QuoteSchema(etd=sched_etd)
+                    
+                    # Step 7: Augment normalized quote with schedule details (vessel, service, eta)
+                    vessel_str = schedule["vessel"]
+                    if schedule["voyage"]:
+                        vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
+                    if matching_raw_quote and matching_raw_quote.get("is_sold_out"):
+                        vessel_str = f"{vessel_str} (Sold out)"
+                        
+                    normalized.vessel = vessel_str
+                    
+                    service_str = schedule["service"]
+                    cutoffs = []
+                    if schedule["doc_cutoff"]:
+                        cutoffs.append(f"Doc Cut-off: {schedule['doc_cutoff']}")
+                    if schedule["fcl_cutoff"]:
+                        cutoffs.append(f"FCL Cut-off: {schedule['fcl_cutoff']}")
+                    if cutoffs:
+                        service_str = f"{service_str} ({', '.join(cutoffs)})"
+                    normalized.service_name = service_str
+                    
+                    if schedule["eta"]:
+                        normalized.eta = schedule["eta"]
+                    if schedule["transit_time_days"] is not None:
+                        normalized.transit_time_days = schedule["transit_time_days"]
 
                     quotes.append(normalized)
                 except Exception as e:
-                    print(f"[HAPAG] Error extracting quote: {e}")
+                    print(f"[HAPAG] Error processing schedule ETD {schedule.get('etd')}: {e}")
                     continue
 
             if quotes:
