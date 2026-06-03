@@ -22,15 +22,6 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
     name_lower = charge_name.lower().strip()
     section = section_heading.strip().lower() if section_heading else ""
 
-    # ── OVERRIDE BY SECTION HEADING ─────────────────────────
-    if section:
-        if "freight" in section:
-            return ChargeCategory.BASIC_OCEAN_FREIGHT, f"Forced by section header: '{section_heading}'"
-        elif "origin" in section:
-            return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, f"Forced by section header: '{section_heading}'"
-        elif "destination" in section:
-            return ChargeCategory.DESTINATION_CHARGE_EXCLUDED, f"Forced by section header: '{section_heading}'"
-
     # ── BASIC OCEAN FREIGHT ──────────────────────────────────
     basic_freight_keywords = [
         "basic ocean freight",
@@ -184,6 +175,15 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
     for kw in freight_surcharge_keywords:
         if kw in name_lower:
             return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Freight surcharge matched: '{kw}'"
+
+    # ── OVERRIDE BY SECTION HEADING (FALLBACK) ────────────────
+    if section:
+        if "freight" in section:
+            return ChargeCategory.BASIC_OCEAN_FREIGHT, f"Forced by section header: '{section_heading}'"
+        elif "origin" in section:
+            return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, f"Forced by section header: '{section_heading}'"
+        elif "destination" in section:
+            return ChargeCategory.DESTINATION_CHARGE_EXCLUDED, f"Forced by section header: '{section_heading}'"
 
     # ── UNCERTAIN ────────────────────────────────────────────
     return ChargeCategory.UNCERTAIN_EXCLUDED, "Could not classify — excluded from final value as a precaution"

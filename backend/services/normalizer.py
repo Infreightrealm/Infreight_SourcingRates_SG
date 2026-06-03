@@ -8,8 +8,54 @@ Final Freight Value =
 
 Excludes: Origin charges, destination charges, uncertain charges.
 """
+from datetime import datetime, date
 from models.schemas import ChargeCategory, ChargeSchema, QuoteSchema
 from services.charge_classifier import classify_charge
+
+
+MONTH_MAP = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+}
+
+
+def format_maersk_date(d) -> str:
+    return f"{d.day} {MONTH_MAP[d.month]} {d.year}"
+
+
+def standardize_date_string(date_val) -> str:
+    if not date_val:
+        return None
+    if isinstance(date_val, (date, datetime)):
+        return format_maersk_date(date_val)
+    
+    date_str = str(date_val).strip()
+    
+    # Try parsing ISO format first
+    try:
+        dt = datetime.fromisoformat(date_str)
+        return format_maersk_date(dt.date())
+    except Exception:
+        pass
+    
+    # Common format patterns
+    patterns = [
+        "%Y-%m-%d",      # e.g., 2026-06-09
+        "%d %b %Y",      # e.g., 6 Jun 2026, 22 Jun 2026
+        "%d-%b-%Y",      # e.g., 06-Jun-2026
+        "%d/%m/%Y",      # e.g., 6/6/2026
+        "%m/%d/%Y",      # e.g., 6/6/2026 (us)
+    ]
+    
+    for pattern in patterns:
+        try:
+            dt = datetime.strptime(date_str, pattern)
+            return format_maersk_date(dt.date())
+        except Exception:
+            continue
+            
+    # Fallback to the original string if parsing failed
+    return date_str
 
 
 def calculate_final_freight_value(charges: list[dict]) -> float:
@@ -165,8 +211,8 @@ def normalize_quote(
         final_value = raw_quote.get("total_price")
 
     return QuoteSchema(
-        etd=raw_quote.get("etd"),
-        eta=raw_quote.get("eta"),
+        etd=standardize_date_string(raw_quote.get("etd")),
+        eta=standardize_date_string(raw_quote.get("eta")),
         transit_time_days=raw_quote.get("transit_time_days"),
         service_name=raw_quote.get("service_name"),
         vessel=raw_quote.get("vessel"),

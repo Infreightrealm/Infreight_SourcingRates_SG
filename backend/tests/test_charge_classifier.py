@@ -98,6 +98,20 @@ def test_uncertain():
     assert cat == ChargeCategory.UNCERTAIN_EXCLUDED
 
 
+def test_section_override_precedence():
+    # 1. Surcharges under 'Freight charges' section should still be classified as surcharges
+    cat, _ = classify_charge("Emergency Bunker Fee", 50, "Freight charges")
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+    # 2. Basic Ocean Freight under 'Freight charges' section should be BASIC_OCEAN_FREIGHT
+    cat, _ = classify_charge("Basic Ocean Freight", 556, "Freight charges")
+    assert cat == ChargeCategory.BASIC_OCEAN_FREIGHT
+
+    # 3. Unclassified charge under 'Freight charges' fallback to BASIC_OCEAN_FREIGHT
+    cat, _ = classify_charge("Some Arbitrary Freight Fee", 100, "Freight charges")
+    assert cat == ChargeCategory.BASIC_OCEAN_FREIGHT
+
+
 if __name__ == "__main__":
     test_basic_ocean_freight()
     test_discount()
@@ -106,4 +120,5 @@ if __name__ == "__main__":
     test_destination_charges()
     test_local_charges_excluded()
     test_uncertain()
+    test_section_override_precedence()
     print("All charge classifier tests passed!")

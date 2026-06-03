@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from services.normalizer import calculate_final_freight_value, classify_and_organize_charges
+from services.normalizer import calculate_final_freight_value, classify_and_organize_charges, standardize_date_string, normalize_quote
 from models.schemas import ChargeCategory
 
 
@@ -66,10 +66,38 @@ def test_classify_and_organize():
     assert len(result["uncertain_charges"]) == 1
 
 
+def test_date_standardization():
+    # 1. YYYY-MM-DD
+    assert standardize_date_string("2026-06-09") == "9 Jun 2026"
+    assert standardize_date_string("2026-07-03") == "3 Jul 2026"
+
+    # 2. D MMM YYYY / DD MMM YYYY
+    assert standardize_date_string("6 Jun 2026") == "6 Jun 2026"
+    assert standardize_date_string("22 Jun 2026") == "22 Jun 2026"
+
+    # 3. D/M/YYYY
+    assert standardize_date_string("6/6/2026") == "6 Jun 2026"
+    assert standardize_date_string("22/6/2026") == "22 Jun 2026"
+
+    # 4. normalize_quote integration
+    raw_quote = {
+        "etd": "2026-06-09",
+        "eta": "6/6/2026",
+        "transit_time_days": 10,
+        "service_name": "Test",
+        "vessel": "Vessel",
+        "total_price": 500.0,
+    }
+    normalized = normalize_quote("ONE", raw_quote, [])
+    assert normalized.etd == "9 Jun 2026"
+    assert normalized.eta == "6 Jun 2026"
+
+
 if __name__ == "__main__":
     test_basic_calculation()
     test_positive_discount_normalized()
     test_no_charges()
     test_only_excluded()
     test_classify_and_organize()
+    test_date_standardization()
     print("All normalizer tests passed!")
