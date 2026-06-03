@@ -93,6 +93,143 @@ def test_date_standardization():
     assert normalized.eta == "6 Jun 2026"
 
 
+def test_one_breakdown_parsing():
+    import re
+    from services.charge_classifier import classify_charge
+    from services.normalizer import normalize_quote
+
+    # Simulated implementation of ONE Connector's extract_charge_breakdown on polluted text
+    text = """
+BASIC OCEAN FREIGHT
+Basic Ocean Freight
+DRY 20 x 1 (USD 350.00)                        USD 350.00
+FREIGHT CHARGE
+Emergency Fuel Surcharge
+DRY 20 x 1 (USD 60.00)                         USD 60.00
+Origin
+2026-06-11
+1 day(s)
+Direct
+Destination
+2026-06-12
+Service Lane/Vessel Voyage
+KCS / YM COOPERATION (058N)
+POL
+SINGAPORE (SGSIN)
+POD
+PORT KLANG (MYPKG)
+Status
+Available
+USD 799.95
+Accept
+"""
+    if "BASIC OCEAN FREIGHT" in text.upper():
+        idx_bof = text.upper().find("BASIC OCEAN FREIGHT")
+        text = text[idx_bof:]
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    amount_pattern = re.compile(r"(?:^|\s)([A-Z]{3})\s*([\d,]+\.\d{2})$")
+
+    def is_section_heading(line: str) -> bool:
+        normalized = line.strip().lower()
+        return normalized in {
+            "freight charge",
+            "origin charge",
+            "destination charge",
+            "special promotion service",
+            "promotion",
+        } or normalized.startswith("what is special promotion service")
+
+    def is_container_line(line: str) -> bool:
+        return "x" in line and "(" in line and ")" in line
+
+    def is_stop_line(line: str) -> bool:
+        normalized = line.strip().lower()
+        if normalized in {"pol", "pod", "accept", "details", "origin", "destination"}:
+            return True
+        if "service lane" in normalized or "vessel voyage" in normalized:
+            return True
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", normalized):
+            return True
+        return False
+
+    charges = []
+    for index, line in enumerate(lines):
+        if is_stop_line(line):
+            break
+        amount_match = amount_pattern.search(line)
+        if not amount_match:
+            continue
+
+        currency = amount_match.group(1)
+        amount = float(amount_match.group(2).replace(",", ""))
+
+        remaining_line = line[:amount_match.start()].strip()
+        name = ""
+
+        if remaining_line and not is_container_line(remaining_line) and not is_section_heading(remaining_line):
+            name = remaining_line
+        else:
+            name_index = index - 1
+            while name_index >= 0:
+                candidate = lines[name_index]
+                if not candidate or is_section_heading(candidate) or is_container_line(candidate):
+                    name_index -= 1
+                    continue
+                if amount_pattern.search(candidate):
+                    name_index -= 1
+                    continue
+                break
+
+            name = lines[name_index] if name_index >= 0 else f"Charge {len(charges) + 1}"
+
+        section_heading = "unknown"
+        sec_index = index - 1
+        while sec_index >= 0:
+            candidate = lines[sec_index]
+            if is_section_heading(candidate):
+                section_heading = candidate.strip().lower()
+                break
+            sec_index -= 1
+
+        category, reason = classify_charge(name, amount, section_heading)
+        charges.append({
+            "name": name,
+            "amount": amount,
+            "currency": currency,
+            "category": category.value,
+            "reason": reason,
+        })
+
+    # Ensure stop condition successfully ignored the subsequent card header (which has USD 799.95)
+    assert len(charges) == 2, f"Expected 2 charges, got {len(charges)}: {charges}"
+    assert charges[0]["name"] == "Basic Ocean Freight"
+    assert charges[0]["amount"] == 350.0
+    assert charges[0]["category"] == "BASIC_OCEAN_FREIGHT"
+
+    assert charges[1]["name"] == "Emergency Fuel Surcharge"
+    assert charges[1]["amount"] == 60.0
+    assert charges[1]["category"] == "FREIGHT_SURCHARGE_INCLUDED"
+
+    # Test full normalization integration
+    raw_quote = {
+        "etd": "2026-06-11",
+        "eta": "2026-06-12",
+        "transit_time_days": 1,
+        "service_name": "KCS / YM COOPERATION (058N)",
+        "vessel": "YM COOPERATION (058N)",
+        "total_price": 410.0,
+    }
+    normalized = normalize_quote("ONE", raw_quote, charges)
+    assert normalized.etd == "11 Jun 2026", f"Expected '11 Jun 2026', got '{normalized.etd}'"
+    assert normalized.eta == "12 Jun 2026", f"Expected '12 Jun 2026', got '{normalized.eta}'"
+    assert normalized.basic_ocean_freight == 350.0
+    assert normalized.final_freight_value == 410.0
+    assert len(normalized.included_freight_surcharges) == 1
+    assert normalized.included_freight_surcharges[0].name == "Emergency Fuel Surcharge"
+    assert normalized.included_freight_surcharges[0].amount == 60.0
+
+
 if __name__ == "__main__":
     test_basic_calculation()
     test_positive_discount_normalized()
@@ -100,4 +237,5 @@ if __name__ == "__main__":
     test_only_excluded()
     test_classify_and_organize()
     test_date_standardization()
+    test_one_breakdown_parsing()
     print("All normalizer tests passed!")

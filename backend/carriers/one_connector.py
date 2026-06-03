@@ -1054,8 +1054,21 @@ class ONEConnector(BaseCarrierConnector):
             def is_container_line(line: str) -> bool:
                 return "x" in line and "(" in line and ")" in line
 
+            def is_stop_line(line: str) -> bool:
+                normalized = line.strip().lower()
+                if normalized in {"pol", "pod", "accept", "details", "origin", "destination"}:
+                    return True
+                if "service lane" in normalized or "vessel voyage" in normalized:
+                    return True
+                if re.match(r"^\d{4}-\d{2}-\d{2}$", normalized):
+                    return True
+                return False
+
             charges = []
             for index, line in enumerate(lines):
+                if is_stop_line(line):
+                    print(f"[ONE] Stopping breakdown parsing at line: '{line}'")
+                    break
                 amount_match = amount_pattern.search(line)
                 if not amount_match:
                     continue
