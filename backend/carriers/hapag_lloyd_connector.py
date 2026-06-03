@@ -230,6 +230,26 @@ class HapagLloydConnector(BaseCarrierConnector):
                         return True
                 except:
                     pass
+
+            # 1.5. Onboarding specific dismissal
+            onboarding_selectors = [
+                '.hal-onboarding__content button',
+                '[class*="onboarding" i] button',
+                'button:has-text("Skip")',
+                'button:has-text("Next")',
+                'button:has-text("Got it")',
+                '.q-dialog button:has-text("Skip")',
+                'div[id^="q-portal--dialog"] button:has-text("Skip")'
+            ]
+            for sel in onboarding_selectors:
+                try:
+                    btn = self.page.locator(sel).first
+                    if await btn.is_visible(timeout=200):
+                        print(f"[HAPAG] Onboarding button/close detected: {sel}. Clicking...")
+                        await btn.click()
+                        return True
+                except:
+                    pass
             
             # 2. Run advanced JavaScript evaluation to close custom overlay popups (e.g. currency onboarding)
             js_close_result = await self.page.evaluate('''() => {
@@ -254,10 +274,13 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                     
                     // Fallback to "Next" or "OK" buttons in onboarding modals
-                    const actionBtn = dialog.querySelector('button:has-text("Next"), button:has-text("OK"), button.orange');
+                    const actionBtn = Array.from(dialog.querySelectorAll('button, .q-btn, .orange')).find(btn => {
+                        const txt = (btn.textContent || "").trim().toLowerCase();
+                        return txt === 'next' || txt === 'ok' || txt.includes('got it') || txt.includes('skip') || txt.includes('confirm') || btn.classList.contains('orange');
+                    });
                     if (actionBtn && actionBtn.getBoundingClientRect().width > 0) {
                         actionBtn.click();
-                        return "Clicked modal action button (Next/OK)";
+                        return "Clicked modal action button: " + actionBtn.textContent.trim();
                     }
                 }
                 return null;
@@ -623,7 +646,7 @@ class HapagLloydConnector(BaseCarrierConnector):
         try:
             print(f"[HAPAG] Selecting dropdown option for {label}: '{locode}'...")
             
-            # Combine all suggestions selectors
+            # Combine all suggestions selectors (including Quasar-specific classes)
             suggestions_selectors = [
                 '[class*="suggestion" i]',
                 '[class*="dropdown" i] li',
@@ -631,55 +654,75 @@ class HapagLloydConnector(BaseCarrierConnector):
                 '.el-autocomplete-suggestion li',
                 '.el-select-dropdown__item',
                 '[role="option"]',
-                'ul[role="listbox"] li'
+                'ul[role="listbox"] li',
+                '.q-menu .q-item',
+                '.q-virtual-scroll__content .q-item',
+                '.q-item',
+                '.q-item__label'
             ]
             combined_selector = ", ".join(suggestions_selectors)
             
-            # Wait up to 5 seconds for the suggestion popup to become visible
+            # Wait up to 10 seconds for the suggestion popup to become visible
             try:
-                await self.page.wait_for_selector(combined_selector, state="visible", timeout=5000)
+                await self.page.wait_for_selector(combined_selector, state="visible", timeout=10000)
                 print("[HAPAG] Dropdown suggestions became visible.")
             except Exception as wait_err:
-                print(f"[HAPAG] Suggestions visible wait timeout: {wait_err}")
+                print(f"[HAPAG] Suggestions visible wait timeout. Retrying force-open by clicking field and pressing ArrowDown...")
+                try:
+                    # Force suggestions list to open/reload
+                    input_xpath = f'xpath=(//*[contains(text(), "{label}")])[1]/following::input[1]'
+                    input_field = self.page.locator(input_xpath).first
+                    await input_field.click()
+                    await self.page.keyboard.press("ArrowDown")
+                    await self.page.wait_for_selector(combined_selector, state="visible", timeout=8000)
+                    print("[HAPAG] Dropdown suggestions became visible after force-open.")
+                except Exception as retry_err:
+                    print(f"[HAPAG] Suggestions still not visible after retry: {retry_err}")
 
             await self._human_delay(800, 1500)  # Small buffer time for suggestions to stabilize
             
             # Locate dropdown overlay suggestions
             suggestions = self.page.locator(combined_selector)
             count = await suggestions.count()
-            print(f"[HAPAG] Suggestions visible count: {count}")
+            print(f"[HAPAG] Suggestions matching selector count: {count}")
+            
+            # Filter to only currently visible suggestions in the page
+            visible_suggestions = []
+            for idx in range(count):
+                item = suggestions.nth(idx)
+                if await item.is_visible():
+                    visible_suggestions.append(item)
+            print(f"[HAPAG] Actually visible suggestions count: {len(visible_suggestions)}")
             
             # Match criteria: locode or cached_name
             target_match = locode.upper()
             
             # Scroll and scan suggestions
-            for idx in range(count):
-                item = suggestions.nth(idx)
-                item_text = (await item.inner_text()).strip().upper()
-                print(f"  Suggestion {idx}: '{item_text}'")
+            for item in visible_suggestions:
+                item_text = (await item.text_content() or await item.inner_text() or "").strip().upper()
+                print(f"  Visible Suggestion text: '{item_text}'")
                 
                 # Filter out standard non-port option labels (e.g. Door delivery options)
                 if any(x in item_text for x in ["KG", "LB", "SELECT UNITS", "DOOR", "TERMINAL/RAMP"]):
                     continue
                 
                 if target_match in item_text or (cached_name and cached_name.upper() in item_text):
-                    print(f"[HAPAG] [MATCH] Found suggestion at index {idx}: '{item_text}'. Clicking...")
+                    print(f"[HAPAG] [MATCH] Found suggestion: '{item_text}'. Clicking...")
                     await item.click()
-                    await self._human_delay(1000, 2000)  # Buffer time after selection click to let form settle
+                    await self._human_delay(1500, 2500)  # Buffer time after selection click to let form settle
                     return True
 
             # If no exact match, fallback to the first valid (non-Door, non-unit) suggestion
-            for idx in range(count):
-                item = suggestions.nth(idx)
-                item_text = (await item.inner_text()).strip().upper()
+            for item in visible_suggestions:
+                item_text = (await item.text_content() or await item.inner_text() or "").strip().upper()
                 if any(x in item_text for x in ["KG", "LB", "SELECT UNITS", "DOOR", "TERMINAL/RAMP"]):
                     continue
                 print(f"[HAPAG] No exact suggestion matched '{target_match}'. Falling back to first valid option: '{item_text}'.")
                 await item.click()
-                await self._human_delay(1000, 2000)
+                await self._human_delay(1500, 2500)
                 return True
 
-            print(f"[HAPAG] Dropdown suggestions did not appear for {label}.")
+            print(f"[HAPAG] Dropdown suggestions did not appear or match for {label}.")
             return False
         except Exception as e:
             print(f"[HAPAG] Dropdown selection error for {label}: {e}")
@@ -765,18 +808,29 @@ class HapagLloydConnector(BaseCarrierConnector):
                 start_field = self.page.locator('input').first
                 print("[HAPAG] Fallback to first general input on page.")
 
-            await start_field.scroll_into_view_if_needed()
-            await start_field.click()
-            await self._human_delay(300, 600)
-            await start_field.press("Control+A")
-            await start_field.press("Backspace")
-            await start_field.fill("")
-            await self._human_delay(200, 400)
-            await start_field.type(origin_locode, delay=35)
-            await self._human_delay(1500, 2500)
+            # Try to fill and select Start Location (up to 3 attempts)
+            start_success = False
+            for attempt in range(1, 4):
+                print(f"[HAPAG] Attempt {attempt} to fill Start Location: '{origin_locode}'")
+                await start_field.scroll_into_view_if_needed()
+                await start_field.click()
+                await self._human_delay(300, 600)
+                await start_field.press("Control+A")
+                await start_field.press("Backspace")
+                await start_field.fill("")
+                await self._human_delay(200, 400)
+                await start_field.type(origin_locode, delay=50)
+                await self._human_delay(1500, 2500)
+                
+                if await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached):
+                    start_success = True
+                    break
+                else:
+                    print(f"[HAPAG] Attempt {attempt} failed to select Start Location dropdown option.")
+                    await self.page.screenshot(path=f"hapag_start_location_fail_attempt_{attempt}.png")
             
-            if not await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached):
-                print("[HAPAG] Warning: Origin suggestion selection failed.")
+            if not start_success:
+                raise Exception("Failed to select Start Location dropdown option after 3 attempts.")
 
             # Settle wait after origin suggestion selection before destination click/type
             await self._human_delay(1200, 2000)
@@ -819,18 +873,29 @@ class HapagLloydConnector(BaseCarrierConnector):
                 end_field = self.page.locator('input').nth(1)
                 print("[HAPAG] Fallback to second general input on page.")
 
-            await end_field.scroll_into_view_if_needed()
-            await end_field.click()
-            await self._human_delay(300, 600)
-            await end_field.press("Control+A")
-            await end_field.press("Backspace")
-            await end_field.fill("")
-            await self._human_delay(200, 400)
-            await end_field.type(dest_locode, delay=35)
-            await self._human_delay(1500, 2500)
-
-            if not await self._select_hapag_dropdown_option("End Location", dest_locode, dest_cached):
-                print("[HAPAG] Warning: Destination suggestion selection failed.")
+            # Try to fill and select End Location (up to 3 attempts)
+            end_success = False
+            for attempt in range(1, 4):
+                print(f"[HAPAG] Attempt {attempt} to fill End Location: '{dest_locode}'")
+                await end_field.scroll_into_view_if_needed()
+                await end_field.click()
+                await self._human_delay(300, 600)
+                await end_field.press("Control+A")
+                await end_field.press("Backspace")
+                await end_field.fill("")
+                await self._human_delay(200, 400)
+                await end_field.type(dest_locode, delay=50)
+                await self._human_delay(1500, 2500)
+                
+                if await self._select_hapag_dropdown_option("End Location", dest_locode, dest_cached):
+                    end_success = True
+                    break
+                else:
+                    print(f"[HAPAG] Attempt {attempt} failed to select End Location dropdown option.")
+                    await self.page.screenshot(path=f"hapag_end_location_fail_attempt_{attempt}.png")
+            
+            if not end_success:
+                raise Exception("Failed to select End Location dropdown option after 3 attempts.")
 
             # --- CONTAINER TYPE ---
             hapag_container = self.CONTAINER_TYPE_MAP.get(request.container_type)
