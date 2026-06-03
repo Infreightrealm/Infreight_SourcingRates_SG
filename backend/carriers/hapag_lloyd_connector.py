@@ -648,17 +648,22 @@ class HapagLloydConnector(BaseCarrierConnector):
             
             # Combine all suggestions selectors (including Quasar-specific classes)
             suggestions_selectors = [
-                '[class*="suggestion" i]',
-                '[class*="dropdown" i] li',
-                '[class*="option" i]',
-                '.el-autocomplete-suggestion li',
-                '.el-select-dropdown__item',
-                '[role="option"]',
-                'ul[role="listbox"] li',
                 '.q-menu .q-item',
                 '.q-virtual-scroll__content .q-item',
-                '.q-item',
-                '.q-item__label'
+                '.q-select__dialog .q-item',
+                '.q-menu [role="option"]',
+                '.q-virtual-scroll__content [role="option"]',
+                '.q-select__dialog [role="option"]',
+                '.q-menu [class*="option" i]',
+                '.q-virtual-scroll__content [class*="option" i]',
+                '.q-select__dialog [class*="option" i]',
+                '.q-menu .q-item__label',
+                '.q-virtual-scroll__content .q-item__label',
+                '[class*="suggestion" i]',
+                '[class*="dropdown" i] li',
+                '.el-autocomplete-suggestion li',
+                '.el-select-dropdown__item',
+                'ul[role="listbox"] li'
             ]
             combined_selector = ", ".join(suggestions_selectors)
             
@@ -863,76 +868,189 @@ class HapagLloydConnector(BaseCarrierConnector):
             if not end_success:
                 raise Exception("Failed to select End Location on Schedule page.")
 
-            # --- START DATE ---
-            target_start_date = date.today().isoformat()
-            if request.departure_date and request.departure_date != "tomorrow":
+            # NOTE: No start date fill needed — schedule page defaults to today,
+            # and we only need Origin + Destination + Container Type + Search.
+
+            # --- ADVANCED SEARCH & CONTAINER TYPE ---
+            try:
+                # Check if already expanded ("Hide advanced search" visible)
+                is_expanded = False
                 try:
-                    target_start_date = date.fromisoformat(request.departure_date).isoformat()
+                    is_expanded = await self.page.locator(':text("Hide advanced search")').first.is_visible(timeout=1500)
                 except:
                     pass
-            elif request.departure_date == "tomorrow":
-                target_start_date = (date.today() + timedelta(days=1)).isoformat()
+                if not is_expanded:
+                    print("[HAPAG] Schedule: Clicking 'Advanced search' to expand...")
+                    # Try multiple selector strategies for the toggle
+                    adv_toggle_selectors = [
+                        ':text("Advanced search")',
+                        'text=Advanced search',
+                        'button:has-text("Advanced")',
+                        'a:has-text("Advanced")',
+                        'span:has-text("Advanced search")',
+                    ]
+                    adv_clicked = False
+                    for adv_sel in adv_toggle_selectors:
+                        try:
+                            loc = self.page.locator(adv_sel).first
+                            if await loc.is_visible(timeout=1000):
+                                await loc.click()
+                                adv_clicked = True
+                                print(f"[HAPAG] Schedule: Advanced search expanded via '{adv_sel}'")
+                                break
+                        except:
+                            pass
+                    if not adv_clicked:
+                        print("[HAPAG] Schedule: Could not find Advanced search toggle — container type may not be available")
+                    await self._human_delay(1000, 1800)
+                else:
+                    print("[HAPAG] Schedule: Advanced search already expanded.")
+            except Exception as adv_err:
+                print(f"[HAPAG] Schedule: Advanced search expand error: {adv_err}")
 
-            print(f"[HAPAG] Schedule: Setting Start Date: {target_start_date}")
+            hapag_container = self.CONTAINER_TYPE_MAP.get(request.container_type)
+            if not hapag_container:
+                print(f"[HAPAG] Container type {request.container_type} not mapped. Using default 40' GP High Cube.")
+                hapag_container = "40' General Purpose High Cube"
+
+            print(f"[HAPAG] Schedule: Selecting container type: '{hapag_container}'")
+            container_selected = False
             try:
-                date_selectors = [
-                    'xpath=(//*[contains(text(), "Start Date")])[1]/following::input[1]',
-                    'input[placeholder*="YYYY-MM-DD" i]',
-                    'input[type="text"]'
+                # Press Escape first to close any stray open dropdowns
+                await self.page.keyboard.press("Escape")
+                await self._human_delay(300, 500)
+
+                # Find container type dropdown — it's the LAST q-select on the page
+                # (after Start Location and End Location selects)
+                container_box = None
+                container_selectors = [
+                    'xpath=(//*[contains(text(), "Container Type")])[last()]/following::input[1]',
+                    'xpath=(//*[contains(text(), "Container Type")])[1]/following::input[1]',
+                    'input:below(:text("Container Type"))',
                 ]
-                date_field = None
-                for sel in date_selectors:
+                for sel in container_selectors:
                     try:
                         loc = self.page.locator(sel).first
-                        if await loc.is_visible(timeout=1000):
-                            date_field = loc
-                            print(f"[HAPAG] Schedule Date input found: {sel}")
+                        if await loc.is_visible(timeout=1500):
+                            container_box = loc
+                            print(f"[HAPAG] Schedule container input found: {sel}")
                             break
                     except:
                         pass
-                if not date_field:
-                    date_field = self.page.locator('input').nth(2)
 
-                await date_field.scroll_into_view_if_needed()
-                await date_field.click()
-                await self._human_delay(200, 400)
-                await date_field.press("Control+A")
-                await date_field.press("Backspace")
-                await date_field.fill("")
-                await date_field.type(target_start_date, delay=50)
-                await self._human_delay(500, 1000)
-                await date_field.press("Enter")
-            except Exception as date_err:
-                print(f"[HAPAG] Schedule Date fill failed: {date_err}")
+                # Fallback: use the LAST visible q-select__focus-target
+                if not container_box:
+                    q_selects = self.page.locator('input.q-select__focus-target')
+                    q_count = await q_selects.count()
+                    print(f"[HAPAG] Schedule: {q_count} q-select inputs found")
+                    for idx in range(q_count - 1, -1, -1):
+                        try:
+                            if await q_selects.nth(idx).is_visible(timeout=500):
+                                container_box = q_selects.nth(idx)
+                                print(f"[HAPAG] Schedule: Using q-select at index {idx} for container type")
+                                break
+                        except:
+                            pass
+
+                if container_box:
+                    await container_box.scroll_into_view_if_needed()
+                    await container_box.click(timeout=5000)
+                    await self._human_delay(1000, 1800)
+
+                    # Select matching option
+                    option = self.page.locator(
+                        f'.q-menu .q-item:has-text("{hapag_container}"), '
+                        f'div.q-item:has-text("{hapag_container}"), '
+                        f'.q-select__dialog .q-item:has-text("{hapag_container}"), '
+                        f'[role="option"]:has-text("{hapag_container}")'
+                    ).first
+                    if await option.is_visible(timeout=5000):
+                        await option.click()
+                        container_selected = True
+                        print(f"[HAPAG] Schedule: Container type selected: {hapag_container}")
+                    else:
+                        # Try partial match (e.g. "High Cube" or "General Purpose")
+                        short_label = hapag_container.split("'")[0].strip() if "'" in hapag_container else hapag_container[:10]
+                        option2 = self.page.locator(f'.q-menu .q-item:has-text("{short_label}"), div.q-item:has-text("{short_label}")').first
+                        if await option2.is_visible(timeout=2000):
+                            txt = (await option2.inner_text()).strip()
+                            await option2.click()
+                            container_selected = True
+                            print(f"[HAPAG] Schedule: Container selected (partial match): {txt}")
+                        else:
+                            print(f"[HAPAG] Schedule: Container option '{hapag_container}' not found — pressing Escape")
+                            await self.page.keyboard.press("Escape")
+                    await self._human_delay(500, 1000)
+                else:
+                    print("[HAPAG] Schedule: Container type input NOT found — skipping")
+            except Exception as container_err:
+                print(f"[HAPAG] Schedule: Container type selection failed: {container_err}")
+                try:
+                    await self.page.keyboard.press("Escape")
+                except:
+                    pass
+
+            # Press Escape to close any open dropdown before clicking Search
+            await self.page.keyboard.press("Escape")
+            await self._human_delay(400, 700)
+
+            # Take screenshot before clicking Search for debugging
+            try:
+                await self.page.screenshot(path="scratch/hapag_schedule_before_search.png")
+            except:
+                pass
 
             # --- SEARCH ---
             print("[HAPAG] Schedule: Clicking Search...")
             search_btn = None
             search_selectors = [
-                'button:has-text("Search")',
+                'form button[type="submit"]:has-text("Search")',
+                'div[role="search"] button:has-text("Search")',
                 'button[type="submit"]:has-text("Search")',
-                'span:has-text("Search")',
-                'button.orange'
+                'button.q-btn:has-text("Search")',
+                'button[class*="primary"]:has-text("Search")',
             ]
             for sel in search_selectors:
                 try:
-                    loc = self.page.locator(sel).first
-                    if await loc.is_visible(timeout=1000):
-                        search_btn = loc
+                    locs = self.page.locator(sel)
+                    count = await locs.count()
+                    for idx in range(count):
+                        try:
+                            if await locs.nth(idx).is_visible(timeout=500):
+                                search_btn = locs.nth(idx)
+                                print(f"[HAPAG] Schedule: Search button found via '{sel}' at index {idx}")
+                                break
+                        except:
+                            pass
+                    if search_btn:
                         break
                 except:
                     pass
+            
             if not search_btn:
-                search_btn = self.page.locator('button:has-text("Search")').first
+                # Fallback to specifically avoid the top nav if possible
+                search_btn = self.page.locator('button:has-text("Search")').last
 
             await search_btn.scroll_into_view_if_needed()
-            await search_btn.click()
+            await self._human_delay(500, 1000)
+            await search_btn.click(force=True)
+            print("[HAPAG] Schedule: Search button clicked.")
+            
+            # Additional fallback: press Enter just in case the button click was intercepted
+            try:
+                await search_btn.press("Enter")
+            except:
+                pass
+                
             await self._human_delay(4000, 6000)
 
             # Wait for schedule results
             print("[HAPAG] Waiting for schedule results (up to 45s)...")
             try:
-                await self.page.wait_for_selector('text="Available sailings", [class*="result" i], button:has-text("Show Details")', timeout=45000)
+                await self.page.wait_for_selector(
+                    'div:has-text("Doc Cut-off"), div:has-text("Voyage no"), div.sailing-card, span:has-text("Voyage no"), :has-text("Doc Cut-off")', 
+                    timeout=45000
+                )
                 print("[HAPAG] Schedule results loaded.")
             except Exception as wait_err:
                 print(f"[HAPAG] Timeout waiting for schedule results: {wait_err}")
@@ -940,11 +1058,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                 return []
 
             # --- SCRAPE RESULTS ---
-            schedules = await self.page.evaluate('''() => {
+            schedules = await self.page.evaluate(r'''() => {
                 const results = [];
                 const voyageLabels = Array.from(document.querySelectorAll('*')).filter(el => {
-                    if (el.children.length > 0) return false;
-                    return (el.textContent || "").includes("Voyage no.:");
+                    const text = (el.textContent || "");
+                    if (!text.includes("Voyage no")) return false;
+                    return !Array.from(el.children).some(child => (child.textContent || "").includes("Voyage no"));
                 });
 
                 voyageLabels.forEach(voyageEl => {
@@ -953,7 +1072,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     for (let depth = 0; depth < 10; depth++) {
                         if (!card) break;
                         const text = (card.textContent || "");
-                        if (text.includes("Voyage no.:") && (text.includes("Show Details") || text.includes("Hide Details"))) {
+                        if (text.includes("Voyage no") && (text.includes("Show Details") || text.includes("Hide Details") || text.includes("Quote Now"))) {
                             foundCard = true;
                             break;
                         }
@@ -962,16 +1081,16 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                     if (!foundCard || !card) return;
 
-                    const cardText = (card.textContent || "").replace(/\\s+/g, " ");
+                    const cardText = (card.textContent || "").replace(/\s+/g, " ");
 
-                    const dateRegex = /\\b\\d{4}-\\d{2}-\\d{2}\\b/g;
+                    const dateRegex = /\d{4}-\d{2}-\d{2}/g;
                     const dates = cardText.match(dateRegex) || [];
 
                     if (dates.length < 2) return;
                     const etd = dates[0];
                     const eta = dates[1];
 
-                    const voyageMatch = cardText.match(/Voyage no\\.:\\s*(\\S+)/);
+                    const voyageMatch = cardText.match(/Voyage no\s*\.?\s*:\s*(\S+)/i);
                     const voyage = voyageMatch ? voyageMatch[1] : "";
 
                     let vessel = "Hapag Vessel";
@@ -983,7 +1102,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                             .map(c => (c.textContent || "").trim())
                             .filter(Boolean);
                         
-                        const voyageIndex = chips.findIndex(c => c.includes("Voyage no.:"));
+                        const voyageIndex = chips.findIndex(c => c.includes("Voyage no"));
                         if (voyageIndex !== -1) {
                             if (voyageIndex > 0) {
                                 vessel = chips[voyageIndex - 1];
@@ -994,9 +1113,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
                     }
 
-                    const docCutoffMatch = cardText.match(/Doc Cut-off\\s+(\\d{4}-\\d{2}-\\d{2})/);
-                    const fclCutoffMatch = cardText.match(/FCL Cut-off\\s+(\\d{4}-\\d{2}-\\d{2})/);
-                    const vgmCutoffMatch = cardText.match(/VGM Cut-off\\s+(\\d{4}-\\d{2}-\\d{2})/);
+                    const docCutoffMatch = cardText.match(/Doc Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
+                    const fclCutoffMatch = cardText.match(/FCL Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
+                    const vgmCutoffMatch = cardText.match(/VGM Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
 
                     const doc_cutoff = docCutoffMatch ? docCutoffMatch[1] : "";
                     const fcl_cutoff = fclCutoffMatch ? fclCutoffMatch[1] : "";
@@ -1247,37 +1366,45 @@ class HapagLloydConnector(BaseCarrierConnector):
                 hapag_container = "40' General Purpose High Cube"
 
             print(f"[HAPAG] Mapped container to choose: '{hapag_container}'")
-            
-            # If the user selected 40HC (which is the default 40' GP High Cube), we don't need to change it
-            if request.container_type != "DRY 40H":
-                try:
-                    container_selectors = [
-                        'input.q-select__focus-target',
-                        'xpath=(//input[contains(@class, "q-select__focus-target")])[1]'
-                    ]
-                    container_box = None
-                    for sel in container_selectors:
-                        try:
-                            loc = self.page.locator(sel).first
-                            if await loc.is_visible(timeout=1000):
-                                container_box = loc
-                                print(f"[HAPAG] Container select input found using: {sel}")
-                                break
-                        except:
-                            pass
-                    if not container_box:
-                        container_box = self.page.locator('input.q-select__focus-target').first
 
-                    await container_box.click(timeout=5000)
-                    await self._human_delay(1000, 1800)
-                    
-                    # Choose option containing container type name
-                    option = self.page.locator(f'div.q-item:has-text("{hapag_container}"), .q-select__dialog .q-item:has-text("{hapag_container}")').first
-                    if await option.is_visible(timeout=5000):
-                        await option.click()
-                        print(f"[HAPAG] Container type selected successfully: {hapag_container}")
-                except Exception as container_err:
-                    print(f"[HAPAG] Container type selection failed: {container_err}")
+            # Always select container type — Hapag default is 20' GP, not 40' HC
+            try:
+                container_selectors = [
+                    'input.q-select__focus-target',
+                    'xpath=(//input[contains(@class, "q-select__focus-target")])[1]'
+                ]
+                container_box = None
+                for sel in container_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            container_box = loc
+                            print(f"[HAPAG] Container select input found using: {sel}")
+                            break
+                    except:
+                        pass
+                if not container_box:
+                    container_box = self.page.locator('input.q-select__focus-target').first
+
+                await container_box.click(timeout=5000)
+                await self._human_delay(1000, 1800)
+
+                # Choose option containing container type name
+                option = self.page.locator(
+                    f'.q-menu .q-item:has-text("{hapag_container}"), '
+                    f'div.q-item:has-text("{hapag_container}"), '
+                    f'.q-select__dialog .q-item:has-text("{hapag_container}")'
+                ).first
+                if await option.is_visible(timeout=5000):
+                    await option.click()
+                    print(f"[HAPAG] Container type selected successfully: {hapag_container}")
+                else:
+                    print(f"[HAPAG] Container option not found for '{hapag_container}' — pressing Escape")
+                    await self.page.keyboard.press("Escape")
+                # Wait for quantity/weight rows to render after container selection
+                await self._human_delay(1000, 1500)
+            except Exception as container_err:
+                print(f"[HAPAG] Container type selection failed: {container_err}")
 
             # --- CONTAINER QUANTITY ---
             print(f"[HAPAG] Setting Container Quantity: {request.container_quantity}")
@@ -1493,6 +1620,14 @@ class HapagLloydConnector(BaseCarrierConnector):
             # Dismiss any obscuring popups that might have appeared after results loaded
             await self._dismiss_hapag_modals()
 
+            # Screenshot the results page to see what we're working with
+            try:
+                await self.page.screenshot(path="scratch/hapag_results_before_calendar.png")
+                page_sample = (await self.page.inner_text('body'))[:500].replace('\n', ' ')
+                print(f"[HAPAG] Page text sample: {page_sample}")
+            except:
+                pass
+
             print("[HAPAG] Paginating through all departure columns in calendar grid...")
             # Wait for calendar grid / departure dates to appear using a robust fallback sequence
             date_selectors = [
@@ -1524,31 +1659,39 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
                     /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
                 ];
+                // Use innerText to collapse child text, so date cells with nested spans are matched.
+                // Only exclude elements whose innerText is WAY longer than a date string (> 30 chars).
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
-                    if (el.children.length > 0) return false;
-                    const txt = el.textContent ? el.textContent.trim() : '';
-                    if (!patterns.some(pat => pat.test(txt))) return false;
+                    const raw = (el.innerText || el.textContent || '').trim();
+                    // Quick length gate — dates are short
+                    if (!raw || raw.length > 30) return false;
+                    if (!patterns.some(pat => pat.test(raw))) return false;
+                    // Exclude modal / dialog parents
                     let parent = el.parentElement;
                     while (parent) {
                         const id = (parent.id || '').toLowerCase();
                         const cls = (parent.className || '').toLowerCase();
                         if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
-                        if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || 
+                        if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') ||
                             cls.includes('criteria') || cls.includes('quick-quotes') ||
                             id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
                         parent = parent.parentElement;
                     }
                     return true;
                 });
+                // Prefer leaf nodes — if a parent and child both match, keep only the innermost
+                const dateSet = new Set(dateEls.map(el => (el.innerText || el.textContent || '').trim()));
                 const cols = [];
+                const seen = new Set();
                 dateEls.forEach(el => {
                     const rect = el.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) {
-                        cols.push(el.textContent.trim());
+                    const txt = (el.innerText || el.textContent || '').trim();
+                    if (rect.width > 0 && rect.height > 0 && !seen.has(txt)) {
+                        seen.add(txt);
+                        cols.push(txt);
                     }
                 });
-                // Deduplicate at JS level too (preserving insertion order)
-                return Array.from(new Set(cols));
+                return cols;
             }'''
 
 
@@ -1906,7 +2049,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                             if (cleanTxt.includes("USD -") || cleanTxt.includes("- /Container") || cleanTxt.includes("-\u00a0/Container") || cleanTxt.includes("not available") || cleanTxt.includes("sold out")) {
                                 return "sold_out";
                             }
-                            const match = cleanTxt.match(/(?:USD|\$)\s*([\d,]+(?:\.\d+)?)/i);
+                            const match = cleanTxt.match(/(?:USD|\$)\s*([\d,]+(?:\.\d{1,2})?)/i);
                             if (match) {
                                 const val = parseFloat(match[1].replace(/,/g, ''));
                                 if (!isNaN(val) && val > 0) {
@@ -1925,7 +2068,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                             if (cleanLine.includes("USD -") || cleanLine.includes("- /Container") || cleanLine.includes("-\u00a0/Container") || cleanLine.includes("sold out") || cleanLine.includes("not available")) {
                                 return "sold_out";
                             }
-                            const match = cleanLine.match(/(?:USD|\$)\s*([\d,]+(?:\.\d+)?)/i);
+                            const match = cleanLine.match(/(?:USD|\$)\s*([\d,]+(?:\.\d{1,2})?)/i);
                             if (match) {
                                 const val = parseFloat(match[1].replace(/,/g, ''));
                                 if (!isNaN(val) && val > 0) {
@@ -2260,26 +2403,35 @@ class HapagLloydConnector(BaseCarrierConnector):
             except Exception as se:
                 print(f"[HAPAG] Warning: Schedule crawling failed: {se}")
 
-            # Step 3: Transition to Quote Page
-            print("[HAPAG] Transitioning to Quote page...")
+            # Step 3: Transition to Quote Page (always go via New Quote for a fresh form)
+            print("[HAPAG] Transitioning to Quote page via New Quote...")
             try:
-                await self.page.goto("https://www.hapag-lloyd.com/solutions/quote/#/")
-                await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
-            except Exception as nav_err:
-                print(f"[HAPAG] Direct Quote navigation failed ({nav_err}). Trying menu click...")
+                await self.page.goto(self.QUOTE_URL)
                 try:
-                    quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
-                    await quote_sidebar.scroll_into_view_if_needed()
-                    await quote_sidebar.click(force=True)
-                    await self._human_delay(800, 1500)
-                    new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
-                    await new_quote_btn.scroll_into_view_if_needed()
-                    await new_quote_btn.click(force=True)
-                    await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except Exception as menu_err:
-                    print(f"[HAPAG] Quote menu click failed: {menu_err}")
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                except:
+                    pass
+                await self._human_delay(1500, 2500)
 
-            await self._human_delay(2000, 4000)
+                # Expand Quote sidebar and click New Quote
+                quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+                await quote_sidebar.scroll_into_view_if_needed()
+                await quote_sidebar.click(force=True)
+                await self._human_delay(1000, 1800)
+
+                new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+                await new_quote_btn.scroll_into_view_if_needed()
+                await new_quote_btn.click(force=True)
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                except:
+                    pass
+                await self._human_delay(2000, 3500)
+                print("[HAPAG] Transitioned to New Quote page.")
+            except Exception as nav_err:
+                print(f"[HAPAG] Transition to New Quote failed: {nav_err}")
+
+            await self._human_delay(1000, 2000)
             await self._dismiss_hapag_modals()
 
             # Step 4: Search quotes
