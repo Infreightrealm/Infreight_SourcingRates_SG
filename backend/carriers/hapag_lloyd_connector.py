@@ -703,7 +703,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print(f"  Visible Suggestion text: '{item_text}'")
                 
                 # Filter out standard non-port option labels (e.g. Door delivery options)
-                if any(x in item_text for x in ["KG", "LB", "SELECT UNITS", "DOOR", "TERMINAL/RAMP"]):
+                is_unit_or_door = (
+                    "SELECT UNITS" in item_text or 
+                    "TERMINAL/RAMP" in item_text or 
+                    re.search(r'\b(KG|LB|DOOR)\b', item_text)
+                )
+                if is_unit_or_door:
                     continue
                 
                 if target_match in item_text or (cached_name and cached_name.upper() in item_text):
@@ -715,7 +720,12 @@ class HapagLloydConnector(BaseCarrierConnector):
             # If no exact match, fallback to the first valid (non-Door, non-unit) suggestion
             for item in visible_suggestions:
                 item_text = (await item.text_content() or await item.inner_text() or "").strip().upper()
-                if any(x in item_text for x in ["KG", "LB", "SELECT UNITS", "DOOR", "TERMINAL/RAMP"]):
+                is_unit_or_door = (
+                    "SELECT UNITS" in item_text or 
+                    "TERMINAL/RAMP" in item_text or 
+                    re.search(r'\b(KG|LB|DOOR)\b', item_text)
+                )
+                if is_unit_or_door:
                     continue
                 print(f"[HAPAG] No exact suggestion matched '{target_match}'. Falling back to first valid option: '{item_text}'.")
                 await item.click()
