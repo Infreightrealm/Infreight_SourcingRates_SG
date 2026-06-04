@@ -2276,29 +2276,48 @@ class MaerskConnector(BaseCarrierConnector):
 
             # --- Extract Price Breakdown ---
             details_btn = None
-            selectors_to_try = [
-                'span.hyperlink-button:has-text("Price breakdown")',
-                '.hyperlink-button:has-text("Price breakdown")',
-                'button:has-text("Price breakdown & details")',
-                'a:has-text("Price breakdown & details")',
-                'span:has-text("Price breakdown & details")',
-                'div:has-text("Price breakdown & details")',
-            ]
-            
-            if card:
-                for sel in selectors_to_try:
+            try:
+                # Iterative search for highest reliability
+                potential_elements = card.locator('mc-c-accordion-item, mc-accordion-item, button, [role="button"], .hyperlink-button, summary, div[class*="price-breakdown" i]')
+                count = await potential_elements.count()
+                for i in range(count):
+                    el = potential_elements.nth(i)
                     try:
-                        btn = card.locator(sel).first
-                        if await btn.is_visible(timeout=1000):
-                            details_btn = btn
+                        if not await el.is_visible(timeout=200):
+                            continue
+                        text = await el.inner_text()
+                        header_attr = await el.get_attribute("header") or ""
+                        combined_text = (text + " " + header_attr).lower()
+                        if "price" in combined_text and "breakdown" in combined_text:
+                            details_btn = el
+                            print(f"[MAERSK] Found Price Breakdown accordion via iterative search.")
                             break
                     except Exception:
                         continue
-            else:
+                
+                # Fallback to generic text search
+                if not details_btn:
+                    fallback_btn = card.locator('*:has-text("Price breakdown")').last
+                    if await fallback_btn.is_visible(timeout=500):
+                        details_btn = fallback_btn
+                        print("[MAERSK] Found Price Breakdown accordion via generic text search.")
+            except Exception as e:
+                print(f"[MAERSK] Error searching for price breakdown button iteratively: {e}")
+            
+            if not details_btn:
+                # Legacy fallback selectors
+                selectors_to_try = [
+                    'span.hyperlink-button:has-text("Price breakdown")',
+                    '.hyperlink-button:has-text("Price breakdown")',
+                    'button:has-text("Price breakdown & details")',
+                    'a:has-text("Price breakdown & details")',
+                    'span:has-text("Price breakdown & details")',
+                    'div:has-text("Price breakdown & details")',
+                ]
                 for sel in selectors_to_try:
                     try:
-                        btn = self.page.locator(sel).nth(idx)
-                        if await btn.is_visible(timeout=1000):
+                        btn = card.locator(sel).first if card else self.page.locator(sel).nth(idx)
+                        if await btn.is_visible(timeout=500):
                             details_btn = btn
                             break
                     except Exception:
