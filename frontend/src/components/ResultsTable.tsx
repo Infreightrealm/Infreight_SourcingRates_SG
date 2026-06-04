@@ -49,7 +49,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     q.included_freight_surcharges.reduce((s, c) => s + c.amount, 0);
 
   const exportToExcel = async () => {
-    if (quoteRows.length === 0) return;
+    if (sortedRows.length === 0) return;
 
     // Get selected container type and currency
     const containerType = data.container_type || "20GP";
@@ -106,31 +106,48 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     ];
 
     // Add rows
-    quoteRows.forEach((r, idx) => {
-      const q = r.quote!;
+    sortedRows.forEach((r, idx) => {
       const carrierName = CARRIERS.find(c => c.code === r.carrier)?.name || r.carrier;
-      const freeTimeVal = getFreeTimeValue(q, r.carrier) ?? "-";
-      const remarkVal = q.vessel || "-";
-      const rateVal = q.final_freight_value === 0.0 ? "Sold out" : q.final_freight_value;
       
-      sheet.addRow({
-        pol: idx === 0 ? (data.origin || "") : "",
-        pod: idx === 0 ? (data.destination || "") : "",
-        carrier: carrierName,
-        rate: rateVal,
-        tt: q.transit_time_days || "-",
-        freetime: freeTimeVal,
-        validity: q.etd || "-",
-        eta: q.eta || "-",
-        routing: q.routing || "Direct",
-        remark: remarkVal
-      });
+      if (r.quote) {
+        const q = r.quote;
+        const freeTimeVal = getFreeTimeValue(q, r.carrier) ?? "-";
+        const remarkVal = q.vessel || "-";
+        const rateVal = q.final_freight_value === 0.0 ? "Sold out" : q.final_freight_value;
+        
+        sheet.addRow({
+          pol: idx === 0 ? (data.origin || "") : "",
+          pod: idx === 0 ? (data.destination || "") : "",
+          carrier: carrierName,
+          rate: rateVal,
+          tt: q.transit_time_days || "-",
+          freetime: freeTimeVal,
+          validity: q.etd || "-",
+          eta: q.eta || "-",
+          routing: q.routing || "Direct",
+          remark: remarkVal
+        });
+      } else {
+        // Missing quotes (Sold out or error)
+        sheet.addRow({
+          pol: idx === 0 ? (data.origin || "") : "",
+          pod: idx === 0 ? (data.destination || "") : "",
+          carrier: carrierName,
+          rate: "Sold out",
+          tt: "-",
+          freetime: "-",
+          validity: "-",
+          eta: "-",
+          routing: "-",
+          remark: r.error || (r.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not available" : "No quotes returned")
+        });
+      }
     });
 
     // Merge POL and POD columns
-    if (quoteRows.length > 0) {
-      sheet.mergeCells(2, 1, 1 + quoteRows.length, 1); // Merge A2 to A(1+N)
-      sheet.mergeCells(2, 2, 1 + quoteRows.length, 2); // Merge B2 to B(1+N)
+    if (sortedRows.length > 0) {
+      sheet.mergeCells(2, 1, 1 + sortedRows.length, 1); // Merge A2 to A(1+N)
+      sheet.mergeCells(2, 2, 1 + sortedRows.length, 2); // Merge B2 to B(1+N)
     }
 
     const getThinBorder = () => ({
@@ -155,7 +172,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     });
 
     // Style body cells
-    for (let r = 2; r <= 1 + quoteRows.length; r++) {
+    for (let r = 2; r <= 1 + sortedRows.length; r++) {
       // POL (Col A)
       const cellA = sheet.getCell(`A${r}`);
       cellA.fill = {
@@ -235,7 +252,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     }
 
     // Set row height for body rows
-    for (let r = 2; r <= 1 + quoteRows.length; r++) {
+    for (let r = 2; r <= 1 + sortedRows.length; r++) {
       sheet.getRow(r).height = 28;
     }
 
