@@ -18,7 +18,7 @@ from typing import Optional
 
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, ChargeCategory
 from services.charge_classifier import classify_charge
-from services.normalizer import normalize_quote
+from services.normalizer import normalize_quote, standardize_date_string
 from carriers.base_connector import BaseCarrierConnector
 from services.port_manager import get_cached_carrier_port, set_cached_carrier_port, resolve_port_for_carrier
 
@@ -1081,6 +1081,19 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                     if (!foundCard || !card) return;
 
+                    let is_sold_out = false;
+                    let prev = card.previousElementSibling;
+                    for (let i = 0; i < 3; i++) {
+                        if (prev) {
+                            const prevText = (prev.textContent || "").toLowerCase();
+                            if (prevText.includes("no space available") || prevText.includes("sold out")) {
+                                is_sold_out = true;
+                                break;
+                            }
+                            prev = prev.previousElementSibling;
+                        }
+                    }
+
                     const cardText = (card.textContent || "").replace(/\s+/g, " ");
 
                     const dateRegex = /\d{4}-\d{2}-\d{2}/g;
@@ -1138,7 +1151,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                         service: service,
                         doc_cutoff: doc_cutoff,
                         fcl_cutoff: fcl_cutoff,
-                        vgm_cutoff: vgm_cutoff
+                        vgm_cutoff: vgm_cutoff,
+                        is_sold_out: is_sold_out
                     });
                 });
 
@@ -2461,13 +2475,16 @@ class HapagLloydConnector(BaseCarrierConnector):
                         print(f"[HAPAG] [MATCH] Schedule ETD {sched_etd} matched with quote price.")
                     else:
                         print(f"[HAPAG] [NO PRICE MATCH] Schedule ETD {sched_etd} has no matching price quote. Emitting schedule without price.")
-                        normalized = QuoteSchema(etd=sched_etd)
+                        normalized = QuoteSchema(etd=standardize_date_string(sched_etd))
                     
                     # Step 7: Augment normalized quote with schedule details (vessel, service, eta)
                     vessel_str = schedule["vessel"]
                     if schedule["voyage"]:
                         vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
-                    if matching_raw_quote and matching_raw_quote.get("is_sold_out"):
+                    
+                    if schedule.get("is_sold_out"):
+                        vessel_str = f"{vessel_str} (Sold out)"
+                    elif matching_raw_quote and matching_raw_quote.get("is_sold_out"):
                         vessel_str = f"{vessel_str} (Sold out)"
                         
                     normalized.vessel = vessel_str
@@ -2482,8 +2499,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                         service_str = f"{service_str} ({', '.join(cutoffs)})"
                     normalized.service_name = service_str
                     
+                    # Ensure ETD is correctly formatted even if matched from raw_quote
+                    normalized.etd = standardize_date_string(sched_etd)
+                    
                     if schedule["eta"]:
-                        normalized.eta = schedule["eta"]
+                        normalized.eta = standardize_date_string(schedule["eta"])
                     if schedule["transit_time_days"] is not None:
                         normalized.transit_time_days = schedule["transit_time_days"]
 
