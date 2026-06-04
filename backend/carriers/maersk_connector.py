@@ -994,6 +994,8 @@ class MaerskConnector(BaseCarrierConnector):
                         return "Bangkok PAT, Thailand"
                     if "shuaiba" in raw_lower:
                         return "Shuaiba, Kuwait"
+                    if "lagos" in raw_lower:
+                        return "Lagos, Nigeria"
                     # 1. Remove parentheses (e.g. "Singapore (SGSIN)" -> "Singapore")
                     cleaned = re.sub(r'\s*\([^)]*\)', '', raw_input).strip()
                     # 2. Strip country suffix if present in the user input (e.g., "Singapore, Singapore" -> "Singapore")
