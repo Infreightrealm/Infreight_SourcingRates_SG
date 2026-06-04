@@ -2210,6 +2210,54 @@ class MaerskConnector(BaseCarrierConnector):
                 except Exception:
                     continue
             
+            # --- Extract Routing ---
+            route_btn = None
+            for sel in [
+                'button:has-text("Route & other details")',
+                'span.hyperlink-button:has-text("Route & other details")',
+                'a:has-text("Route & other details")',
+                '[class*="route-details" i] button'
+            ]:
+                try:
+                    btn = card.locator(sel).first if card else self.page.locator(sel).nth(idx)
+                    if await btn.is_visible(timeout=500):
+                        route_btn = btn
+                        break
+                except Exception:
+                    continue
+
+            if route_btn:
+                try:
+                    await route_btn.scroll_into_view_if_needed()
+                    await route_btn.click(force=True)
+                    await self.page.wait_for_timeout(1000)
+                    
+                    route_text = await card.inner_text() if card else await self.page.inner_text("body")
+                    if "Route details" in route_text:
+                        route_details = route_text.split("Route details")[-1]
+                        lines = [l.strip() for l in route_details.split('\n') if l.strip()]
+                        arrivals = []
+                        for i, line in enumerate(lines):
+                            if line == "Arrival" or line.startswith("Arrival"):
+                                if i >= 2:
+                                    arrivals.append(lines[i-2])
+                                elif i >= 1:
+                                    arrivals.append(lines[i-1])
+                        
+                        if len(arrivals) > 1:
+                            transit_ports = arrivals[:-1]
+                            # Unique
+                            seen = set()
+                            transit_ports = [x for x in transit_ports if not (x in seen or seen.add(x))]
+                            quote_ref["routing"] = "Transit via " + ", ".join(transit_ports)
+                            print(f"[MAERSK] Extracted routing: {quote_ref['routing']}")
+                        elif len(arrivals) == 1:
+                            quote_ref["routing"] = "Direct"
+                            print("[MAERSK] Routing is Direct.")
+                except Exception as e:
+                    print(f"[MAERSK] Error parsing route text: {e}")
+
+            # --- Extract Price Breakdown ---
             details_btn = None
             selectors_to_try = [
                 'span.hyperlink-button:has-text("Price breakdown")',
