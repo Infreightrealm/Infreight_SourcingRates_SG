@@ -14,7 +14,7 @@ from patchright.async_api import async_playwright
 from typing import Optional
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, ChargeCategory
 from services.charge_classifier import classify_charge
-from services.normalizer import normalize_quote
+from services.normalizer import normalize_quote, standardize_date_string
 from carriers.base_connector import BaseCarrierConnector
 from services.port_manager import get_cached_carrier_port, set_cached_carrier_port, resolve_port_for_carrier
 
@@ -1219,8 +1219,8 @@ class CMAConnector(BaseCarrierConnector):
                 vessel = f"({self.port_fallback_notice})"
 
         return QuoteSchema(
-            etd=raw_quote.get("etd"),
-            eta=raw_quote.get("eta"),
+            etd=standardize_date_string(raw_quote.get("etd")),
+            eta=standardize_date_string(raw_quote.get("eta")),
             transit_time_days=raw_quote.get("transit_time_days"),
             routing=raw_quote.get("routing", "Direct"),
             free_time=raw_quote.get("free_time"),
