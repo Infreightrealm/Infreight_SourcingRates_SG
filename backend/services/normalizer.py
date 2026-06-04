@@ -216,6 +216,7 @@ def normalize_quote(
         transit_time_days=raw_quote.get("transit_time_days"),
         service_name=raw_quote.get("service_name"),
         vessel=raw_quote.get("vessel"),
+        routing=raw_quote.get("routing", "Direct"),
         container_type=raw_quote.get("container_type"),
         container_quantity=raw_quote.get("container_quantity"),
         currency=raw_quote.get("currency", "USD"),

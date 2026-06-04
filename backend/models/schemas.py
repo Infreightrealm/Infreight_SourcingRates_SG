@@ -97,6 +97,7 @@ class QuoteSchema(BaseModel):
     transit_time_days: Optional[int] = None
     service_name: Optional[str] = None
     vessel: Optional[str] = None
+    routing: Optional[str] = "Direct"
     container_type: Optional[str] = None
     container_quantity: Optional[int] = None
     currency: str = "USD"

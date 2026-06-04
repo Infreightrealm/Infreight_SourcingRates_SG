@@ -1060,6 +1060,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- SCRAPE RESULTS ---
             schedules = await self.page.evaluate(r'''() => {
                 const results = [];
+                const processedCards = new Set();
                 const voyageLabels = Array.from(document.querySelectorAll('*')).filter(el => {
                     const text = (el.textContent || "");
                     if (!text.includes("Voyage no")) return false;
@@ -1080,6 +1081,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
 
                     if (!foundCard || !card) return;
+                    if (processedCards.has(card)) return;
+                    processedCards.add(card);
 
                     let is_sold_out = false;
                     let prev = card.previousElementSibling;
@@ -1102,6 +1105,13 @@ class HapagLloydConnector(BaseCarrierConnector):
                     if (dates.length < 2) return;
                     const etd = dates[0];
                     const eta = dates[1];
+
+                    let routing = "Direct";
+                    const viaMatch = cardText.match(/via:\s*(.*?)(?=Terminal|Doc Cut-off|FCL Cut-off|$)/i);
+                    if (viaMatch) {
+                        const ports = viaMatch[1].replace(/Terminal.*$/i, "").trim();
+                        routing = "Transshipment via " + ports.replace(/\s+/g, " ");
+                    }
 
                     const voyageMatch = cardText.match(/Voyage no\s*\.?\s*:\s*(\S+)/i);
                     const voyage = voyageMatch ? voyageMatch[1] : "";
@@ -1152,7 +1162,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                         doc_cutoff: doc_cutoff,
                         fcl_cutoff: fcl_cutoff,
                         vgm_cutoff: vgm_cutoff,
-                        is_sold_out: is_sold_out
+                        is_sold_out: is_sold_out,
+                        routing: routing
                     });
                 });
 
@@ -2488,6 +2499,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         vessel_str = f"{vessel_str} (Sold out)"
                         
                     normalized.vessel = vessel_str
+                    normalized.routing = schedule.get("routing", "Direct")
                     
                     service_str = schedule["service"]
                     cutoffs = []
