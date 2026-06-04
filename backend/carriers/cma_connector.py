@@ -1070,6 +1070,25 @@ class CMAConnector(BaseCarrierConnector):
             await self._hover_and_click(details_btn)
             await self._human_delay(1500, 2500)
 
+            # --- Extract Free Time from D&D tab ---
+            try:
+                dd_tab = card.locator('button:has-text("D&D"), [role="tab"]:has-text("D&D")').first
+                if await dd_tab.is_visible(timeout=2000):
+                    await self._hover_and_click(dd_tab)
+                    await self._human_delay(1000, 1500)
+                    
+                    dd_text = await card.inner_text()
+                    # Look for Import free time, skip Export free time
+                    match = re.search(r'Import free time.*?Merged.*?\b(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
+                    if match:
+                        quote_ref["free_time"] = int(match.group(1))
+                        print(f"[CMA] Extracted Import Free Time: {quote_ref['free_time']} days")
+                    else:
+                        print("[CMA] D&D tab opened but could not parse Import free time.")
+            except Exception as e:
+                print(f"[CMA] Error extracting free time from D&D: {e}")
+
+            # --- Switch back to Rate tab for charge breakdown ---
             rate_tab = card.locator('button:has-text("Rate"), [role="tab"]:has-text("Rate")').first
             if await rate_tab.is_visible():
                 await self._hover_and_click(rate_tab)
@@ -1198,6 +1217,7 @@ class CMAConnector(BaseCarrierConnector):
             eta=raw_quote.get("eta"),
             transit_time_days=raw_quote.get("transit_time_days"),
             routing=raw_quote.get("routing", "Direct"),
+            free_time=raw_quote.get("free_time"),
             service_name=raw_quote.get("service_name"),
             vessel=vessel,
             currency=raw_quote.get("currency", "USD"),
