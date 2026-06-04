@@ -986,7 +986,7 @@ class CMAConnector(BaseCarrierConnector):
 
                 # Routing (Direct or Transit via X)
                 routing = "Direct"
-                routing_match = re.search(r'\b(via\s+[^\r\n]+|Direct)', text, re.IGNORECASE)
+                routing_match = re.search(r'(via\s+[^\r\n]+|Direct)', text, re.IGNORECASE)
                 if routing_match:
                     routing_val = routing_match.group(1).strip()
                     if routing_val.lower() == "direct":
@@ -1067,6 +1067,12 @@ class CMAConnector(BaseCarrierConnector):
             await card.scroll_into_view_if_needed()
             await self._random_mouse_move()
             details_btn = card.locator('label:has-text("Details"), button:has-text("Details")').first
+            
+            # Fast fail if Details button doesn't exist (e.g. for "Sold out" cards)
+            if not await details_btn.is_visible(timeout=2000):
+                print(f"[CMA] Details button not visible for quote. Possibly Sold out.")
+                return False
+                
             await self._hover_and_click(details_btn)
             await self._human_delay(1500, 2500)
 
