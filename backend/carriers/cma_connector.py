@@ -986,7 +986,7 @@ class CMAConnector(BaseCarrierConnector):
 
                 # Routing (Direct or Transit via X)
                 routing = "Direct"
-                routing_match = re.search(r'\b(via\s+[^\r\n]+|Direct)\b', text, re.IGNORECASE)
+                routing_match = re.search(r'\b(via\s+[^\r\n]+|Direct)', text, re.IGNORECASE)
                 if routing_match:
                     routing_val = routing_match.group(1).strip()
                     if routing_val.lower() == "direct":
@@ -1079,7 +1079,7 @@ class CMAConnector(BaseCarrierConnector):
                     
                     dd_text = await card.inner_text()
                     # Look for Import free time, skip Export free time
-                    match = re.search(r'Import free time.*?Merged.*?\b(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
+                    match = re.search(r'Import free time.*?(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
                     if match:
                         quote_ref["free_time"] = int(match.group(1))
                         print(f"[CMA] Extracted Import Free Time: {quote_ref['free_time']} days")
