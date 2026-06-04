@@ -265,16 +265,13 @@ class MaerskConnector(BaseCarrierConnector):
                         eta = etd
                         
                     # 4. Extract free time detention & demurrage details
-                    freetime_match = re.search(r"(\d+\s*days?\s*(?:of\s*)?detention\s*&\s*\d+\s*days?\s*(?:of\s*)?demurrage(?:s)?)", card_text, re.IGNORECASE)
-                    if not freetime_match:
-                        freetime_match = re.search(r"(\d+\s*days?\s*(?:of\s*)?detention.*?demurrage.*?freetime|\d+\s*days?\s*(?:of\s*)?detention.*?demurrage)", card_text, re.IGNORECASE)
+                    free_time = None
+                    freetime_match = re.search(r"(\d+)\s*days?\s*(?:of\s*)?(?:detention|demurrage)", card_text, re.IGNORECASE)
                     if freetime_match:
-                        freetime_text = freetime_match.group(0).strip()
+                        free_time = int(freetime_match.group(1))
                         
-                    # Build service name with detention & demurrage info!
+                    # Build service name
                     service_name = "Maersk Spot Service"
-                    if freetime_text:
-                        service_name = f"Maersk Spot (Incl. {freetime_text})"
 
                     # Check if sold out / not open
                     is_sold_out = "vessel sold out" in card_text_lower or "vessel not open" in card_text_lower or "vessel is not open" in card_text_lower
@@ -307,6 +304,7 @@ class MaerskConnector(BaseCarrierConnector):
                         "transit_time_days": transit_time,
                         "service_name": service_name,
                         "vessel": vessel_name,
+                        "free_time": free_time,
                         "total_price": price,
                         "currency": "USD",
                         "card_text": card_text
