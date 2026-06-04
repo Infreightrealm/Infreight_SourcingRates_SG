@@ -1262,6 +1262,16 @@ class CMAConnector(BaseCarrierConnector):
                                     except Exception:
                                         pass
                         print("[CMA] Master profile updated with fresh session data.")
+                        
+                        # Auto-clean heavy cache directories to prevent 5GB storage bloat
+                        cache_dirs = ["Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"]
+                        for root_dir, dirs, _ in os.walk(self.master_profile_dir):
+                            for d in list(dirs):
+                                if d in cache_dirs:
+                                    try:
+                                        shutil.rmtree(os.path.join(root_dir, d))
+                                    except Exception:
+                                        pass
                     except Exception as copy_err:
                         print(f"[CMA] Failed to sync profile to master: {copy_err}")
 

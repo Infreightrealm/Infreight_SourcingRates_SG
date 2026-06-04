@@ -2551,6 +2551,16 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print("[HAPAG] Syncing temp profile back to master...")
                 shutil.copytree(self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True)
                 print("[HAPAG] Master profile updated successfully.")
+                
+                # Auto-clean heavy cache directories to prevent 5GB storage bloat
+                cache_dirs = ["Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"]
+                for root_dir, dirs, _ in os.walk(self.master_profile_dir):
+                    for d in list(dirs):
+                        if d in cache_dirs:
+                            try:
+                                shutil.rmtree(os.path.join(root_dir, d))
+                            except Exception:
+                                pass
             except Exception as e:
                 print(f"[HAPAG] Warning: master profile sync failed: {e}")
                 
