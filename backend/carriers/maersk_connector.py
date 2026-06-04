@@ -2213,13 +2213,16 @@ class MaerskConnector(BaseCarrierConnector):
             # --- Extract Routing ---
             route_btn = None
             for sel in [
-                'button:has-text("Route & other details")',
+                'span.hyperlink-button:has-text("Route")',
+                '.hyperlink-button:has-text("Route")',
+                'button:has-text("Route")',
+                'a:has-text("Route")',
                 'span:has-text("Route & other details")',
                 'div:has-text("Route & other details")',
-                'a:has-text("Route & other details")',
-                'mc-c-accordion-item:has-text("Route & other details")',
-                'mc-accordion-item:has-text("Route & other details")',
-                'text="Route & other details"'
+                'mc-c-accordion-item:has-text("Route")',
+                'mc-accordion-item:has-text("Route")',
+                'text="Route & other details"',
+                'text="Route details"'
             ]:
                 try:
                     btn = card.locator(sel).first if card else self.page.locator(sel).nth(idx)
