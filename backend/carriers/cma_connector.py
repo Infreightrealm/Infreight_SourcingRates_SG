@@ -984,6 +984,18 @@ class CMAConnector(BaseCarrierConnector):
                 if etd and eta and transit_time is None:
                     transit_time = (eta - etd).days
 
+                # Routing (Direct or Transit via X)
+                routing = "Direct"
+                routing_match = re.search(r'\b(via\s+[^\r\n]+|Direct)\b', text, re.IGNORECASE)
+                if routing_match:
+                    routing_val = routing_match.group(1).strip()
+                    if routing_val.lower() == "direct":
+                        routing = "Direct"
+                    elif routing_val.lower().startswith("via"):
+                        # Format "via JEDDAH , SA" -> "Transit - JEDDAH , SA"
+                        via_port = routing_val[3:].strip()
+                        routing = f"Transit - {via_port}"
+                
                 # Service & Vessel
                 service_match = re.search(r'First Service\s+(\S+)', text)
                 service = service_match.group(1).strip() if service_match else None
@@ -1006,6 +1018,7 @@ class CMAConnector(BaseCarrierConnector):
                     "etd": etd.isoformat() if etd else None,
                     "eta": eta.isoformat() if eta else None,
                     "transit_time_days": transit_time,
+                    "routing": routing,
                     "service_name": service,
                     "vessel": vessel,
                     "total_price": total_price,
@@ -1184,6 +1197,7 @@ class CMAConnector(BaseCarrierConnector):
             etd=raw_quote.get("etd"),
             eta=raw_quote.get("eta"),
             transit_time_days=raw_quote.get("transit_time_days"),
+            routing=raw_quote.get("routing", "Direct"),
             service_name=raw_quote.get("service_name"),
             vessel=vessel,
             currency=raw_quote.get("currency", "USD"),
