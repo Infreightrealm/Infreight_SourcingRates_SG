@@ -71,7 +71,12 @@ async def run_carrier_search(
                     basic_ocean_freight=q.basic_ocean_freight,
                     discount=q.discount,
                     final_freight_value=q.final_freight_value,
-                    raw_data_json={"source": q.source, "ref": q.raw_reference},
+                    raw_data_json={
+                        "source": q.source, 
+                        "ref": q.raw_reference,
+                        "routing": q.routing,
+                        "free_time": q.free_time
+                    },
                 )
                 session.add(db_quote)
                 await session.flush()  # Get the quote ID
