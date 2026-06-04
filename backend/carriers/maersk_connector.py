@@ -2214,14 +2214,18 @@ class MaerskConnector(BaseCarrierConnector):
             route_btn = None
             for sel in [
                 'button:has-text("Route & other details")',
-                'span.hyperlink-button:has-text("Route & other details")',
+                'span:has-text("Route & other details")',
+                'div:has-text("Route & other details")',
                 'a:has-text("Route & other details")',
-                '[class*="route-details" i] button'
+                'mc-c-accordion-item:has-text("Route & other details")',
+                'mc-accordion-item:has-text("Route & other details")',
+                'text="Route & other details"'
             ]:
                 try:
                     btn = card.locator(sel).first if card else self.page.locator(sel).nth(idx)
-                    if await btn.is_visible(timeout=500):
+                    if await btn.is_visible(timeout=1000):
                         route_btn = btn
+                        print(f"[MAERSK] Found Route & other details button with selector: {sel}")
                         break
                 except Exception:
                     continue
@@ -2230,9 +2234,12 @@ class MaerskConnector(BaseCarrierConnector):
                 try:
                     await route_btn.scroll_into_view_if_needed()
                     await route_btn.click(force=True)
-                    await self.page.wait_for_timeout(1000)
+                    await self.page.wait_for_timeout(1500)
                     
                     route_text = await card.inner_text() if card else await self.page.inner_text("body")
+                    if "Route details" not in route_text:
+                        route_text = await self.page.inner_text("body")
+                        
                     if "Route details" in route_text:
                         route_details = route_text.split("Route details")[-1]
                         lines = [l.strip() for l in route_details.split('\n') if l.strip()]
