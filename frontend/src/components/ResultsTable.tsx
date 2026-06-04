@@ -71,6 +71,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
     // Helpers to extract free time values
     const getFreeTimeValue = (q: QuoteSchema, carrierName: string) => {
+      if (q.free_time !== undefined && q.free_time !== null) return q.free_time;
       if (carrierName.toUpperCase() === "MAERSK" && q.service_name) {
         const match = q.service_name.match(/(\d+)\s*days?\s*(?:of\s*)?detention/i);
         if (match) return parseInt(match[1]);
@@ -121,7 +122,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
         freetime: freeTimeVal,
         validity: q.etd || "-",
         eta: q.eta || "-",
-        routing: "Direct",
+        routing: q.routing || "Direct",
         remark: remarkVal
       });
     });
