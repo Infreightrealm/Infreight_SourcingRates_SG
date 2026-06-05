@@ -2213,30 +2213,36 @@ class MaerskConnector(BaseCarrierConnector):
             # --- Extract Routing ---
             route_btn = None
             try:
-                # Iterative search for highest reliability
-                potential_elements = card.locator('mc-c-accordion-item, mc-accordion-item, button, [role="button"], .hyperlink-button, summary, div.new-sailings-group-header__route-details')
-                count = await potential_elements.count()
-                for i in range(count):
-                    el = potential_elements.nth(i)
-                    try:
-                        if not await el.is_visible(timeout=200):
+                print(f"[MAERSK] Starting route extraction for quote {idx}. Card is None? {card is None}")
+                if card:
+                    # Iterative search for highest reliability
+                    potential_elements = card.locator('mc-c-accordion-item, mc-accordion-item, button, [role="button"], .hyperlink-button, summary, div.new-sailings-group-header__route-details, [class*="route-details" i]')
+                    count = await potential_elements.count()
+                    print(f"[MAERSK] Iterative search found {count} potential routing elements in card.")
+                    for i in range(count):
+                        el = potential_elements.nth(i)
+                        try:
+                            # Try getting text without visibility check first, as some custom elements are "hidden" but valid
+                            text = await el.inner_text()
+                            header_attr = await el.get_attribute("header") or ""
+                            combined_text = (text + " " + header_attr).lower()
+                            if "route" in combined_text and "detail" in combined_text:
+                                route_btn = el
+                                print(f"[MAERSK] Found Route accordion via iterative search on element {i}.")
+                                break
+                        except Exception as el_e:
+                            print(f"[MAERSK] Error reading element {i}: {el_e}")
                             continue
-                        text = await el.inner_text()
-                        header_attr = await el.get_attribute("header") or ""
-                        combined_text = (text + " " + header_attr).lower()
-                        if "route" in combined_text and "detail" in combined_text:
-                            route_btn = el
-                            print(f"[MAERSK] Found Route accordion via iterative search.")
-                            break
-                    except Exception:
-                        continue
-                
-                # Fallback to generic text search
-                if not route_btn:
-                    fallback_btn = card.locator('*:has-text("Route & other details")').last
-                    if await fallback_btn.is_visible(timeout=500):
-                        route_btn = fallback_btn
-                        print("[MAERSK] Found Route accordion via generic text search.")
+                    
+                    # Fallback to generic text search
+                    if not route_btn:
+                        print(f"[MAERSK] Iterative search failed. Trying generic text search fallback...")
+                        fallback_btn = card.locator('*:has-text("Route & other details")').last
+                        if await fallback_btn.is_visible(timeout=500):
+                            route_btn = fallback_btn
+                            print("[MAERSK] Found Route accordion via generic text search.")
+                else:
+                    print(f"[MAERSK] Card is None. Cannot perform scoped route search.")
             except Exception as e:
                 print(f"[MAERSK] Error searching for route button iteratively: {e}")
 

@@ -2415,6 +2415,19 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
         quotes: list[QuoteSchema] = []
+        
+        # Load Freetime Config
+        freetime_config = {}
+        try:
+            import json
+            import os
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "hapag_freetime.json")
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    freetime_config = json.load(f)
+        except Exception as e:
+            print(f"[HAPAG] Warning: Could not load freetime config: {e}")
+
         try:
             # Step 1: Login
             login_ok = await self.login()
@@ -2518,6 +2531,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                         normalized.eta = standardize_date_string(schedule["eta"])
                     if schedule["transit_time_days"] is not None:
                         normalized.transit_time_days = schedule["transit_time_days"]
+                        
+                    # Apply Freetime
+                    if freetime_config:
+                        dest_lower = request.destination.lower()
+                        for country, ft_data in freetime_config.items():
+                            if country.lower() in dest_lower:
+                                if "20" in request.container_type:
+                                    normalized.free_time = ft_data.get("20GP")
+                                elif "40" in request.container_type:
+                                    normalized.free_time = ft_data.get("40GP")
+                                break
 
                     quotes.append(normalized)
                 except Exception as e:

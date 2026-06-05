@@ -1,0 +1,486 @@
+{
+    "Argentina": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Barbados": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Bolivia": {
+        "20GP": 21,
+        "40GP": 21
+    },
+    "Brazil": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Chile": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Colombia": {
+        "20GP": 9,
+        "40GP": 9
+    },
+    "Costa Rica": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Cuba": {
+        "20GP": 30,
+        "40GP": 30
+    },
+    "Curacao": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Domin Republic": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Ecuador": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "El Salvador": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Guatemala": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Guyana": {
+        "20GP": 14,
+        "40GP": 14
+    },
+    "Haiti": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Honduras": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Jamaica": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Mexico": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Nicaragua": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Panama": {
+        "20GP": 9,
+        "40GP": 9
+    },
+    "Paraguay": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Peru": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Puerto Rico": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Uruguay": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Venezuela": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Albania": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Austria Inland": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Belgium Luxembourg": {
+        "20GP": 4,
+        "40GP": 4
+    },
+    "Bosnia + Herzegovina": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Bulgaria": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Croatia": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Cyprus": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Czech Republic Inland": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Denmark": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Estonia": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Finland": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "France": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Georgia": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Germany": {
+        "20GP": 4,
+        "40GP": 4
+    },
+    "Hungary Inland": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Iceland": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Israel": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Latvia": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Lebanon": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Lithuania": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Malta": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Netherlands": {
+        "20GP": 4,
+        "40GP": 4
+    },
+    "Norway": {
+        "20GP": 9,
+        "40GP": 9
+    },
+    "Poland": {
+        "20GP": 12,
+        "40GP": 12
+    },
+    "Portugal": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Republic of Ireland": {
+        "20GP": 6,
+        "40GP": 6
+    },
+    "Romania": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Russia (Baltic Sea)": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Russia (Black Sea)": {
+        "20GP": 12,
+        "40GP": 12
+    },
+    "Serbia Montenegro": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Slovakia Inland": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Slovenia": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Spain": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Sweden": {
+        "20GP": 1,
+        "40GP": 7
+    },
+    "Switzerland Inland": {
+        "20GP": 4,
+        "40GP": 4
+    },
+    "Syria": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Ukraine": {
+        "20GP": 30,
+        "40GP": 30
+    },
+    "United Kingdom": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Australia": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Brunei": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Cambodia": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "China": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Fiji": {
+        "20GP": 12,
+        "40GP": 12
+    },
+    "French Polynesia": {
+        "20GP": 12,
+        "40GP": 12
+    },
+    "HongKong": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Indonesia": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Japan": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "South Korea": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Macau": {
+        "20GP": 2,
+        "40GP": 2
+    },
+    "Malaysia": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Myanmar": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "New Zealand": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Papua New Guinea": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Philippines": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Singapore": {
+        "20GP": 3,
+        "40GP": 3
+    },
+    "Taiwan": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Thailand": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Vietnam": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Bahrain Detetion &": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Bangladesh demurrage detention-": {
+        "20GP": 4,
+        "40GP": 4
+    },
+    "India": {
+        "20GP": 4,
+        "40GP": 4
+    },
+    "Maldives": {
+        "20GP": 1,
+        "40GP": 10
+    },
+    "Nepal": {
+        "20GP": 4,
+        "40GP": 4
+    },
+    "Yemen": {
+        "20GP": 15,
+        "40GP": 15
+    },
+    "Algeria": {
+        "20GP": 14,
+        "40GP": 14
+    },
+    "Benin": {
+        "20GP": 11,
+        "40GP": 11
+    },
+    "Botswana": {
+        "20GP": 15,
+        "40GP": 15
+    },
+    "Burkina Faso": {
+        "20GP": 21,
+        "40GP": 21
+    },
+    "Cameroon": {
+        "20GP": 11,
+        "40GP": 11
+    },
+    "Congo": {
+        "20GP": 14,
+        "40GP": 14
+    },
+    "Democratic Republic of Congo": {
+        "20GP": 32,
+        "40GP": 32
+    },
+    "Djibouti": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Equitorial Guinea": {
+        "20GP": 14,
+        "40GP": 14
+    },
+    "Ethiopia": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Gabon": {
+        "20GP": 11,
+        "40GP": 11
+    },
+    "Gambia": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Ghana": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Guinea": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Ivory Coast": {
+        "20GP": 6,
+        "40GP": 6
+    },
+    "Liberia": {
+        "20GP": 11,
+        "40GP": 11
+    },
+    "Libya": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Mali": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Mauritania": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Morocco": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Namibia": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Niger": {
+        "20GP": 21,
+        "40GP": 21
+    },
+    "Sao Tome": {
+        "20GP": 28,
+        "40GP": 28
+    },
+    "Senegal": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Sierra Leone": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "South Africa": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Sudan": {
+        "20GP": 18,
+        "40GP": 18
+    },
+    "Tanzania": {
+        "20GP": 14,
+        "40GP": 14
+    },
+    "Togo": {
+        "20GP": 10,
+        "40GP": 10
+    },
+    "Tunisia": {
+        "20GP": 12,
+        "40GP": 12
+    },
+    "Uganda Export": {
+        "20GP": 28,
+        "40GP": 28
+    },
+    "USA -": {
+        "20GP": 2,
+        "40GP": 2
+    }
+}
