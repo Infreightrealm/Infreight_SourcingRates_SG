@@ -347,21 +347,9 @@
         "20GP": 3,
         "40GP": 3
     },
-    "Bahrain Detetion &": {
-        "20GP": 5,
-        "40GP": 5
-    },
-    "Bangladesh demurrage detention-": {
-        "20GP": 4,
-        "40GP": 4
-    },
     "India": {
         "20GP": 4,
         "40GP": 4
-    },
-    "Jordan detention": {
-        "20GP": 7,
-        "40GP": 7
     },
     "Kuwait": {
         "20GP": 8,
@@ -382,10 +370,6 @@
     "Pakistan": {
         "20GP": 5,
         "40GP": 5
-    },
-    "Saudi Arabia demurrage detention": {
-        "20GP": 7,
-        "40GP": 7
     },
     "UAE": {
         "20GP": 5,
@@ -459,10 +443,6 @@
         "20GP": 4,
         "40GP": 4
     },
-    "Kenya DTD Carrier Haulage Container": {
-        "20GP": 35,
-        "40GP": 35
-    },
     "Liberia": {
         "20GP": 5,
         "40GP": 5
@@ -526,5 +506,29 @@
     "Uganda Export": {
         "20GP": 28,
         "40GP": 28
+    },
+    "Bahrain": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Bangladesh": {
+        "20GP": 4,
+        "40GP": 4
+    },
+    "Jordan": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Saudi Arabia": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Kenya": {
+        "20GP": 35,
+        "40GP": 35
+    },
+    "USA": {
+        "20GP": 2,
+        "40GP": 2
     }
 }
