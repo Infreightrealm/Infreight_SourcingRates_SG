@@ -2546,13 +2546,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                                     cache_data = json.load(f)
                                     for carrier, cache_dict in cache_data.items():
                                         for key, val in cache_dict.items():
-                                            if dest_lower in str(val).lower():
+                                            clean_dest = dest_lower.replace(" ", "")
+                                            clean_val = str(val).lower().replace(" ", "")
+                                            if clean_dest in clean_val:
                                                 expanded_dest += f" {str(val).lower()}"
                         except Exception:
                             pass
 
                         for country, ft_data in freetime_config.items():
-                            if country.lower() in expanded_dest:
+                            country_clean = country.lower().replace(" ", "")
+                            expanded_clean = expanded_dest.replace(" ", "")
+                            if country_clean in expanded_clean:
                                 if "20" in request.container_type:
                                     normalized.free_time = ft_data.get("20GP")
                                 elif "40" in request.container_type:
