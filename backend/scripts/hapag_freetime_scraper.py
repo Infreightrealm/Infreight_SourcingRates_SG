@@ -62,11 +62,17 @@ async def scrape_hapag_freetime():
                     text_lower = text.lower()
                     href_lower = href.lower()
                         
-                    # We are looking for "Import" AND "Detention" anywhere in text or href
-                    is_import = "import" in text_lower or "import" in href_lower
-                    is_detention = "detention" in text_lower or "detention" in href_lower
+                    # Skip if it is strictly an EXPORT document (contains export but not import)
+                    if "export" in text_lower and "import" not in text_lower:
+                        continue
+                    if "export" in href_lower and "import" not in href_lower:
+                        continue
+                        
+                    # We are looking for anything related to detention, demurrage, or tariffs
+                    is_valid = any(word in text_lower for word in ["detention", "demurrage", "dnd", "dtd", "dmd", "mhd", "mho", "tariff"]) or \
+                               any(word in href_lower for word in ["detention", "demurrage", "dnd", "dtd", "dmd", "mhd", "mho", "tariff"])
                     
-                    if is_import and is_detention:
+                    if is_valid:
                         # Clean up country name extraction robustly
                         # E.g. "Albania Demurrage Detention Import"
                         # E.g. "06012025_Barbados_Import_Detention_Demurrage.pdf"

@@ -155,6 +155,10 @@
         "20GP": 4,
         "40GP": 4
     },
+    "Greece": {
+        "20GP": 7,
+        "40GP": 7
+    },
     "Hungary Inland": {
         "20GP": 7,
         "40GP": 7
@@ -166,6 +170,10 @@
     "Israel": {
         "20GP": 7,
         "40GP": 7
+    },
+    "italy_demurrage_detention_May.pdf": {
+        "20GP": 7,
+        "40GP": 60
     },
     "Latvia": {
         "20GP": 8,
@@ -242,6 +250,14 @@
     "Syria": {
         "20GP": 10,
         "40GP": 10
+    },
+    "Turkey Storage": {
+        "20GP": 8,
+        "40GP": 8
+    },
+    "Turkey": {
+        "20GP": 7,
+        "40GP": 7
     },
     "Ukraine": {
         "20GP": 30,
@@ -343,6 +359,14 @@
         "20GP": 4,
         "40GP": 4
     },
+    "Jordan detention": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Kuwait": {
+        "20GP": 8,
+        "40GP": 8
+    },
     "Maldives": {
         "20GP": 1,
         "40GP": 10
@@ -350,6 +374,22 @@
     "Nepal": {
         "20GP": 4,
         "40GP": 4
+    },
+    "Oman": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Pakistan": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Saudi Arabia demurrage detention": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "UAE": {
+        "20GP": 5,
+        "40GP": 5
     },
     "Yemen": {
         "20GP": 15,
@@ -387,6 +427,10 @@
         "20GP": 10,
         "40GP": 10
     },
+    "Egypt": {
+        "20GP": 5,
+        "40GP": 5
+    },
     "Equitorial Guinea": {
         "20GP": 14,
         "40GP": 14
@@ -414,6 +458,10 @@
     "Ivory Coast": {
         "20GP": 6,
         "40GP": 6
+    },
+    "Kenya DTD Carrier Haulage Container": {
+        "20GP": 10,
+        "40GP": 10
     },
     "Liberia": {
         "20GP": 11,
