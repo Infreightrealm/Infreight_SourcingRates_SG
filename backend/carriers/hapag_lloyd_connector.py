@@ -2535,8 +2535,24 @@ class HapagLloydConnector(BaseCarrierConnector):
                     # Apply Freetime
                     if freetime_config:
                         dest_lower = request.destination.lower()
+                        
+                        # Expand destination string to include country names from cache
+                        expanded_dest = dest_lower
+                        try:
+                            cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "carrier_ports_cache.json")
+                            if os.path.exists(cache_path):
+                                import json
+                                with open(cache_path, "r", encoding="utf-8") as f:
+                                    cache_data = json.load(f)
+                                    for carrier, cache_dict in cache_data.items():
+                                        for key, val in cache_dict.items():
+                                            if dest_lower in str(val).lower():
+                                                expanded_dest += f" {str(val).lower()}"
+                        except Exception:
+                            pass
+
                         for country, ft_data in freetime_config.items():
-                            if country.lower() in dest_lower:
+                            if country.lower() in expanded_dest:
                                 if "20" in request.container_type:
                                     normalized.free_time = ft_data.get("20GP")
                                 elif "40" in request.container_type:
