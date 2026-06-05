@@ -40,6 +40,8 @@ async def scrape_hapag_freetime():
         os.makedirs(scratch_dir, exist_ok=True)
         
         freetime_dict = {}
+        # Keep track of priority so we don't overwrite a high-priority Import Detention PDF with a lower priority one
+        freetime_priority = {}
         
         for region in regions:
             url = base_url.format(region=region)
@@ -73,6 +75,12 @@ async def scrape_hapag_freetime():
                                any(word in href_lower for word in ["detention", "demurrage", "dnd", "dtd", "dmd", "mhd", "mho", "tariff"])
                     
                     if is_valid:
+                        # Calculate a priority score for this PDF to resolve duplicates
+                        priority = 0
+                        if "import" in text_lower or "import" in href_lower:
+                            priority += 10
+                        if any(word in text_lower or word in href_lower for word in ["detention", "dnd", "dtd", "mhd"]):
+                            priority += 5
                         # Clean up country name extraction robustly
                         # E.g. "Albania Demurrage Detention Import"
                         # E.g. "06012025_Barbados_Import_Detention_Demurrage.pdf"
@@ -111,8 +119,14 @@ async def scrape_hapag_freetime():
                             # Now parse it
                             freetimes = parse_hapag_pdf(pdf_path)
                             if freetimes:
-                                print(f"-> Found Freetime for {country}: {freetimes}")
-                                freetime_dict[country] = freetimes
+                                print(f"-> Found Freetime for {country}: {freetimes} (Priority: {priority})")
+                                existing_priority = freetime_priority.get(country, -1)
+                                if priority > existing_priority:
+                                    freetime_dict[country] = freetimes
+                                    freetime_priority[country] = priority
+                                    print(f"   -> Saved/Overwrote as it has higher or equal priority.")
+                                else:
+                                    print(f"   -> Ignored due to lower priority than existing ({existing_priority}).")
                             else:
                                 print(f"-> Could not find Freetime in PDF for {country}")
                         else:
@@ -143,24 +157,35 @@ def parse_hapag_pdf(pdf_path: str):
             # Using extract_text and regex might be more robust than extract_table 
             # because tables can span pages or have weird merged headers.
             text = first_page.extract_text()
+            if not text:
+                return None
+                
             lines = text.split("\n")
             
-            for line in lines:
-                # We are looking for a line containing "Freetime" and then numbers
-                # "Cambodia All ports Detention Freetime 7 7"
-                # "Australia All ports Demurrage Freetime 8 Free 8 Free 8 Free 8 Free"
+            detention_freetime = None
+            any_freetime = None
+            
+            for i, line in enumerate(lines):
                 if "Freetime" in line:
-                    # Look for standalone digits.
-                    # Usually, the first digit is 20GP, the second digit is 40GP/40HC.
-                    # Or it might be "7 -- Free 7 -- Free"
                     numbers = re.findall(r"\b\d{1,2}\b", line)
                     if len(numbers) >= 2:
-                        return {
+                        ft = {
                             "20GP": int(numbers[0]),
                             "40GP": int(numbers[1])
                         }
-                    
-            return None
+                        
+                        # Check context (current line + 3 preceding lines) to see if this is specifically Detention
+                        context = " ".join(lines[max(0, i-3):i+1]).lower()
+                        is_detention = any(word in context for word in ["detention", "mhd", "dnd"])
+                        is_export = "export" in context and "import" not in context
+                        
+                        if is_detention and not is_export:
+                            detention_freetime = ft
+                            
+                        if not any_freetime and not is_export:
+                            any_freetime = ft
+                            
+            return detention_freetime or any_freetime
     except Exception as e:
         print(f"PDF Parsing error for {pdf_path}: {e}")
         return None
