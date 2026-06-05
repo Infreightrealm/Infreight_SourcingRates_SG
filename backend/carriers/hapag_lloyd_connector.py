@@ -2538,10 +2538,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                         
                         # Expand destination string to include country names from cache
                         expanded_dest = dest_lower
+                        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+                        
                         try:
-                            cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "carrier_ports_cache.json")
+                            import json
+                            cache_path = os.path.join(data_dir, "carrier_ports_cache.json")
                             if os.path.exists(cache_path):
-                                import json
                                 with open(cache_path, "r", encoding="utf-8") as f:
                                     cache_data = json.load(f)
                                     for carrier, cache_dict in cache_data.items():
@@ -2552,6 +2554,26 @@ class HapagLloydConnector(BaseCarrierConnector):
                                                 expanded_dest += f" {str(val).lower()}"
                         except Exception:
                             pass
+                            
+                        # Universal Fallback using port_codes and country_map (always in git)
+                        try:
+                            port_codes_path = os.path.join(data_dir, "port_codes.json")
+                            country_map_path = os.path.join(data_dir, "country_map.json")
+                            if os.path.exists(port_codes_path) and os.path.exists(country_map_path):
+                                with open(country_map_path, "r", encoding="utf-8") as f:
+                                    cmap = json.load(f)
+                                with open(port_codes_path, "r", encoding="utf-8") as f:
+                                    pcodes = json.load(f).get("ports", {})
+                                    for pcode, pdata in pcodes.items():
+                                        pname = pdata.get("name", "").lower()
+                                        clean_dest = dest_lower.replace(" ", "")
+                                        clean_pname = pname.replace(" ", "")
+                                        if clean_dest == clean_pname or clean_dest in clean_pname:
+                                            ccode = pdata.get("country", "")
+                                            cname = cmap.get(ccode, "").lower()
+                                            expanded_dest += f" {pname} {ccode.lower()} {cname} {'usa' if ccode == 'US' else ''}"
+                        except Exception as e:
+                            print(f"[HAPAG] Port expansion fallback error: {e}")
 
                         for country, ft_data in freetime_config.items():
                             country_clean = country.lower().replace(" ", "")
