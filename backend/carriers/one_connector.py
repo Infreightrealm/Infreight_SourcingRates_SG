@@ -710,12 +710,8 @@ class ONEConnector(BaseCarrierConnector):
                 except Exception:
                     print("[ONE] Warning: Calendar container not detected, continuing with strategies")
 
-                try:
-                    price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted').filter(has_text="USD").first
-                    await price_locator.wait_for(state="visible", timeout=8000)
-                    print("[ONE] Highlighted date with USD price became visible dynamically.")
-                except Exception:
-                    await self.page.wait_for_timeout(2000)
+                # Give calendar ample time to fetch sailings and render prices
+                await self.page.wait_for_timeout(8000)
                 
                 date_selected = False
                 
@@ -813,7 +809,7 @@ class ONEConnector(BaseCarrierConnector):
                     return CarrierResultStatus.NO_QUOTES_AVAILABLE
 
                 # Verify calendar closure or wait for state change
-                await self.page.wait_for_timeout(500)
+                await self.page.wait_for_timeout(2000)
                 
                 # If calendar is still visible, try to click the body to close it
                 if await self.page.locator('div[class*="Calendar"], div[class*="calendar"], .react-calendar').is_visible():
