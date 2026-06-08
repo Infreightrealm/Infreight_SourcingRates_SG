@@ -161,6 +161,7 @@ function HomeContent() {
       <VncViewer
         backendUrl={backendUrl}
         isSearching={isLoading}
+        results={searchResult?.results || []}
       />
     </div>
   );

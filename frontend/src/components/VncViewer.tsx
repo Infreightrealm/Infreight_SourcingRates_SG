@@ -1,9 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
+import type { CarrierResultSchema } from "@/lib/types";
 
 interface VncViewerProps {
   backendUrl: string;
   isSearching: boolean;
+  results?: CarrierResultSchema[];
 }
 
 interface CarrierVnc {
@@ -13,7 +15,7 @@ interface CarrierVnc {
   ws_path: string;
 }
 
-export default function VncViewer({ backendUrl, isSearching }: VncViewerProps) {
+export default function VncViewer({ backendUrl, isSearching, results = [] }: VncViewerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isAvailable, setIsAvailable] = useState(false);
   const [carriers, setCarriers] = useState<CarrierVnc[]>([]);
@@ -94,6 +96,45 @@ export default function VncViewer({ backendUrl, isSearching }: VncViewerProps) {
     }
   };
 
+  const getBackendCarrierKey = (vncCode: string): string => {
+    const code = vncCode.toLowerCase();
+    if (code.includes("maersk")) return "MAERSK";
+    if (code.includes("cma")) return "CMA_CGM";
+    if (code.includes("one")) return "ONE";
+    if (code.includes("hapag")) return "HAPAG_LLOYD";
+    if (code.includes("oocl")) return "OOCL";
+    return vncCode.toUpperCase();
+  };
+
+  const getIndicatorStyle = (carrierCode: string) => {
+    const backendKey = getBackendCarrierKey(carrierCode);
+    const result = results?.find((r) => r.carrier === backendKey);
+
+    if (result) {
+      const status = result.status;
+      if (status === "RUNNING" || status === "QUEUED") {
+        return "bg-emerald-500 dark:bg-emerald-400 animate-pulse";
+      } else if (
+        status === "COMPLETED" ||
+        status === "AVAILABLE_QUOTES_FOUND" ||
+        status === "NO_QUOTES_AVAILABLE"
+      ) {
+        return "bg-emerald-500 dark:bg-emerald-400";
+      } else {
+        // Any other status is an issue / failure / partial result
+        return "bg-red-500 dark:bg-red-400";
+      }
+    }
+
+    // Fallback if global search is active and we have no results yet
+    if (isSearching && (!results || results.length === 0)) {
+      return "bg-emerald-500 dark:bg-emerald-400 animate-pulse";
+    }
+
+    // Default neutral/idle state: Brand color with opacity
+    return `${getPulseColor(carrierCode)} opacity-80`;
+  };
+
   return (
     <div className="fixed bottom-0 right-0 z-50 flex flex-col items-end">
       {/* Toggle Button */}
@@ -157,7 +198,7 @@ export default function VncViewer({ backendUrl, isSearching }: VncViewerProps) {
                         ${getBrandColorStyles(carrier.code, isActive)}
                       `}
                     >
-                      <span className={`w-2 h-2 rounded-full ${getPulseColor(carrier.code)} ${isSearching ? "animate-ping" : "opacity-80"}`} />
+                      <span className={`w-2 h-2 rounded-full ${getIndicatorStyle(carrier.code)}`} />
                       {carrier.name}
                     </button>
                   );
