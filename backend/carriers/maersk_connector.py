@@ -356,6 +356,7 @@ class MaerskConnector(BaseCarrierConnector):
                                 
                                 # Scrape all text inside active page/breakdown panel scoped strictly to current card
                                 raw_charges = await self.extract_charge_breakdown(card)
+                                raw_quote["free_time"] = await self.extract_freetime(card)
                                 
                                 # Click details button again to close/collapse
                                 try:
@@ -372,6 +373,7 @@ class MaerskConnector(BaseCarrierConnector):
                                     await fallback_btn.click(force=True)
                                     await self.page.wait_for_timeout(2000)
                                     raw_charges = await self.extract_charge_breakdown(card)
+                                    raw_quote["free_time"] = await self.extract_freetime(card)
                                     try:
                                         await fallback_btn.click(force=True)
                                         await self.page.wait_for_timeout(500)
@@ -2516,6 +2518,39 @@ class MaerskConnector(BaseCarrierConnector):
         except Exception as e:
             print(f"[MAERSK] Error parsing charge breakdown: {e}")
             return []
+
+    async def extract_freetime(self, card_locator) -> int | None:
+        """
+        Extracts freetime from the 'Import D&D fees' tab within the expanded card.
+        """
+        try:
+            print("[MAERSK] Searching for 'Import D&D fees' tab...")
+            tab_btn = card_locator.locator('button:has-text("Import D&D"), li:has-text("Import D&D"), *:has-text("Import D&D fees")').last
+            
+            if await tab_btn.is_visible(timeout=3000):
+                await tab_btn.click(force=True)
+                print("[MAERSK] Clicked 'Import D&D fees' tab. Waiting for table render...")
+                await self.page.wait_for_timeout(1500)
+                
+                # Extract all text from the card to find the "1 - X" validity period
+                card_text = await card_locator.inner_text()
+                
+                import re
+                # We are looking for "1 - 7" or "1-14" under "Validity period"
+                # The text is usually something like: "1 - 7   Free"
+                match = re.search(r'1\s*-\s*(\d+)', card_text)
+                if match:
+                    free_time = int(match.group(1))
+                    print(f"[MAERSK] Extracted Free Time: {free_time} days from Import D&D tab.")
+                    return free_time
+                else:
+                    print("[MAERSK] Could not parse '1 - X' format from Import D&D tab.")
+            else:
+                print("[MAERSK] 'Import D&D fees' tab not found or not visible.")
+            return None
+        except Exception as e:
+            print(f"[MAERSK] Error extracting Free Time: {e}")
+            return None
 
     # ────────────────────────────────────────
     # NORMALIZE QUOTE
