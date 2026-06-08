@@ -92,6 +92,22 @@ class ONEConnector(BaseCarrierConnector):
         print(f"[ONE] Could not parse departure date '{departure_date_value}', defaulting to tomorrow")
         return date.today() + timedelta(days=1)
 
+    async def _clear_overlays(self) -> None:
+        try:
+            # Dismiss popups naturally via Skip buttons to avoid corrupting React state
+            skip_btn = self.page.locator('button:has-text("Skip"), [class*="skip" i]').first
+            try:
+                await skip_btn.wait_for(state="visible", timeout=2000)
+            except Exception:
+                pass
+
+            if await skip_btn.is_visible():
+                print("[ONE] Surcharge/Intro popup detected. Clicking 'Skip'...")
+                await skip_btn.click()
+                await self.page.wait_for_timeout(1000)
+        except Exception as e:
+            print(f"[ONE] Warning: failed to clear overlays: {e}")
+
     async def _fill_first_visible(self, selectors: str, value: str, label: str) -> bool:
         try:
             field = self.page.locator(selectors).first
@@ -216,6 +232,10 @@ class ONEConnector(BaseCarrierConnector):
             return original_locode or value
 
         try:
+            try:
+                await self.page.locator('[role="option"]').first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pass
             options = self.page.locator('[role="option"]:visible')
             option_count = await options.count()
             print(f"[ONE] {label}: {option_count} dropdown options visible (searching for '{value}', locode='{locode}')")
@@ -234,7 +254,7 @@ class ONEConnector(BaseCarrierConnector):
                     if locode == "AUMEL" and ("AUMELAS" in option_text or "FRYUH" in option_text):
                         continue
                     if any(cand in option_text for cand in locode_candidates):
-                        await option.click()
+                        await option.click(force=True)
                         cache_val = _extract_locode_for_cache(option_text, locode)
                         print(f"[ONE] {label} selected by LOCODE match '{locode}': ONE code='{cache_val}'")
                         set_cached_carrier_port("one", locode, cache_val)
@@ -247,7 +267,7 @@ class ONEConnector(BaseCarrierConnector):
                 if locode == "AUMEL" and ("AUMELAS" in option_text or "FRYUH" in option_text):
                     continue
                 if any(candidate in option_text for candidate in option_candidates):
-                    await option.click()
+                    await option.click(force=True)
                     if locode:
                         cache_val = _extract_locode_for_cache(option_text, locode)
                         print(f"[ONE] {label} selected by name match '{value}': ONE code='{cache_val}'")
@@ -271,7 +291,7 @@ class ONEConnector(BaseCarrierConnector):
                         break
 
                     if matched_option:
-                        await matched_option.click()
+                        await matched_option.click(force=True)
                         if locode:
                             cache_val = _extract_locode_for_cache(matched_text, locode)
                             print(f"[ONE] {label} selected by filter: {candidate} -> ONE code='{cache_val}'")
@@ -399,6 +419,7 @@ class ONEConnector(BaseCarrierConnector):
             await self.page.goto(self.QUOTE_URL, wait_until="domcontentloaded", timeout=30000)
             print(f"[ONE] Spot rate page loaded: {self.page.url}")
             await self.page.wait_for_timeout(2500)  # Wait for JS to fully render form
+            await self._clear_overlays()
 
             target_date = self._resolve_departure_date(request.departure_date)
             target_date_text = target_date.isoformat()
@@ -421,13 +442,15 @@ class ONEConnector(BaseCarrierConnector):
             origin_cached = get_cached_carrier_port("one", origin_locode) if origin_locode else None
             origin_selected = False
 
+            await self._clear_overlays()
             try:
-                origin_field = self.page.get_by_role("combobox", name="Please search location").nth(0)
+                origin_field = self.page.locator('input[placeholder="Please search location"]').first
+                await origin_field.wait_for(state="attached", timeout=15000)
 
                 if origin_cached:
                     # Use the cached carrier-specific spelling directly
                     print(f"[ONE] Origin (cached): typing '{origin_cached}' for LOCODE '{origin_locode}'")
-                    await origin_field.click()
+                    await origin_field.click(force=True)
                     await self.page.keyboard.type(origin_cached, delay=25)
                     await self.page.wait_for_timeout(1500)
                     origin_selected = await self._select_dropdown_option("Origin", origin_cached, origin_locode)
@@ -436,7 +459,7 @@ class ONEConnector(BaseCarrierConnector):
                     # Step 1: Try typing LOCODE directly (works if ONE recognises this LOCODE)
                     origin_locode_query = origin_locode if origin_locode else request.origin
                     print(f"[ONE] Origin (step 1): typing LOCODE '{origin_locode_query}'")
-                    await origin_field.click()
+                    await origin_field.click(force=True)
                     await self.page.keyboard.press("Control+A")
                     await self.page.keyboard.press("Backspace")
                     await self.page.keyboard.type(origin_locode_query, delay=25)
@@ -450,7 +473,7 @@ class ONEConnector(BaseCarrierConnector):
                     origin_name = port_obj.get('name_ascii') or port_obj.get('name') if port_obj else None
                     if origin_name:
                         print(f"[ONE] Origin (step 2): LOCODE unknown to ONE, trying port name '{origin_name}'")
-                        await origin_field.click()
+                        await origin_field.click(force=True)
                         await self.page.keyboard.press("Control+A")
                         await self.page.keyboard.press("Backspace")
                         await self.page.keyboard.type(origin_name, delay=25)
@@ -487,13 +510,15 @@ class ONEConnector(BaseCarrierConnector):
                 if destination_locode == "EGALY":
                     self.port_fallback_notice = "Ain Sukhna fell back to Alexandria"
 
+            await self._clear_overlays()
             try:
-                destination_field = self.page.get_by_role("combobox", name="Please search location").nth(1)
+                destination_field = self.page.locator('input[placeholder="Please search location"]').last
+                await destination_field.wait_for(state="attached", timeout=15000)
 
                 if destination_cached:
                     # Use cached carrier-specific spelling
                     print(f"[ONE] Destination (cached): typing '{destination_cached}' for LOCODE '{destination_locode}'")
-                    await destination_field.click()
+                    await destination_field.click(force=True)
                     await self.page.keyboard.type(destination_cached, delay=25)
                     await self.page.wait_for_timeout(1500)
                     destination_selected = await self._select_dropdown_option("Destination", destination_cached, destination_locode)
@@ -502,7 +527,7 @@ class ONEConnector(BaseCarrierConnector):
                     # Step 1: Try typing LOCODE directly
                     dest_locode_query = destination_locode if destination_locode else request.destination
                     print(f"[ONE] Destination (step 1): typing LOCODE '{dest_locode_query}'")
-                    await destination_field.click()
+                    await destination_field.click(force=True)
                     await self.page.keyboard.press("Control+A")
                     await self.page.keyboard.press("Backspace")
                     await self.page.keyboard.type(dest_locode_query, delay=25)
@@ -516,7 +541,7 @@ class ONEConnector(BaseCarrierConnector):
                     dest_name = port_obj.get('name_ascii') or port_obj.get('name') if port_obj else None
                     if dest_name:
                         print(f"[ONE] Destination (step 2): LOCODE unknown to ONE, trying port name '{dest_name}'")
-                        await destination_field.click()
+                        await destination_field.click(force=True)
                         await self.page.keyboard.press("Control+A")
                         await self.page.keyboard.press("Backspace")
                         await self.page.keyboard.type(dest_name, delay=25)
@@ -533,38 +558,7 @@ class ONEConnector(BaseCarrierConnector):
             # --- JS BYPASS FOR STUCK LOADING DIALOG ---
             # We must immediately remove the stuck welcome/loading modal and backdrop to destroy the FocusTrap
             # and allow the background form fields to transition out of their "disabled" state!
-            print("[ONE] Bypassing stuck loading/processing dialog if present...")
-            try:
-                await self.page.evaluate("""() => {
-                    const selectors = [
-                        '[class*="Modal_dialog"]',
-                        '[class*="CarouselLoadingPopup"]',
-                        '[class*="CommonModal"]',
-                        '[id^="headlessui-dialog"]',
-                        '.fixed.inset-0',
-                        'div[class*="backdrop"]',
-                        'div[class*="Backdrop"]',
-                        'div[role="presentation"]'
-                    ];
-                    let count = 0;
-                    selectors.forEach(sel => {
-                        document.querySelectorAll(sel).forEach(el => {
-                            if (el.tagName !== 'BODY' && el.tagName !== 'HTML') {
-                                el.remove();
-                                count++;
-                            }
-                        });
-                    });
-                    
-                    // Restore page scrolling
-                    document.body.style.overflow = 'unset';
-                    document.body.style.position = 'static';
-                    document.body.style.width = 'auto';
-                    document.documentElement.style.overflow = 'unset';
-                }""")
-                print("[ONE] Loading modal bypass completed successfully.")
-            except Exception as e:
-                print(f"[ONE] Warning: Stuck modal bypass injection failed: {e}")
+            await self._clear_overlays()
 
             # Wait for equipment dropdown to become enabled (only unlocks after both ports are confirmed and fully loaded in background)
             print("[ONE] Waiting for Equipment Type dropdown to become enabled...")
@@ -710,7 +704,7 @@ class ONEConnector(BaseCarrierConnector):
                 # Wait for the calendar container to be visible
                 print("[ONE] Waiting for calendar to appear...")
                 try:
-                    calendar_sel = 'div[class*="Calendar"], .react-calendar, [class*="calendar-picker"], .MuiCalendarPicker-root'
+                    calendar_sel = 'div[class*="Calendar"], .react-calendar, [class*="calendar-picker"], .MuiCalendarPicker-root, .react-datepicker, .react-datepicker-popper, .react-datepicker__calendar-container'
                     await self.page.locator(calendar_sel).first.wait_for(state="visible", timeout=10000)
                     print("[ONE] Calendar visible")
                 except Exception:
@@ -842,14 +836,25 @@ class ONEConnector(BaseCarrierConnector):
             except Exception as e:
                 print(f"[ONE] Submit click failed: {e}")
 
-            print("[ONE] Waiting for search results to load...")
+            print("[ONE] Waiting for search results or no results message...")
             try:
-                await self.page.wait_for_url(lambda url: "search" in url.lower() or "result" in url.lower() or "quote" in url.lower(), timeout=30000)
-            except Exception:
-                pass
-            await self.page.wait_for_timeout(5000)
+                cards = self.page.locator('div[class*="NewQuoteSummary_body-card"]').first
+                await cards.wait_for(state="visible", timeout=25000)
+                print("[ONE] Quote cards detected on search results page.")
+            except Exception as e:
+                print(f"[ONE] Quote cards did not appear within timeout: {e}")
+
+            await self.page.wait_for_timeout(3000)
             print(f"[ONE] Search page ready: {self.page.url}")
-            return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+
+            cards_count = await self.page.locator('div[class*="NewQuoteSummary_body-card"]').count()
+            if cards_count > 0:
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+            else:
+                body_text = (await self.page.locator("body").inner_text()).lower()
+                if "no quote" in body_text or "no rate" in body_text or "not found" in body_text or "no routing" in body_text:
+                    print("[ONE] No coverage / no quotes found text detected in page body.")
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE
         except Exception as e:
             print(f"[ONE] Search failed: {e}")
             return CarrierResultStatus.TIMEOUT if "timeout" in str(e).lower() else CarrierResultStatus.UNKNOWN_ERROR
@@ -971,6 +976,9 @@ class ONEConnector(BaseCarrierConnector):
 
             card = quote_cards.nth(idx)
             self.current_card = quote_cards.nth(idx)
+            self.current_pol = (quote_ref.get("pol") or "").strip().upper()
+            self.current_pod = (quote_ref.get("pod") or "").strip().upper()
+            self.current_routing = "Direct"
             
             all_details_buttons = self.page.locator('button.NewQuoteSummary_breakdown-button__oIAYJ')
             
@@ -1030,6 +1038,37 @@ class ONEConnector(BaseCarrierConnector):
             # If the charges aren't inside the card (e.g. rendered in a portal), fallback to body
             if "BASIC OCEAN FREIGHT" not in text.upper() and "OCEAN FREIGHT" not in text.upper():
                 text = await self.page.locator("body").inner_text()
+
+            # Parse routing from the timeline text
+            try:
+                pol_code = self._extract_port_code(self.current_pol).strip().upper()
+                pod_code = self._extract_port_code(self.current_pod).strip().upper()
+                
+                # Find all "PORT NAME (LOCODE)" matches in the expanded card text
+                import re
+                locode_matches = re.findall(r"([A-Za-z0-9\t ,.-]+?)\s*\(([A-Z]{5})\)", text)
+                transit_ports = []
+                seen_locodes = set()
+                for port_name, locode in locode_matches:
+                    locode_upper = locode.strip().upper()
+                    port_name_clean = port_name.strip()
+                    # Skip empty labels, POL, POD, and duplicates
+                    if locode_upper == pol_code or locode_upper == pod_code:
+                        continue
+                    if locode_upper in seen_locodes:
+                        continue
+                    seen_locodes.add(locode_upper)
+                    if port_name_clean:
+                        transit_ports.append(f"{port_name_clean} ({locode_upper})")
+                
+                if transit_ports:
+                    self.current_routing = "Transit via " + ", ".join(transit_ports)
+                    print(f"[ONE] Extracted routing: {self.current_routing}")
+                else:
+                    self.current_routing = "Direct"
+                    print("[ONE] Extracted routing: Direct")
+            except Exception as re_err:
+                print(f"[ONE] Warning: failed to parse timeline routing: {re_err}")
 
             # Isolate the breakdown section to avoid parsing the card summary
             if "BASIC OCEAN FREIGHT" in text.upper():
@@ -1128,6 +1167,8 @@ class ONEConnector(BaseCarrierConnector):
 
     async def normalize_result(self, raw_quote, raw_charges):
         quote_schema = normalize_quote(self.carrier_code, raw_quote, raw_charges)
+        if hasattr(self, "current_routing") and self.current_routing:
+            quote_schema.routing = self.current_routing
         if hasattr(self, 'port_fallback_notice') and self.port_fallback_notice:
             if quote_schema.vessel:
                 quote_schema.vessel = f"{quote_schema.vessel} ({self.port_fallback_notice})"
