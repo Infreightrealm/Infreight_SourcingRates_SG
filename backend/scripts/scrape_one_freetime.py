@@ -9,14 +9,18 @@ load_dotenv()
 COUNTRIES = [
     "MALAYSIA", "TAIWAN", "CHINA", "VIETNAM", "PAKISTAN", "INDIA",
     "SAUDI ARABIA", "UNITED ARAB EMIRATES", "OMAN", "EGYPT", "INDONESIA",
-    "AUSTRALIA", "THAILAND", "CAMBODIA"
+    "AUSTRALIA", "THAILAND", "CAMBODIA",
+    # Additional common shipping origins
+    "SINGAPORE", "HONG KONG", "KOREA REPUBLIC OF", "JAPAN", "PHILIPPINES"
 ]
 
 COUNTRY_CODES = {
     "MALAYSIA": "MY", "TAIWAN": "TW", "CHINA": "CN", "VIETNAM": "VN",
     "PAKISTAN": "PK", "INDIA": "IN", "SAUDI ARABIA": "SA",
     "UNITED ARAB EMIRATES": "AE", "OMAN": "OM", "EGYPT": "EG",
-    "INDONESIA": "ID", "AUSTRALIA": "AU", "THAILAND": "TH", "CAMBODIA": "KH"
+    "INDONESIA": "ID", "AUSTRALIA": "AU", "THAILAND": "TH", "CAMBODIA": "KH",
+    "SINGAPORE": "SG", "HONG KONG": "HK", "KOREA REPUBLIC OF": "KR",
+    "JAPAN": "JP", "PHILIPPINES": "PH"
 }
 
 DESTINATIONS = ["ASIA", "NORTH AMERICA", "LATIN AMERICA", "EUROPE", "AFRICA"]
@@ -49,11 +53,24 @@ async def main():
         
         await login(page)
         
+        # Load existing cache to merge new values
+        cache_path = os.path.join("backend", "data", "one_freetime.json")
         freetime_cache = {}
-        
-        for country in COUNTRIES:
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r") as f:
+                    freetime_cache = json.load(f)
+                print(f"[ONE Freetime] Loaded existing cache with {len(freetime_cache)} countries.")
+            except Exception as e:
+                print(f"[ONE Freetime] Error loading cache: {e}")
+
+        # Only target newly added countries to save time
+        TARGET_COUNTRIES = ["SINGAPORE", "HONG KONG", "KOREA REPUBLIC OF", "JAPAN", "PHILIPPINES"]
+
+        for country in TARGET_COUNTRIES:
             code = COUNTRY_CODES[country]
-            freetime_cache[code] = {}
+            if code not in freetime_cache:
+                freetime_cache[code] = {}
             
             for dest in DESTINATIONS:
                 try:

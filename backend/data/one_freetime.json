@@ -96,5 +96,40 @@
         "LATIN AMERICA": 7,
         "EUROPE": 7,
         "AFRICA": 7
+    },
+    "SG": {
+        "ASIA": 7,
+        "NORTH AMERICA": 7,
+        "LATIN AMERICA": 7,
+        "EUROPE": 7,
+        "AFRICA": 7
+    },
+    "HK": {
+        "ASIA": 7,
+        "NORTH AMERICA": 7,
+        "LATIN AMERICA": 7,
+        "EUROPE": 7,
+        "AFRICA": 7
+    },
+    "KR": {
+        "ASIA": 16,
+        "NORTH AMERICA": 16,
+        "LATIN AMERICA": 16,
+        "EUROPE": 16,
+        "AFRICA": 16
+    },
+    "JP": {
+        "ASIA": 10,
+        "NORTH AMERICA": 10,
+        "LATIN AMERICA": 10,
+        "EUROPE": 10,
+        "AFRICA": 10
+    },
+    "PH": {
+        "ASIA": 6,
+        "NORTH AMERICA": 6,
+        "LATIN AMERICA": 6,
+        "EUROPE": 6,
+        "AFRICA": 6
     }
 }
