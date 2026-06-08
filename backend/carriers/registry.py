@@ -23,8 +23,7 @@ LIVE_CONNECTORS: dict[str, type[BaseCarrierConnector]] = {
 
 # All supported carrier codes
 SUPPORTED_CARRIERS = [
-    "MAERSK", "ONE", "CMA_CGM", "HAPAG_LLOYD", "MSC",
-    "EVERGREEN", "COSCO", "OOCL", "HMM",
+    "MAERSK", "ONE", "CMA_CGM", "HAPAG_LLOYD", "OOCL"
 ]
 
 
