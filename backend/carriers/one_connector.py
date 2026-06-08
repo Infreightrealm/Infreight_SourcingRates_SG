@@ -710,7 +710,12 @@ class ONEConnector(BaseCarrierConnector):
                 except Exception:
                     print("[ONE] Warning: Calendar container not detected, continuing with strategies")
 
-                await self.page.wait_for_timeout(8000)  # Give calendar ample time to fetch sailings and render prices
+                try:
+                    price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted').filter(has_text="USD").first
+                    await price_locator.wait_for(state="visible", timeout=8000)
+                    print("[ONE] Highlighted date with USD price became visible dynamically.")
+                except Exception:
+                    await self.page.wait_for_timeout(2000)
                 
                 date_selected = False
                 
@@ -747,12 +752,16 @@ class ONEConnector(BaseCarrierConnector):
                     if not date_selected:
                         try:
                             # The debug screenshot showed prices in elements with "date-picker-date-highlight"
-                            price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted').first
+                            price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted').filter(has_text="USD").first
                             await price_locator.wait_for(state="visible", timeout=5000)
 
                             await price_locator.click(force=True)
                             date_selected = True
-                            price_text = await price_locator.inner_text()
+                            price_text = ""
+                            try:
+                                price_text = await price_locator.inner_text()
+                            except Exception:
+                                pass
                             print(f"[ONE] Clicked highlighted date cell with price: {price_text}")
                         except Exception:
                             pass
@@ -804,7 +813,7 @@ class ONEConnector(BaseCarrierConnector):
                     return CarrierResultStatus.NO_QUOTES_AVAILABLE
 
                 # Verify calendar closure or wait for state change
-                await self.page.wait_for_timeout(2000)
+                await self.page.wait_for_timeout(500)
                 
                 # If calendar is still visible, try to click the body to close it
                 if await self.page.locator('div[class*="Calendar"], div[class*="calendar"], .react-calendar').is_visible():
@@ -822,14 +831,14 @@ class ONEConnector(BaseCarrierConnector):
                 await submit_btn.wait_for(state="visible", timeout=5000)
                 
                 # Poll for enabled state (some buttons use 'disabled' attribute, others use classes)
-                for _ in range(10):
+                for _ in range(50):
                     is_disabled = await submit_btn.get_attribute("disabled")
                     if is_disabled is None:
                         # Also check common "disabled" classes
                         btn_class = await submit_btn.get_attribute("class") or ""
                         if "disabled" not in btn_class.lower():
                             break
-                    await self.page.wait_for_timeout(500)
+                    await self.page.wait_for_timeout(100)
                 
                 await submit_btn.click(force=True, timeout=5000)
                 print("[ONE] Search submitted (force click)")
