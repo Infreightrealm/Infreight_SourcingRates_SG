@@ -415,6 +415,8 @@ class ONEConnector(BaseCarrierConnector):
                     ports = search_port(request.origin)
                     if ports:
                         origin_locode = ports[0]['code']
+            
+            self.origin_locode = origin_locode
 
             origin_cached = get_cached_carrier_port("one", origin_locode) if origin_locode else None
             origin_selected = False
@@ -471,6 +473,8 @@ class ONEConnector(BaseCarrierConnector):
                     ports = search_port(request.destination)
                     if ports:
                         destination_locode = ports[0]['code']
+            
+            self.destination_locode = destination_locode
 
             destination_cached = get_cached_carrier_port("one", destination_locode) if destination_locode else None
             destination_selected = False
@@ -1129,6 +1133,93 @@ class ONEConnector(BaseCarrierConnector):
                 quote_schema.vessel = f"{quote_schema.vessel} ({self.port_fallback_notice})"
             else:
                 quote_schema.vessel = f"({self.port_fallback_notice})"
+                
+        # Resolve Freetime from offline cache
+        cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "one_freetime.json")
+        if os.path.exists(cache_path):
+            try:
+                import json
+                with open(cache_path, "r") as f:
+                    freetime_cache = json.load(f)
+                    
+                origin_country = None
+                dest_continent = None
+                
+                if hasattr(self, 'origin_locode') and self.origin_locode:
+                    origin_country = self.origin_locode[:2].upper()
+                    
+                if hasattr(self, 'destination_locode') and self.destination_locode:
+                    dest_country = self.destination_locode[:2].upper()
+                    
+                    # Comprehensive country→region maps.
+                    # City names (e.g. Hai Phong, Lagos) are first resolved to LOCODEs
+                    # by port_manager (e.g. VNHPH, NGLOS), then the 2-letter country
+                    # prefix (VN, NG) is used to classify the destination region.
+                    EUROPE = [
+                        "AL", "AD", "AT", "BY", "BE", "BA", "BG", "HR", "CY", "CZ",
+                        "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT",
+                        "XK", "LV", "LI", "LT", "LU", "MT", "MD", "MC", "ME", "NL",
+                        "MK", "NO", "PL", "PT", "RO", "RU", "SM", "RS", "SK", "SI",
+                        "ES", "SE", "CH", "TR", "UA", "GB", "VA",
+                        # Baltic/Scandinavian extras
+                        "AX", "FO", "GI", "GG", "IM", "JE",
+                    ]
+                    ASIA = [
+                        # Southeast Asia
+                        "BN", "KH", "ID", "LA", "MY", "MM", "PH", "SG", "TH", "TL", "VN",
+                        # East Asia
+                        "CN", "HK", "JP", "KR", "KP", "MO", "MN", "TW",
+                        # South Asia
+                        "AF", "BD", "BT", "IN", "MV", "NP", "PK", "LK",
+                        # Middle East / West Asia
+                        "AE", "BH", "CY", "GE", "IQ", "IR", "IL", "JO", "KW",
+                        "LB", "OM", "PS", "QA", "SA", "SY", "YE",
+                        # Central Asia
+                        "AM", "AZ", "KZ", "KG", "TJ", "TM", "UZ",
+                        # Oceania — ONE maps Australia/NZ under Asia region
+                        "AU", "NZ", "FJ", "PG", "WS",
+                    ]
+                    AFRICA = [
+                        # North Africa
+                        "DZ", "EG", "LY", "MA", "SD", "SS", "TN", "EH",
+                        # West Africa
+                        "BJ", "BF", "CV", "CI", "GM", "GH", "GN", "GW",
+                        "LR", "ML", "MR", "NE", "NG", "SN", "SL", "TG",
+                        # East Africa
+                        "BI", "KM", "DJ", "ER", "ET", "KE", "MG", "MW",
+                        "MU", "MZ", "RE", "RW", "SC", "SO", "TZ", "UG",
+                        "YT", "ZM", "ZW",
+                        # Central Africa
+                        "AO", "CM", "CF", "TD", "CG", "CD", "GQ", "GA", "ST",
+                        # Southern Africa
+                        "BW", "LS", "NA", "ZA", "SZ",
+                    ]
+                    NORTH_AMERICA = [
+                        "US", "CA", "MX",
+                        # Central America & Caribbean
+                        "AG", "BS", "BB", "BZ", "CU", "DM", "DO", "SV", "GD",
+                        "GT", "HT", "HN", "JM", "KN", "LC", "VC", "TT",
+                        "NI", "CR", "PA", "PR", "VI",
+                    ]
+                    LATIN_AMERICA = [
+                        "AR", "BO", "BR", "CL", "CO", "EC", "GF", "GY",
+                        "PY", "PE", "SR", "UY", "VE",
+                    ]
+
+                    if dest_country in EUROPE: dest_continent = "EUROPE"
+                    elif dest_country in AFRICA: dest_continent = "AFRICA"
+                    elif dest_country in LATIN_AMERICA: dest_continent = "LATIN AMERICA"
+                    elif dest_country in NORTH_AMERICA: dest_continent = "NORTH AMERICA"
+                    elif dest_country in ASIA: dest_continent = "ASIA"
+
+                if origin_country and dest_continent and origin_country in freetime_cache:
+                    fd = freetime_cache[origin_country].get(dest_continent)
+                    if fd is not None:
+                        quote_schema.free_time = fd
+                        print(f"[ONE] Successfully mapped offline Freetime: {origin_country} -> {dest_continent} = {fd} days")
+            except Exception as e:
+                print(f"[ONE] Warning: Failed to apply freetime from cache: {e}")
+                
         return quote_schema
 
     async def close(self):

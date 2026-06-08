@@ -59,13 +59,14 @@ export default function QuoteBreakdownDrawer({ quote, carrier, onClose }: QuoteB
               { label: "ETD", value: quote.etd || "—" },
               { label: "ETA", value: quote.eta || "—" },
               { label: "Transit", value: quote.transit_time_days ? `${quote.transit_time_days} days` : "—" },
+              { label: "Free Time (Export Det.)", value: quote.free_time != null ? `${quote.free_time} days` : "—" },
               { label: "Vessel", value: quote.vessel || "—" },
               { label: "Container", value: quote.container_type || "—" },
               { label: "Source", value: quote.source },
             ].map((item, i) => (
-              <div key={i} className="bg-slate-100 dark:bg-white/5 rounded-lg px-3 py-2">
-                <span className="block text-xs text-slate-500 dark:text-white/40">{item.label}</span>
-                <span className="block text-sm text-slate-700 dark:text-white/80 font-medium">{item.value}</span>
+              <div key={i} className={`rounded-lg px-3 py-2 ${item.label === "Free Time (Export Det.)" && quote.free_time != null ? "bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/40" : "bg-slate-100 dark:bg-white/5"}`}>
+                <span className={`block text-xs ${item.label === "Free Time (Export Det.)" && quote.free_time != null ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-slate-500 dark:text-white/40"}`}>{item.label}</span>
+                <span className={`block text-sm font-medium ${item.label === "Free Time (Export Det.)" && quote.free_time != null ? "text-emerald-700 dark:text-emerald-300" : "text-slate-700 dark:text-white/80"}`}>{item.value}</span>
               </div>
             ))}
           </div>

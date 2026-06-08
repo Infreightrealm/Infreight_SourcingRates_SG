@@ -339,6 +339,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETD</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETA</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Transit</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Free Time</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Service / Vessel</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">BOF</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Discount</th>
@@ -368,6 +369,13 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.etd || "—"}</td>
                         <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.eta || "—"}</td>
                         <td className="px-4 py-3 text-center text-slate-600 dark:text-white/70">{row.quote.transit_time_days ? `${row.quote.transit_time_days}d` : "—"}</td>
+                        <td className="px-4 py-3 text-center">
+                          {row.quote.free_time != null ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                              {row.quote.free_time}d
+                            </span>
+                          ) : <span className="text-slate-400 dark:text-white/25 text-xs">—</span>}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="text-slate-700 dark:text-white/70 text-xs font-medium">{row.quote.service_name || "—"}</div>
                           <div className="text-slate-500 dark:text-white/40 text-xs">{row.quote.vessel || ""}</div>
@@ -414,7 +422,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         </td>
                       </>
                     ) : (
-                      <td colSpan={9} className="px-4 py-3 text-slate-500 dark:text-white/40 text-xs text-center italic">
+                      <td colSpan={10} className="px-4 py-3 text-slate-500 dark:text-white/40 text-xs text-center italic">
                         {row.error || (row.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not yet implemented" : "No quotes returned")}
                       </td>
                     )}
