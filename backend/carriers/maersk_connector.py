@@ -383,7 +383,15 @@ class MaerskConnector(BaseCarrierConnector):
                                     print(f"[MAERSK] Could not find details button for card at index {index} using fallback.")
                         except Exception as e:
                             print(f"[MAERSK] Warning: Could not open price details for card at index {index}: {e}")
-                        
+                            
+                    # Extract Routing explicitly
+                    try:
+                        extracted_routing = await self.extract_routing(card, index)
+                        if extracted_routing:
+                            raw_quote["routing"] = extracted_routing
+                    except Exception as e:
+                        print(f"[MAERSK] Warning: Could not extract routing for card at index {index}: {e}")
+
                     # Normalize and add
                     try:
                         normalized = await self.normalize_result(raw_quote, raw_charges)
@@ -2550,6 +2558,90 @@ class MaerskConnector(BaseCarrierConnector):
             return None
         except Exception as e:
             print(f"[MAERSK] Error extracting Free Time: {e}")
+            return None
+
+    async def extract_routing(self, card_locator, index: int) -> str | None:
+        """
+        Extracts the routing details from the 'Route & other details' accordion.
+        Identifies transshipments by extracting text before 'Arrival' nodes.
+        """
+        try:
+            print(f"[MAERSK] Searching for 'Route & other details' button for card {index}...")
+            route_btn = None
+            potential_elements = card_locator.locator('mc-c-accordion-item, mc-accordion-item, button, [role="button"], .hyperlink-button, summary, [class*="route-details" i]')
+            count = await potential_elements.count()
+            for i in range(count):
+                el = potential_elements.nth(i)
+                try:
+                    text = await el.inner_text()
+                    header_attr = await el.get_attribute("header") or ""
+                    combined = (text + " " + header_attr).lower()
+                    if "route" in combined and "detail" in combined:
+                        route_btn = el
+                        break
+                except:
+                    continue
+                    
+            if not route_btn:
+                fallback_btn = card_locator.locator('*:has-text("Route & other details")').last
+                if await fallback_btn.is_visible(timeout=1000):
+                    route_btn = fallback_btn
+
+            if not route_btn:
+                print(f"[MAERSK] Could not find Route details button for card {index}.")
+                return None
+                
+            await route_btn.scroll_into_view_if_needed()
+            await route_btn.click(force=True)
+            await self.page.wait_for_timeout(1500)
+            
+            route_text = await card_locator.inner_text()
+            
+            if "Route details" in route_text:
+                route_details = route_text.split("Route details")[-1]
+                lines = [l.strip() for l in route_details.split('\n') if l.strip()]
+                arrivals = []
+                for i, line in enumerate(lines):
+                    if line == "Arrival" or line.startswith("Arrival") or line.endswith("Arrival"):
+                        port_name = ""
+                        if "Arrival" in line and len(line.replace("Arrival", "").strip()) > 2:
+                            port_name = line.replace("Arrival", "").strip()
+                        elif i >= 1:
+                            port_name = lines[i-1]
+                            
+                        if port_name:
+                            # Clean up common stray words just in case
+                            port_name = port_name.replace("Arrival", "").strip()
+                            arrivals.append(port_name)
+                
+                if len(arrivals) > 1:
+                    transit_ports = arrivals[:-1]
+                    seen = set()
+                    transit_ports = [x for x in transit_ports if not (x in seen or seen.add(x))]
+                    routing_str = "Transit via " + ", ".join(transit_ports)
+                    print(f"[MAERSK] Extracted routing: {routing_str}")
+                else:
+                    routing_str = "Direct"
+                    print(f"[MAERSK] Extracted routing: Direct")
+                    
+                # Close the route details card
+                try:
+                    await route_btn.click(force=True)
+                    await self.page.wait_for_timeout(500)
+                except:
+                    pass
+                    
+                return routing_str
+            else:
+                print(f"[MAERSK] 'Route details' text not found inside expanded card {index}.")
+                try:
+                    await route_btn.click(force=True)
+                except:
+                    pass
+                return None
+                
+        except Exception as e:
+            print(f"[MAERSK] Error extracting routing: {e}")
             return None
 
     # ────────────────────────────────────────
