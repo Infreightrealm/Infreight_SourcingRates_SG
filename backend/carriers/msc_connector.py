@@ -270,10 +270,15 @@ class MSCConnector(BaseCarrierConnector):
                 total_freight = 0.0
                 currency = "USD"
                 
-                modal = self.page.locator("div[data-test-id='BreakdownModal']")
+                # Broad modal locator
+                modal = self.page.locator("div[role='dialog'], .MuiDialog-container, .modal, [class*='modal' i]").filter(has=self.page.locator("table")).first
+                if await modal.count() == 0:
+                    modal = self.page.locator("table").locator("xpath=../../..").first
                 
                 rows = modal.locator("tr")
                 row_count = await rows.count()
+                self.log(f"Found {row_count} rows in charges table.")
+                
                 
                 current_group = ""
                 for r in range(row_count):
@@ -329,11 +334,14 @@ class MSCConnector(BaseCarrierConnector):
 
                 # The schedule table has rows with Vessel, Voyage, ETD, ETA, Service, Est.TT.
                 # Let's find rows that contain "Days" for Transit Time
-                sched_rows = modal.locator("tr:has-text('Days')")
+                sched_rows = modal.locator("tr")
                 s_count = await sched_rows.count()
+                self.log(f"Found {s_count} rows in schedule table.")
                 
                 for s in range(s_count):
                     s_text = await sched_rows.nth(s).inner_text()
+                    if "Days" not in s_text and "days" not in s_text.lower():
+                        continue
                     parts = [p.strip() for p in s_text.split('\t') if p.strip()]
                     if len(parts) < 5:
                         parts = [p.strip() for p in s_text.split('\n') if p.strip()]
@@ -354,6 +362,7 @@ class MSCConnector(BaseCarrierConnector):
                     service_name = parts[-3] if len(parts) > 3 else "MSC Service"
 
                     # Create Quote Schema for this vessel
+                    from models.schemas import ChargeSchema
                     quote = QuoteSchema(
                         service_name=service_name,
                         routing="Direct" if is_direct else "Transshipment",
@@ -365,26 +374,22 @@ class MSCConnector(BaseCarrierConnector):
                         currency=currency,
                         basic_ocean_freight=total_freight,
                         final_freight_value=total_freight,
-                        included_freight_surcharges=[c for c in charges if c.get("category") == "included"],
-                        excluded_charges=[c for c in charges if c.get("category") == "excluded"]
+                        included_freight_surcharges=[ChargeSchema(**c) for c in charges if c.get("category") == "included"],
+                        excluded_charges=[ChargeSchema(**c) for c in charges if c.get("category") == "excluded"]
                     )
                     quotes.append(quote)
 
                 # Close popup
                 self.log("Closing popup...")
                 try:
-                    modal = self.page.locator("div[data-test-id='BreakdownModal']")
                     # Usually the close button is an SVG or button at the top right
                     close_btn = modal.locator("button, svg").first
                     await close_btn.click(timeout=5000)
                 except Exception as e:
                     self.log(f"Failed to click close button normally: {e}")
                     await self.page.evaluate('''() => {
-                        const modal = document.querySelector('[data-test-id="BreakdownModal"]');
-                        if (modal) {
-                            // Find any button inside and try to click it, or just hide the modal
-                            modal.style.display = 'none';
-                        }
+                        const dialogs = document.querySelectorAll('[role="dialog"], .MuiDialog-root, .modal');
+                        dialogs.forEach(d => d.style.display = 'none');
                         const backdrops = document.querySelectorAll('.MuiBackdrop-root');
                         backdrops.forEach(b => b.style.display = 'none');
                     }''')
