@@ -233,11 +233,12 @@ class MSCConnector(BaseCarrierConnector):
                 # 1. Get Free Time
                 free_time_text = ""
                 try:
-                    free_time_el = self.page.locator("text='Import Combined'").first
-                    if await free_time_el.is_visible():
-                        free_time_text = await free_time_el.inner_text()
-                except:
-                    pass
+                    # After clicking the window, wait for the 'Import Combined' text to appear
+                    free_time_el = self.page.locator("*:has-text('Import Combined')").last
+                    await free_time_el.wait_for(state="visible", timeout=8000)
+                    free_time_text = await free_time_el.inner_text()
+                except Exception as e:
+                    self.log(f"Failed to find Free Time text: {e}")
                 
                 # Default 0, parse if found (e.g. "Import Combined : 7 Calendar days")
                 free_time = 0
@@ -261,10 +262,17 @@ class MSCConnector(BaseCarrierConnector):
                 
                 modal = self.page.locator("div[data-test-id='BreakdownModal']")
                 
+                # Wait for the charges to actually render inside the modal before reading inner_text
+                try:
+                    await modal.locator("*:has-text('Freight Charge'), *:has-text('Per Equipment')").first.wait_for(state="visible", timeout=15000)
+                except Exception as e:
+                    self.log(f"Timed out waiting for charges to render inside modal: {e}")
+                
                 # Parse charges by reading the full inner text.
                 # Because the modal uses MuiGrid, inner_text often collapses into a single massive string.
                 # We split the text by known headers to categorize charges, then use regex to extract amounts.
                 popup_text = (await modal.inner_text()).replace('\\n', ' ')
+                self.log(f"Popup text length: {len(popup_text)}")
                 
                 def extract_section(txt, current_header, next_headers):
                     start = txt.find(current_header)
