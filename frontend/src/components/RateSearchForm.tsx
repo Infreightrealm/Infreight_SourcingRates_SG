@@ -12,8 +12,8 @@ interface RateSearchFormProps {
 
 export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormProps) {
   const [carriers, setCarriers] = useState<string[]>(["ALL"]);
-  const [origin, setOrigin] = useState("Singapore");
-  const [destination, setDestination] = useState("Hamburg");
+  const [origin, setOrigin] = useState("SGSIN");
+  const [destination, setDestination] = useState("DEHAM");
   const [serviceTerm, setServiceTerm] = useState("CY/CY");
   const [containerType, setContainerType] = useState("DRY 40H");
   const [containerQty, setContainerQty] = useState(1);
@@ -61,14 +61,14 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
           label="Origin"
           value={origin}
           onChange={setOrigin}
-          placeholder="e.g. Singapore"
+          placeholder="e.g. SGSIN"
           required
         />
         <PortAutocomplete
           label="Destination"
           value={destination}
           onChange={setDestination}
-          placeholder="e.g. Hamburg"
+          placeholder="e.g. DEHAM"
           required
         />
       </div>
