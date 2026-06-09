@@ -146,4 +146,6 @@ class RateSearchResultResponse(BaseModel):
     container_quantity: Optional[int] = None
     commodity: Optional[str] = None
     created_at: Optional[str] = None
+    queue_position: Optional[int] = None
+    active_search_info: Optional[str] = None
     results: list[CarrierResultSchema] = []

@@ -14,6 +14,7 @@ from models.rate_search import RateSearch, CarrierSearchResult
 from models.quote import Quote, QuoteCharge
 from models.schemas import RateSearchRequest, CarrierResultStatus, SearchStatus
 from carriers.registry import get_connector
+from services.queue_manager import queue_manager
 
 
 async def run_carrier_search(
@@ -193,6 +194,12 @@ async def run_all_carrier_searches(
     request: RateSearchRequest,
 ):
     """Run search jobs for all selected carriers concurrently, updating overall status as each finishes."""
+    # 1. Enqueue and wait for our turn
+    search_str_id = str(search_id)
+    search_info = f"{request.origin} to {request.destination}"
+    await queue_manager.enqueue_and_wait(search_str_id, search_info)
+
+    # 2. Run searches
     async def run_and_update(c):
         try:
             await run_carrier_search(search_id, c, request)
@@ -201,3 +208,21 @@ async def run_all_carrier_searches(
 
     tasks = [run_and_update(carrier) for carrier in carriers]
     await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 3. Mark search completed in the queue manager to start the auto-release timeout
+    await queue_manager.mark_search_completed(search_str_id)
+
+    # 4. Start a background auto-release poller (300 seconds = 5 minutes timeout)
+    async def auto_release_poller():
+        while True:
+            await asyncio.sleep(10)
+            released = await queue_manager.auto_release_check(search_str_id, timeout_seconds=300)
+            if released:
+                print(f"[QUEUE] Auto-released lock for search {search_str_id} due to timeout.")
+                break
+            # Stop polling if the search is no longer active
+            status = await queue_manager.get_queue_status(search_str_id)
+            if status["position"] != 0:
+                break
+
+    asyncio.create_task(auto_release_poller())

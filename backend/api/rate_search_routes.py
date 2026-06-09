@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 from models.database import get_session
 from models.rate_search import RateSearch, CarrierSearchResult
 from models.quote import Quote, QuoteCharge
+from services.queue_manager import queue_manager
 from models.schemas import (
     RateSearchRequest,
     RateSearchCreateResponse,
@@ -164,6 +165,9 @@ async def get_rate_search(
             quotes=quotes,
         ))
 
+    # Get queue status
+    queue_status = await queue_manager.get_queue_status(str(search.id))
+
     return RateSearchResultResponse(
         search_id=str(search.id),
         status=search.status,
@@ -173,8 +177,16 @@ async def get_rate_search(
         container_quantity=search.container_quantity,
         commodity=search.commodity,
         created_at=search.created_at.isoformat() if search.created_at else None,
+        queue_position=queue_status["position"],
+        active_search_info=queue_status["active_search_info"],
         results=results,
     )
+
+@router.post("/rate-search/{search_id}/release")
+async def release_rate_search(search_id: UUID):
+    """Release the queue lock for a completed or queued search."""
+    released = await queue_manager.release_lock(str(search_id))
+    return {"status": "SUCCESS", "released": released}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
