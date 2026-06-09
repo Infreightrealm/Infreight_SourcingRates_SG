@@ -97,6 +97,12 @@ async def vnc_status():
                 "code": "hapag",
                 "path": "/vnc/hapag/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/hapag/websockify",
                 "ws_path": "/websockify/hapag"
+            },
+            {
+                "name": "GreenX",
+                "code": "greenx",
+                "path": "/vnc/greenx/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/greenx/websockify",
+                "ws_path": "/websockify/greenx"
             }
         ] if is_prod else [],
         "vnc_path": "/vnc/vnc.html?autoconnect=true&resize=scale&reconnect=true", # Legacy fallback
@@ -154,7 +160,9 @@ async def websockify_carrier_proxy(websocket: WebSocket, carrier: str):
     carrier_ports = {
         "maersk": 5900,
         "cma": 5901,
-        "one": 5902
+        "one": 5902,
+        "hapag": 5903,
+        "greenx": 5904
     }
     port = carrier_ports.get(carrier.lower(), 5900)
     

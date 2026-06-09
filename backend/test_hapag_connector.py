@@ -20,7 +20,7 @@ async def test_hapag():
     try:
         request = RateSearchRequest(
             origin="SGSIN",
-            destination="MYPKG",
+            destination="VNSGN",
             container_type="DRY 40H",
             container_quantity=2,
             weight_per_container_kg=20000,
