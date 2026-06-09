@@ -1132,7 +1132,8 @@ class CMAConnector(BaseCarrierConnector):
             charges = []
             
             # Pattern matching key charge groups and their amounts/currencies dynamically
-            pattern = r'(Ocean Freight|Charges payable as per freight|Charges payable at import|Charges payable at export|Charges payable at origin|Charges payable at destination)\s+([\d,]+)\s+([A-Z]{3})'
+            # The (?:[\d,\.]+\s+)? safely skips any optional BL costs (like "27") that appear before the currency
+            pattern = r'(Ocean Freight|Charges payable as per freight|Charges payable at import|Charges payable at export|Charges payable at origin|Charges payable at destination)\s+([\d,\.]+)\s+(?:[\d,\.]+\s+)?([A-Z]{3})'
             matches = re.findall(pattern, text, re.IGNORECASE)
             
             for name, amount_str, currency in matches:
