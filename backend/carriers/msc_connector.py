@@ -270,19 +270,24 @@ class MSCConnector(BaseCarrierConnector):
                 total_freight = 0.0
                 currency = "USD"
                 
-                # Broad modal locator
-                modal = self.page.locator("div[role='dialog'], .MuiDialog-container, .modal, [class*='modal' i]").filter(has=self.page.locator("table")).first
-                if await modal.count() == 0:
-                    modal = self.page.locator("table").locator("xpath=../../..").first
+                # Extract all text from the popup container to robustly find charges without relying on tables
+                popup_text = await self.page.evaluate('''() => {
+                    const tabs = Array.from(document.querySelectorAll('*')).filter(e => e.textContent === 'Selected Charges' && e.children.length === 0);
+                    if (tabs.length === 0) return document.body.innerText;
+                    let parent = tabs[tabs.length - 1].parentElement;
+                    for (let i = 0; i < 6; i++) {
+                        if (parent.parentElement) parent = parent.parentElement;
+                    }
+                    return parent.innerText;
+                }''')
                 
-                rows = modal.locator("tr")
-                row_count = await rows.count()
-                self.log(f"Found {row_count} rows in charges table.")
-                
+                rows_text = popup_text.split('\\n')
+                self.log(f"Extracted {len(rows_text)} lines of text from popup.")
                 
                 current_group = ""
-                for r in range(row_count):
-                    row_text = await rows.nth(r).inner_text()
+                for row_text in rows_text:
+                    row_text = row_text.strip()
+                    if not row_text: continue
                     # Determine group
                     if "Freight Charge" in row_text and "Surcharges" not in row_text:
                         current_group = "Freight Charge"
@@ -315,11 +320,11 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
-                quote_conditions_tab = modal.locator("text='Quote Conditions'").first
+                quote_conditions_tab = self.page.locator("text='Quote Conditions'").last
                 await quote_conditions_tab.click()
                 await self.page.wait_for_timeout(1000)
                 
-                routing_el = modal.locator("text='Routing:'").locator("xpath=..")
+                routing_el = self.page.locator("text='Routing:'").locator("xpath=..").last
                 routing_text = ""
                 if await routing_el.count() > 0:
                     routing_text = await routing_el.first.inner_text()
@@ -328,13 +333,16 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
-                schedule_tab = modal.locator("text='Schedule'").first
+                # Use exact match and .last to prevent matching the global "Schedules & Cut-off" nav
+                schedule_tab = self.page.get_by_text("Schedule", exact=True).last
+                if await schedule_tab.count() == 0:
+                    schedule_tab = self.page.locator("text='Schedule'").last
                 await schedule_tab.click()
                 await self.page.wait_for_timeout(1000)
 
-                # The schedule table has rows with Vessel, Voyage, ETD, ETA, Service, Est.TT.
-                # Let's find rows that contain "Days" for Transit Time
-                sched_rows = modal.locator("tr")
+                # The schedule table is reliably a table, but if not we can query rows
+                # Since popups are usually appended last, we grab the last visible table on page
+                sched_rows = self.page.locator("table").last.locator("tr")
                 s_count = await sched_rows.count()
                 self.log(f"Found {s_count} rows in schedule table.")
                 
@@ -382,9 +390,9 @@ class MSCConnector(BaseCarrierConnector):
                 # Close popup
                 self.log("Closing popup...")
                 try:
-                    # Usually the close button is an SVG or button at the top right
-                    close_btn = modal.locator("button, svg").first
-                    await close_btn.click(timeout=5000)
+                    # Press Escape to dismiss the popup safely
+                    await self.page.keyboard.press("Escape")
+                    await self.page.wait_for_timeout(500)
                 except Exception as e:
                     self.log(f"Failed to click close button normally: {e}")
                     await self.page.evaluate('''() => {
