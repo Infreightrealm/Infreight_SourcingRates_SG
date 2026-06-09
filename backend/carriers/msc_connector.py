@@ -233,7 +233,7 @@ class MSCConnector(BaseCarrierConnector):
                 # 1. Get Free Time
                 free_time_text = ""
                 try:
-                    free_time_el = self.page.locator("text='Import Combined :'").first
+                    free_time_el = self.page.locator("text='Import Combined'").first
                     if await free_time_el.is_visible():
                         free_time_text = await free_time_el.inner_text()
                 except:
@@ -241,7 +241,7 @@ class MSCConnector(BaseCarrierConnector):
                 
                 # Default 0, parse if found (e.g. "Import Combined : 7 Calendar days")
                 free_time = 0
-                match = re.search(r"Import Combined\s*:\s*(\d+)", free_time_text, re.IGNORECASE)
+                match = re.search(r"Import Combined\s*[:]?\s*(\d+)", free_time_text, re.IGNORECASE)
                 if match:
                     free_time = int(match.group(1))
 
@@ -280,8 +280,8 @@ class MSCConnector(BaseCarrierConnector):
                     elif "Export Surcharges" in row_text or "Import Surcharges" in row_text:
                         current_group = "Other"
 
-                    # Parse amount: "15 USD", "2500 USD"
-                    amt_match = re.search(r"(\d+(?:[.,]\d+)?)\s*([A-Z]{3})", row_text)
+                    # Parse amount: "15 USD", "2500 USD", "3,120.00 USD"
+                    amt_match = re.search(r"([\d,]+(?:\.\d+)?)\s*([A-Z]{3})", row_text)
                     if amt_match:
                         val = float(amt_match.group(1).replace(",", ""))
                         curr = amt_match.group(2)
