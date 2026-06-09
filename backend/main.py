@@ -103,6 +103,12 @@ async def vnc_status():
                 "code": "greenx",
                 "path": "/vnc/greenx/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/greenx/websockify",
                 "ws_path": "/websockify/greenx"
+            },
+            {
+                "name": "MSC",
+                "code": "msc",
+                "path": "/vnc/msc/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=vnc/msc/websockify",
+                "ws_path": "/websockify/msc"
             }
         ] if is_prod else [],
         "vnc_path": "/vnc/vnc.html?autoconnect=true&resize=scale&reconnect=true", # Legacy fallback
@@ -162,7 +168,8 @@ async def websockify_carrier_proxy(websocket: WebSocket, carrier: str):
         "cma": 5901,
         "one": 5902,
         "hapag": 5903,
-        "greenx": 5904
+        "greenx": 5904,
+        "msc": 5905
     }
     port = carrier_ports.get(carrier.lower(), 5900)
     

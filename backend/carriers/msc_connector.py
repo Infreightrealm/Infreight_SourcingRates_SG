@@ -32,8 +32,19 @@ class MSCConnector(BaseCarrierConnector):
     async def login(self) -> bool:
         """Handles the MSC login flow."""
         self.log("Initializing browser...")
+        import sys
+        
+        # Thread-safe virtual display environment injection
+        browser_env = os.environ.copy()
+        if sys.platform != "win32":
+            browser_env["DISPLAY"] = ":104"
+
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False, args=["--start-maximized"])
+        self.browser = await self.playwright.chromium.launch(
+            headless=False, 
+            args=["--start-maximized"],
+            env=browser_env
+        )
         self.context = await self.browser.new_context(viewport={'width': 1920, 'height': 1080})
         self.page = await self.context.new_page()
 
