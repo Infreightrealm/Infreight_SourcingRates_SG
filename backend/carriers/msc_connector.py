@@ -315,11 +315,11 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
-                quote_conditions_tab = self.page.locator("text='Quote Conditions'").first
+                quote_conditions_tab = modal.locator("text='Quote Conditions'").first
                 await quote_conditions_tab.click()
                 await self.page.wait_for_timeout(1000)
                 
-                routing_el = self.page.locator("text='Routing:'").locator("xpath=..")
+                routing_el = modal.locator("text='Routing:'").locator("xpath=..")
                 routing_text = ""
                 if await routing_el.count() > 0:
                     routing_text = await routing_el.first.inner_text()
@@ -328,7 +328,7 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
-                schedule_tab = self.page.locator("text='Schedule'").first
+                schedule_tab = modal.locator("text='Schedule'").first
                 await schedule_tab.click()
                 await self.page.wait_for_timeout(1000)
 
