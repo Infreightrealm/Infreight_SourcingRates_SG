@@ -230,23 +230,8 @@ class MSCConnector(BaseCarrierConnector):
                 await window.click()
                 await self.page.wait_for_timeout(2000) # Wait for lower section to update
 
-                # 1. Get Free Time
+                # 1. Initialize Free Time
                 free_time = 0
-                try:
-                    # After clicking the window, wait for the 'Import Combined' text to appear
-                    free_time_el = self.page.locator("*:has-text('Import Combined')").last
-                    await free_time_el.wait_for(state="visible", timeout=8000)
-                    
-                    # Instead of trusting inner_text of the specific element (which might just be the label due to MuiGrid),
-                    # we grab the text of a parent container or the whole body to ensure we capture the number next to it.
-                    body_text = await self.page.inner_text("body")
-                    
-                    # \s* naturally handles any \n that MuiGrid injects between grid cells
-                    match = re.search(r"Import Combined\s*[:]?\s*(\d+)", body_text, re.IGNORECASE)
-                    if match:
-                        free_time = int(match.group(1))
-                except Exception as e:
-                    self.log(f"Failed to find Free Time text: {e}")
 
                 # 2. Open details popup
                 show_details_btn = self.page.locator("text='show details'").first
@@ -328,6 +313,25 @@ class MSCConnector(BaseCarrierConnector):
                             currency = curr
                         
                         charges.append(charge_obj)
+                        
+                # 3.5. Extract Free Time
+                self.log("Extracting free time...")
+                try:
+                    free_time_tab = modal.locator("text='Free Time'").first
+                    if await free_time_tab.is_visible():
+                        await free_time_tab.click()
+                        await self.page.wait_for_timeout(1000)
+                        
+                        free_time_el = modal.locator("*:has-text('Import Combined')").last
+                        await free_time_el.wait_for(state="visible", timeout=5000)
+                        
+                        popup_inner = await modal.inner_text()
+                        
+                        match = re.search(r"Import Combined\s*[:]?\s*(\d+)", popup_inner, re.IGNORECASE)
+                        if match:
+                            free_time = int(match.group(1))
+                except Exception as e:
+                    self.log(f"Failed to find Free Time text in popup: {e}")
 
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
