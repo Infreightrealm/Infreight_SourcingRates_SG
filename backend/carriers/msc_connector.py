@@ -271,7 +271,8 @@ class MSCConnector(BaseCarrierConnector):
                 # Parse charges by reading the full inner text.
                 # Because the modal uses MuiGrid, inner_text often collapses into a single massive string.
                 # We split the text by known headers to categorize charges, then use regex to extract amounts.
-                popup_text = (await modal.inner_text()).replace('\\n', ' ')
+                # We convert everything to uppercase because CSS text-transform affects inner_text.
+                popup_text = (await modal.inner_text()).replace('\\n', ' ').upper()
                 self.log(f"Popup text length: {len(popup_text)}")
                 
                 def extract_section(txt, current_header, next_headers):
@@ -282,10 +283,10 @@ class MSCConnector(BaseCarrierConnector):
                     return txt[start:end]
 
                 sections = {
-                    "Freight Charge": ["Freight Surcharges", "Export Surcharges", "Import Surcharges"],
-                    "Freight Surcharges": ["Export Surcharges", "Import Surcharges"],
-                    "Export Surcharges": ["Import Surcharges"],
-                    "Import Surcharges": ["Total", "Subject to charges"]
+                    "FREIGHT CHARGE": ["FREIGHT SURCHARGES", "EXPORT SURCHARGES", "IMPORT SURCHARGES"],
+                    "FREIGHT SURCHARGES": ["EXPORT SURCHARGES", "IMPORT SURCHARGES"],
+                    "EXPORT SURCHARGES": ["IMPORT SURCHARGES"],
+                    "IMPORT SURCHARGES": ["TOTAL", "SUBJECT TO CHARGES"]
                 }
                 
                 for section_name, next_headers in sections.items():
@@ -293,15 +294,15 @@ class MSCConnector(BaseCarrierConnector):
                     if not section_text: continue
                     
                     # Regex to find: [Charge Name] Per Equipment/Bill of lading [Amount] [Currency] Prepaid/Collect
-                    pattern = r"(.*?)(?:Per Equipment|Per Bill of lading)\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s+(?:Prepaid|Collect)"
+                    pattern = r"(.*?)(?:PER EQUIPMENT|PER BILL OF LADING)\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s+(?:PREPAID|COLLECT)"
                     
                     for match in re.finditer(pattern, section_text):
                         raw_name = match.group(1).strip()
                         
                         # Clean up garbage from previous charge
-                        clean_name = re.sub(r"^(?:,\s*Elsewhere|,\s*Collect|,\s*Prepaid|Collect|Prepaid)+", "", raw_name).strip()
-                        clean_name = re.sub(r"^(?:Freight Charge|Freight Surcharges|Export Surcharges|Import Surcharges)", "", clean_name).strip()
-                        clean_name = re.sub(r"^(?:terms of payment only\.?)", "", clean_name).strip(" ,.")
+                        clean_name = re.sub(r"^(?:,\s*ELSEWHERE|,\s*COLLECT|,\s*PREPAID|COLLECT|PREPAID)+", "", raw_name).strip()
+                        clean_name = re.sub(r"^(?:FREIGHT CHARGE|FREIGHT SURCHARGES|EXPORT SURCHARGES|IMPORT SURCHARGES)", "", clean_name).strip()
+                        clean_name = re.sub(r"^(?:TERMS OF PAYMENT ONLY\.?)", "", clean_name).strip(" ,.")
                         
                         if not clean_name: continue
                         
@@ -309,13 +310,13 @@ class MSCConnector(BaseCarrierConnector):
                         curr = match.group(3)
                         
                         charge_obj = {
-                            "name": clean_name,
+                            "name": clean_name.title(), # Title case for prettier UI
                             "amount": val,
                             "currency": curr,
-                            "category": "included" if section_name in ["Freight Charge", "Freight Surcharges"] else "excluded"
+                            "category": "included" if section_name in ["FREIGHT CHARGE", "FREIGHT SURCHARGES"] else "excluded"
                         }
                         
-                        if section_name in ["Freight Charge", "Freight Surcharges"]:
+                        if section_name in ["FREIGHT CHARGE", "FREIGHT SURCHARGES"]:
                             total_freight += val
                             currency = curr
                         
