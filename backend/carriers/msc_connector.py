@@ -231,20 +231,22 @@ class MSCConnector(BaseCarrierConnector):
                 await self.page.wait_for_timeout(2000) # Wait for lower section to update
 
                 # 1. Get Free Time
-                free_time_text = ""
+                free_time = 0
                 try:
                     # After clicking the window, wait for the 'Import Combined' text to appear
                     free_time_el = self.page.locator("*:has-text('Import Combined')").last
                     await free_time_el.wait_for(state="visible", timeout=8000)
-                    free_time_text = await free_time_el.inner_text()
+                    
+                    # Instead of trusting inner_text of the specific element (which might just be the label due to MuiGrid),
+                    # we grab the text of a parent container or the whole body to ensure we capture the number next to it.
+                    body_text = await self.page.inner_text("body")
+                    
+                    # \s* naturally handles any \n that MuiGrid injects between grid cells
+                    match = re.search(r"Import Combined\s*[:]?\s*(\d+)", body_text, re.IGNORECASE)
+                    if match:
+                        free_time = int(match.group(1))
                 except Exception as e:
                     self.log(f"Failed to find Free Time text: {e}")
-                
-                # Default 0, parse if found (e.g. "Import Combined : 7 Calendar days")
-                free_time = 0
-                match = re.search(r"Import Combined\s*[:]?\s*(\d+)", free_time_text, re.IGNORECASE)
-                if match:
-                    free_time = int(match.group(1))
 
                 # 2. Open details popup
                 show_details_btn = self.page.locator("text='show details'").first
@@ -258,6 +260,7 @@ class MSCConnector(BaseCarrierConnector):
                 self.log("Extracting charges...")
                 charges = []
                 total_freight = 0.0
+                bof_value = 0.0
                 currency = "USD"
                 
                 modal = self.page.locator("div[data-test-id='BreakdownModal']")
@@ -313,10 +316,14 @@ class MSCConnector(BaseCarrierConnector):
                             "name": clean_name.title(), # Title case for prettier UI
                             "amount": val,
                             "currency": curr,
-                            "category": "included" if section_name in ["FREIGHT CHARGE", "FREIGHT SURCHARGES"] else "excluded"
+                            "category": "bof" if section_name == "FREIGHT CHARGE" else ("included" if section_name == "FREIGHT SURCHARGES" else "excluded")
                         }
                         
-                        if section_name in ["FREIGHT CHARGE", "FREIGHT SURCHARGES"]:
+                        if section_name == "FREIGHT CHARGE":
+                            bof_value += val
+                            total_freight += val
+                            currency = curr
+                        elif section_name == "FREIGHT SURCHARGES":
                             total_freight += val
                             currency = curr
                         
@@ -378,7 +385,7 @@ class MSCConnector(BaseCarrierConnector):
                         vessel=vessel,
                         free_time=free_time,
                         currency=currency,
-                        basic_ocean_freight=total_freight,
+                        basic_ocean_freight=bof_value,
                         final_freight_value=total_freight,
                         included_freight_surcharges=[ChargeSchema(**c) for c in charges if c.get("category") == "included"],
                         excluded_charges=[ChargeSchema(**c) for c in charges if c.get("category") == "excluded"]
