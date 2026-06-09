@@ -1212,7 +1212,7 @@ class ONEConnector(BaseCarrierConnector):
                     ]
                     ASIA = [
                         # Southeast Asia
-                        "BN", "KH", "ID", "LA", "MY", "MM", "PH", "SG", "TH", "TL", "VN",
+                        "BN", "KH", "ID", "LA", "MY", "MM", "PH", "SG", "TH", "TL", "TP", "VN",
                         # East Asia
                         "CN", "HK", "JP", "KR", "KP", "MO", "MN", "TW",
                         # South Asia

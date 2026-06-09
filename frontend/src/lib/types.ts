@@ -100,6 +100,6 @@ export const STATUS_MAP: Record<string, { label: string; color: string; bg: stri
   EXTRACTION_FAILED: { label: "Extraction Failed", color: "text-red-400", bg: "bg-red-400/10" },
   CAPTCHA_OR_MANUAL_REVIEW_REQUIRED: { label: "CAPTCHA Required", color: "text-orange-400", bg: "bg-orange-400/10" },
   CARRIER_SITE_CHANGED: { label: "Site Changed", color: "text-red-400", bg: "bg-red-400/10" },
-  INVALID_SEARCH_INPUT: { label: "Invalid Input", color: "text-red-400", bg: "bg-red-400/10" },
+  INVALID_SEARCH_INPUT: { label: "No Port Pairing", color: "text-red-400", bg: "bg-red-400/10" },
   PRICE_BREAKDOWN_NOT_FOUND: { label: "No Breakdown", color: "text-orange-400", bg: "bg-orange-400/10" },
 };

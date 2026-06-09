@@ -175,3 +175,92 @@ async def get_rate_search(
         created_at=search.created_at.isoformat() if search.created_at else None,
         results=results,
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# AI Chat & Selector Self-Healing Endpoints
+# ──────────────────────────────────────────────────────────────────────────────
+from pydantic import BaseModel
+from agent.chat_service import handle_chat_query
+from agent.selector_memory import save_approved_selector, reject_selector
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[dict] = []
+
+class ApproveRepairRequest(BaseModel):
+    carrier: str
+    step_name: str
+    original_selector: str
+    approved_selector: str
+
+class RejectRepairRequest(BaseModel):
+    carrier: str
+    step_name: str
+
+@router.post("/chat")
+async def chat_endpoint(req: ChatRequest):
+    """Chatbot helper endpoint powered by Gemini API."""
+    reply = await handle_chat_query(req.message, req.history)
+    return {"reply": reply}
+
+@router.get("/connector-repair/reports")
+async def get_repair_reports():
+    """Scans the diagnostics directory for pending repair reports."""
+    import os
+    import json
+    
+    diagnostics_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "diagnostics"
+    )
+    reports = []
+    
+    if not os.path.exists(diagnostics_dir):
+        return reports
+        
+    # Walk diagnostics directories to find repair_report.json files
+    for entry in os.scandir(diagnostics_dir):
+        if entry.is_dir():
+            report_file = os.path.join(entry.path, "repair_report.json")
+            if os.path.exists(report_file):
+                try:
+                    with open(report_file, "r", encoding="utf-8") as f:
+                        report_data = json.load(f)
+                        # Check status of the report in selector memory
+                        from agent.selector_memory import _load_memory
+                        memory = _load_memory()
+                        carrier_key = report_data.get("carrier", "").upper()
+                        step_name = report_data.get("step_name", "")
+                        
+                        step_memory = memory.get(carrier_key, {}).get(step_name, {})
+                        if step_memory:
+                            report_data["status"] = step_memory.get("status", "PENDING_REVIEW")
+                        else:
+                            report_data["status"] = "PENDING_REVIEW"
+                            
+                        # Add diagnostic directory name
+                        report_data["dir_name"] = entry.name
+                        reports.append(report_data)
+                except Exception as e:
+                    print(f"[API] Error reading report {report_file}: {e}")
+                    
+    return reports
+
+@router.post("/connector-repair/approve")
+async def approve_repair(req: ApproveRepairRequest):
+    """Approves a suggested AI selector fix and saves it to memory."""
+    save_approved_selector(
+        carrier=req.carrier,
+        step_name=req.step_name,
+        original_selector=req.original_selector,
+        approved_selector=req.approved_selector
+    )
+    return {"status": "SUCCESS", "message": "Selector repair approved and saved."}
+
+@router.post("/connector-repair/reject")
+async def reject_repair(req: RejectRepairRequest):
+    """Rejects a suggested AI selector fix, marking it as rejected in memory."""
+    reject_selector(carrier=req.carrier, step_name=req.step_name)
+    return {"status": "SUCCESS", "message": "Selector repair rejected."}
+

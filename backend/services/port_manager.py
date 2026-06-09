@@ -45,6 +45,7 @@ CARRIER_PORT_OVERRIDES = {
         "IDSRG": "Semarang, Indonesia",
         "THLKR": "Lat Krabang, Thailand",
         "KNPNH": "Phnom Penh, Cambodia",
+        "TLDIL": "Dili, Timor Leste",
     },
     "one": {
         "VNHPH": "Hai Phong",

@@ -6,6 +6,8 @@ import ResultsTable from "@/components/ResultsTable";
 import LoadingState from "@/components/LoadingState";
 import StatusBadge from "@/components/StatusBadge";
 import VncViewer from "@/components/VncViewer";
+import ChatWidget from "@/components/ChatWidget";
+import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
@@ -128,6 +130,9 @@ function HomeContent() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8 flex-1 w-full">
+        {/* Self-Healing alerts / approvals */}
+        <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
+
         {/* Search Form Card */}
         <section className="bg-white/60 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 backdrop-blur-sm transition-colors shadow-sm">
           <div className="flex items-center gap-2 mb-5">
@@ -163,6 +168,7 @@ function HomeContent() {
         isSearching={isLoading}
         results={searchResult?.results || []}
       />
+      <ChatWidget backendUrl={backendUrl} />
     </div>
   );
 }
