@@ -12,6 +12,7 @@ from carriers.one_connector import ONEConnector
 from carriers.cma_connector import CMAConnector
 from carriers.hapag_lloyd_connector import HapagLloydConnector
 from carriers.greenx_connector import GreenXConnector
+from carriers.msc_connector import MSCConnector
 
 
 # Map carrier codes to their live connector classes
@@ -21,11 +22,12 @@ LIVE_CONNECTORS: dict[str, type[BaseCarrierConnector]] = {
     "CMA_CGM": CMAConnector,
     "HAPAG_LLOYD": HapagLloydConnector,
     "GREENX": GreenXConnector,
+    "MSC": MSCConnector,
 }
 
 # All supported carrier codes
 SUPPORTED_CARRIERS = [
-    "MAERSK", "ONE", "CMA_CGM", "HAPAG_LLOYD", "OOCL", "GREENX"
+    "MAERSK", "ONE", "CMA_CGM", "HAPAG_LLOYD", "OOCL", "GREENX", "MSC"
 ]
 
 

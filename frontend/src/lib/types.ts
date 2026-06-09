@@ -75,6 +75,7 @@ export const CARRIERS = [
   { code: "HAPAG_LLOYD", name: "Hapag-Lloyd", color: "#FF6600" },
   { code: "OOCL", name: "OOCL", color: "#E31837" },
   { code: "GREENX", name: "GreenX", color: "#00A34A" },
+  { code: "MSC", name: "MSC", color: "#A0A0A0" },
 ] as const;
 
 export const CONTAINER_TYPES = [

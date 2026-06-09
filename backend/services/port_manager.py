@@ -675,8 +675,8 @@ class PortManager:
 
         carrier_key = carrier.strip().lower()
 
-        # Rule for GreenX: autocomplete field accepts the raw LOCODE (e.g. SGSIN, DEHAM)
-        if carrier_key == "greenx":
+        # Rule for GreenX and MSC: autocomplete field accepts the raw LOCODE (e.g. SGSIN, DEHAM)
+        if carrier_key in ("greenx", "msc"):
             # Extract LOCODE from input text
             extracted_locode = None
             paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
@@ -703,7 +703,7 @@ class PortManager:
                     if keyword == norm_text_clean or keyword == clean_text.lower():
                         extracted_locode = locode
                         break
-            # Return the LOCODE itself — GreenX autocomplete searches by LOCODE
+            # Return the LOCODE itself — GreenX and MSC autocomplete search by LOCODE
             if extracted_locode and extracted_locode in self._ports:
                 return extracted_locode
             # Fallback: return whatever was passed in (already a LOCODE)
