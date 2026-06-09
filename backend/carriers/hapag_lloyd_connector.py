@@ -2318,11 +2318,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                         
                         const amount = parseFloat(valueStr.replace(/,/g, ''));
                         if (!isNaN(amount) && amount > 0) {
+                            let determinedCategory = null;
+                            if (currentSection === "freight_charges") determinedCategory = "BASIC_OCEAN_FREIGHT";
+                            else if (currentSection === "surcharges") determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
+                            else if (currentSection === "export_surcharges") determinedCategory = "ORIGIN_CHARGE_EXCLUDED";
+                            else if (currentSection === "import_surcharges") determinedCategory = "DESTINATION_CHARGE_EXCLUDED";
+
                             results.push({
                                 name: name,
                                 amount: amount,
                                 currency: curr || "USD",
-                                category: currentSection === "freight_charges" ? "BASIC_OCEAN_FREIGHT" : null
+                                category: determinedCategory
                             });
                         }
                     }
