@@ -83,6 +83,10 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
         return isActive 
           ? "border-[#112A62] text-[#112A62] dark:text-[#3a7fff] dark:border-[#3a7fff] bg-[#112A62]/10" 
           : "hover:text-[#112A62] dark:hover:text-[#3a7fff] hover:bg-[#112A62]/5 border-transparent";
+      case "msc":
+        return isActive 
+          ? "border-black text-black dark:text-white dark:border-white bg-black/10 dark:bg-white/10" 
+          : "hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 border-transparent";
       default:
         return isActive 
           ? "border-emerald-500 text-emerald-500 bg-emerald-500/10" 
@@ -97,6 +101,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
       case "one": return "bg-[#E4007F] dark:bg-[#ff52b9]";
       case "hapag": return "bg-[#FF5F00] dark:bg-[#ff8137]";
       case "greenx": return "bg-[#112A62] dark:bg-[#3a7fff]";
+      case "msc": return "bg-black dark:bg-white";
       default: return "bg-emerald-500";
     }
   };
@@ -109,6 +114,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
     if (code.includes("hapag")) return "HAPAG_LLOYD";
     if (code.includes("oocl")) return "OOCL";
     if (code.includes("greenx")) return "GREENX";
+    if (code.includes("msc")) return "MSC";
     return vncCode.toUpperCase();
   };
 
