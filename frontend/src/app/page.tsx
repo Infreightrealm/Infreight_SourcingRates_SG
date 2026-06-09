@@ -9,6 +9,7 @@ import VncViewer from "@/components/VncViewer";
 import ChatWidget from "@/components/ChatWidget";
 import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { SearchCompletionModal } from "@/components/SearchCompletionModal";
 import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { toast } from "sonner";
@@ -111,6 +112,28 @@ function HomeContent() {
                 🔄 New Search
               </button>
             )}
+            <button
+              onClick={async () => {
+                try {
+                  const { forceStopSearches } = await import("@/lib/api");
+                  await forceStopSearches();
+                  toast.success("Searches forcefully stopped");
+                  setSearchId(null);
+                  setSearchResult(null);
+                  setIsLoading(false);
+                } catch (e) {
+                  toast.error("Failed to stop searches");
+                }
+              }}
+              className="px-3.5 py-1.5 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 font-medium text-xs transition-all duration-200 flex items-center gap-1.5"
+              title="Force stop all queued and active searches"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+              </svg>
+              Force Stop
+            </button>
             {mockMode !== null && (
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
                 mockMode
@@ -144,6 +167,21 @@ function HomeContent() {
           <RateSearchForm key={searchId || "new"} onSubmit={handleSearch} isLoading={isLoading} />
         </section>
 
+        {/* Queue Status Overlay */}
+        {searchResult && searchResult.status === "QUEUED" && searchResult.queue_position !== undefined && (
+          <section className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-6 backdrop-blur-sm text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <h3 className="text-xl font-bold text-blue-400 mb-2">
+              {searchResult.queue_position > 0 ? `You are #${searchResult.queue_position} in line` : "Your search is starting..."}
+            </h3>
+            {searchResult.queue_position > 0 && searchResult.active_search_info && (
+              <p className="text-slate-400">
+                Currently processing: <span className="text-slate-300 font-medium">{searchResult.active_search_info}</span>
+              </p>
+            )}
+            <p className="text-sm text-blue-500/60 mt-4">Please leave this window open. Your search will automatically begin when it's your turn.</p>
+          </section>
+        )}
+
         {/* Loading */}
         {isLoading && !searchResult && <LoadingState />}
 
@@ -169,6 +207,13 @@ function HomeContent() {
         results={searchResult?.results || []}
       />
       <ChatWidget backendUrl={backendUrl} />
+
+      {searchId && searchResult && (
+        <SearchCompletionModal 
+          searchId={searchId} 
+          isCompleted={["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(searchResult.status)} 
+        />
+      )}
     </div>
   );
 }

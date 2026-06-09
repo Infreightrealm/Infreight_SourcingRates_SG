@@ -117,5 +117,18 @@ class SearchQueueManager:
                 return True
         return False
 
+    async def force_clear_all(self):
+        """
+        Forcefully clears all queued searches and the active lock.
+        Useful for debug/admin intervention.
+        """
+        async with self._lock:
+            self.active_search_id = None
+            self.active_search_info = None
+            self.queue.clear()
+            self.queue_info.clear()
+            self.search_completion_time.clear()
+            print("[QUEUE] FORCE CLEARED by admin.")
+
 # Global instance
 queue_manager = SearchQueueManager()

@@ -69,3 +69,11 @@ export async function getPortSuggestions(query: string, limit = 5): Promise<any[
   if (!res.ok) return [];
   return res.json();
 }
+
+export async function forceStopSearches(): Promise<{status: string, message: string}> {
+  const res = await fetch(`${API_URL}/api/force-stop`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to force stop searches");
+  return res.json();
+}

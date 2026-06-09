@@ -276,3 +276,10 @@ async def reject_repair(req: RejectRepairRequest):
     reject_selector(carrier=req.carrier, step_name=req.step_name)
     return {"status": "SUCCESS", "message": "Selector repair rejected."}
 
+
+@router.post("/force-stop")
+async def force_stop_searches():
+    """Forcefully clears the queue. Active browser might finish its current run, but no new ones will start."""
+    from services.queue_manager import queue_manager
+    await queue_manager.force_clear_all()
+    return {"status": "SUCCESS", "message": "Search Queue forcefully cleared."}
