@@ -333,11 +333,15 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
-                # Use exact match and .last to prevent matching the global "Schedules & Cut-off" nav
-                schedule_tab = self.page.get_by_text("Schedule", exact=True).last
-                if await schedule_tab.count() == 0:
-                    schedule_tab = self.page.locator("text='Schedule'").last
-                await schedule_tab.click()
+                # Use JS to strictly click the tab that exactly says "Schedule" or "Schedules"
+                await self.page.evaluate('''() => {
+                    const els = Array.from(document.querySelectorAll('*'));
+                    const tab = els.reverse().find(e => {
+                        const t = e.textContent.trim().toLowerCase();
+                        return (t === 'schedule' || t === 'schedules') && e.children.length === 0;
+                    });
+                    if (tab) tab.click();
+                }''')
                 await self.page.wait_for_timeout(1000)
 
                 # The schedule table is reliably a table, but if not we can query rows
@@ -390,9 +394,24 @@ class MSCConnector(BaseCarrierConnector):
                 # Close popup
                 self.log("Closing popup...")
                 try:
-                    # Press Escape to dismiss the popup safely
-                    await self.page.keyboard.press("Escape")
-                    await self.page.wait_for_timeout(500)
+                    # Click the 'X' button since Escape doesn't work.
+                    close_locators = [
+                        "button[aria-label*='Close' i]",
+                        "button[aria-label*='close' i]",
+                        ".close",
+                        ".close-button",
+                        "button:has(svg)"
+                    ]
+                    closed = False
+                    for loc in close_locators:
+                        if await self.page.locator(loc).count() > 0:
+                            await self.page.locator(loc).first.click(timeout=2000)
+                            closed = True
+                            break
+                            
+                    if not closed:
+                        # Fallback to the first svg on the page (usually the X at the top of the popup)
+                        await self.page.locator("svg").first.click(timeout=2000)
                 except Exception as e:
                     self.log(f"Failed to click close button normally: {e}")
                     await self.page.evaluate('''() => {
