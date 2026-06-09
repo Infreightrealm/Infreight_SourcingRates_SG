@@ -57,6 +57,10 @@ CARRIER_PORT_OVERRIDES = {
         "PKKHI": "Karachi",
         "INNSA": "Nhava Sheva",
         "AUMEL": "Melbourne",
+    },
+    "greenx": {
+        # GreenX autocomplete accepts LOCODE directly (e.g. SGSIN, DEHAM)
+        # No name translation needed — type LOCODE, click first matching option
     }
 }
 
@@ -671,7 +675,41 @@ class PortManager:
 
         carrier_key = carrier.strip().lower()
 
-        # Rule for Maersk: Follow the user's exact text string, but resolve LOCODEs and keywords if possible
+        # Rule for GreenX: autocomplete field accepts the raw LOCODE (e.g. SGSIN, DEHAM)
+        if carrier_key == "greenx":
+            # Extract LOCODE from input text
+            extracted_locode = None
+            paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+            if paren_match:
+                extracted_locode = (paren_match.group(1) + paren_match.group(2)).upper()
+            else:
+                word_match = re.search(r'\b([A-Za-z]{2})\s*([A-Za-z]{3})\b', text)
+                if word_match:
+                    candidate = (word_match.group(1) + word_match.group(2)).upper()
+                    if candidate in self._ports:
+                        extracted_locode = candidate
+            if not extracted_locode:
+                clean_word = text.strip()
+                if len(clean_word) == 5 and clean_word.isalpha():
+                    candidate = clean_word.upper()
+                    if candidate in self._ports:
+                        extracted_locode = candidate
+            if not extracted_locode:
+                # Try keyword lookup to get the LOCODE
+                clean_text = re.sub(r'\s*\([^)]*\)', '', text).strip()
+                norm_text_clean = re.sub(r'\b(port|of|terminal|container)\b', '', clean_text.lower())
+                norm_text_clean = re.sub(r'\s+', ' ', norm_text_clean).strip()
+                for keyword, locode in PORT_NAME_KEYWORD_MAP.items():
+                    if keyword == norm_text_clean or keyword == clean_text.lower():
+                        extracted_locode = locode
+                        break
+            # Return the LOCODE itself — GreenX autocomplete searches by LOCODE
+            if extracted_locode and extracted_locode in self._ports:
+                return extracted_locode
+            # Fallback: return whatever was passed in (already a LOCODE)
+            return text.strip().upper()
+
+        # Rule for Maersk: Follow the user's exact text string, but resolve LOCODEs and keywords to port names
         if carrier_key == "maersk":
             clean_text = re.sub(r'\s*\([^)]*\)', '', text).strip()
             
@@ -703,11 +741,11 @@ class PortManager:
                         extracted_locode = locode
                         break
 
-            # If a LOCODE was resolved, translate it to Maersk's preferred name or database name
+            # If a LOCODE was resolved, translate it to carrier's preferred name or database name
             if extracted_locode:
-                maersk_overrides = CARRIER_PORT_OVERRIDES.get("maersk", {})
-                if extracted_locode in maersk_overrides:
-                    return maersk_overrides[extracted_locode]
+                overrides = CARRIER_PORT_OVERRIDES.get(carrier_key, {})
+                if extracted_locode in overrides:
+                    return overrides[extracted_locode]
                 
                 port_data = self.get_port_by_code(extracted_locode)
                 if port_data:

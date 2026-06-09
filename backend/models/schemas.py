@@ -22,6 +22,7 @@ class CarrierCode(str, Enum):
     COSCO = "COSCO"
     OOCL = "OOCL"
     HMM = "HMM"
+    GREENX = "GREENX"
 
 
 ALL_CARRIERS = [c.value for c in CarrierCode]
