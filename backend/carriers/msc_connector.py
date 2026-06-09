@@ -32,19 +32,8 @@ class MSCConnector(BaseCarrierConnector):
     async def login(self) -> bool:
         """Handles the MSC login flow."""
         self.log("Initializing browser...")
-        import sys
-        
-        # Thread-safe virtual display environment injection
-        browser_env = os.environ.copy()
-        if sys.platform != "win32":
-            browser_env["DISPLAY"] = ":104"
-
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=False, 
-            args=["--start-maximized"],
-            env=browser_env
-        )
+        self.browser = await self.playwright.chromium.launch(headless=False, args=["--start-maximized"])
         self.context = await self.browser.new_context(viewport={'width': 1920, 'height': 1080})
         self.page = await self.context.new_page()
 
@@ -270,24 +259,19 @@ class MSCConnector(BaseCarrierConnector):
                 total_freight = 0.0
                 currency = "USD"
                 
-                # Extract all text from the popup container to robustly find charges without relying on tables
-                popup_text = await self.page.evaluate('''() => {
-                    const tabs = Array.from(document.querySelectorAll('*')).filter(e => e.textContent === 'Selected Charges' && e.children.length === 0);
-                    if (tabs.length === 0) return document.body.innerText;
-                    let parent = tabs[tabs.length - 1].parentElement;
-                    for (let i = 0; i < 6; i++) {
-                        if (parent.parentElement) parent = parent.parentElement;
-                    }
-                    return parent.innerText;
-                }''')
+                modal = self.page.locator("div[data-test-id='BreakdownModal']")
                 
+                # Parse charges by reading the full inner text and splitting by line
+                # because the modal uses MuiGrid instead of standard table rows.
+                popup_text = await modal.inner_text()
                 rows_text = popup_text.split('\\n')
-                self.log(f"Extracted {len(rows_text)} lines of text from popup.")
+                self.log(f"Extracted {len(rows_text)} lines of text from BreakdownModal.")
                 
                 current_group = ""
                 for row_text in rows_text:
                     row_text = row_text.strip()
                     if not row_text: continue
+                    
                     # Determine group
                     if "Freight Charge" in row_text and "Surcharges" not in row_text:
                         current_group = "Freight Charge"
@@ -302,7 +286,7 @@ class MSCConnector(BaseCarrierConnector):
                         val = float(amt_match.group(1).replace(",", ""))
                         curr = amt_match.group(2)
                         
-                        charge_name = row_text.split('\n')[0].strip() if '\n' in row_text else row_text.split('  ')[0].strip()
+                        charge_name = row_text.split('  ')[0].strip()
                         
                         charge_obj = {
                             "name": charge_name,
@@ -320,11 +304,11 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
-                quote_conditions_tab = self.page.locator("text='Quote Conditions'").last
+                quote_conditions_tab = modal.locator("text='Quote Conditions'").first
                 await quote_conditions_tab.click()
                 await self.page.wait_for_timeout(1000)
                 
-                routing_el = self.page.locator("text='Routing:'").locator("xpath=..").last
+                routing_el = modal.locator("text='Routing:'").locator("xpath=..")
                 routing_text = ""
                 if await routing_el.count() > 0:
                     routing_text = await routing_el.first.inner_text()
@@ -333,27 +317,17 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
-                # Use JS to strictly click the tab that exactly says "Schedule" or "Schedules"
-                await self.page.evaluate('''() => {
-                    const els = Array.from(document.querySelectorAll('*'));
-                    const tab = els.reverse().find(e => {
-                        const t = e.textContent.trim().toLowerCase();
-                        return (t === 'schedule' || t === 'schedules') && e.children.length === 0;
-                    });
-                    if (tab) tab.click();
-                }''')
+                schedule_tab = modal.locator("text='Schedule'").first
+                await schedule_tab.click()
                 await self.page.wait_for_timeout(1000)
 
-                # The schedule table is reliably a table, but if not we can query rows
-                # Since popups are usually appended last, we grab the last visible table on page
-                sched_rows = self.page.locator("table").last.locator("tr")
+                # The schedule table has rows with Vessel, Voyage, ETD, ETA, Service, Est.TT.
+                # Let's find rows that contain "Days" for Transit Time
+                sched_rows = modal.locator("tr:has-text('Days')")
                 s_count = await sched_rows.count()
-                self.log(f"Found {s_count} rows in schedule table.")
                 
                 for s in range(s_count):
                     s_text = await sched_rows.nth(s).inner_text()
-                    if "Days" not in s_text and "days" not in s_text.lower():
-                        continue
                     parts = [p.strip() for p in s_text.split('\t') if p.strip()]
                     if len(parts) < 5:
                         parts = [p.strip() for p in s_text.split('\n') if p.strip()]
@@ -394,29 +368,18 @@ class MSCConnector(BaseCarrierConnector):
                 # Close popup
                 self.log("Closing popup...")
                 try:
-                    # Click the 'X' button since Escape doesn't work.
-                    close_locators = [
-                        "button[aria-label*='Close' i]",
-                        "button[aria-label*='close' i]",
-                        ".close",
-                        ".close-button",
-                        "button:has(svg)"
-                    ]
-                    closed = False
-                    for loc in close_locators:
-                        if await self.page.locator(loc).count() > 0:
-                            await self.page.locator(loc).first.click(timeout=2000)
-                            closed = True
-                            break
-                            
-                    if not closed:
-                        # Fallback to the first svg on the page (usually the X at the top of the popup)
-                        await self.page.locator("svg").first.click(timeout=2000)
+                    modal = self.page.locator("div[data-test-id='BreakdownModal']")
+                    # Usually the close button is an SVG or button at the top right
+                    close_btn = modal.locator("button, svg").first
+                    await close_btn.click(timeout=5000)
                 except Exception as e:
                     self.log(f"Failed to click close button normally: {e}")
                     await self.page.evaluate('''() => {
-                        const dialogs = document.querySelectorAll('[role="dialog"], .MuiDialog-root, .modal');
-                        dialogs.forEach(d => d.style.display = 'none');
+                        const modal = document.querySelector('[data-test-id="BreakdownModal"]');
+                        if (modal) {
+                            // Find any button inside and try to click it, or just hide the modal
+                            modal.style.display = 'none';
+                        }
                         const backdrops = document.querySelectorAll('.MuiBackdrop-root');
                         backdrops.forEach(b => b.style.display = 'none');
                     }''')
