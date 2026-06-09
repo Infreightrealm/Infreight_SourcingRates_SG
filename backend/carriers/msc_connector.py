@@ -327,7 +327,7 @@ class MSCConnector(BaseCarrierConnector):
                         
                         popup_inner = await modal.inner_text()
                         
-                        match = re.search(r"Import Combined\s*[:]?\s*(\d+)", popup_inner, re.IGNORECASE)
+                        match = re.search(r"Import Combined.*?(\d+)\s*Calendar", popup_inner, re.IGNORECASE | re.DOTALL)
                         if match:
                             free_time = int(match.group(1))
                 except Exception as e:
