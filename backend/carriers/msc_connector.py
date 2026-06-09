@@ -272,7 +272,7 @@ class MSCConnector(BaseCarrierConnector):
                 # Because the modal uses MuiGrid, inner_text often collapses into a single massive string.
                 # We split the text by known headers to categorize charges, then use regex to extract amounts.
                 # We convert everything to uppercase because CSS text-transform affects inner_text.
-                popup_text = (await modal.inner_text()).replace('\\n', ' ').upper()
+                popup_text = (await modal.inner_text()).replace('\n', ' ').upper()
                 self.log(f"Popup text length: {len(popup_text)}")
                 
                 def extract_section(txt, current_header, next_headers):
@@ -296,7 +296,7 @@ class MSCConnector(BaseCarrierConnector):
                     # Regex to find: [Charge Name] Per Equipment/Bill of lading [Amount] [Currency] Prepaid/Collect
                     pattern = r"(.*?)(?:PER EQUIPMENT|PER BILL OF LADING)\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s+(?:PREPAID|COLLECT)"
                     
-                    for match in re.finditer(pattern, section_text):
+                    for match in re.finditer(pattern, section_text, re.DOTALL):
                         raw_name = match.group(1).strip()
                         
                         # Clean up garbage from previous charge
