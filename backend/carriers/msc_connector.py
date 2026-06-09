@@ -261,42 +261,53 @@ class MSCConnector(BaseCarrierConnector):
                 
                 modal = self.page.locator("div[data-test-id='BreakdownModal']")
                 
-                # Parse charges by reading the full inner text and splitting by line
-                # because the modal uses MuiGrid instead of standard table rows.
-                popup_text = await modal.inner_text()
-                rows_text = popup_text.split('\\n')
-                self.log(f"Extracted {len(rows_text)} lines of text from BreakdownModal.")
+                # Parse charges by reading the full inner text.
+                # Because the modal uses MuiGrid, inner_text often collapses into a single massive string.
+                # We split the text by known headers to categorize charges, then use regex to extract amounts.
+                popup_text = (await modal.inner_text()).replace('\\n', ' ')
                 
-                current_group = ""
-                for row_text in rows_text:
-                    row_text = row_text.strip()
-                    if not row_text: continue
-                    
-                    # Determine group
-                    if "Freight Charge" in row_text and "Surcharges" not in row_text:
-                        current_group = "Freight Charge"
-                    elif "Freight Surcharges" in row_text:
-                        current_group = "Freight Surcharges"
-                    elif "Export Surcharges" in row_text or "Import Surcharges" in row_text:
-                        current_group = "Other"
+                def extract_section(txt, current_header, next_headers):
+                    start = txt.find(current_header)
+                    if start == -1: return ""
+                    end_indices = [txt.find(h) for h in next_headers if txt.find(h) > start]
+                    end = min(end_indices) if end_indices else len(txt)
+                    return txt[start:end]
 
-                    # Parse amount: "15 USD", "2500 USD", "3,120.00 USD"
-                    amt_match = re.search(r"([\d,]+(?:\.\d+)?)\s*([A-Z]{3})", row_text)
-                    if amt_match:
-                        val = float(amt_match.group(1).replace(",", ""))
-                        curr = amt_match.group(2)
+                sections = {
+                    "Freight Charge": ["Freight Surcharges", "Export Surcharges", "Import Surcharges"],
+                    "Freight Surcharges": ["Export Surcharges", "Import Surcharges"],
+                    "Export Surcharges": ["Import Surcharges"],
+                    "Import Surcharges": ["Total", "Subject to charges"]
+                }
+                
+                for section_name, next_headers in sections.items():
+                    section_text = extract_section(popup_text, section_name, next_headers)
+                    if not section_text: continue
+                    
+                    # Regex to find: [Charge Name] Per Equipment/Bill of lading [Amount] [Currency] Prepaid/Collect
+                    pattern = r"(.*?)(?:Per Equipment|Per Bill of lading)\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s+(?:Prepaid|Collect)"
+                    
+                    for match in re.finditer(pattern, section_text):
+                        raw_name = match.group(1).strip()
                         
-                        charge_name = row_text.split('  ')[0].strip()
+                        # Clean up garbage from previous charge
+                        clean_name = re.sub(r"^(?:,\s*Elsewhere|,\s*Collect|,\s*Prepaid|Collect|Prepaid)+", "", raw_name).strip()
+                        clean_name = re.sub(r"^(?:Freight Charge|Freight Surcharges|Export Surcharges|Import Surcharges)", "", clean_name).strip()
+                        clean_name = re.sub(r"^(?:terms of payment only\.?)", "", clean_name).strip(" ,.")
+                        
+                        if not clean_name: continue
+                        
+                        val = float(match.group(2).replace(",", ""))
+                        curr = match.group(3)
                         
                         charge_obj = {
-                            "name": charge_name,
+                            "name": clean_name,
                             "amount": val,
                             "currency": curr,
-                            "category": "included" if current_group in ["Freight Charge", "Freight Surcharges"] else "excluded"
+                            "category": "included" if section_name in ["Freight Charge", "Freight Surcharges"] else "excluded"
                         }
                         
-                        # We extract all charges but sum up freight specifically
-                        if current_group in ["Freight Charge", "Freight Surcharges"]:
+                        if section_name in ["Freight Charge", "Freight Surcharges"]:
                             total_freight += val
                             currency = curr
                         
