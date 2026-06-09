@@ -28,14 +28,17 @@ async def test_msc():
     
     for i, q in enumerate(quotes):
         print(f"--- Quote {i+1} ---")
-        print(f"Vessel: {q.vessel_name} | Service: {q.service_name}")
+        print(f"Vessel: {q.vessel} | Service: {q.service_name}")
         print(f"Routing: {q.routing} | TT: {q.transit_time_days} days")
         print(f"ETD: {q.etd} | ETA: {q.eta}")
-        print(f"Total Freight: {q.total_freight} {q.currency}")
-        print(f"Free Time (Dest): {q.free_time_destination} days")
-        print(f"Charges: {len(q.charge_breakdown)}")
-        for charge in q.charge_breakdown:
-            print(f"  - {charge['name']}: {charge['amount']} {charge['currency']}")
+        print(f"Total Freight: {q.final_freight_value} {q.currency}")
+        print(f"Free Time (Dest): {q.free_time} days")
+        print(f"Included Surcharges: {len(q.included_freight_surcharges)}")
+        for charge in q.included_freight_surcharges:
+            if isinstance(charge, dict):
+                print(f"  - {charge['name']}: {charge['amount']} {charge['currency']}")
+            else:
+                print(f"  - {charge.name}: {charge.amount} {charge.currency}")
         print()
 
 if __name__ == "__main__":

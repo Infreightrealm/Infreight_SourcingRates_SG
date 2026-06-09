@@ -280,17 +280,22 @@ class MSCConnector(BaseCarrierConnector):
                     if amt_match:
                         val = float(amt_match.group(1).replace(",", ""))
                         curr = amt_match.group(2)
+                        
+                        charge_name = row_text.split('\n')[0].strip() if '\n' in row_text else row_text.split('  ')[0].strip()
+                        
+                        charge_obj = {
+                            "name": charge_name,
+                            "amount": val,
+                            "currency": curr,
+                            "category": "included" if current_group in ["Freight Charge", "Freight Surcharges"] else "excluded"
+                        }
+                        
                         # We extract all charges but sum up freight specifically
                         if current_group in ["Freight Charge", "Freight Surcharges"]:
                             total_freight += val
                             currency = curr
                         
-                        charge_name = row_text.split('\n')[0].strip() if '\n' in row_text else row_text.split('  ')[0].strip()
-                        charges.append({
-                            "name": charge_name,
-                            "amount": val,
-                            "currency": curr
-                        })
+                        charges.append(charge_obj)
 
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
@@ -339,17 +344,18 @@ class MSCConnector(BaseCarrierConnector):
 
                     # Create Quote Schema for this vessel
                     quote = QuoteSchema(
-                        carrier_name=self.carrier_name,
                         service_name=service_name,
                         routing="Direct" if is_direct else "Transshipment",
                         transit_time_days=tt_days,
                         etd=self._parse_date(etd) if etd else None,
                         eta=self._parse_date(eta) if eta else None,
-                        vessel_name=vessel,
-                        free_time_destination=free_time,
-                        total_freight=total_freight,
+                        vessel=vessel,
+                        free_time=free_time,
                         currency=currency,
-                        charge_breakdown=charges
+                        basic_ocean_freight=total_freight,
+                        final_freight_value=total_freight,
+                        included_freight_surcharges=[c for c in charges if c.get("category") == "included"],
+                        excluded_charges=[c for c in charges if c.get("category") == "excluded"]
                     )
                     quotes.append(quote)
 
