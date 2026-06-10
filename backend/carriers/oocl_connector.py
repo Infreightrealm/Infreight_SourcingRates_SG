@@ -5,7 +5,7 @@ import os
 import re
 import asyncio
 from datetime import datetime, date, timedelta
-from typing import Optional
+from typing import Optional, List
 from playwright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, ChargeSchema
 from carriers.base_connector import BaseCarrierConnector
@@ -156,10 +156,10 @@ class OOCLConnector(BaseCarrierConnector):
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
             
             try:
-                # OOCL can be slow (CargoSmart tarpit), wait up to 90 seconds for results/captcha
-                await self.page.locator('.ag-row, text=/No schedule found/i').first.wait_for(state="attached", timeout=90000)
-            except Exception:
-                print("[OOCL] Timeout waiting for search results.")
+                # OOCL can be slow, wait up to 90 seconds for results/captcha
+                await self.page.locator('.ag-row, :text-matches("No schedule found", "i")').first.wait_for(state="attached", timeout=90000)
+            except Exception as e:
+                print(f"[OOCL] Timeout or error waiting for search results: {e}")
                 os.makedirs("scratch", exist_ok=True)
                 await self.page.screenshot(path="scratch/oocl_search_timeout.png", full_page=True)
                 html = await self.page.content()
@@ -179,9 +179,20 @@ class OOCLConnector(BaseCarrierConnector):
             print(f"[OOCL] Search failed: {e}")
             return CarrierResultStatus.UNKNOWN_ERROR
 
-    async def extract_quote_list(self) -> list[dict]:
+    async def extract_quote_list(self) -> List[dict]:
         quotes = []
         try:
+            print("[OOCL] Dumping HTML and waiting 30s to let the user see it load...")
+            await self.page.wait_for_timeout(5000) # Wait for grid to settle
+            
+            os.makedirs("scratch", exist_ok=True)
+            await self.page.screenshot(path="scratch/oocl_results.png", full_page=True)
+            html = await self.page.content()
+            with open("scratch/oocl_results.html", "w", encoding="utf-8") as f:
+                f.write(html)
+                
+            await self.page.wait_for_timeout(30000) # Let user see the VNC
+            
             rows = self.page.locator('.ag-row')
             count = await rows.count()
             if count == 0:
