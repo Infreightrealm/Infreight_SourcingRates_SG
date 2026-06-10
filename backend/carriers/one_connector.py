@@ -95,7 +95,7 @@ class ONEConnector(BaseCarrierConnector):
     async def _clear_overlays(self) -> None:
         try:
             # Dismiss popups naturally via Skip buttons to avoid corrupting React state
-            skip_btn = self.page.locator('button:has-text("Skip"), [class*="skip" i]').first
+            skip_btn = self.page.locator('a:has-text("Skip"), button:has-text("Skip"), text="Skip", text="SKIP"').first
             try:
                 await skip_btn.wait_for(state="visible", timeout=2000)
             except Exception:
@@ -103,8 +103,8 @@ class ONEConnector(BaseCarrierConnector):
 
             if await skip_btn.is_visible():
                 print("[ONE] Surcharge/Intro popup detected. Clicking 'Skip'...")
-                await skip_btn.click()
-                await self.page.wait_for_timeout(1000)
+                await skip_btn.click(force=True)
+                await self.page.wait_for_timeout(1500)
         except Exception as e:
             print(f"[ONE] Warning: failed to clear overlays: {e}")
 
