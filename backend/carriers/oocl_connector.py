@@ -273,6 +273,9 @@ class OOCLConnector(BaseCarrierConnector):
                         else:
                             routing_str = "Transit"
                             
+                    if not etd_iso and not eta_iso and vessel == "UNKNOWN":
+                        continue
+                        
                     quote = QuoteSchema(
                         source=self.carrier_name,
                         basic_ocean_freight=0,
