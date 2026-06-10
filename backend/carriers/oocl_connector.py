@@ -307,11 +307,11 @@ class OOCLConnector(BaseCarrierConnector):
         if self.playwright:
             await self.playwright.stop()
 
-    async def open_price_breakdown(self) -> bool:
+    async def open_price_breakdown(self, quote_ref: dict) -> bool:
         return True
 
-    async def extract_charge_breakdown(self) -> dict:
-        return {"ocean_freight": 0, "surcharges": [], "total": 0}
+    async def extract_charge_breakdown(self) -> list[dict]:
+        return []
 
     def normalize_result(self, raw_quote: dict) -> dict:
         return raw_quote
