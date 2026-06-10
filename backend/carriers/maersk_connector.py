@@ -1226,28 +1226,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         target_idx = vs["index"]
                                         break
 
-                            # 4. Fallback to exact user-typed query match
-                            if target_idx is None:
-                                clean_query = origin_query.strip().lower()
-                                for vs in valid_suggestions:
-                                    if clean_query in vs["text"].lower() or vs["text"].lower() in clean_query:
-                                        print(f"[MAERSK] -> Matches typed query! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 5. Try to match country keywords alone
-                            if target_idx is None:
-                                for vs in valid_suggestions:
-                                    if any(kw in vs["text"].lower() for kw in country_keywords):
-                                        print(f"[MAERSK] -> Matches target country keywords! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-                                        
-                            # 6. Fallback to first valid suggestion
-                            if target_idx is None:
-                                vs = valid_suggestions[0]
-                                print(f"[MAERSK] -> No specific match. Picking first valid index {vs['index']}: '{vs['text']}'")
-                                target_idx = vs["index"]
+                            # Removed aggressive fallbacks (Steps 4, 5, 6) to enforce strict matching.
                                 
                         if target_idx is not None:
                             suggestion = suggestion_locators.nth(target_idx)
@@ -1267,70 +1246,7 @@ class MaerskConnector(BaseCarrierConnector):
                         print(f"[MAERSK] Dropdown click failed or selector not found: {e}")
                         
                     if not clicked:
-                        # JS shadow-DOM fallback: pierce custom mc- web components to find visible dropdown items
-                        try:
-                            js_result = await self.page.evaluate("""
-                                () => {
-                                    const INVALID = [
-                                        'no results', 'no matching', 'loading', 'please enter',
-                                        'check your spelling', 'english spelling', 'full city name',
-                                        'abbreviation', 'location matching', 'try using', 'no location',
-                                        'continue to book', 'close', 'sign in', 'log in', 'accept',
-                                        'cookie', 'subscribe', 'submit', 'cancel', 'back',
-                                        'select container', 'select commodity', 'price owner'
-                                    ];
-                                    // Walk all shadow roots looking for listbox/option elements
-                                    function findInShadow(root) {
-                                        const items = root.querySelectorAll('li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
-                                        return Array.from(items);
-                                    }
-                                    function collectAll(node) {
-                                        let found = findInShadow(node);
-                                        node.querySelectorAll('*').forEach(el => {
-                                            if (el.shadowRoot) found = found.concat(collectAll(el.shadowRoot));
-                                        });
-                                        return found;
-                                    }
-                                    const all = collectAll(document);
-                                    for (const el of all) {
-                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
-                                        el.click();
-                                        return txt;
-                                    }
-                                    return null;
-                                }
-                            """)
-                            if js_result:
-                                print(f"[MAERSK] JS shadow-DOM click succeeded: '{js_result}'")
-                                clicked = True
-                                if origin_locode:
-                                    set_cached_carrier_port("maersk", origin_locode, js_result)
-                                await self.page.wait_for_timeout(400)
-                            else:
-                                print("[MAERSK] JS shadow-DOM found no items. Falling back to keyboard.")
-                        except Exception as js_e:
-                            print(f"[MAERSK] JS shadow-DOM fallback failed: {js_e}")
-
-                    if not clicked:
-                        try:
-                            await origin_field.focus()
-                            press_count = 1
-                            q_lower = origin_query.lower()
-                            if "karachi" in q_lower or "melbourne" in q_lower:
-                                press_count = 2
-                                print(f"[MAERSK] Origin Query is '{origin_query}', pressing ArrowDown {press_count} times to select CY/correct option.")
-                            else:
-                                print(f"[MAERSK] Sending keyboard ArrowDown+Enter to select first suggestion...")
-                                
-                            for _ in range(press_count):
-                                await origin_field.press("ArrowDown")
-                                await self.page.wait_for_timeout(300)
-                                
-                            await origin_field.press("Enter")
-                            await self.page.wait_for_timeout(600)
-                        except Exception as e:
-                            print(f"[MAERSK] Keyboard selection failed: {e}")
+                        raise Exception(f"No exact match found in dropdown for origin '{origin_query}'")
                         
                     print("[MAERSK] Origin Port selected successfully.")
                 else:
@@ -1493,28 +1409,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         target_idx = vs["index"]
                                         break
 
-                            # 4. Fallback to exact user-typed query match
-                            if target_idx is None:
-                                clean_query = destination_query.strip().lower()
-                                for vs in valid_suggestions:
-                                    if clean_query in vs["text"].lower() or vs["text"].lower() in clean_query:
-                                        print(f"[MAERSK] -> Matches typed query! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 5. Try to match country keywords alone
-                            if target_idx is None:
-                                for vs in valid_suggestions:
-                                    if any(kw in vs["text"].lower() for kw in country_keywords):
-                                        print(f"[MAERSK] -> Matches target country keywords! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-                                        
-                            # 6. Fallback to first valid suggestion
-                            if target_idx is None:
-                                vs = valid_suggestions[0]
-                                print(f"[MAERSK] -> No specific match. Picking first valid index {vs['index']}: '{vs['text']}'")
-                                target_idx = vs["index"]
+                            # Removed aggressive fallbacks (Steps 4, 5, 6) to enforce strict matching.
                                 
                         if target_idx is not None:
                             suggestion = suggestion_locators.nth(target_idx)
@@ -1534,69 +1429,7 @@ class MaerskConnector(BaseCarrierConnector):
                         print(f"[MAERSK] Dropdown click failed or selector not found: {e}")
                         
                     if not clicked:
-                        # JS shadow-DOM fallback: pierce custom mc- web components to find visible dropdown items
-                        try:
-                            js_result = await self.page.evaluate("""
-                                () => {
-                                    const INVALID = [
-                                        'no results', 'no matching', 'loading', 'please enter',
-                                        'check your spelling', 'english spelling', 'full city name',
-                                        'abbreviation', 'location matching', 'try using', 'no location',
-                                        'continue to book', 'close', 'sign in', 'log in', 'accept',
-                                        'cookie', 'subscribe', 'submit', 'cancel', 'back',
-                                        'select container', 'select commodity', 'price owner'
-                                    ];
-                                    function findInShadow(root) {
-                                        const items = root.querySelectorAll('li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
-                                        return Array.from(items);
-                                    }
-                                    function collectAll(node) {
-                                        let found = findInShadow(node);
-                                        node.querySelectorAll('*').forEach(el => {
-                                            if (el.shadowRoot) found = found.concat(collectAll(el.shadowRoot));
-                                        });
-                                        return found;
-                                    }
-                                    const all = collectAll(document);
-                                    for (const el of all) {
-                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
-                                        el.click();
-                                        return txt;
-                                    }
-                                    return null;
-                                }
-                            """)
-                            if js_result:
-                                print(f"[MAERSK] JS shadow-DOM click succeeded: '{js_result}'")
-                                clicked = True
-                                if destination_locode:
-                                    set_cached_carrier_port("maersk", destination_locode, js_result)
-                                await self.page.wait_for_timeout(400)
-                            else:
-                                print("[MAERSK] JS shadow-DOM found no items. Falling back to keyboard.")
-                        except Exception as js_e:
-                            print(f"[MAERSK] JS shadow-DOM fallback failed: {js_e}")
-
-                    if not clicked:
-                        try:
-                            await dest_field.focus()
-                            press_count = 1
-                            q_lower = destination_query.lower()
-                            if "karachi" in q_lower or "melbourne" in q_lower:
-                                press_count = 2
-                                print(f"[MAERSK] Destination Query is '{destination_query}', pressing ArrowDown {press_count} times to select CY/correct option.")
-                            else:
-                                print(f"[MAERSK] Sending keyboard ArrowDown+Enter to select first suggestion...")
-                                
-                            for _ in range(press_count):
-                                await dest_field.press("ArrowDown")
-                                await self.page.wait_for_timeout(300)
-                                
-                            await dest_field.press("Enter")
-                            await self.page.wait_for_timeout(600)
-                        except Exception as e:
-                            print(f"[MAERSK] Keyboard selection failed: {e}")
+                        raise Exception(f"No exact match found in dropdown for origin '{origin_query}'")
                         
                     print("[MAERSK] Destination Port selected successfully.")
                     
