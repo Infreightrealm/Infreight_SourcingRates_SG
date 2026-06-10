@@ -135,12 +135,17 @@ class OOCLConnector(BaseCarrierConnector):
                 except Exception:
                     pass
                     
-            search_btn = self.page.locator('button:has-text("Search")').first
-            await search_btn.click()
-            print("[OOCL] Clicked Search button.")
+            try:
+                search_btn = self.page.locator('button[ng-click="displayResult()"], button[form="searchForm"]').first
+                await search_btn.click(timeout=10000)
+                print("[OOCL] Clicked Search button.")
+            except Exception as e:
+                print(f"[OOCL] Failed to click Search button: {e}")
+                return CarrierResultStatus.INVALID_SEARCH_INPUT
             
             try:
-                await self.page.locator('.ag-row, text=/No schedule found/i').first.wait_for(state="attached", timeout=20000)
+                # OOCL can be slow, wait up to 45 seconds for results
+                await self.page.locator('.ag-row, text=/No schedule found/i').first.wait_for(state="attached", timeout=45000)
             except Exception:
                 print("[OOCL] Timeout waiting for search results.")
                 os.makedirs("scratch", exist_ok=True)
