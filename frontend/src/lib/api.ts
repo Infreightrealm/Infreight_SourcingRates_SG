@@ -3,7 +3,7 @@
  */
 import type { RateSearchRequest, RateSearchCreateResponse, RateSearchResultResponse } from "./types";
 
-let API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export let API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 if (API_URL && !API_URL.startsWith("http://") && !API_URL.startsWith("https://")) {
   API_URL = `https://${API_URL}`;
 }
