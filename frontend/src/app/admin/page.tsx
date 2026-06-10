@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { User, Trash2, ShieldCheck, Search, Users, Activity, LogOut } from "lucide-react";
+import { API_URL } from "@/lib/api";
 
 interface UserRecord {
   id: string;
@@ -16,14 +17,13 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${backendUrl}/api/admin/verify`, {
+      const res = await fetch(`${API_URL}/api/admin/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
@@ -40,7 +40,7 @@ export default function AdminDashboard() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(`${backendUrl}/api/users`);
+      const res = await fetch(`${API_URL}/api/users`);
       if (res.ok) {
         setUsers(await res.json());
       }
@@ -52,7 +52,7 @@ export default function AdminDashboard() {
   const deleteUser = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete user: ${name}?`)) return;
     try {
-      await fetch(`${backendUrl}/api/users/${id}`, { method: "DELETE" });
+      await fetch(`${API_URL}/api/users/${id}`, { method: "DELETE" });
       setUsers(users.filter((u) => u.id !== id));
     } catch (e) {
       alert("Failed to delete user.");

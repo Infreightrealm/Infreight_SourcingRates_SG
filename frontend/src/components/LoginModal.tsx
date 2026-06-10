@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { User, ArrowRight } from "lucide-react";
+import { API_URL } from "@/lib/api";
 
 interface LoginModalProps {
   onLogin: (name: string) => void;
@@ -16,8 +17,7 @@ export default function LoginModal({ onLogin }: LoginModalProps) {
     
     setLoading(true);
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${backendUrl}/api/users/login`, {
+      const res = await fetch(`${API_URL}/api/users/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed }),
