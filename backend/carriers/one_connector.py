@@ -481,7 +481,7 @@ class ONEConnector(BaseCarrierConnector):
                     if origin_name:
                         print(f"[ONE] Origin (step 2): LOCODE unknown to ONE, trying port name '{origin_name}'")
                         await origin_field.click(force=True)
-                    await self._clear_overlays()
+                        await self._clear_overlays()
                         await self.page.keyboard.press("Control+A")
                         await self.page.keyboard.press("Backspace")
                         await self.page.keyboard.type(origin_name, delay=25)
@@ -552,7 +552,7 @@ class ONEConnector(BaseCarrierConnector):
                     if dest_name:
                         print(f"[ONE] Destination (step 2): LOCODE unknown to ONE, trying port name '{dest_name}'")
                         await destination_field.click(force=True)
-                    await self._clear_overlays()
+                        await self._clear_overlays()
                         await self.page.keyboard.press("Control+A")
                         await self.page.keyboard.press("Backspace")
                         await self.page.keyboard.type(dest_name, delay=25)
