@@ -105,6 +105,8 @@ class OOCLConnector(BaseCarrierConnector):
             
             self.page.on("response", log_response)
             
+            self.page.on("console", lambda msg: print(f"[OOCL-Console] {msg.type}: {msg.text}"))
+            
             print(f"[OOCL] Navigating to search URL: {self.SEARCH_URL}")
             await self.page.goto(self.SEARCH_URL, wait_until="networkidle")
             await self.page.wait_for_timeout(3000)
@@ -154,8 +156,8 @@ class OOCLConnector(BaseCarrierConnector):
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
             
             try:
-                # OOCL can be slow, wait up to 45 seconds for results
-                await self.page.locator('.ag-row, text=/No schedule found/i').first.wait_for(state="attached", timeout=45000)
+                # OOCL can be slow (CargoSmart tarpit), wait up to 90 seconds for results/captcha
+                await self.page.locator('.ag-row, text=/No schedule found/i').first.wait_for(state="attached", timeout=90000)
             except Exception:
                 print("[OOCL] Timeout waiting for search results.")
                 os.makedirs("scratch", exist_ok=True)
