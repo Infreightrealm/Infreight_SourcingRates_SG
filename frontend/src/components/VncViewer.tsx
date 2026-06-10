@@ -87,6 +87,10 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
         return isActive 
           ? "border-black text-black dark:text-white dark:border-white bg-black/10 dark:bg-white/10" 
           : "hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 border-transparent";
+      case "oocl":
+        return isActive 
+          ? "border-[#E31837] text-[#E31837] dark:text-[#ff4d6a] dark:border-[#ff4d6a] bg-[#E31837]/10" 
+          : "hover:text-[#E31837] dark:hover:text-[#ff4d6a] hover:bg-[#E31837]/5 border-transparent";
       default:
         return isActive 
           ? "border-emerald-500 text-emerald-500 bg-emerald-500/10" 
@@ -102,6 +106,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
       case "hapag": return "bg-[#FF5F00] dark:bg-[#ff8137]";
       case "greenx": return "bg-[#112A62] dark:bg-[#3a7fff]";
       case "msc": return "bg-black dark:bg-white";
+      case "oocl": return "bg-[#E31837] dark:bg-[#ff4d6a]";
       default: return "bg-emerald-500";
     }
   };

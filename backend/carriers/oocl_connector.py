@@ -27,7 +27,7 @@ class OOCLConnector(BaseCarrierConnector):
         
         browser_env = os.environ.copy()
         if is_prod:
-            browser_env["DISPLAY"] = ":101"
+            browser_env["DISPLAY"] = ":105"
 
         self.browser = await self.playwright.chromium.launch(
             headless=False,
