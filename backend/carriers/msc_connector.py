@@ -179,9 +179,19 @@ class MSCConnector(BaseCarrierConnector):
             self.log(f"Waiting for dropdown option containing [{locode}]...")
             await self.page.wait_for_timeout(2000)
             
-            option = self.page.locator(f"li:has-text('{locode}'), div[role='option']:has-text('{locode}')").first
-            if await option.is_visible():
-                await option.click()
+            import re as _re
+            # 1. Try exact word boundary match first to prevent false substring matches (e.g., 'Aden' matching 'Adena')
+            exact_option = self.page.locator("li, div[role='option']").filter(has_text=_re.compile(rf"\b{_re.escape(locode)}\b", _re.IGNORECASE)).first
+            
+            # 2. Fallback to standard substring match
+            fallback_option = self.page.locator(f"li:has-text('{locode}'), div[role='option']:has-text('{locode}')").first
+
+            if await exact_option.is_visible():
+                self.log(f"Found exact word match for '{locode}'. Clicking it.")
+                await exact_option.click()
+            elif await fallback_option.is_visible():
+                self.log(f"Found substring match for '{locode}'. Clicking it.")
+                await fallback_option.click()
             else:
                 self.log("Warning: Option containing LOCODE not visible, pressing Enter.")
                 await input_box.press("Enter")
