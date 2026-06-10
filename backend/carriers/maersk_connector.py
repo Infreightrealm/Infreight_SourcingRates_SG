@@ -1171,6 +1171,24 @@ class MaerskConnector(BaseCarrierConnector):
                             
                         target_idx = None
                         if valid_suggestions:
+                            # 0. Try to match exact cached name FIRST if available
+                            if destination_cached:
+                                clean_cached = destination_cached.strip().lower()
+                                for vs in valid_suggestions:
+                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
+                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 0. Try to match exact cached name FIRST if available
+                            if origin_cached:
+                                clean_cached = origin_cached.strip().lower()
+                                for vs in valid_suggestions:
+                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
+                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
                             # 1. Try exact LOCODE match first (e.g. "(AUMEL)" or "(SGSIN)" in text)
                             if origin_locode:
                                 clean_locode = origin_locode.strip().upper()
@@ -1193,7 +1211,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         city_part = parts[0].strip()
                                         # Remove state parentheses if present, e.g. "Melbourne (Victoria)" -> "Melbourne"
                                         city_part_clean = re.sub(r'\s*\([^)]*\)', '', city_part).strip()
-                                        if city_part_clean == query_city_part and (not country_keywords or any(kw in vs_lower for kw in country_keywords)):
+                                        if city_part_clean == query_city_part and (not country_keywords or any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords)):
                                             print(f"[MAERSK] -> Matches exact city name and country! Picking index {vs['index']}: '{vs['text']}'")
                                             target_idx = vs["index"]
                                             break
@@ -1203,7 +1221,7 @@ class MaerskConnector(BaseCarrierConnector):
                                 clean_query = origin_query.strip().lower()
                                 for vs in valid_suggestions:
                                     vs_lower = vs["text"].lower()
-                                    if (clean_query in vs_lower or vs_lower in clean_query) and any(kw in vs_lower for kw in country_keywords):
+                                    if (clean_query in vs_lower or vs_lower in clean_query) and any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords):
                                         print(f"[MAERSK] -> Matches query AND country keywords! Picking index {vs['index']}: '{vs['text']}'")
                                         target_idx = vs["index"]
                                         break
@@ -1217,15 +1235,6 @@ class MaerskConnector(BaseCarrierConnector):
                                         target_idx = vs["index"]
                                         break
 
-                            # 4. Try to match exact cached name if available
-                            if target_idx is None and origin_cached:
-                                clean_cached = origin_cached.strip().lower()
-                                for vs in valid_suggestions:
-                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
-                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-                                        
                             # 5. Try to match country keywords alone
                             if target_idx is None:
                                 for vs in valid_suggestions:
@@ -1429,6 +1438,15 @@ class MaerskConnector(BaseCarrierConnector):
                             
                         target_idx = None
                         if valid_suggestions:
+                            # 0. Try to match exact cached name FIRST if available
+                            if destination_cached:
+                                clean_cached = destination_cached.strip().lower()
+                                for vs in valid_suggestions:
+                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
+                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
                             # 1. Try exact LOCODE match first (e.g. "(AUMEL)" or "(SGSIN)" in text)
                             if destination_locode:
                                 clean_locode = destination_locode.strip().upper()
@@ -1451,7 +1469,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         city_part = parts[0].strip()
                                         # Remove state parentheses if present, e.g. "Melbourne (Victoria)" -> "Melbourne"
                                         city_part_clean = re.sub(r'\s*\([^)]*\)', '', city_part).strip()
-                                        if city_part_clean == query_city_part and (not country_keywords or any(kw in vs_lower for kw in country_keywords)):
+                                        if city_part_clean == query_city_part and (not country_keywords or any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords)):
                                             print(f"[MAERSK] -> Matches exact city name and country! Picking index {vs['index']}: '{vs['text']}'")
                                             target_idx = vs["index"]
                                             break
@@ -1461,7 +1479,7 @@ class MaerskConnector(BaseCarrierConnector):
                                 clean_query = destination_query.strip().lower()
                                 for vs in valid_suggestions:
                                     vs_lower = vs["text"].lower()
-                                    if (clean_query in vs_lower or vs_lower in clean_query) and any(kw in vs_lower for kw in country_keywords):
+                                    if (clean_query in vs_lower or vs_lower in clean_query) and any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords):
                                         print(f"[MAERSK] -> Matches query AND country keywords! Picking index {vs['index']}: '{vs['text']}'")
                                         target_idx = vs["index"]
                                         break
@@ -1475,15 +1493,6 @@ class MaerskConnector(BaseCarrierConnector):
                                         target_idx = vs["index"]
                                         break
 
-                            # 4. Try to match exact cached name if available
-                            if target_idx is None and destination_cached:
-                                clean_cached = destination_cached.strip().lower()
-                                for vs in valid_suggestions:
-                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
-                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-                                        
                             # 5. Try to match country keywords alone
                             if target_idx is None:
                                 for vs in valid_suggestions:
