@@ -669,7 +669,9 @@ class MaerskConnector(BaseCarrierConnector):
             
             print(f"[MAERSK] Waiting for dropdown suggestions using selector: {selector}")
             await self.page.locator(selector).first.wait_for(state="attached", timeout=6000)
-            await self.page.wait_for_timeout(500)
+            # INCREASED WAIT: Maersk API can take 2-4 seconds to return the final results for a query.
+            # If we scrape too early, we might only see partial/cached results (like Adena instead of Aden).
+            await self.page.wait_for_timeout(3500)
             return True
         except Exception as e:
             print(f"[MAERSK] Autocomplete trigger failed: {e}")
