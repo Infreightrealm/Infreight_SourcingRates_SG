@@ -64,6 +64,7 @@ async def init_db():
     # Import models here to register them with Base
     from models.rate_search import RateSearch, CarrierSearchResult  # noqa: F401
     from models.quote import Quote, QuoteCharge  # noqa: F401
+    from models.user import User  # noqa: F401
 
     engine = _get_engine()
     async with engine.begin() as conn:

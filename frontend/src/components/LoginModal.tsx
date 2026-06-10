@@ -7,11 +7,32 @@ interface LoginModalProps {
 
 export default function LoginModal({ onLogin }: LoginModalProps) {
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim()) {
-      onLogin(name.trim());
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    
+    setLoading(true);
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${backendUrl}/api/users/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Failed to login");
+      }
+      
+      onLogin(data.name);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
