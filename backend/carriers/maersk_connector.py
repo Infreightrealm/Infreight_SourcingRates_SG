@@ -1172,15 +1172,6 @@ class MaerskConnector(BaseCarrierConnector):
                         target_idx = None
                         if valid_suggestions:
                             # 0. Try to match exact cached name FIRST if available
-                            if destination_cached:
-                                clean_cached = destination_cached.strip().lower()
-                                for vs in valid_suggestions:
-                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
-                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 0. Try to match exact cached name FIRST if available
                             if origin_cached:
                                 clean_cached = origin_cached.strip().lower()
                                 for vs in valid_suggestions:
@@ -1223,6 +1214,15 @@ class MaerskConnector(BaseCarrierConnector):
                                     vs_lower = vs["text"].lower()
                                     if (clean_query in vs_lower or vs_lower in clean_query) and any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords):
                                         print(f"[MAERSK] -> Matches query AND country keywords! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 3.5 Try exact word match for user-typed query
+                            if target_idx is None:
+                                clean_query = origin_query.strip().lower()
+                                for vs in valid_suggestions:
+                                    if re.search(rf'\b{re.escape(clean_query)}\b', vs["text"].lower()):
+                                        print(f"[MAERSK] -> Matches exact word in query! Picking index {vs['index']}: '{vs['text']}'")
                                         target_idx = vs["index"]
                                         break
 
@@ -1481,6 +1481,15 @@ class MaerskConnector(BaseCarrierConnector):
                                     vs_lower = vs["text"].lower()
                                     if (clean_query in vs_lower or vs_lower in clean_query) and any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords):
                                         print(f"[MAERSK] -> Matches query AND country keywords! Picking index {vs['index']}: '{vs['text']}'")
+                                        target_idx = vs["index"]
+                                        break
+
+                            # 3.5 Try exact word match for user-typed query
+                            if target_idx is None:
+                                clean_query = destination_query.strip().lower()
+                                for vs in valid_suggestions:
+                                    if re.search(rf'\b{re.escape(clean_query)}\b', vs["text"].lower()):
+                                        print(f"[MAERSK] -> Matches exact word in query! Picking index {vs['index']}: '{vs['text']}'")
                                         target_idx = vs["index"]
                                         break
 
