@@ -52,6 +52,8 @@ export interface RateSearchResultResponse {
   container_quantity?: number;
   commodity?: string;
   created_at?: string;
+  queue_position?: number;
+  active_search_info?: string;
   results: CarrierResultSchema[];
 }
 
