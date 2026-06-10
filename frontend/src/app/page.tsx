@@ -10,6 +10,7 @@ import ChatWidget from "@/components/ChatWidget";
 import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchCompletionModal } from "@/components/SearchCompletionModal";
+import LoginModal from "@/components/LoginModal";
 import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { toast } from "sonner";
@@ -21,6 +22,8 @@ function HomeContent() {
   const [searchResult, setSearchResult] = useState<RateSearchResultResponse | null>(null);
   const [mockMode, setMockMode] = useState<boolean | null>(null);
   const [searchId, setSearchId] = useState<string | null>(searchParams.get("id"));
+  const [userName, setUserName] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
 
   let backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   if (backendUrl && !backendUrl.startsWith("http://") && !backendUrl.startsWith("https://")) {
@@ -29,6 +32,10 @@ function HomeContent() {
 
   // Check backend health on mount
   useEffect(() => {
+    setIsClient(true);
+    const savedName = localStorage.getItem("userName");
+    if (savedName) setUserName(savedName);
+
     healthCheck()
       .then((h) => setMockMode(h.mock_mode))
       .catch(() => setMockMode(null));
@@ -64,7 +71,8 @@ function HomeContent() {
     toast.info("Starting rate search...");
     
     try {
-      const { search_id } = await createRateSearch(request);
+      const payload = { ...request, user_name: userName || undefined };
+      const { search_id } = await createRateSearch(payload);
       setSearchId(search_id);
       
       // Update URL without refreshing
@@ -152,6 +160,21 @@ function HomeContent() {
             {searchId && <StatusBadge status={searchResult?.status || "QUEUED"} size="md" />}
             
             <div className="w-px h-6 bg-slate-200 dark:bg-white/10 mx-1"></div>
+            {userName && (
+              <button
+                onClick={() => {
+                  localStorage.removeItem("userName");
+                  setUserName(null);
+                }}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white font-medium text-xs transition-all duration-200 flex items-center gap-1.5"
+                title="Change User"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                </svg>
+                {userName}
+              </button>
+            )}
             <ThemeToggle />
           </div>
         </div>
@@ -217,6 +240,15 @@ function HomeContent() {
         <SearchCompletionModal 
           searchId={searchId} 
           isCompleted={["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(searchResult.status)} 
+        />
+      )}
+      
+      {isClient && !userName && (
+        <LoginModal 
+          onLogin={(name) => {
+            localStorage.setItem("userName", name);
+            setUserName(name);
+          }} 
         />
       )}
     </div>

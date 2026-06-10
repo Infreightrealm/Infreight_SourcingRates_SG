@@ -89,6 +89,7 @@ class RateSearchRequest(BaseModel):
     commodity: str = Field(default="Furniture")
     departure_date: str = Field(default="tomorrow", description="ISO date or 'tomorrow'")
     search_window_days: int = Field(default=14, ge=1, le=90)
+    user_name: Optional[str] = Field(default=None, description="The name of the user making the request")
     use_mock: Optional[bool] = Field(default=None, description="Override mock/live mode for this search. None = use server default.")
 
 

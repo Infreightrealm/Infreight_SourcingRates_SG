@@ -22,6 +22,7 @@ class RateSearch(Base):
     commodity = Column(String(255), nullable=False)
     departure_date = Column(String(50), nullable=False)  # "tomorrow" or ISO date
     search_window_days = Column(Integer, nullable=False, default=14)
+    user_name = Column(String(255), nullable=True)
     selected_carriers = Column(JSON, nullable=False)  # List of carrier codes
     status = Column(String(50), nullable=False, default="QUEUED")
     created_at = Column(DateTime, default=datetime.utcnow)

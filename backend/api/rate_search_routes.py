@@ -52,6 +52,7 @@ async def create_rate_search(
 
     # Create the rate search record
     search = RateSearch(
+        user_name=request.user_name,
         origin=request.origin,
         destination=request.destination,
         service_term=request.service_term,

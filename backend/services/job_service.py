@@ -196,7 +196,8 @@ async def run_all_carrier_searches(
     """Run search jobs for all selected carriers concurrently, updating overall status as each finishes."""
     # 1. Enqueue and wait for our turn
     search_str_id = str(search_id)
-    search_info = f"{request.origin} to {request.destination}"
+    name = request.user_name or "Anonymous"
+    search_info = f"{name}'s search ({request.origin} to {request.destination})"
     await queue_manager.enqueue_and_wait(search_str_id, search_info)
 
     # 2. Run searches

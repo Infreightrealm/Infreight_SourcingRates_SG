@@ -68,6 +68,7 @@ export interface RateSearchRequest {
   commodity: string;
   departure_date: string;
   search_window_days: number;
+  user_name?: string;
 }
 
 export const CARRIERS = [
