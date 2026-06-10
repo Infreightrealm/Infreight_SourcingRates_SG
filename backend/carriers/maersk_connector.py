@@ -1952,8 +1952,40 @@ class MaerskConnector(BaseCarrierConnector):
 
             # Wait for results to appear (look for sailing schedules, pricing, or selection container)
             results_loaded = False
+            spinner_time = 0
+            deadlock_timeouts = 0
             for i in range(90):
                 await asyncio.sleep(1)
+                
+                # --- Watchdog Deadlock Check ---
+                try:
+                    await self.page.evaluate("1", timeout=1500)
+                    deadlock_timeouts = 0  # Reset if main thread is responsive
+                except Exception as eval_err:
+                    if "Timeout" in str(eval_err) or "Target closed" in str(eval_err):
+                        deadlock_timeouts += 1
+                        print(f"[MAERSK] Warning: Main thread deadlock watchdog timeout! ({deadlock_timeouts}/3)")
+                        if deadlock_timeouts >= 3:
+                            print("[MAERSK] CRITICAL: Page completely frozen/deadlocked for 3 consecutive pings! Aborting wait loop.")
+                            return CarrierResultStatus.TIMEOUT
+                # --------------------------------
+                
+                # --- Infinite Spinner Detection ---
+                try:
+                    spinner = self.page.locator('mc-spinner, [class*="spinner" i], [class*="loader" i], [aria-busy="true"]').first
+                    if await spinner.is_visible(timeout=200):
+                        spinner_time += 1
+                        if spinner_time % 5 == 0:
+                            print(f"[MAERSK] Loading spinner detected for {spinner_time} seconds...")
+                        if spinner_time >= 20:
+                            print("[MAERSK] TIMEOUT: Loading spinner frozen for 20 seconds. Backend API likely crashed. Aborting!")
+                            return CarrierResultStatus.TIMEOUT
+                    else:
+                        spinner_time = 0
+                except Exception:
+                    pass
+                # ----------------------------------
+                
                 curr_url = self.page.url
                 
                 # Check for "There are no sailings for your search" pink banner
