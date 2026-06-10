@@ -20,14 +20,18 @@
     "CNSZX": "CNSZX",
     "CNNGB": "CNNGB",
     "THBKK": "THBKK",
-    "THLCH": "THLCH"
+    "THLCH": "THLCH",
+    "MYPEN": "MYPEN",
+    "ESBCN": "ESBCN"
   },
   "maersk": {
     "SGSIN": "Singapore, Singapore",
     "MYPKG": "Port Klang, Malaysia",
     "MACAS": "Casablanca, Morocco",
     "INNSA": "suggestions:",
-    "CNNBO": "suggestions:"
+    "CNNBO": "suggestions:",
+    "MYPEN": "Penang (Pulau Pinang), Malaysia",
+    "ESBCN": "Barcelona, Spain"
   },
   "cma": {
     "SGSIN": "SINGAPORE(SGSIN)SINGAPORE PORT",
