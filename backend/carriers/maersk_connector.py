@@ -1248,7 +1248,78 @@ class MaerskConnector(BaseCarrierConnector):
                         print(f"[MAERSK] Dropdown click failed or selector not found: {e}")
                         
                     if not clicked:
-                        raise Exception(f"No exact match found in dropdown for origin '{origin_query}'")
+                        # JS shadow-DOM fallback with EXACT MATCH enforcement
+                        try:
+                            import json
+                            js_query = json.dumps(origin_query.strip())
+                            
+                            js_result = await self.page.evaluate(f"""
+                                () => {{
+                                    const queryStr = {js_query}.toLowerCase();
+                                    const INVALID = [
+                                        'no results', 'no matching', 'loading', 'please enter',
+                                        'check your spelling', 'english spelling', 'full city name',
+                                        'abbreviation', 'location matching', 'try using', 'no location',
+                                        'continue to book', 'close', 'sign in', 'log in', 'accept',
+                                        'cookie', 'subscribe', 'submit', 'cancel', 'back',
+                                        'select container', 'select commodity', 'price owner'
+                                    ];
+                                    function findInShadow(root) {{
+                                        const items = root.querySelectorAll('li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
+                                        return Array.from(items);
+                                    }}
+                                    function collectAll(node) {{
+                                        let found = findInShadow(node);
+                                        node.querySelectorAll('*').forEach(el => {{
+                                            if (el.shadowRoot) found = found.concat(collectAll(el.shadowRoot));
+                                        }});
+                                        return found;
+                                    }}
+                                    const all = collectAll(document);
+                                    
+                                    // 1. First pass: Try to find an EXACT word match (e.g. Aden matching Aden, Yemen)
+                                    const escapedQuery = queryStr.replace(/[-\\/\\^$*+?.()|[\\]{{}}]/g, '\\\\$&');
+                                    const exactRegex = new RegExp('(\\\\b|^)' + escapedQuery + '(\\\\b|$)', 'i');
+                                    
+                                    for (const el of all) {{
+                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
+                                        
+                                        if (exactRegex.test(txt)) {{
+                                            el.click();
+                                            return txt;
+                                        }}
+                                    }}
+                                    
+                                    // 2. Second pass: Try exact city name match (city part before comma)
+                                    const queryCityPart = queryStr.split(',')[0].trim().replace(/\\s*\\([^)]*\\)/g, '').trim();
+                                    for (const el of all) {{
+                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
+                                        const cityPart = txt.split(',')[0].trim().replace(/\\s*\\([^)]*\\)/g, '').trim();
+                                        if (cityPart === queryCityPart) {{
+                                            el.click();
+                                            return txt;
+                                        }}
+                                    }}
+                                    
+                                    return null;
+                                }}
+                            """)
+                            if js_result:
+                                print(f"[MAERSK] JS shadow-DOM exact match click succeeded: '{js_result}'")
+                                clicked = True
+                                if origin_locode:
+                                    set_cached_carrier_port("maersk", origin_locode, js_result)
+                                await self.page.wait_for_timeout(400)
+                            else:
+                                print(f"[MAERSK] JS shadow-DOM found no EXACT match for '{origin_query}'.")
+                        except Exception as js_e:
+                            print(f"[MAERSK] JS shadow-DOM fallback failed: {js_e}")
+                            
+                    if not clicked:
+                        print(f"[MAERSK] [ABORT] Could not auto-fill origin port exactly. Aborting to prevent random port selection.")
+                        return CarrierResultStatus.NO_QUOTES_AVAILABLE
                         
                     print("[MAERSK] Origin Port selected successfully.")
                 else:
@@ -1431,7 +1502,78 @@ class MaerskConnector(BaseCarrierConnector):
                         print(f"[MAERSK] Dropdown click failed or selector not found: {e}")
                         
                     if not clicked:
-                        raise Exception(f"No exact match found in dropdown for origin '{origin_query}'")
+                        # JS shadow-DOM fallback with EXACT MATCH enforcement
+                        try:
+                            import json
+                            js_query = json.dumps(origin_query.strip())
+                            
+                            js_result = await self.page.evaluate(f"""
+                                () => {{
+                                    const queryStr = {js_query}.toLowerCase();
+                                    const INVALID = [
+                                        'no results', 'no matching', 'loading', 'please enter',
+                                        'check your spelling', 'english spelling', 'full city name',
+                                        'abbreviation', 'location matching', 'try using', 'no location',
+                                        'continue to book', 'close', 'sign in', 'log in', 'accept',
+                                        'cookie', 'subscribe', 'submit', 'cancel', 'back',
+                                        'select container', 'select commodity', 'price owner'
+                                    ];
+                                    function findInShadow(root) {{
+                                        const items = root.querySelectorAll('li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
+                                        return Array.from(items);
+                                    }}
+                                    function collectAll(node) {{
+                                        let found = findInShadow(node);
+                                        node.querySelectorAll('*').forEach(el => {{
+                                            if (el.shadowRoot) found = found.concat(collectAll(el.shadowRoot));
+                                        }});
+                                        return found;
+                                    }}
+                                    const all = collectAll(document);
+                                    
+                                    // 1. First pass: Try to find an EXACT word match (e.g. Aden matching Aden, Yemen)
+                                    const escapedQuery = queryStr.replace(/[-\\/\\^$*+?.()|[\\]{{}}]/g, '\\\\$&');
+                                    const exactRegex = new RegExp('(\\\\b|^)' + escapedQuery + '(\\\\b|$)', 'i');
+                                    
+                                    for (const el of all) {{
+                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
+                                        
+                                        if (exactRegex.test(txt)) {{
+                                            el.click();
+                                            return txt;
+                                        }}
+                                    }}
+                                    
+                                    // 2. Second pass: Try exact city name match (city part before comma)
+                                    const queryCityPart = queryStr.split(',')[0].trim().replace(/\\s*\\([^)]*\\)/g, '').trim();
+                                    for (const el of all) {{
+                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
+                                        const cityPart = txt.split(',')[0].trim().replace(/\\s*\\([^)]*\\)/g, '').trim();
+                                        if (cityPart === queryCityPart) {{
+                                            el.click();
+                                            return txt;
+                                        }}
+                                    }}
+                                    
+                                    return null;
+                                }}
+                            """)
+                            if js_result:
+                                print(f"[MAERSK] JS shadow-DOM exact match click succeeded: '{js_result}'")
+                                clicked = True
+                                if origin_locode:
+                                    set_cached_carrier_port("maersk", origin_locode, js_result)
+                                await self.page.wait_for_timeout(400)
+                            else:
+                                print(f"[MAERSK] JS shadow-DOM found no EXACT match for '{origin_query}'.")
+                        except Exception as js_e:
+                            print(f"[MAERSK] JS shadow-DOM fallback failed: {js_e}")
+                            
+                    if not clicked:
+                        print(f"[MAERSK] [ABORT] Could not auto-fill origin port exactly. Aborting to prevent random port selection.")
+                        return CarrierResultStatus.NO_QUOTES_AVAILABLE
                         
                     print("[MAERSK] Destination Port selected successfully.")
                     
