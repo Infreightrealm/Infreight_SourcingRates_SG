@@ -102,7 +102,12 @@ function HomeContent() {
           <div className="flex items-center gap-3">
             {searchId && (
               <button
-                onClick={() => {
+                onClick={async () => {
+                  try {
+                    await fetch(`${backendUrl}/api/rate-search/${searchId}/release`, { method: "POST" });
+                  } catch (e) {
+                    console.error("Failed to release lock on new search", e);
+                  }
                   setSearchId(null);
                   setSearchResult(null);
                   router.push("/");
