@@ -94,19 +94,24 @@ class ONEConnector(BaseCarrierConnector):
 
     async def _clear_overlays(self) -> None:
         try:
-            # Dismiss popups naturally via Skip buttons to avoid corrupting React state
-            skip_btn = self.page.locator('a:has-text("Skip"), button:has-text("Skip"), text="Skip", text="SKIP"').first
-            try:
-                await skip_btn.wait_for(state="visible", timeout=2000)
-            except Exception:
-                pass
-
-            if await skip_btn.is_visible():
-                print("[ONE] Surcharge/Intro popup detected. Clicking 'Skip'...")
+            # Use JS evaluation to instantly click the Skip button to prevent blocking the Playwright thread
+            await self.page.evaluate('''() => {
+                const skipBtns = Array.from(document.querySelectorAll('a, button, span, div')).filter(el => 
+                    el.textContent && el.textContent.trim().toLowerCase() === 'skip'
+                );
+                if (skipBtns.length > 0) {
+                    skipBtns[0].click();
+                }
+            }''')
+            await self.page.wait_for_timeout(300)
+            
+            # Also attempt standard playwright click if it's still there
+            skip_btn = self.page.locator('button:has-text("Skip"), text="Skip"').first
+            if await skip_btn.is_visible(timeout=200):
                 await skip_btn.click(force=True)
-                await self.page.wait_for_timeout(1500)
-        except Exception as e:
-            print(f"[ONE] Warning: failed to clear overlays: {e}")
+                await self.page.wait_for_timeout(500)
+        except Exception:
+            pass
 
     async def _fill_first_visible(self, selectors: str, value: str, label: str) -> bool:
         try:
@@ -451,6 +456,7 @@ class ONEConnector(BaseCarrierConnector):
                     # Use the cached carrier-specific spelling directly
                     print(f"[ONE] Origin (cached): typing '{origin_cached}' for LOCODE '{origin_locode}'")
                     await origin_field.click(force=True)
+                    await self._clear_overlays()
                     await self.page.keyboard.type(origin_cached, delay=25)
                     await self.page.wait_for_timeout(1500)
                     origin_selected = await self._select_dropdown_option("Origin", origin_cached, origin_locode)
@@ -460,6 +466,7 @@ class ONEConnector(BaseCarrierConnector):
                     origin_locode_query = origin_locode if origin_locode else request.origin
                     print(f"[ONE] Origin (step 1): typing LOCODE '{origin_locode_query}'")
                     await origin_field.click(force=True)
+                    await self._clear_overlays()
                     await self.page.keyboard.press("Control+A")
                     await self.page.keyboard.press("Backspace")
                     await self.page.keyboard.type(origin_locode_query, delay=25)
@@ -474,6 +481,7 @@ class ONEConnector(BaseCarrierConnector):
                     if origin_name:
                         print(f"[ONE] Origin (step 2): LOCODE unknown to ONE, trying port name '{origin_name}'")
                         await origin_field.click(force=True)
+                    await self._clear_overlays()
                         await self.page.keyboard.press("Control+A")
                         await self.page.keyboard.press("Backspace")
                         await self.page.keyboard.type(origin_name, delay=25)
@@ -519,6 +527,7 @@ class ONEConnector(BaseCarrierConnector):
                     # Use cached carrier-specific spelling
                     print(f"[ONE] Destination (cached): typing '{destination_cached}' for LOCODE '{destination_locode}'")
                     await destination_field.click(force=True)
+                    await self._clear_overlays()
                     await self.page.keyboard.type(destination_cached, delay=25)
                     await self.page.wait_for_timeout(1500)
                     destination_selected = await self._select_dropdown_option("Destination", destination_cached, destination_locode)
@@ -528,6 +537,7 @@ class ONEConnector(BaseCarrierConnector):
                     dest_locode_query = destination_locode if destination_locode else request.destination
                     print(f"[ONE] Destination (step 1): typing LOCODE '{dest_locode_query}'")
                     await destination_field.click(force=True)
+                    await self._clear_overlays()
                     await self.page.keyboard.press("Control+A")
                     await self.page.keyboard.press("Backspace")
                     await self.page.keyboard.type(dest_locode_query, delay=25)
@@ -542,6 +552,7 @@ class ONEConnector(BaseCarrierConnector):
                     if dest_name:
                         print(f"[ONE] Destination (step 2): LOCODE unknown to ONE, trying port name '{dest_name}'")
                         await destination_field.click(force=True)
+                    await self._clear_overlays()
                         await self.page.keyboard.press("Control+A")
                         await self.page.keyboard.press("Backspace")
                         await self.page.keyboard.type(dest_name, delay=25)
