@@ -182,16 +182,14 @@ class OOCLConnector(BaseCarrierConnector):
     async def extract_quote_list(self) -> List[dict]:
         quotes = []
         try:
-            print("[OOCL] Dumping HTML and waiting 30s to let the user see it load...")
-            await self.page.wait_for_timeout(5000) # Wait for grid to settle
+            print("[OOCL] Extracting results...")
+            await self.page.wait_for_timeout(2000) # Wait for grid to settle
             
             os.makedirs("scratch", exist_ok=True)
             await self.page.screenshot(path="scratch/oocl_results.png", full_page=True)
             html = await self.page.content()
             with open("scratch/oocl_results.html", "w", encoding="utf-8") as f:
                 f.write(html)
-                
-            await self.page.wait_for_timeout(30000) # Let user see the VNC
             
             rows = self.page.locator('.ag-row')
             count = await rows.count()
@@ -209,7 +207,6 @@ class OOCLConnector(BaseCarrierConnector):
                 row = rows.nth(i)
                 try:
                     text = await row.inner_text()
-                    lines = [line.strip() for line in text.split('\\n') if line.strip()]
                     
                     tt_match = re.search(r'(\d+)\s*day\(s\)', text, re.IGNORECASE)
                     tt_days = int(tt_match.group(1)) if tt_match else None
@@ -217,25 +214,17 @@ class OOCLConnector(BaseCarrierConnector):
                     ts_match = re.search(r'(\d+)\s*Transshipment', text, re.IGNORECASE)
                     is_transit = ts_match is not None
                     
-                    details_btn = row.locator('text="Schedule Details"').first
-                    expanded_text = ""
-                    if await details_btn.is_visible():
-                        await details_btn.click()
-                        await self.page.wait_for_timeout(1000)
-                        
-                        try:
-                            expanded_text = await row.inner_text()
-                            next_row = self.page.locator('tr').nth(i * 2 + 1)
-                            if await next_row.is_visible(timeout=500):
-                                expanded_text += "\\n" + await next_row.inner_text()
-                        except Exception:
-                            pass
-                        
-                    etd_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}).*?ETD at POL', expanded_text)
-                    eta_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}).*?ETA at POD', expanded_text)
-                    
-                    etd_str = etd_match.group(1) if etd_match else None
-                    eta_str = eta_match.group(1) if eta_match else None
+                    # Extract ETD/ETA from the port-time divs
+                    port_times = await row.locator('.port-time').all_inner_texts()
+                    etd_str = None
+                    eta_str = None
+                    if len(port_times) >= 2:
+                        etd_raw = port_times[0].strip() # e.g. "14 Jun (Sun)"
+                        eta_raw = port_times[-1].strip()
+                        etd_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3})', etd_raw)
+                        eta_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3})', eta_raw)
+                        etd_str = etd_match.group(1) if etd_match else None
+                        eta_str = eta_match.group(1) if eta_match else None
                     
                     etd_iso = None
                     eta_iso = None
@@ -252,23 +241,38 @@ class OOCLConnector(BaseCarrierConnector):
                             eta_iso = dt.strftime("%Y-%m-%d")
                         except: pass
                         
-                    routing_str = "Direct"
+                    # Extract Service, Vessel, Voyage
+                    service_info_links = await row.locator('a.service-info').all_inner_texts()
+                    service_info_links = [l.strip() for l in service_info_links if l.strip()]
+                    
+                    service_name = None
+                    vessel = "UNKNOWN"
+                    voyage = None
+                    
+                    # Usually service is first, then vessel, then voyage
+                    if len(service_info_links) >= 3:
+                        service_name = service_info_links[0]
+                        vessel = service_info_links[1]
+                        voyage = service_info_links[2]
+                        vessel = f"{vessel} {voyage}"
+                    elif len(service_info_links) >= 2:
+                        vessel = service_info_links[0]
+                        voyage = service_info_links[1]
+                        vessel = f"{vessel} {voyage}"
+                        
+                    routing_str = "Transit" if is_transit else "Direct"
+                    
                     if is_transit:
                         ts_ports = []
-                        ts_matches = re.finditer(r'ETA at T/S Port\s*([A-Za-z\s\(\)]+)', expanded_text)
-                        for m in ts_matches:
-                            port_name = m.group(1).strip()
-                            port_name = re.split(r'\\n', port_name)[0].strip()
-                            if port_name not in ts_ports:
-                                ts_ports.append(port_name)
-                        
+                        port_divs = await row.locator('.transhipment-port-number').all_inner_texts()
+                        for pd in port_divs:
+                            pd = pd.strip()
+                            if pd: ts_ports.append(pd)
                         if ts_ports:
                             routing_str = "via " + ", ".join(ts_ports)
                         else:
                             routing_str = "Transit"
                             
-                    vessel_voyage = lines[-2] + " " + lines[-1] if len(lines) >= 2 else "UNKNOWN"
-                    
                     quote = QuoteSchema(
                         source=self.carrier_name,
                         basic_ocean_freight=0,
@@ -282,14 +286,11 @@ class OOCLConnector(BaseCarrierConnector):
                         etd=etd_iso,
                         eta=eta_iso,
                         routing=routing_str,
-                        vessel=vessel_voyage
+                        vessel=vessel,
+                        service_name=service_name
                     )
                     quotes.append(quote.model_dump())
                     
-                    if await details_btn.is_visible():
-                        await details_btn.click()
-                        await self.page.wait_for_timeout(500)
-                        
                 except Exception as e:
                     print(f"[OOCL] Error parsing row {i}: {e}")
                     
