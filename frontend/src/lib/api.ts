@@ -3,10 +3,10 @@
  */
 import type { RateSearchRequest, RateSearchCreateResponse, RateSearchResultResponse } from "./types";
 
-export let API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-if (API_URL && !API_URL.startsWith("http://") && !API_URL.startsWith("https://")) {
-  API_URL = `https://${API_URL}`;
-}
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const API_URL = (rawApiUrl && !rawApiUrl.startsWith("http://") && !rawApiUrl.startsWith("https://"))
+  ? `https://${rawApiUrl}`
+  : rawApiUrl;
 
 export async function createRateSearch(request: RateSearchRequest): Promise<RateSearchCreateResponse> {
   const res = await fetch(`${API_URL}/api/rate-search`, {
