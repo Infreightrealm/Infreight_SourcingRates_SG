@@ -136,9 +136,19 @@ class OOCLConnector(BaseCarrierConnector):
                     pass
                     
             try:
-                search_btn = self.page.locator('button[ng-click="displayResult()"], button[form="searchForm"]').first
-                await search_btn.click(timeout=10000)
-                print("[OOCL] Clicked Search button.")
+                await self.page.keyboard.press("Tab")
+                await self.page.wait_for_timeout(1500)
+                
+                # Highlight the button so the user sees it in VNC!
+                await self.page.evaluate('''() => {
+                    const btn = document.querySelector('button[ng-click="displayResult()"]') || document.querySelector('button[form="searchForm"]');
+                    if(btn) {
+                        btn.style.border = "5px solid red";
+                        btn.style.boxShadow = "0 0 10px red";
+                        btn.click();
+                    }
+                }''')
+                print("[OOCL] Clicked Search button via JS evaluate.")
             except Exception as e:
                 print(f"[OOCL] Failed to click Search button: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
