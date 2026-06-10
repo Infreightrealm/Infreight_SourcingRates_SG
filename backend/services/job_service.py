@@ -200,14 +200,22 @@ async def run_all_carrier_searches(
     search_info = f"{name}'s search ({request.origin} to {request.destination})"
     await queue_manager.enqueue_and_wait(search_str_id, search_info)
 
-    # 2. Run searches
-    async def run_and_update(c):
-        try:
-            await run_carrier_search(search_id, c, request)
-        finally:
-            await update_search_status(search_id)
+    # 2. Run searches with concurrency limits
+    # Hapag-Lloyd and ONE take the longest, so prioritize them first so they don't hold up the end of the queue
+    slow_carriers = ["HAPAG_LLOYD", "ONE"]
+    sorted_carriers = sorted(carriers, key=lambda c: 0 if c.upper() in slow_carriers else 1)
 
-    tasks = [run_and_update(carrier) for carrier in carriers]
+    # Limit to 3 concurrent browser instances to prevent resource exhaustion and anti-bot triggers
+    semaphore = asyncio.Semaphore(3)
+
+    async def run_and_update(c):
+        async with semaphore:
+            try:
+                await run_carrier_search(search_id, c, request)
+            finally:
+                await update_search_status(search_id)
+
+    tasks = [run_and_update(carrier) for carrier in sorted_carriers]
     await asyncio.gather(*tasks, return_exceptions=True)
 
     # 3. Mark search completed in the queue manager to start the auto-release timeout
