@@ -264,14 +264,39 @@ class OOCLConnector(BaseCarrierConnector):
                     
                     if is_transit:
                         ts_ports = []
-                        port_divs = await row.locator('.transhipment-port-number').all_inner_texts()
-                        for pd in port_divs:
-                            pd = pd.strip()
-                            if pd: ts_ports.append(pd)
+                        # The button often has extra whitespace, use a looser selector
+                        details_btn = row.locator('text=/Schedule Details/i').first
+                        if await details_btn.is_visible():
+                            await details_btn.click()
+                            await self.page.wait_for_timeout(3000) # Wait for expansion
+                            
+                            try:
+                                # The expanded detail might be inside the row or immediately following it
+                                grid_html = await self.page.locator('.ag-body-viewport').inner_html()
+                                ts_matches = re.finditer(r'<strong class="ng-binding">([^<]+)</strong>', grid_html)
+                                ports_found = []
+                                for m in ts_matches:
+                                    val = m.group(1).strip()
+                                    # Skip dates like "22 Jun (Mon) 20:00" and durations like "7 Days"
+                                    if re.search(r'\d', val):
+                                        continue
+                                    if val and val not in ports_found:
+                                        ports_found.append(val)
+                                
+                                # Origin is first, Destination is last. Anything in between is a transshipment port!
+                                if len(ports_found) >= 3:
+                                    ts_ports = ports_found[1:-1]
+                                    
+                                # Close it so it doesn't mess up the grid!
+                                await details_btn.click()
+                                await self.page.wait_for_timeout(500)
+                            except Exception as e:
+                                print(f"[OOCL] Error extracting T/S ports: {e}")
+                                
                         if ts_ports:
-                            routing_str = "via " + ", ".join(ts_ports)
+                            routing_str = "via " + " - ".join(ts_ports)
                         else:
-                            routing_str = "Transit"
+                            routing_str = "via 1 Transshipment Port"
                             
                     if not etd_iso and not eta_iso and vessel == "UNKNOWN":
                         continue
