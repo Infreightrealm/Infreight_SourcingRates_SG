@@ -265,13 +265,22 @@ class ONEConnector(BaseCarrierConnector):
                         set_cached_carrier_port("one", locode, cache_val)
                         return True
 
-            # 2. Name-based substring matching
+            # 2. Name-based EXACT WORD boundary matching
+            import re as _re
             for index in range(option_count):
                 option = options.nth(index)
                 option_text = (await option.inner_text()).strip().upper()
                 if locode == "AUMEL" and ("AUMELAS" in option_text or "FRYUH" in option_text):
                     continue
-                if any(candidate in option_text for candidate in option_candidates):
+                
+                # Use regex  boundary to prevent "ADEN" from matching "ADENAU"
+                match_found = False
+                for candidate in option_candidates:
+                    if _re.search(rf"\b{_re.escape(candidate)}\b", option_text):
+                        match_found = True
+                        break
+                        
+                if match_found:
                     await option.click(force=True)
                     if locode:
                         cache_val = _extract_locode_for_cache(option_text, locode)
@@ -279,10 +288,11 @@ class ONEConnector(BaseCarrierConnector):
                         set_cached_carrier_port("one", locode, cache_val)
                     return True
 
-            # 3. Playwright filter-based fallback
+            # 3. Playwright filter-based fallback using Exact Word boundary regex
+            import re as _re
             for candidate in option_candidates:
                 try:
-                    filtered_options = self.page.locator('[role="option"]').filter(has_text=candidate)
+                    filtered_options = self.page.locator('[role="option"]').filter(has_text=_re.compile(rf"\b{_re.escape(candidate)}\b", _re.IGNORECASE))
                     filtered_count = await filtered_options.count()
                     matched_option = None
                     matched_text = ""

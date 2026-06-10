@@ -1799,9 +1799,8 @@ class MaerskConnector(BaseCarrierConnector):
 
             # Fallback HITL loop for the search page
             if not autofill_success:
-                print("[MAERSK] [ACTION REQUIRED] Could not auto-fill booking ports.")
-                print("[MAERSK] Please click on 'From' to select Origin and 'To' to select Destination in the Chrome window.")
-                print("[MAERSK] Waiting for the results page to load...")
+                print("[MAERSK] [ABORT] Could not auto-fill booking ports exactly. Aborting to prevent random port selection.")
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE
 
             # Wait for results to appear (look for sailing schedules, pricing, or selection container)
             results_loaded = False
