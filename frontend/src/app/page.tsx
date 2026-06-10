@@ -68,7 +68,16 @@ function HomeContent() {
   const handleSearch = async (request: RateSearchRequest) => {
     setIsLoading(true);
     setSearchResult(null);
-    toast.info("Starting rate search...");
+    
+    // Check if it's an "All Carrier" search or many carriers
+    if (request.carriers.includes("ALL") || request.carriers.length > 3) {
+      toast.info("Concurrency Limit Active", {
+        description: "To prevent server crashes and anti-bot blocks, we are processing carriers in batches of 3. Hapag-Lloyd and ONE are prioritized first!",
+        duration: 8000,
+      });
+    } else {
+      toast.info("Starting rate search...");
+    }
     
     try {
       const payload = { ...request, user_name: userName || undefined };
