@@ -313,5 +313,5 @@ class OOCLConnector(BaseCarrierConnector):
     async def extract_charge_breakdown(self) -> list[dict]:
         return []
 
-    def normalize_result(self, raw_quote: dict) -> dict:
+    async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> dict:
         return raw_quote
