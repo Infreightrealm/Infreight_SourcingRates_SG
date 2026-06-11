@@ -162,25 +162,50 @@ class MSCConnector(BaseCarrierConnector):
             await search_btn.click()
             
             self.log("Waiting for results page to load...")
-            # Wait dynamically up to 45 seconds for shipping window cards to render
+            # Wait dynamically up to 45 seconds for shipping window cards to render.
+            # Use a specific text selector that MSC renders ONLY on the results page.
             windows_loaded = False
-            for _ in range(45):
+            for tick in range(45):
+                # --- Deadlock watchdog: bail if page is frozen ---
                 try:
-                    count = await self.page.locator("div.card, div[role='button'], text='Shipping window'").count()
-                    if count > 0:
+                    await self.page.evaluate("1", timeout=2000)
+                except Exception:
+                    self.log("WARNING: Page appears frozen/deadlocked during results wait. Aborting.")
+                    await self.save_screenshot("msc_results_fail.png", full_page=True)
+                    return CarrierResultStatus.TIMEOUT
+
+                # Check for specific MSC shipping-window result text
+                try:
+                    # MSC results page always renders "Shipping window" inside result cards
+                    sw_count = await self.page.locator("text='Shipping window'").count()
+                    if sw_count > 0:
                         windows_loaded = True
+                        self.log(f"Shipping window cards detected after {tick + 1}s.")
                         break
                 except Exception:
                     pass
+
+                # Early bail: explicit no-results text
+                try:
+                    body_text = (await self.page.inner_text("body", timeout=500)).lower()
+                    if any(kw in body_text for kw in ["no departures", "no rates available", "no sailings", "no routes found"]):
+                        self.log("Explicit 'No rates' indicator detected early.")
+                        return CarrierResultStatus.NO_QUOTES_AVAILABLE
+                except Exception:
+                    pass
+
                 await asyncio.sleep(1)
             
             if not windows_loaded:
                 self.log("Timeout waiting for shipping window cards to load. Checking page fallback text...")
                 await self.save_screenshot("msc_results_fail.png", full_page=True)
-                body_text = (await self.page.inner_text("body")).lower()
-                if any(kw in body_text for kw in ["no departures", "no rates", "no quotes", "no sailings", "no routes found", "no matching"]):
-                    self.log("Explicit 'No rates' or 'No departures' indicator detected.")
-                    return CarrierResultStatus.NO_QUOTES_AVAILABLE
+                try:
+                    body_text = (await self.page.inner_text("body")).lower()
+                    if any(kw in body_text for kw in ["no departures", "no rates", "no quotes", "no sailings", "no routes found", "no matching"]):
+                        self.log("Explicit 'No rates' or 'No departures' indicator detected.")
+                        return CarrierResultStatus.NO_QUOTES_AVAILABLE
+                except Exception:
+                    pass
                 return CarrierResultStatus.TIMEOUT
 
             # Save HTML for debugging/extraction planning
@@ -269,8 +294,17 @@ class MSCConnector(BaseCarrierConnector):
             for i in range(count):
                 window = window_locators.nth(i)
                 self.log(f"Processing shipping window {i+1}/{count}...")
+                # Snapshot page content before clicking to detect update
+                text_before = await self.page.locator("body").inner_text()
                 await window.click()
-                await self.page.wait_for_timeout(2000) # Wait for lower section to update
+                # Wait dynamically for lower section to update (up to 3s)
+                for _ in range(15):
+                    await self.page.wait_for_timeout(200)
+                    try:
+                        if await self.page.locator("body").inner_text() != text_before:
+                            break
+                    except Exception:
+                        break
 
                 # 1. Initialize Free Time
                 free_time = 0
@@ -281,7 +315,14 @@ class MSCConnector(BaseCarrierConnector):
                     self.log("Could not find 'show details' button, skipping window.")
                     continue
                 await show_details_btn.click()
-                await self.page.wait_for_timeout(2000)
+                # Wait dynamically for modal to appear (up to 5s)
+                for _ in range(25):
+                    await self.page.wait_for_timeout(200)
+                    try:
+                        if await self.page.locator("div[data-test-id='BreakdownModal']").is_visible():
+                            break
+                    except Exception:
+                        break
 
                 # 3. Extract Charges (Tab 1)
                 self.log("Extracting charges...")
@@ -361,8 +402,16 @@ class MSCConnector(BaseCarrierConnector):
                 try:
                     free_time_tab = modal.locator("text='Free Time'").first
                     if await free_time_tab.is_visible():
+                        text_before_ft = await modal.inner_text()
                         await free_time_tab.click()
-                        await self.page.wait_for_timeout(1000)
+                        # Wait dynamically for free time content to load (up to 3s)
+                        for _ in range(15):
+                            await self.page.wait_for_timeout(200)
+                            try:
+                                if await modal.inner_text() != text_before_ft:
+                                    break
+                            except Exception:
+                                break
                         
                         free_time_el = modal.locator("*:has-text('Import Combined')").last
                         await free_time_el.wait_for(state="visible", timeout=5000)
@@ -378,8 +427,16 @@ class MSCConnector(BaseCarrierConnector):
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
                 quote_conditions_tab = modal.locator("text='Quote Conditions'").first
+                text_before_qc = await modal.inner_text()
                 await quote_conditions_tab.click()
-                await self.page.wait_for_timeout(1000)
+                # Wait dynamically for tab content to update (up to 2s)
+                for _ in range(10):
+                    await self.page.wait_for_timeout(200)
+                    try:
+                        if await modal.inner_text() != text_before_qc:
+                            break
+                    except Exception:
+                        break
                 
                 routing_el = modal.locator("text='Routing:'").locator("xpath=..")
                 routing_text = ""
@@ -416,8 +473,16 @@ class MSCConnector(BaseCarrierConnector):
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
                 schedule_tab = modal.locator("text='Schedule'").first
+                text_before_sched = await modal.inner_text()
                 await schedule_tab.click()
-                await self.page.wait_for_timeout(1000)
+                # Wait dynamically for schedule table to render (up to 3s)
+                for _ in range(15):
+                    await self.page.wait_for_timeout(200)
+                    try:
+                        if await modal.inner_text() != text_before_sched:
+                            break
+                    except Exception:
+                        break
 
                 # The schedule table has rows with Vessel, Voyage, ETD, ETA, Service, Est.TT.
                 # Let's find rows that contain "Days" for Transit Time
