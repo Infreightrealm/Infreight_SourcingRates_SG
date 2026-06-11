@@ -15,7 +15,7 @@ async def test_msc():
         container_type="DRY 20",
         container_quantity=1,
         weight_per_container_kg=18000,
-        commodity="FAK",
+        commodity="Furniture",
         departure_date=str(date.today()),
         search_window_days=14,
     )

@@ -165,14 +165,23 @@ class MSCConnector(BaseCarrierConnector):
             # Wait dynamically up to 45 seconds for shipping window cards to render.
             # Use a specific text selector that MSC renders ONLY on the results page.
             windows_loaded = False
+            consecutive_timeouts = 0
             for tick in range(45):
-                # --- Deadlock watchdog: bail if page is frozen ---
-                try:
-                    await self.page.evaluate("1", timeout=2000)
-                except Exception:
-                    self.log("WARNING: Page appears frozen/deadlocked during results wait. Aborting.")
-                    await self.save_screenshot("msc_results_fail.png", full_page=True)
-                    return CarrierResultStatus.TIMEOUT
+                # --- Deadlock watchdog: check if page is frozen (after 10s grace period) ---
+                if tick >= 10:
+                    try:
+                        await self.page.evaluate("1", timeout=5000)
+                        consecutive_timeouts = 0
+                    except TimeoutError:
+                        consecutive_timeouts += 1
+                        self.log(f"WARNING: Page evaluation timed out (attempt {consecutive_timeouts}/2).")
+                        if consecutive_timeouts >= 2:
+                            self.log("WARNING: Page appears frozen/deadlocked during results wait. Aborting.")
+                            await self.save_screenshot("msc_results_fail.png", full_page=True)
+                            return CarrierResultStatus.TIMEOUT
+                    except Exception as eval_err:
+                        # Ignore other transient errors (context destroyed, navigation, etc.)
+                        consecutive_timeouts = 0
 
                 # Check for specific MSC shipping-window result text
                 try:
