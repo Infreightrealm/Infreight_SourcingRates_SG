@@ -951,6 +951,50 @@ class MaerskConnector(BaseCarrierConnector):
             except:
                 pass
 
+            # Dismiss "Got it" popup/popover if visible (e.g., inland options moved notification)
+            try:
+                for sel in ['button:has-text("Got it")', 'mc-button:has-text("Got it")', 'button:has-text("Got It")', 'mc-button:has-text("Got It")']:
+                    btn = self.page.locator(sel).first
+                    if await btn.is_visible(timeout=1000):
+                        print(f"[MAERSK] Clicking Got it button using selector: {sel}")
+                        await btn.click(force=True)
+                        await self.page.wait_for_timeout(1000)
+                        break
+            except Exception as e:
+                print(f"[MAERSK] Warning: Playwright Got it click failed: {e}")
+
+            try:
+                js_clicked = await self.page.evaluate('''() => {
+                    function findAndClickGotIt(root) {
+                        const elements = root.querySelectorAll('*');
+                        for (const el of elements) {
+                            const txt = (el.textContent || '').trim().toLowerCase();
+                            if (txt === 'got it') {
+                                let clickable = el;
+                                while (clickable && clickable.tagName !== 'BUTTON' && clickable.tagName !== 'MC-BUTTON') {
+                                    clickable = clickable.parentElement;
+                                }
+                                if (clickable) {
+                                    clickable.click();
+                                    return true;
+                                }
+                                el.click();
+                                return true;
+                            }
+                            if (el.shadowRoot) {
+                                if (findAndClickGotIt(el.shadowRoot)) return true;
+                            }
+                        }
+                        return false;
+                    }
+                    return findAndClickGotIt(document);
+                }''')
+                if js_clicked:
+                    print("[MAERSK] Dismissed Got it popup via JS shadow-DOM evaluation.")
+                    await self.page.wait_for_timeout(1000)
+            except Exception as e:
+                print(f"[MAERSK] Warning: JS Got it click failed: {e}")
+
             # Smart autofill attempt
             autofill_success = False
             try:
