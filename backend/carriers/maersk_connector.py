@@ -342,19 +342,19 @@ class MaerskConnector(BaseCarrierConnector):
                                 await details_btn.click(force=True)
                                 await self.page.wait_for_timeout(2500)
                                 
-                                # Save a screenshot to inspect what opened
-                                try:
-                                    ss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", f"breakdown_screenshot_{index}.png")
-                                    await self.page.screenshot(path=ss_path, full_page=False)
-                                    print(f"[MAERSK] Screenshot saved: {ss_path}")
-                                    # Also save page HTML to inspect DOM
-                                    html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", f"breakdown_html_{index}.html")
-                                    content = await self.page.content()
-                                    with open(html_path, "w", encoding="utf-8") as f:
-                                        f.write(content)
-                                    print(f"[MAERSK] Page HTML saved: {html_path}")
-                                except Exception as ss_e:
-                                    print(f"[MAERSK] Screenshot/HTML save failed: {ss_e}")
+                                # Save screenshot + HTML only when MAERSK_DEBUG=true
+                                if os.getenv("MAERSK_DEBUG", "").lower() == "true":
+                                    try:
+                                        ss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", f"breakdown_screenshot_{index}.png")
+                                        await self.page.screenshot(path=ss_path, full_page=False)
+                                        print(f"[MAERSK] Screenshot saved: {ss_path}")
+                                        html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch", f"breakdown_html_{index}.html")
+                                        content = await self.page.content()
+                                        with open(html_path, "w", encoding="utf-8") as f:
+                                            f.write(content)
+                                        print(f"[MAERSK] Page HTML saved: {html_path}")
+                                    except Exception as ss_e:
+                                        print(f"[MAERSK] Screenshot/HTML save failed: {ss_e}")
                                 
                                 # Scrape all text inside active page/breakdown panel scoped strictly to current card
                                 raw_charges = await self.extract_charge_breakdown(card)
@@ -2456,7 +2456,9 @@ class MaerskConnector(BaseCarrierConnector):
             # AND a currency indicator (like USD, SGD, EUR, INR).
             snapshot = None
             lines = []
-            print("[MAERSK] Capturing live page accessibility snapshot with dynamic rendering wait...")
+            _maersk_debug = os.getenv("MAERSK_DEBUG", "").lower() == "true"
+            if _maersk_debug:
+                print("[MAERSK] Capturing live page accessibility snapshot with dynamic rendering wait...")
             for attempt in range(10):
                 snapshot = await self.page.accessibility.snapshot()
                 if snapshot:
@@ -2470,15 +2472,16 @@ class MaerskConnector(BaseCarrierConnector):
             
             if snapshot:
                 
-                # Debug: Write live flattened accessibility tree to file
-                try:
-                    debug_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch")
-                    os.makedirs(debug_dir, exist_ok=True)
-                    with open(os.path.join(debug_dir, f"debug_live_accessibility_{int(asyncio.get_event_loop().time())}.txt"), "w", encoding="utf-8") as f:
-                        f.write("\n".join(lines))
-                    print(f"[MAERSK] Saved live accessibility tree lines (total: {len(lines)})")
-                except Exception as de:
-                    print(f"[MAERSK] Failed to write debug live accessibility file: {de}")
+                # Write accessibility tree to file only when MAERSK_DEBUG=true
+                if _maersk_debug:
+                    try:
+                        debug_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scratch")
+                        os.makedirs(debug_dir, exist_ok=True)
+                        with open(os.path.join(debug_dir, f"debug_live_accessibility_{int(asyncio.get_event_loop().time())}.txt"), "w", encoding="utf-8") as f:
+                            f.write("\n".join(lines))
+                        print(f"[MAERSK] Saved live accessibility tree lines (total: {len(lines)})")
+                    except Exception as de:
+                        print(f"[MAERSK] Failed to write debug live accessibility file: {de}")
                 
                 # Parse the flattened accessibility lines
                 current_section = "freight charges"
@@ -2534,7 +2537,8 @@ class MaerskConnector(BaseCarrierConnector):
                                 "category": category.value,
                                 "reason": reason,
                             })
-                            print(f"[MAERSK] Accessibility Parsed: {name_candidate} -> {amount} {currency_candidate} ({current_section})")
+                            if _maersk_debug:
+                                print(f"[MAERSK] Accessibility Parsed: {name_candidate} -> {amount} {currency_candidate} ({current_section})")
                             i += 6
                             continue
                     

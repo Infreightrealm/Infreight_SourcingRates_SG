@@ -1141,7 +1141,9 @@ class ONEConnector(BaseCarrierConnector):
                     pass
             
             details_count = await all_details_buttons.count()
-            print(f"[ONE] Found {details_count} Details button(s) on page for quote {idx}")
+            _one_debug = os.getenv("ONE_DEBUG", "").lower() == "true"
+            if _one_debug:
+                print(f"[ONE] Found {details_count} Details button(s) on page for quote {idx}")
             
             if details_count > idx:
                 btn = all_details_buttons.nth(idx)
@@ -1173,6 +1175,7 @@ class ONEConnector(BaseCarrierConnector):
 
     async def extract_charge_breakdown(self) -> list[dict]:
         try:
+            _one_debug = os.getenv("ONE_DEBUG", "").lower() == "true"
             text = ""
             if hasattr(self, 'current_card') and self.current_card:
                 text = await self.current_card.inner_text()
@@ -1205,10 +1208,12 @@ class ONEConnector(BaseCarrierConnector):
                 
                 if transit_ports:
                     self.current_routing = "Transit via " + ", ".join(transit_ports)
-                    print(f"[ONE] Extracted routing: {self.current_routing}")
+                    if _one_debug:
+                        print(f"[ONE] Extracted routing: {self.current_routing}")
                 else:
                     self.current_routing = "Direct"
-                    print("[ONE] Extracted routing: Direct")
+                    if _one_debug:
+                        print("[ONE] Extracted routing: Direct")
             except Exception as re_err:
                 print(f"[ONE] Warning: failed to parse timeline routing: {re_err}")
 
@@ -1252,7 +1257,8 @@ class ONEConnector(BaseCarrierConnector):
             charges = []
             for index, line in enumerate(lines):
                 if is_stop_line(line):
-                    print(f"[ONE] Stopping breakdown parsing at line: '{line}'")
+                    if _one_debug:
+                        print(f"[ONE] Stopping breakdown parsing at line: '{line}'")
                     break
                 amount_match = amount_pattern.search(line)
                 if not amount_match:
@@ -1399,7 +1405,8 @@ class ONEConnector(BaseCarrierConnector):
                     fd = freetime_cache[origin_country].get(dest_continent)
                     if fd is not None:
                         quote_schema.free_time = fd
-                        print(f"[ONE] Successfully mapped offline Freetime: {origin_country} -> {dest_continent} = {fd} days")
+                        if os.getenv("ONE_DEBUG", "").lower() == "true":
+                            print(f"[ONE] Successfully mapped offline Freetime: {origin_country} -> {dest_continent} = {fd} days")
             except Exception as e:
                 print(f"[ONE] Warning: Failed to apply freetime from cache: {e}")
                 
