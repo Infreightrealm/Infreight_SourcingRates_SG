@@ -30,6 +30,7 @@ CARRIER_PORT_OVERRIDES = {
         "THBKK": "Bangkok PAT, Thailand",
         "THLCH": "Laem Chabang",
         # New port mappings requested
+        "YEADE": "Aden, Yemen",
         "KHKOS": "Sihanoukville, Cambodia",
         "CASHV": "Sihanoukville, Cambodia",
         "MYPEN": "Penang (Pulau Pinang), Malaysia",
@@ -101,6 +102,7 @@ PORT_MAP_CMA_ONE = {
     "IDSRG": "IDSRG",
     "THLKR": "THLKR",
     "KNPNH": "KNPNH",
+    "YEADE": "YEADE",
 }
 
 PORT_NAME_KEYWORD_MAP = {
@@ -149,6 +151,7 @@ PORT_NAME_KEYWORD_MAP = {
     "lat krabang": "THLKR",
     "latkrabang": "THLKR",
     "phnom penh": "KNPNH",
+    "aden": "YEADE",
 }
 
 

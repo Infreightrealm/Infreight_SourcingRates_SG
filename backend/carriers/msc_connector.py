@@ -6,6 +6,7 @@ from playwright.async_api import Page, TimeoutError, async_playwright
 
 from carriers.base_connector import BaseCarrierConnector
 from models.schemas import CarrierResultStatus, RateSearchRequest, QuoteSchema
+from services.port_manager import resolve_port_for_carrier
 
 class MSCConnector(BaseCarrierConnector):
     """
@@ -136,11 +137,13 @@ class MSCConnector(BaseCarrierConnector):
             await weight_input.fill(str(request.weight_per_container_kg))
 
             # 3. Origin and Destination
-            self.log(f"Filling origin: {request.origin}")
-            await self._fill_autocomplete("Select Start Point", request.origin)
+            origin_locode = resolve_port_for_carrier(request.origin, "msc")
+            self.log(f"Filling origin: {origin_locode} (input: {request.origin})")
+            await self._fill_autocomplete("Select Start Point", origin_locode)
 
-            self.log(f"Filling destination: {request.destination}")
-            await self._fill_autocomplete("Select End Point", request.destination)
+            dest_locode = resolve_port_for_carrier(request.destination, "msc")
+            self.log(f"Filling destination: {dest_locode} (input: {request.destination})")
+            await self._fill_autocomplete("Select End Point", dest_locode)
 
             self.log("Clicking Search Rates button...")
             search_btn = self.page.locator("button:has-text('Search Rates')")

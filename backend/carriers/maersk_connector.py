@@ -141,25 +141,27 @@ class MaerskConnector(BaseCarrierConnector):
             
             for expansion in range(max_expansions + 1):
                 # A. Quick check for "There are no sailings for your search" pink banner
-                no_sailings_selectors = [
-                    'text="There are no sailings for your search."',
-                    'text="no sailings for your search"',
-                    'text="changing the transportation mode (CY or SD)"',
-                    '[class*="alert" i]:has-text("no sailings")',
-                    '[class*="banner" i]:has-text("no sailings")',
-                    '[class*="error" i]:has-text("no sailings")'
-                ]
-                
                 no_sailings_detected = False
-                for no_sail_sel in no_sailings_selectors:
-                    try:
-                        banner = self.page.locator(no_sail_sel).first
-                        if await banner.is_visible(timeout=500):
-                            print(f"[MAERSK] Zero quotes! Found 'No sailings' banner: '{no_sail_sel}'")
-                            no_sailings_detected = True
-                            break
-                    except Exception:
-                        continue
+                try:
+                    no_sailings_detected = await self.page.evaluate("""
+                        () => {
+                            function hasText(root) {
+                                const text = (root.textContent || root.innerText || '').toLowerCase();
+                                if (text.includes('no sailings for your search') || text.includes('there are no sailings')) {
+                                    return true;
+                                }
+                                for (const el of root.querySelectorAll('*')) {
+                                    if (el.shadowRoot) {
+                                        if (hasText(el.shadowRoot)) return true;
+                                    }
+                                }
+                                return false;
+                            }
+                            return hasText(document.body);
+                        }
+                    """)
+                except Exception as eval_e:
+                    print(f"[MAERSK] Warning: no sailings JS check failed: {eval_e}")
                         
                 if no_sailings_detected:
                     print("[MAERSK] Halting automation. Maersk Spot explicitly reports no sailings are available.")
@@ -667,14 +669,18 @@ class MaerskConnector(BaseCarrierConnector):
             await self.page.wait_for_timeout(500)
             await field.type(query, delay=100)
             
-            print(f"[MAERSK] Waiting for dropdown suggestions using selector: {selector}")
-            await self.page.locator(selector).first.wait_for(state="attached", timeout=6000)
+            await self.page.locator(selector).first.wait_for(state="attached", timeout=10000)
             # INCREASED WAIT: Maersk API can take 2-4 seconds to return the final results for a query.
             # If we scrape too early, we might only see partial/cached results (like Adena instead of Aden).
             await self.page.wait_for_timeout(3500)
             return True
         except Exception as e:
             print(f"[MAERSK] Autocomplete trigger failed: {e}")
+            try:
+                await self.page.screenshot(path="maersk_autocomplete_fail.png")
+                print("[MAERSK] Saved autocomplete failure screenshot to maersk_autocomplete_fail.png")
+            except Exception as se:
+                print(f"[MAERSK] Failed to save screenshot: {se}")
             return False
 
     # ────────────────────────────────────────
@@ -988,6 +994,8 @@ class MaerskConnector(BaseCarrierConnector):
                     
                     # 0. Hardcoded overrides for problematic cities to bypass autocomplete overlaps
                     raw_lower = raw_input.lower()
+                    if "aden" in raw_lower or "yeade" in raw_lower:
+                        return "Aden, Yemen"
                     if "karachi" in raw_lower:
                         return "Karachi, Pakistan"
                     if "melbourne" in raw_lower:
@@ -1090,12 +1098,14 @@ class MaerskConnector(BaseCarrierConnector):
                         break
                         
                 if origin_field:
-                    suggestions_union = 'li[role="option"], ul[role="listbox"] li, [class*="c-location-search" i] li, .c-location-search__result, [class*="location" i] [class*="result" i], [class*="suggestion" i] li'
+                    suggestions_union = 'mc-option[role="option"], mc-option, li[role="option"], ul[role="listbox"] li, [class*="c-location-search" i] li, .c-location-search__result, [class*="location" i] [class*="result" i], [class*="suggestion" i] li'
                     await self._stealth_fill_autocomplete(origin_field, origin_query, suggestions_union)
                     
                     # Wait for autocomplete dropdown to appear, trying several known Maersk selector patterns
                     suggestions_sel = None
                     MAERSK_DROPDOWN_SELECTORS = [
+                        'mc-option[role="option"]',
+                        'mc-option',
                         'li[role="option"]',
                         'ul[role="listbox"] li',
                         '[class*="c-location-search" i] li',
@@ -1117,7 +1127,7 @@ class MaerskConnector(BaseCarrierConnector):
                     
                     if not suggestions_sel:
                         # Final fallback: broad selector
-                        suggestions_sel = 'li[role="option"], ul[role="listbox"] li, [class*="suggestion" i], [class*="location" i] [class*="result" i]'
+                        suggestions_sel = 'mc-option[role="option"], mc-option, li[role="option"], ul[role="listbox"] li, [class*="suggestion" i], [class*="location" i] [class*="result" i]'
                     
                     clicked = False
                     try:
@@ -1345,12 +1355,14 @@ class MaerskConnector(BaseCarrierConnector):
                         break
                         
                 if dest_field:
-                    suggestions_union = 'li[role="option"], ul[role="listbox"] li, [class*="c-location-search" i] li, .c-location-search__result, [class*="location" i] [class*="result" i], [class*="suggestion" i] li'
+                    suggestions_union = 'mc-option[role="option"], mc-option, li[role="option"], ul[role="listbox"] li, [class*="c-location-search" i] li, .c-location-search__result, [class*="location" i] [class*="result" i], [class*="suggestion" i] li'
                     await self._stealth_fill_autocomplete(dest_field, destination_query, suggestions_union)
                     
                     # Wait for autocomplete dropdown to appear, trying several known Maersk selector patterns
                     suggestions_sel = None
                     MAERSK_DROPDOWN_SELECTORS_DEST = [
+                        'mc-option[role="option"]',
+                        'mc-option',
                         'li[role="option"]',
                         'ul[role="listbox"] li',
                         '[class*="c-location-search" i] li',
@@ -1371,7 +1383,7 @@ class MaerskConnector(BaseCarrierConnector):
                             continue
                     
                     if not suggestions_sel:
-                        suggestions_sel = 'li[role="option"], ul[role="listbox"] li, [class*="suggestion" i], [class*="location" i] [class*="result" i]'
+                        suggestions_sel = 'mc-option[role="option"], mc-option, li[role="option"], ul[role="listbox"] li, [class*="suggestion" i], [class*="location" i] [class*="result" i]'
                     
                     clicked = False
                     try:
@@ -1615,6 +1627,8 @@ class MaerskConnector(BaseCarrierConnector):
                         await self.page.wait_for_timeout(1500)
                         
                         commodity_suggestions_sel = (
+                            'mc-option[role="option"], '
+                            'mc-option, '
                             'ul[role="listbox"] li, '
                             '[class*="results" i] [class*="item" i], '
                             '[class*="results" i] div, '
@@ -1691,6 +1705,7 @@ class MaerskConnector(BaseCarrierConnector):
                         
                         # Find option and click it
                         option_selectors = [
+                            f'mc-option:has-text("{target_type}")',
                             f'ul[role="listbox"] li:has-text("{target_type}")',
                             f'[class*="option" i]:has-text("{target_type}")',
                             f'li:has-text("{target_type}")',
@@ -1983,25 +1998,27 @@ class MaerskConnector(BaseCarrierConnector):
                 curr_url = self.page.url
                 
                 # Check for "There are no sailings for your search" pink banner
-                no_sailings_selectors = [
-                    'text="There are no sailings for your search."',
-                    'text="no sailings for your search"',
-                    'text="changing the transportation mode (CY or SD)"',
-                    '[class*="alert" i]:has-text("no sailings")',
-                    '[class*="banner" i]:has-text("no sailings")',
-                    '[class*="error" i]:has-text("no sailings")'
-                ]
-                
                 no_sailings_detected = False
-                for no_sail_sel in no_sailings_selectors:
-                    try:
-                        banner = self.page.locator(no_sail_sel).first
-                        if await banner.is_visible(timeout=500):
-                            print(f"[MAERSK] Zero quotes! Found 'No sailings' banner: '{no_sail_sel}'")
-                            no_sailings_detected = True
-                            break
-                    except Exception:
-                        continue
+                try:
+                    no_sailings_detected = await self.page.evaluate("""
+                        () => {
+                            function hasText(root) {
+                                const text = (root.textContent || root.innerText || '').toLowerCase();
+                                if (text.includes('no sailings for your search') || text.includes('there are no sailings')) {
+                                    return true;
+                                }
+                                for (const el of root.querySelectorAll('*')) {
+                                    if (el.shadowRoot) {
+                                        if (hasText(el.shadowRoot)) return true;
+                                    }
+                                }
+                                return false;
+                            }
+                            return hasText(document.body);
+                        }
+                    """)
+                except Exception as eval_e:
+                    print(f"[MAERSK] Warning: no sailings JS check failed: {eval_e}")
                         
                 if no_sailings_detected:
                     print("[MAERSK] Halting automation. Maersk Spot explicitly reports no sailings are available.")
