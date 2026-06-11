@@ -2004,7 +2004,15 @@ class MaerskConnector(BaseCarrierConnector):
                         () => {
                             function hasText(root) {
                                 const text = (root.textContent || root.innerText || '').toLowerCase();
-                                if (text.includes('no sailings for your search') || text.includes('there are no sailings')) {
+                                if (
+                                    text.includes('no sailings') || 
+                                    text.includes('no departures') || 
+                                    text.includes('no rates') || 
+                                    text.includes('no quotes') || 
+                                    text.includes('no matching routes') || 
+                                    text.includes('no route matching') ||
+                                    text.includes('no results found')
+                                ) {
                                     return true;
                                 }
                                 for (const el of root.querySelectorAll('*')) {
@@ -2107,9 +2115,16 @@ class MaerskConnector(BaseCarrierConnector):
                 'text="There are no sailings for your search."',
                 'text="no sailings for your search"',
                 'text="changing the transportation mode (CY or SD)"',
+                'text="No sailings available"',
+                'text="No departures found"',
+                'text="No rates found"',
+                'text="No matching routes"',
                 '[class*="alert" i]:has-text("no sailings")',
                 '[class*="banner" i]:has-text("no sailings")',
-                '[class*="error" i]:has-text("no sailings")'
+                '[class*="error" i]:has-text("no sailings")',
+                '[class*="alert" i]:has-text("no departures")',
+                '[class*="banner" i]:has-text("no departures")',
+                '[class*="error" i]:has-text("no departures")'
             ]
             
             for no_sail_sel in no_sailings_selectors:
