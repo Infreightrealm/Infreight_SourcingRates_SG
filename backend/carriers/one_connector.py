@@ -819,11 +819,11 @@ class ONEConnector(BaseCarrierConnector):
                     await calendar_loc.wait_for(state="visible", timeout=5000)
                     print("[ONE] Calendar visible (retry)")
 
-                # Wait up to 6 seconds for prices to load (e.g. highlighted day or cell containing 'USD'), but proceed immediately as soon as they appear!
+                # Wait up to 15 seconds for prices to load (e.g. highlighted day or cell containing 'USD'), but proceed immediately as soon as they appear!
                 print("[ONE] Waiting for prices to load in calendar...")
                 try:
                     price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted, .react-datepicker__day:has-text("USD")').first
-                    await price_locator.wait_for(state="visible", timeout=6000)
+                    await price_locator.wait_for(state="visible", timeout=15000)
                     print("[ONE] Prices loaded successfully.")
                 except Exception:
                     print("[ONE] Prices did not load or highlighted days not found within timeout. Proceeding with available dates.")
