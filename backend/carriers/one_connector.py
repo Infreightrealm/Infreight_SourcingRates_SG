@@ -685,7 +685,7 @@ class ONEConnector(BaseCarrierConnector):
                     '[class*="loader" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]), '
                     '[class*="backdrop" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]):not([class*="modal"])'
                 )
-                for _ in range(50):
+                for _ in range(150):
                     loaders = self.page.locator(loader_sel)
                     visible_loaders = 0
                     for i in range(await loaders.count()):
@@ -761,7 +761,7 @@ class ONEConnector(BaseCarrierConnector):
                     '[class*="loader" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]), '
                     '[class*="backdrop" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]):not([class*="modal"])'
                 )
-                for _ in range(50):
+                for _ in range(150):
                     loaders = self.page.locator(loader_sel)
                     visible_loaders = 0
                     for i in range(await loaders.count()):
@@ -834,6 +834,12 @@ class ONEConnector(BaseCarrierConnector):
                 for month_attempt in range(2): # Current month + Next month
                     if date_selected: break
                     
+                    # Self-healing: if the calendar closed prematurely (due to background AJAX completions or focus loss), click again to reopen it!
+                    if not await calendar_loc.is_visible():
+                        print(f"[ONE] Calendar closed prematurely before month attempt {month_attempt}, reopening...")
+                        await date_field.click(force=True)
+                        await calendar_loc.wait_for(state="visible", timeout=5000)
+
                     if month_attempt > 0:
                         print(f"[ONE] No sailings in current view, trying Next Month (attempt {month_attempt})...")
                         try:
@@ -852,6 +858,12 @@ class ONEConnector(BaseCarrierConnector):
                     # Strategy 2: Click first calendar date that has ANY price (using highlight class)
                     if not date_selected:
                         try:
+                            # Reopen calendar if closed
+                            if not await calendar_loc.is_visible():
+                                print("[ONE] Calendar closed, reopening for Strategy 2...")
+                                await date_field.click(force=True)
+                                await calendar_loc.wait_for(state="visible", timeout=3000)
+
                             # The debug screenshot showed prices in elements with "date-picker-date-highlight"
                             price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted').filter(has_text="USD").first
                             await price_locator.wait_for(state="visible", timeout=5000)
@@ -872,6 +884,12 @@ class ONEConnector(BaseCarrierConnector):
                     # Strategy 3: Search for ANY numeric price label (anchored regex) inside calendar tiles
                     if not date_selected:
                         try:
+                            # Reopen calendar if closed
+                            if not await calendar_loc.is_visible():
+                                print("[ONE] Calendar closed, reopening for Strategy 3...")
+                                await date_field.click(force=True)
+                                await calendar_loc.wait_for(state="visible", timeout=3000)
+
                             # Broad search for 3-4 digit numbers or K-values inside anything that looks like a day tile
                             price_tile = self.page.locator('.react-datepicker__day, [class*="day"], [class*="tile"]').get_by_text(
                                 re.compile(r"\d{3,4}|[\d.]+[kK]"), exact=False
@@ -894,6 +912,12 @@ class ONEConnector(BaseCarrierConnector):
                 # Strategy 4: Click any non-disabled calendar cell with content
                 if not date_selected:
                     try:
+                        # Reopen calendar if closed
+                        if not await calendar_loc.is_visible():
+                            print("[ONE] Calendar closed, reopening for Strategy 4...")
+                            await date_field.click(force=True)
+                            await calendar_loc.wait_for(state="visible", timeout=3000)
+
                         # Target anything that looks like a date cell and is not disabled
                         any_cell = self.page.locator(
                             '[class*="Calendar"] button:not([disabled]), '
