@@ -706,6 +706,11 @@ class PortManager:
                     if keyword == norm_text_clean or keyword == clean_text.lower():
                         extracted_locode = locode
                         break
+            if not extracted_locode:
+                # Try database search fallback
+                results = self.search_port(text)
+                if results:
+                    extracted_locode = results[0]['code'].upper()
             # Return the LOCODE itself — GreenX and MSC autocomplete search by LOCODE
             if extracted_locode and extracted_locode in self._ports:
                 return extracted_locode

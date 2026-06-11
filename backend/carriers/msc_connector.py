@@ -116,7 +116,7 @@ class MSCConnector(BaseCarrierConnector):
             target_eq = ""
             if "20" in request.container_type:
                 target_eq = "20DV"
-            elif "40H" in request.container_type:
+            elif "40H" in request.container_type or "HC" in request.container_type or "HQ" in request.container_type:
                 target_eq = "40HC"
             elif "40" in request.container_type:
                 target_eq = "40DV"
@@ -126,18 +126,30 @@ class MSCConnector(BaseCarrierConnector):
             self.log(f"Target equipment: {target_eq}")
 
             for eq_type in ["20DV", "40DV", "40HC"]:
-                if eq_type != target_eq:
-                    self.log(f"Unchecking {eq_type}...")
-                    checkbox_wrapper = self.page.locator(f"label:has-text('{eq_type}')")
+                should_be_checked = (eq_type == target_eq)
+                try:
+                    toggled = await self.page.evaluate('''([eqType, shouldBeChecked]) => {
+                        const labels = Array.from(document.querySelectorAll('label'));
+                        const label = labels.find(l => (l.textContent || '').trim().includes(eqType));
+                        if (!label) return false;
+                        const input = label.querySelector('input[type="checkbox"]');
+                        const isChecked = input ? (input.checked || label.classList.contains('Mui-checked') || !!label.querySelector('.Mui-checked')) : false;
+                        if (!!isChecked !== !!shouldBeChecked) {
+                            label.click();
+                            return true;
+                        }
+                        return false;
+                    }''', [eq_type, should_be_checked])
+                    if toggled:
+                        self.log(f"Toggled checkbox {eq_type} to {should_be_checked}")
+                        await self.page.wait_for_timeout(500)
+                except Exception as e:
+                    self.log(f"Warning: Failed to toggle checkbox {eq_type} via JS: {e}. Trying fallback...")
+                    # Fallback click
+                    checkbox_wrapper = self.page.locator(f"label:has-text('{eq_type}')").first
                     if await checkbox_wrapper.is_visible():
-                        input_el = checkbox_wrapper.locator("input[type='checkbox']")
-                        if await input_el.count() > 0:
-                            if await input_el.first.is_checked():
-                                await checkbox_wrapper.first.click()
-                                await self.page.wait_for_timeout(500)
-                        else:
-                            await checkbox_wrapper.first.click()
-                            await self.page.wait_for_timeout(500)
+                        await checkbox_wrapper.click()
+                        await self.page.wait_for_timeout(500)
 
             # 2. Cargo Weight
             self.log(f"Setting cargo weight to {request.weight_per_container_kg}...")
@@ -240,7 +252,9 @@ class MSCConnector(BaseCarrierConnector):
             input_box = label_element.locator("xpath=..").locator("input").first
             await input_box.wait_for(state="visible", timeout=5000)
             await input_box.click()
-            await input_box.fill(locode)
+            await input_box.fill("")
+            await self.page.wait_for_timeout(500)
+            await input_box.type(locode, delay=100)
             
             self.log(f"Waiting for dropdown option containing [{locode}]...")
             await self.page.wait_for_timeout(2000)
@@ -254,10 +268,20 @@ class MSCConnector(BaseCarrierConnector):
 
             if await exact_option.is_visible():
                 self.log(f"Found exact word match for '{locode}'. Clicking it.")
-                await exact_option.click()
+                try:
+                    await exact_option.scroll_into_view_if_needed()
+                    await exact_option.click(timeout=3000)
+                except Exception as click_err:
+                    self.log(f"Playwright click on exact option failed: {click_err}. Trying JS click...")
+                    await exact_option.evaluate("el => el.click()")
             elif await fallback_option.is_visible():
                 self.log(f"Found substring match for '{locode}'. Clicking it.")
-                await fallback_option.click()
+                try:
+                    await fallback_option.scroll_into_view_if_needed()
+                    await fallback_option.click(timeout=3000)
+                except Exception as click_err:
+                    self.log(f"Playwright click on fallback option failed: {click_err}. Trying JS click...")
+                    await fallback_option.evaluate("el => el.click()")
             else:
                 self.log("Warning: Option containing LOCODE not visible, pressing Enter.")
                 await input_box.press("Enter")
