@@ -2247,20 +2247,22 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
             print(f"[HAPAG] Parsing breakdown table for container size: '{container_type}'...")
             
-            # --- DEBUG DUMP MODAL ROWS ---
-            try:
-                dump_res = await self.page.evaluate('''() => {
-                    const rows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
-                    return rows.map((r, i) => {
-                        const cells = Array.from(r.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"]'));
-                        return `Row ${i} (${r.tagName}): ` + cells.map(c => `[${c.tagName}: ${c.textContent.trim()}]`).join(", ");
-                    });
-                }''')
-                print("[HAPAG] [DEBUG DUMP] Modal Rows:")
-                for line in dump_res:
-                    print(f"  >> {line}")
-            except Exception as de:
-                print(f"[HAPAG] Debug dump failed: {de}")
+            # --- DEBUG DUMP MODAL ROWS (gated behind HAPAG_DEBUG=true) ---
+            import os as _os
+            if _os.getenv("HAPAG_DEBUG", "").lower() == "true":
+                try:
+                    dump_res = await self.page.evaluate('''() => {
+                        const rows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
+                        return rows.map((r, i) => {
+                            const cells = Array.from(r.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"]'));
+                            return `Row ${i} (${r.tagName}): ` + cells.map(c => `[${c.tagName}: ${c.textContent.trim()}]`).join(", ");
+                        });
+                    }''')
+                    print("[HAPAG] [DEBUG DUMP] Modal Rows:")
+                    for line in dump_res:
+                        print(f"  >> {line}")
+                except Exception as de:
+                    print(f"[HAPAG] Debug dump failed: {de}")
             
             charges = await self.page.evaluate(r'''containerType => {
                 let targetColIndex = 4; // default to 40STD (DRY 40)
@@ -2375,7 +2377,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                 return results;
             }''', container_type)
             
-            print(f"[HAPAG] Successfully extracted {len(charges)} charges for {container_type}: {charges}")
+            charge_names = [c['name'] for c in charges]
+            print(f"[HAPAG] Successfully extracted {len(charges)} charges for {container_type}: {charge_names}")
             
         except Exception as e:
             print(f"[HAPAG] Surcharge details extraction error: {e}")
@@ -2528,6 +2531,15 @@ class HapagLloydConnector(BaseCarrierConnector):
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
             # Step 6: For each schedule, map the corresponding quote price
+            # Filter out past ETDs (departed sailings produce permanent [NO PRICE MATCH] noise)
+            from datetime import date as _date
+            today_str = _date.today().isoformat()  # e.g. '2026-06-11'
+            future_schedules = [s for s in schedules if s.get("etd", "") >= today_str]
+            skipped = len(schedules) - len(future_schedules)
+            if skipped:
+                print(f"[HAPAG] Skipping {skipped} past-ETD schedule(s) (before {today_str}).")
+            schedules = future_schedules
+
             for schedule in schedules:
                 try:
                     sched_etd = schedule["etd"]
