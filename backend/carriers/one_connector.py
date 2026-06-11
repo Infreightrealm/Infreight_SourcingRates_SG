@@ -96,9 +96,19 @@ class ONEConnector(BaseCarrierConnector):
         try:
             # Use JS evaluation to instantly click the Skip button to prevent blocking the Playwright thread
             await self.page.evaluate('''() => {
-                const skipBtns = Array.from(document.querySelectorAll('a, button, span, div')).filter(el => 
-                    el.textContent && el.textContent.trim().toLowerCase() === 'skip'
-                );
+                // Clear any selection/highlighting first
+                window.getSelection()?.removeAllRanges();
+
+                const skipBtns = Array.from(document.querySelectorAll('button, a, [role="button"], span, div')).filter(el => {
+                    const text = (el.textContent || '').trim().toLowerCase();
+                    if (text !== 'skip') return false;
+                    
+                    // Exclude accessibility skip links pointing to same-page anchors
+                    if (el.tagName === 'A' && (el.getAttribute('href') || '').startsWith('#')) {
+                        return false;
+                    }
+                    return true;
+                });
                 if (skipBtns.length > 0) {
                     skipBtns[0].click();
                 }
@@ -106,10 +116,13 @@ class ONEConnector(BaseCarrierConnector):
             await self.page.wait_for_timeout(300)
             
             # Also attempt standard playwright click if it's still there
-            skip_btn = self.page.locator('button:has-text("Skip"), text="Skip"').first
+            skip_btn = self.page.locator('button:has-text("Skip"), [role="button"]:has-text("Skip"), a:has-text("Skip"):not([href^="#"])').first
             if await skip_btn.is_visible(timeout=200):
                 await skip_btn.click(force=True)
                 await self.page.wait_for_timeout(500)
+
+            # Clear selection one more time in case the click triggered any text highlighting
+            await self.page.evaluate('window.getSelection()?.removeAllRanges()')
         except Exception:
             pass
 
