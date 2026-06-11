@@ -474,7 +474,7 @@ class MSCConnector(BaseCarrierConnector):
             await self.save_screenshot("msc_error_fallback.png", full_page=True)
             return CarrierResultStatus.UNKNOWN_ERROR, []
         finally:
-            await self.close()
+            await asyncio.shield(self.close())
 
     def _parse_date(self, date_str: str) -> str:
         """Parse '14 Jun 2026' to 'YYYY-MM-DD'"""

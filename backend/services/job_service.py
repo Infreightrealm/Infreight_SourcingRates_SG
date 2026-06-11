@@ -16,6 +16,8 @@ from models.schemas import RateSearchRequest, CarrierResultStatus, SearchStatus
 from carriers.registry import get_connector
 from services.queue_manager import queue_manager
 
+active_search_tasks: dict[str, list[asyncio.Task]] = {}
+
 
 async def run_carrier_search(
     search_id: UUID,
@@ -144,11 +146,17 @@ async def run_carrier_search(
             await session.commit()
             print(f"[JOB] {carrier_code}: {status.value} — {len(quotes)} quote(s)")
 
-        except Exception as e:
-            db_result.status = CarrierResultStatus.UNKNOWN_ERROR.value
-            db_result.error_message = str(e)
+        except BaseException as e:
+            if isinstance(e, asyncio.CancelledError):
+                db_result.status = CarrierResultStatus.FAILED.value
+                db_result.error_message = "Search forcefully stopped by user"
+            else:
+                db_result.status = CarrierResultStatus.UNKNOWN_ERROR.value
+                db_result.error_message = str(e)
             db_result.completed_at = datetime.utcnow()
-            await session.commit()
+            await asyncio.shield(session.commit())
+            if isinstance(e, asyncio.CancelledError):
+                raise
             print(f"[JOB] {carrier_code} error: {e}")
 
 
@@ -194,29 +202,66 @@ async def run_all_carrier_searches(
     request: RateSearchRequest,
 ):
     """Run search jobs for all selected carriers concurrently, updating overall status as each finishes."""
-    # 1. Enqueue and wait for our turn
     search_str_id = str(search_id)
-    name = request.user_name or "Anonymous"
-    search_info = f"{name}'s search ({request.origin} to {request.destination})"
-    await queue_manager.enqueue_and_wait(search_str_id, search_info)
+    try:
+        # 1. Enqueue and wait for our turn
+        name = request.user_name or "Anonymous"
+        search_info = f"{name}'s search ({request.origin} to {request.destination})"
+        await queue_manager.enqueue_and_wait(search_str_id, search_info)
 
-    # 2. Run searches with concurrency limits
-    # Hapag-Lloyd and ONE take the longest, so prioritize them first so they don't hold up the end of the queue
-    slow_carriers = ["HAPAG_LLOYD", "ONE"]
-    sorted_carriers = sorted(carriers, key=lambda c: 0 if c.upper() in slow_carriers else 1)
+        # 2. Run searches with concurrency limits
+        # Hapag-Lloyd and ONE take the longest, so prioritize them first so they don't hold up the end of the queue
+        slow_carriers = ["HAPAG_LLOYD", "ONE"]
+        sorted_carriers = sorted(carriers, key=lambda c: 0 if c.upper() in slow_carriers else 1)
 
-    # Limit to 3 concurrent browser instances to prevent resource exhaustion and anti-bot triggers
-    semaphore = asyncio.Semaphore(3)
+        # Limit to 3 concurrent browser instances to prevent resource exhaustion and anti-bot triggers
+        semaphore = asyncio.Semaphore(3)
 
-    async def run_and_update(c):
-        async with semaphore:
-            try:
-                await run_carrier_search(search_id, c, request)
-            finally:
-                await update_search_status(search_id)
+        async def run_and_update(c):
+            async with semaphore:
+                try:
+                    await run_carrier_search(search_id, c, request)
+                finally:
+                    await asyncio.shield(update_search_status(search_id))
 
-    tasks = [run_and_update(carrier) for carrier in sorted_carriers]
-    await asyncio.gather(*tasks, return_exceptions=True)
+        active_tasks = [asyncio.create_task(run_and_update(carrier)) for carrier in sorted_carriers]
+        active_search_tasks[search_str_id] = active_tasks
+
+        try:
+            await asyncio.gather(*active_tasks, return_exceptions=True)
+        finally:
+            active_search_tasks.pop(search_str_id, None)
+
+    except BaseException as e:
+        print(f"[JOB] run_all_carrier_searches was interrupted or cancelled: {e}")
+        
+        async def do_cleanup():
+            async with get_async_session_maker()() as session:
+                # Mark all carrier results that are still QUEUED or RUNNING as FAILED
+                results = (await session.execute(
+                    select(CarrierSearchResult).where(
+                        CarrierSearchResult.search_id == search_id,
+                        CarrierSearchResult.status.in_(["QUEUED", "RUNNING"])
+                    )
+                )).scalars().all()
+                for r in results:
+                    r.status = CarrierResultStatus.FAILED.value
+                    r.error_message = "Search forcefully stopped by user"
+                    r.completed_at = datetime.utcnow()
+                
+                # Mark the main search status as FAILED
+                search = (await session.execute(
+                    select(RateSearch).where(RateSearch.id == search_id)
+                )).scalar_one_or_none()
+                if search:
+                    search.status = SearchStatus.FAILED.value
+                    search.updated_at = datetime.utcnow()
+                
+                await session.commit()
+                
+        await asyncio.shield(do_cleanup())
+        if isinstance(e, asyncio.CancelledError):
+            raise
 
     # 3. Mark search completed in the queue manager to start the auto-release timeout
     await queue_manager.mark_search_completed(search_str_id)
@@ -235,3 +280,14 @@ async def run_all_carrier_searches(
                 break
 
     asyncio.create_task(auto_release_poller())
+
+
+async def cancel_all_active_searches():
+    """Cancel all active search tasks."""
+    cancelled_count = 0
+    for search_id, tasks in list(active_search_tasks.items()):
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+                cancelled_count += 1
+    print(f"[JOB] Cancelled {cancelled_count} active search task(s).")

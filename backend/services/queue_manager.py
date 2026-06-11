@@ -39,6 +39,10 @@ class SearchQueueManager:
         # Polling loop to wait for turn
         while True:
             async with self._lock:
+                # Check if we were cancelled/removed from the queue
+                if search_id not in self.queue and self.active_search_id != search_id:
+                    raise asyncio.CancelledError("Search was cancelled or removed from queue.")
+
                 # If no active search and we are first in queue, take the lock
                 if self.active_search_id is None and self.queue and self.queue[0] == search_id:
                     self.active_search_id = self.queue.pop(0)

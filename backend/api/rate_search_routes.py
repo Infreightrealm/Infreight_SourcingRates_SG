@@ -280,7 +280,9 @@ async def reject_repair(req: RejectRepairRequest):
 
 @router.post("/force-stop")
 async def force_stop_searches():
-    """Forcefully clears the queue. Active browser might finish its current run, but no new ones will start."""
+    """Forcefully clears the queue and cancels all active search tasks."""
     from services.queue_manager import queue_manager
+    from services.job_service import cancel_all_active_searches
     await queue_manager.force_clear_all()
-    return {"status": "SUCCESS", "message": "Search Queue forcefully cleared."}
+    await cancel_all_active_searches()
+    return {"status": "SUCCESS", "message": "Search Queue forcefully cleared and all active searches cancelled."}

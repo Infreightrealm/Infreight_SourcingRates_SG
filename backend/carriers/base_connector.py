@@ -6,6 +6,7 @@ the carrier's quote portal via Playwright browser automation.
 """
 from abc import ABC, abstractmethod
 from typing import Optional
+import asyncio
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
 
 
@@ -161,7 +162,7 @@ class BaseCarrierConnector(ABC):
             return CarrierResultStatus.UNKNOWN_ERROR, []
 
         finally:
-            await self.close()
+            await asyncio.shield(self.close())
 
 
 class NotAvailableConnector(BaseCarrierConnector):

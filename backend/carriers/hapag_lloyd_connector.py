@@ -2605,7 +2605,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] Unexpected error in run_full_search: {e}")
             return CarrierResultStatus.UNKNOWN_ERROR, []
         finally:
-            await self.close()
+            await asyncio.shield(self.close())
 
     async def close(self):
         try:

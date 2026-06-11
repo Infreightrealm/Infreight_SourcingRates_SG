@@ -474,7 +474,7 @@ class MaerskConnector(BaseCarrierConnector):
             print(f"[MAERSK] Unexpected error in full search: {e}")
             return CarrierResultStatus.UNKNOWN_ERROR, []
         finally:
-            await self.close()
+            await asyncio.shield(self.close())
 
     # ────────────────────────────────────────
     # BROWSER INITIALIZATION (Shared Engine)
