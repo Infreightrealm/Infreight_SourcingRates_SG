@@ -34,7 +34,17 @@ class MSCConnector(BaseCarrierConnector):
         """Handles the MSC login flow."""
         self.log("Initializing browser...")
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False, args=["--start-maximized"])
+
+        # Thread-safe virtual display environment injection
+        browser_env = os.environ.copy()
+        if os.name != "nt":
+            browser_env["DISPLAY"] = ":104"
+
+        self.browser = await self.playwright.chromium.launch(
+            headless=False,
+            args=["--start-maximized"],
+            env=browser_env
+        )
         self.context = await self.browser.new_context(viewport={'width': 1920, 'height': 1080})
         self.page = await self.context.new_page()
 
