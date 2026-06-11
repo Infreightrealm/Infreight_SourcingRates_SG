@@ -7,6 +7,7 @@ from playwright.async_api import Page, TimeoutError, async_playwright
 from carriers.base_connector import BaseCarrierConnector
 from models.schemas import CarrierResultStatus, RateSearchRequest, QuoteSchema
 from services.port_manager import resolve_port_for_carrier
+from services.normalizer import standardize_date_string
 
 class MSCConnector(BaseCarrierConnector):
     """
@@ -367,7 +368,32 @@ class MSCConnector(BaseCarrierConnector):
                 if await routing_el.count() > 0:
                     routing_text = await routing_el.first.inner_text()
                 
+                if not routing_text or "Routing:" not in routing_text:
+                    routing_text = await modal.inner_text()
+                
                 is_direct = "Direct" in routing_text
+                routing_val = "Direct"
+                if not is_direct:
+                    routing_section = ""
+                    r_idx = routing_text.find("Routing:")
+                    if r_idx != -1:
+                        routing_section = routing_text[r_idx:]
+                        end_keywords = ["INCLUSIVE OF", "QUOTE VALIDITY", "PAYMENT TERMS", "TRANSIT TIME", "CHARGES AND CONDITIONS"]
+                        end_idx = len(routing_section)
+                        for kw in end_keywords:
+                            kw_idx = routing_section.upper().find(kw)
+                            if kw_idx != -1 and kw_idx < end_idx:
+                                end_idx = kw_idx
+                        routing_section = routing_section[:end_idx]
+                    else:
+                        routing_section = routing_text
+
+                    via_match = re.search(r"Via\s*:\s*([^(\n\r]+)", routing_section, re.IGNORECASE)
+                    if via_match:
+                        via_port = via_match.group(1).strip()
+                        routing_val = f"Transit via {via_port}"
+                    else:
+                        routing_val = "Transshipment"
 
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
@@ -405,10 +431,10 @@ class MSCConnector(BaseCarrierConnector):
                     from models.schemas import ChargeSchema
                     quote = QuoteSchema(
                         service_name=service_name,
-                        routing="Direct" if is_direct else "Transshipment",
+                        routing=routing_val,
                         transit_time_days=tt_days,
-                        etd=self._parse_date(etd) if etd else None,
-                        eta=self._parse_date(eta) if eta else None,
+                        etd=standardize_date_string(etd) if etd else None,
+                        eta=standardize_date_string(eta) if eta else None,
                         vessel=vessel,
                         free_time=free_time,
                         currency=currency,

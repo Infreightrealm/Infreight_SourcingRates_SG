@@ -99,8 +99,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       { header: containerHeader, key: "rate", width: 18 },
       { header: "T/T", key: "tt", width: 10 },
       { header: "Free time", key: "freetime", width: 12 },
-      { header: "Validity(ETD)", key: "validity", width: 16 },
-      { header: "ETA", key: "eta", width: 16 },
+      { header: "ETD POL", key: "validity", width: 16 },
+      { header: "ETA POD", key: "eta", width: 16 },
       { header: "Routing", key: "routing", width: 12 },
       { header: "Remark", key: "remark", width: 35 }
     ];
@@ -336,8 +336,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                 <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#1a1f2e] backdrop-blur-md">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Carrier</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETD</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETA</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETD POL</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETA POD</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Transit</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Free Time</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Service / Vessel</th>

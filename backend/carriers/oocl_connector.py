@@ -9,6 +9,7 @@ from typing import Optional, List
 from playwright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, ChargeSchema
 from carriers.base_connector import BaseCarrierConnector
+from services.normalizer import standardize_date_string
 
 class OOCLConnector(BaseCarrierConnector):
     carrier_code = "OOCL"
@@ -342,4 +343,6 @@ class OOCLConnector(BaseCarrierConnector):
         return []
 
     async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
+        raw_quote["etd"] = standardize_date_string(raw_quote.get("etd"))
+        raw_quote["eta"] = standardize_date_string(raw_quote.get("eta"))
         return QuoteSchema(**raw_quote)
