@@ -495,7 +495,8 @@ class GreenXConnector(BaseCarrierConnector):
             for scroll_attempt in range(15):
                 card_buttons = self.page.locator('button:has-text("Route Details"):visible')
                 count = await card_buttons.count()
-                print(f"[GreenX] Scroll attempt {scroll_attempt}: found {count} visible buttons.")
+                if os.getenv("GREENX_DEBUG", "").lower() == "true":
+                    print(f"[GreenX] Scroll attempt {scroll_attempt}: found {count} visible buttons.")
                 if count == 0:
                     await self.page.wait_for_timeout(1000)
                     continue
@@ -511,8 +512,9 @@ class GreenXConnector(BaseCarrierConnector):
                     print(f"[GreenX] Scroll warning: {se}")
                     break
 
-            await self.page.screenshot(path="greenx_after_scroll.png")
-            print("[GreenX] Saved screenshot after scroll to greenx_after_scroll.png")
+            if os.getenv("GREENX_DEBUG", "").lower() == "true":
+                await self.page.screenshot(path="greenx_after_scroll.png")
+                print("[GreenX] Saved screenshot after scroll to greenx_after_scroll.png")
             
             route_details_locs = self.page.locator('button:has-text("Route Details"):visible')
             count = await route_details_locs.count()
@@ -633,7 +635,8 @@ class GreenXConnector(BaseCarrierConnector):
                     quote_ref["routing"] = "Transit"
                 else:
                     quote_ref["routing"] = "Direct"
-                print(f"[GreenX] Extracted routing: {quote_ref['routing']}")
+                if os.getenv("GREENX_DEBUG", "").lower() == "true":
+                    print(f"[GreenX] Extracted routing: {quote_ref['routing']}")
 
             # 2. Price Details
             print(f"[GreenX] Opening Price Details for card {quote_ref['index']}...")
@@ -654,7 +657,8 @@ class GreenXConnector(BaseCarrierConnector):
                         "amount": amount,
                         "currency": "USD"
                     })
-                    print(f"[GreenX] Parsed charge row: {name} = USD {amount}")
+                    if os.getenv("GREENX_DEBUG", "").lower() == "true":
+                        print(f"[GreenX] Parsed charge row: {name} = USD {amount}")
                 
                 quote_ref["charges"] = charges
                 self.current_charges = charges
@@ -669,7 +673,8 @@ class GreenXConnector(BaseCarrierConnector):
                     det_match = re.search(r"Container\s+Detention\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days", dest_part, re.IGNORECASE)
                     if det_match:
                         quote_ref["free_time"] = int(det_match.group(1))
-                        print(f"[GreenX] Extracted free time detention: {quote_ref['free_time']} days")
+                        if os.getenv("GREENX_DEBUG", "").lower() == "true":
+                            print(f"[GreenX] Extracted free time detention: {quote_ref['free_time']} days")
             
             return True
         except Exception as e:
