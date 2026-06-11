@@ -684,13 +684,13 @@ class ONEConnector(BaseCarrierConnector):
             try:
                 commodity_field = self.page.get_by_role("combobox", name="Please input Commodity Name or HS code").first
                 await commodity_field.click()
-                await self.page.wait_for_timeout(500)
+                await self.page.wait_for_timeout(200)
                 await self.page.keyboard.type(request.commodity, delay=25)
 
                 # Wait for dropdown suggestions to appear
                 try:
                     first_option = self.page.locator('[role="option"]').first
-                    await first_option.wait_for(state="visible", timeout=10000)
+                    await first_option.wait_for(state="visible", timeout=2000)
 
                     # Try to find a case-insensitive match first, else pick the first option
                     commodity_upper = request.commodity.strip().upper()
@@ -711,53 +711,82 @@ class ONEConnector(BaseCarrierConnector):
                     print("[ONE] Commodity: no dropdown appeared, pressing Enter")
                     await self.page.keyboard.press("Enter")
 
-                await self.page.wait_for_timeout(3000)  # Wait for commodity chip to form
+                await self.page.wait_for_timeout(200)
             except Exception as e:
                 print(f"[ONE] Commodity selection failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
+            # Wait for any loading dialogs/spinners to disappear before proceeding
+            try:
+                loader_sel = '.loading, .spinner, [class*="loading" i], [class*="spinner" i]'
+                for _ in range(50):
+                    loaders = self.page.locator(loader_sel)
+                    visible_loaders = 0
+                    for i in range(await loaders.count()):
+                        if await loaders.nth(i).is_visible():
+                            visible_loaders += 1
+                    if visible_loaders == 0:
+                        break
+                    await self.page.wait_for_timeout(100)
+            except Exception:
+                pass
+
             print("[ONE] Opening date picker and accepting available sailing date...")
             try:
-                date_field = self.page.locator('text=/please select vessel departure date at origin/i').first
-                try:
-                    await date_field.wait_for(state="visible", timeout=3000)
-                except Exception:
-                    try:
-                        date_field = self.page.get_by_role("textbox", name="Please select vessel departure date at origin")
-                        await date_field.wait_for(state="visible", timeout=3000)
-                    except Exception:
-                        # Fallback to general date input selectors
-                        date_field = self.page.locator('input[placeholder*="date" i], input[aria-label*="date" i], input[name*="date" i], input[id*="date" i], input[placeholder*="YYYY-MM-DD" i]').first
-                        await date_field.wait_for(state="visible", timeout=5000)
+                # Combined selector to avoid sequential timeouts
+                date_field = self.page.locator(
+                    'input[placeholder*="date" i], '
+                    'input[placeholder*="departure" i], '
+                    'input[aria-label*="date" i], '
+                    'input[name*="date" i], '
+                    'input[id*="date" i], '
+                    'input[placeholder*="YYYY-MM-DD" i]'
+                ).first
+                await date_field.wait_for(state="visible", timeout=5000)
                 
                 # Ensure we scroll the date field into view and wait a bit for any dynamic overlays to settle
                 await date_field.scroll_into_view_if_needed()
-                await self.page.wait_for_timeout(1000)
-                await date_field.click(force=True)
+                await self.page.wait_for_timeout(300) # Reduced from 1000
+
+                # Wait for the date field to be enabled before clicking
+                for _ in range(50):
+                    is_disabled = await date_field.get_attribute("disabled")
+                    cls = await date_field.get_attribute("class") or ""
+                    if is_disabled is None and "disabled" not in cls.lower():
+                        break
+                    await self.page.wait_for_timeout(100)
+
+                # Try standard click first to trigger Playwright's actionability checks, fallback to force click
+                try:
+                    await date_field.click(timeout=5000)
+                except Exception:
+                    print("[ONE] Normal date field click blocked/failed, trying force click...")
+                    await date_field.click(force=True)
                 
                 # Wait for the calendar container to be visible
                 print("[ONE] Waiting for calendar to appear...")
+                calendar_sel = 'div[class*="Calendar"], .react-calendar, [class*="calendar-picker"], .MuiCalendarPicker-root, .react-datepicker, .react-datepicker-popper, .react-datepicker__calendar-container'
+                calendar_loc = self.page.locator(calendar_sel).first
                 try:
-                    calendar_sel = 'div[class*="Calendar"], .react-calendar, [class*="calendar-picker"], .MuiCalendarPicker-root, .react-datepicker, .react-datepicker-popper, .react-datepicker__calendar-container'
-                    await self.page.locator(calendar_sel).first.wait_for(state="visible", timeout=10000)
+                    await calendar_loc.wait_for(state="visible", timeout=8000)
                     print("[ONE] Calendar visible")
                 except Exception:
-                    print("[ONE] Warning: Calendar container not detected, continuing with strategies")
+                    # Retry click if calendar did not appear (helps if page focus swallowed first click)
+                    print("[ONE] Calendar did not appear, retrying click on date field...")
+                    await date_field.click(force=True)
+                    await calendar_loc.wait_for(state="visible", timeout=5000)
+                    print("[ONE] Calendar visible (retry)")
 
-                # Give calendar ample time to fetch sailings and render prices
-                await self.page.wait_for_timeout(8000)
+                # Wait up to 6 seconds for prices to load (e.g. highlighted day or cell containing 'USD'), but proceed immediately as soon as they appear!
+                print("[ONE] Waiting for prices to load in calendar...")
+                try:
+                    price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted, .react-datepicker__day:has-text("USD")').first
+                    await price_locator.wait_for(state="visible", timeout=6000)
+                    print("[ONE] Prices loaded successfully.")
+                except Exception:
+                    print("[ONE] Prices did not load or highlighted days not found within timeout. Proceeding with available dates.")
                 
                 date_selected = False
-                
-                # Strategy 1: Click "view Quote" directly if it's already there (e.g. from a previous search)
-                try:
-                    view_quote_btn = self.page.locator('button:has-text("View Quote"), button:has-text("view Quote"), text="View Quote", text="view Quote"').first
-                    await view_quote_btn.wait_for(state="visible", timeout=2000)
-                    await view_quote_btn.click(force=True)
-                    date_selected = True
-                    print("[ONE] Clicked 'view Quote' directly from calendar")
-                except Exception:
-                    pass
                 
                 # We wrap the main hunting strategies in a loop to handle "Next Month" if current month is empty
                 for month_attempt in range(2): # Current month + Next month
