@@ -548,8 +548,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                 form_loaded = False
                 confirm_start_time = asyncio.get_event_loop().time()
                 
-                # Poll for up to 45 seconds for redirect/loading of the Quote form
-                while asyncio.get_event_loop().time() - confirm_start_time < 45:
+                # Poll for up to 240 seconds (4 minutes) for redirect/loading of the Quote form (handling 2FA human in the loop)
+                while asyncio.get_event_loop().time() - confirm_start_time < 240:
                     for sel in quote_selectors:
                         try:
                             loc = self.page.locator(sel).first
@@ -561,6 +561,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                             pass
                     if form_loaded:
                         break
+                    
+                    elapsed = int(asyncio.get_event_loop().time() - confirm_start_time)
+                    if elapsed > 0 and elapsed % 5 == 0:
+                        print(f"[HAPAG] Still waiting for Quick Quote page to load... (elapsed {elapsed}s). Solve 2FA / Verification code in VNC if prompted.")
+                        
                     await asyncio.sleep(1)
                 
                 if not form_loaded:
@@ -578,7 +583,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     self.is_login_successful = True
                     return True
                 else:
-                    raise Exception("No confirming Quick Quote page elements were visible after 45s.")
+                    raise Exception("No confirming Quick Quote page elements were visible after 240s.")
                     
             except Exception as e:
                 print(f"[HAPAG] [ERROR] Quick Quote form verification failed: {e}")
