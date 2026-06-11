@@ -740,7 +740,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
                 if target_match in item_text or (cached_name and cached_name.upper() in item_text):
                     print(f"[HAPAG] [MATCH] Found suggestion: '{item_text}'. Clicking...")
-                    await item.click()
+                    try:
+                        await item.scroll_into_view_if_needed()
+                        await item.click(timeout=3000)
+                    except Exception as item_click_err:
+                        print(f"[HAPAG] Playwright click on dropdown item failed: {item_click_err}. Trying JS click...")
+                        await item.evaluate("el => el.click()")
                     await self._human_delay(1500, 2500)  # Buffer time after selection click to let form settle
                     return True
 
@@ -755,7 +760,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                 if is_unit_or_door:
                     continue
                 print(f"[HAPAG] No exact suggestion matched '{target_match}'. Falling back to first valid option: '{item_text}'.")
-                await item.click()
+                try:
+                    await item.scroll_into_view_if_needed()
+                    await item.click(timeout=3000)
+                except Exception as item_click_err:
+                    print(f"[HAPAG] Playwright click on dropdown item fallback failed: {item_click_err}. Trying JS click...")
+                    await item.evaluate("el => el.click()")
                 await self._human_delay(1500, 2500)
                 return True
 
@@ -975,7 +985,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                             pass
 
                 if container_box:
-                    await container_box.click(force=True, timeout=5000)
+                    await container_box.scroll_into_view_if_needed()
+                    try:
+                        await container_box.click(timeout=3000)
+                    except Exception as click_err:
+                        print(f"[HAPAG] Playwright click on schedule container box failed: {click_err}. Trying JS click...")
+                        await container_box.evaluate("el => el.click()")
                     await self._human_delay(1000, 1800)
 
                     # Select matching option
@@ -986,7 +1001,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                         f'[role="option"]:has-text("{hapag_container}")'
                     ).first
                     if await option.is_visible(timeout=5000):
-                        await option.click()
+                        try:
+                            await option.scroll_into_view_if_needed()
+                            await option.click(timeout=3000)
+                        except Exception as option_err:
+                            print(f"[HAPAG] Playwright click on option failed: {option_err}. Trying JS click...")
+                            await option.evaluate("el => el.click()")
                         container_selected = True
                         print(f"[HAPAG] Schedule: Container type selected: {hapag_container}")
                     else:
@@ -995,7 +1015,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                         option2 = self.page.locator(f'.q-menu .q-item:has-text("{short_label}"), div.q-item:has-text("{short_label}")').first
                         if await option2.is_visible(timeout=2000):
                             txt = (await option2.inner_text()).strip()
-                            await option2.click()
+                            try:
+                                await option2.scroll_into_view_if_needed()
+                                await option2.click(timeout=3000)
+                            except Exception as option_err:
+                                print(f"[HAPAG] Playwright click on option2 failed: {option_err}. Trying JS click...")
+                                await option2.evaluate("el => el.click()")
                             container_selected = True
                             print(f"[HAPAG] Schedule: Container selected (partial match): {txt}")
                         else:
@@ -1432,7 +1457,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                 if not container_box:
                     container_box = self.page.locator('input.q-select__focus-target').first
 
-                await container_box.click(force=True, timeout=5000)
+                await container_box.scroll_into_view_if_needed()
+                try:
+                    await container_box.click(timeout=3000)
+                except Exception as click_err:
+                    print(f"[HAPAG] Playwright click on container box failed: {click_err}. Trying JS click...")
+                    await container_box.evaluate("el => el.click()")
                 await self._human_delay(1000, 1800)
 
                 # Choose option containing container type name
@@ -1442,7 +1472,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                     f'.q-select__dialog .q-item:has-text("{hapag_container}")'
                 ).first
                 if await option.is_visible(timeout=5000):
-                    await option.click()
+                    try:
+                        await option.scroll_into_view_if_needed()
+                        await option.click(timeout=3000)
+                    except Exception as option_err:
+                        print(f"[HAPAG] Playwright click on container option failed: {option_err}. Trying JS click...")
+                        await option.evaluate("el => el.click()")
                     print(f"[HAPAG] Container type selected successfully: {hapag_container}")
                 else:
                     print(f"[HAPAG] Container option not found for '{hapag_container}' — pressing Escape")
