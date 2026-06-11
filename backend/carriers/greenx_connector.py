@@ -144,8 +144,11 @@ class GreenXConnector(BaseCarrierConnector):
             print("[GreenX] Clicking submit...")
             await submit_btn.click()
             
-            # Wait for dashboard page redirect
-            await self.page.wait_for_timeout(5000)
+            # Wait dynamically for dashboard redirect (up to 10 seconds)
+            for _ in range(20):
+                await self.page.wait_for_timeout(500)
+                if "SignIn" not in self.page.url and "login" not in self.page.url.lower():
+                    break
             await self._clear_cookie_overlay()
             print(f"[GreenX] Current URL after login: {self.page.url}")
             return True
@@ -175,7 +178,7 @@ class GreenXConnector(BaseCarrierConnector):
         await input_field.press("Control+A")
         await input_field.press("Backspace")
         await input_field.type(query, delay=100)
-        await self.page.wait_for_timeout(2000)  # Wait for suggestions to render
+        await self.page.wait_for_timeout(1500)  # Wait for suggestions to render
 
         clicked = False
         query_upper = query.strip().upper()
@@ -332,7 +335,14 @@ class GreenXConnector(BaseCarrierConnector):
             else:
                 await quotes_btn.click()
                 print("[GreenX] Clicked Quotes button")
-                await self.page.wait_for_timeout(3000)
+                # Wait dynamically for the search form to appear (up to 5s)
+                for _ in range(10):
+                    await self.page.wait_for_timeout(500)
+                    try:
+                        if await self.page.locator('input[placeholder*="ORIGIN" i], input[placeholder*="DESTINATION" i]').first.is_visible():
+                            break
+                    except Exception:
+                        pass
 
             await self._clear_cookie_overlay()
 
@@ -412,32 +422,38 @@ class GreenXConnector(BaseCarrierConnector):
             print("[GreenX] Clicking Search...")
             await search_btn.click()
 
-            # 5. Let it load and poll for results page elements
+            # 5. Poll dynamically for results page elements (up to 30 seconds)
             print("[GreenX] Waiting for results page to load...")
-            for attempt in range(15):
-                await self.page.wait_for_timeout(2000)
-                await self.page.screenshot(path=f"greenx_load_step_{attempt}.png")
-                body_text = await self.page.locator("body").inner_text()
-                print(f"[GreenX] Attempt {attempt} (URL={self.page.url}): body text length={len(body_text)}")
+            for attempt in range(30):
+                await self.page.wait_for_timeout(1000)
                 
-                # Check for cookie overlay again just in case
-                await self._clear_cookie_overlay()
+                # Check for cookie overlay on first few attempts
+                if attempt < 3:
+                    await self._clear_cookie_overlay()
 
                 # Check if Route Details is present
-                route_details = self.page.locator('a:has-text("Route Details"), :text("Route Details")')
+                route_details = self.page.locator('button:has-text("Route Details"), a:has-text("Route Details")')
                 if await route_details.count() > 0:
-                    print(f"[GreenX] Route Details found on attempt {attempt}! Results loaded successfully.")
+                    print(f"[GreenX] Route Details found after {attempt + 1}s. Results loaded successfully.")
                     break
                 
-                # Check if "No Results Found" or similar message is visible
-                # Let's inspect snippet of body text if it's changing
-                if "no results" in body_text.lower() or "no records" in body_text.lower() or "not found" in body_text.lower():
-                    print(f"[GreenX] No results text found on attempt {attempt}.")
-                    break
+                # Check for no-results indicators
+                try:
+                    body_text = await self.page.locator("body").inner_text(timeout=500)
+                    if "no results" in body_text.lower() or "no records" in body_text.lower() or "not found" in body_text.lower():
+                        print(f"[GreenX] No results text found after {attempt + 1}s.")
+                        return CarrierResultStatus.NO_QUOTES_AVAILABLE
+                except Exception:
+                    pass
 
             print(f"[GreenX] Current page URL after search: {self.page.url}")
 
-            # Return success status if results rendered
+            # Verify results actually rendered
+            final_count = await self.page.locator('button:has-text("Route Details"), a:has-text("Route Details")').count()
+            if final_count == 0:
+                print("[GreenX] Poll loop exhausted — no Route Details cards found. Returning TIMEOUT.")
+                return CarrierResultStatus.TIMEOUT
+
             return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
 
         except Exception as e:
@@ -481,7 +497,7 @@ class GreenXConnector(BaseCarrierConnector):
                 count = await card_buttons.count()
                 print(f"[GreenX] Scroll attempt {scroll_attempt}: found {count} visible buttons.")
                 if count == 0:
-                    await self.page.wait_for_timeout(2000)
+                    await self.page.wait_for_timeout(1000)
                     continue
                 if count == prev_count:
                     break
@@ -490,7 +506,7 @@ class GreenXConnector(BaseCarrierConnector):
                 last_btn = card_buttons.nth(count - 1)
                 try:
                     await last_btn.scroll_into_view_if_needed()
-                    await self.page.wait_for_timeout(2000)
+                    await self.page.wait_for_timeout(800)
                 except Exception as se:
                     print(f"[GreenX] Scroll warning: {se}")
                     break
@@ -578,8 +594,18 @@ class GreenXConnector(BaseCarrierConnector):
         try:
             btn = card.locator(f'button:has-text("{tab_text}"), a:has-text("{tab_text}"), :text("{tab_text}")').first
             await btn.scroll_into_view_if_needed()
+            # Snapshot text before click to detect content change
+            text_before = await card.inner_text()
             await btn.click()
-            await self.page.wait_for_timeout(1500)
+            # Wait dynamically for the card content to update (up to 3s)
+            for _ in range(15):
+                await self.page.wait_for_timeout(200)
+                try:
+                    text_after = await card.inner_text()
+                    if text_after != text_before:
+                        break
+                except Exception:
+                    break
             return True
         except Exception as e:
             print(f"[GreenX] Error clicking {tab_text} tab: {e}")
