@@ -677,38 +677,75 @@ class ONEConnector(BaseCarrierConnector):
                 print(f"[ONE] Cargo weight field failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
+            # Wait for any loading dialogs/spinners to disappear before proceeding to commodity selection (excl. persistent widgets like toast/sonner/heap/productfruits)
+            try:
+                loader_sel = (
+                    '[class*="loading" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]), '
+                    '[class*="spinner" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]), '
+                    '[class*="loader" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]), '
+                    '[class*="backdrop" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]):not([class*="modal"])'
+                )
+                for _ in range(50):
+                    loaders = self.page.locator(loader_sel)
+                    visible_loaders = 0
+                    for i in range(await loaders.count()):
+                        if await loaders.nth(i).is_visible():
+                            visible_loaders += 1
+                    if visible_loaders == 0:
+                        break
+                    await self.page.wait_for_timeout(100)
+            except Exception:
+                pass
+
             # --- COMMODITY ---
             # Use the commodity exactly as typed by the user on the frontend (e.g. "Furniture").
             # ONE has a searchable commodity field — type the name and pick the first matching suggestion.
             print(f"[ONE] Setting Commodity: '{request.commodity}' (user-provided)")
             try:
                 commodity_field = self.page.get_by_role("combobox", name="Please input Commodity Name or HS code").first
-                await commodity_field.click()
+                await commodity_field.wait_for(state="attached", timeout=15000)
+
+                # Wait for the commodity field to become enabled before clicking
+                for _ in range(100):
+                    is_disabled = await commodity_field.get_attribute("disabled")
+                    cls = await commodity_field.get_attribute("class") or ""
+                    if is_disabled is None and "disabled" not in cls.lower():
+                        break
+                    await self.page.wait_for_timeout(100)
+
+                await commodity_field.click(timeout=5000)
                 await self.page.wait_for_timeout(200)
                 await self.page.keyboard.type(request.commodity, delay=25)
 
                 # Wait for dropdown suggestions to appear
                 try:
-                    first_option = self.page.locator('[role="option"]').first
+                    # Scope to active listbox container to avoid stale options from previous fields
+                    first_option = self.page.locator('[role="listbox"] [role="option"]:visible, [role="listbox"] li:visible, [role="option"]:visible').first
                     await first_option.wait_for(state="visible", timeout=2000)
 
                     # Try to find a case-insensitive match first, else pick the first option
                     commodity_upper = request.commodity.strip().upper()
-                    all_options = self.page.locator('[role="option"]:visible')
+                    all_options = self.page.locator('[role="listbox"] [role="option"]:visible, [role="listbox"] li:visible, [role="option"]:visible')
                     opted = False
                     for i in range(await all_options.count()):
-                        opt_text = (await all_options.nth(i).inner_text()).strip().upper()
-                        if commodity_upper in opt_text or opt_text.startswith(commodity_upper[:6]):
-                            await all_options.nth(i).click()
-                            print(f"[ONE] Commodity matched: '{(await all_options.nth(i).inner_text()).strip()}'")
-                            opted = True
-                            break
+                        try:
+                            # Use small timeout to prevent waiting for detached placeholder elements (e.g. Loading...)
+                            opt_text = (await all_options.nth(i).inner_text(timeout=1000)).strip().upper()
+                            if "LOADING" in opt_text:
+                                continue
+                            if commodity_upper in opt_text or opt_text.startswith(commodity_upper[:6]):
+                                await all_options.nth(i).click(timeout=1500)
+                                print(f"[ONE] Commodity matched: '{opt_text}'")
+                                opted = True
+                                break
+                        except Exception:
+                            pass
                     if not opted:
-                        await first_option.click()
+                        await first_option.click(timeout=1500)
                         print("[ONE] Commodity: no exact match, selected first available option")
-                except Exception:
-                    # No dropdown appeared — press Enter and continue
-                    print("[ONE] Commodity: no dropdown appeared, pressing Enter")
+                except Exception as e:
+                    # No dropdown appeared or click timed out — press Enter and continue
+                    print(f"[ONE] Commodity: no dropdown appeared or click timed out ({e}), pressing Enter")
                     await self.page.keyboard.press("Enter")
 
                 await self.page.wait_for_timeout(200)
@@ -716,9 +753,14 @@ class ONEConnector(BaseCarrierConnector):
                 print(f"[ONE] Commodity selection failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            # Wait for any loading dialogs/spinners to disappear before proceeding
+            # Wait for any loading dialogs/spinners to disappear before proceeding to date picker (excl. persistent widgets like toast/sonner/heap/productfruits)
             try:
-                loader_sel = '.loading, .spinner, [class*="loading" i], [class*="spinner" i]'
+                loader_sel = (
+                    '[class*="loading" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]), '
+                    '[class*="spinner" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]), '
+                    '[class*="loader" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]), '
+                    '[class*="backdrop" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"]):not([class*="modal"])'
+                )
                 for _ in range(50):
                     loaders = self.page.locator(loader_sel)
                     visible_loaders = 0
@@ -814,13 +856,15 @@ class ONEConnector(BaseCarrierConnector):
                             price_locator = self.page.locator('[class*="date-picker-date-highlight"], .react-datepicker__day--highlighted').filter(has_text="USD").first
                             await price_locator.wait_for(state="visible", timeout=5000)
 
-                            await price_locator.click(force=True)
-                            date_selected = True
+                            # Get price text BEFORE click to prevent detaching issue
                             price_text = ""
                             try:
                                 price_text = await price_locator.inner_text()
                             except Exception:
                                 pass
+
+                            await price_locator.click(force=True)
+                            date_selected = True
                             print(f"[ONE] Clicked highlighted date cell with price: {price_text}")
                         except Exception:
                             pass
@@ -834,9 +878,15 @@ class ONEConnector(BaseCarrierConnector):
                             ).first
                             await price_tile.wait_for(state="visible", timeout=3000)
 
+                            # Get tile text BEFORE click to prevent detaching issue
+                            tile_text = ""
+                            try:
+                                tile_text = await price_tile.inner_text()
+                            except Exception:
+                                pass
+
                             await price_tile.click(force=True)
                             date_selected = True
-                            tile_text = await price_tile.inner_text()
                             print(f"[ONE] Safety-net: clicked tile with numeric content: {tile_text}")
                         except Exception:
                             pass
