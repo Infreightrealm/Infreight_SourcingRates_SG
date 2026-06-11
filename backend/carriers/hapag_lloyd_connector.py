@@ -634,6 +634,23 @@ class HapagLloydConnector(BaseCarrierConnector):
         except ValueError:
             pass
             
+        # Try MMM DD (use current/next year, e.g. Jun 12)
+        try:
+            parsed = datetime.strptime(date_str, "%b %d")
+            current_year = date.today().year
+            res_date = parsed.replace(year=current_year).date()
+            if res_date < date.today():
+                res_date = res_date.replace(year=current_year + 1)
+            return res_date.isoformat()
+        except ValueError:
+            pass
+
+        # Try MMM DD, YYYY (e.g. Jun 12, 2026)
+        try:
+            return datetime.strptime(date_str, "%b %d, %Y").date().isoformat()
+        except ValueError:
+            pass
+
         return date_str
 
 
@@ -1578,11 +1595,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                         'text=/\\d{2}\\.\\d{2}\\.\\d{4}/',
                         'text=/\\d{2}-\\d{2}-\\d{4}/',
                         'text=/\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i',
-                        '[class*="route" i]',
-                        '[class*="result" i]',
+                        'text=/(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+\\d{1,2}/i',
                         '[class*="sailing" i]',
                         '[class*="price" i]',
-                        'button:has-text("Book")',
                         'button:has-text("Select")',
                         'button:has-text("Price Breakdown")'
                     ]
@@ -1598,16 +1613,32 @@ class HapagLloydConnector(BaseCarrierConnector):
                             pass
                             
                     if found_selector:
-                        print(f"[HAPAG] Results detected via selector: '{found_selector}'")
-                        results_found = True
-                        break
+                        # Wait for loader spinner or "Offer is loading" text to be hidden before confirming results are ready
+                        is_loading = False
+                        try:
+                            loading_el = self.page.locator('text="Offer is loading" i, [class*="loading" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"])').first
+                            if await loading_el.is_visible(timeout=200):
+                                is_loading = True
+                        except:
+                            pass
+                        
+                        if is_loading:
+                            print("[HAPAG] Results matched selector, but 'Offer is loading' or spinner is still active. Waiting...")
+                        else:
+                            print(f"[HAPAG] Results detected via selector: '{found_selector}'")
+                            results_found = True
+                            break
                 except Exception as detect_err:
                     print(f"[HAPAG] Error in selector check: {detect_err}")
                 
-                # Check for explicit "No rates" or "No schedules" messages
+                # Check for explicit "No rates" or "No schedules" messages, or service blockages
                 try:
                     page_text = await self.page.inner_text('body')
                     text_lower = page_text.lower()
+                    if "service is currently unavailable" in text_lower or "service is temporarily unavailable" in text_lower:
+                        print("[HAPAG] Hapag-Lloyd anti-bot blocked the request (Service is currently unavailable popup detected).")
+                        no_rates_found = True
+                        break
                     if any(msg in text_lower for msg in [
                         "no result", 
                         "no schedule", 
@@ -1682,12 +1713,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
                     /^\\d{2}-\\d{2}-\\d{4}$/,
                     /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
-                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
+                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2},\\s+\\d{4}$/i
                 ];
                 // Use innerText to collapse child text, so date cells with nested spans are matched.
                 // Only exclude elements whose innerText is WAY longer than a date string (> 30 chars).
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
-                    const raw = (el.innerText || el.textContent || '').trim();
+                    const raw = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     // Quick length gate — dates are short
                     if (!raw || raw.length > 30) return false;
                     if (!patterns.some(pat => pat.test(raw))) return false;
@@ -1879,11 +1912,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
                     /^\\d{2}-\\d{2}-\\d{4}$/,
                     /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
-                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
+                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2},\\s+\\d{4}$/i
                 ];
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
-                    if (el.children.length > 0) return false;
-                    const txt = el.textContent ? el.textContent.trim() : '';
+                    const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
                     while (parent) {
@@ -1973,11 +2007,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^\d{2}\.\d{2}\.\d{4}$/,
                     /^\d{2}-\d{2}-\d{4}$/,
                     /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}$/i,
-                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i
+                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                 ];
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
-                    if (el.children.length > 0) return false;
-                    const txt = el.textContent ? el.textContent.trim() : '';
+                    const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
                     while (parent) {
