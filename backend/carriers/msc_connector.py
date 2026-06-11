@@ -91,10 +91,10 @@ class MSCConnector(BaseCarrierConnector):
             login_btn = self.page.locator("button:has-text('Login'), button:has-text('Sign in')")
             await login_btn.click()
 
-            # Wait for dashboard to load (5-10 seconds)
+            # Wait for dashboard to load (up to 45 seconds)
             self.log("Waiting for dashboard to load...")
             # Verify login success by checking the URL
-            await self.page.wait_for_url("**/welcome", timeout=20000)
+            await self.page.wait_for_url("**/welcome", timeout=45000)
             self.log("Login successful.")
             return True
 
@@ -162,9 +162,27 @@ class MSCConnector(BaseCarrierConnector):
             await search_btn.click()
             
             self.log("Waiting for results page to load...")
-            await self.page.wait_for_timeout(15000)
-            await self.save_screenshot("msc_results_debug.png", full_page=True)
+            # Wait dynamically up to 45 seconds for shipping window cards to render
+            windows_loaded = False
+            for _ in range(45):
+                try:
+                    count = await self.page.locator("div.card, div[role='button'], text='Shipping window'").count()
+                    if count > 0:
+                        windows_loaded = True
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
             
+            if not windows_loaded:
+                self.log("Timeout waiting for shipping window cards to load. Checking page fallback text...")
+                await self.save_screenshot("msc_results_fail.png", full_page=True)
+                body_text = (await self.page.inner_text("body")).lower()
+                if any(kw in body_text for kw in ["no departures", "no rates", "no quotes", "no sailings", "no routes found", "no matching"]):
+                    self.log("Explicit 'No rates' or 'No departures' indicator detected.")
+                    return CarrierResultStatus.NO_QUOTES_AVAILABLE
+                return CarrierResultStatus.TIMEOUT
+
             # Save HTML for debugging/extraction planning
             html_content = await self.page.content()
             with open("msc_results_debug.html", "w", encoding="utf-8") as f:
@@ -210,7 +228,7 @@ class MSCConnector(BaseCarrierConnector):
                 self.log("Warning: Option containing LOCODE not visible, pressing Enter.")
                 await input_box.press("Enter")
             
-            await self.page.wait_for_timeout(1000)
+            await self.page.wait_for_timeout(2000)
         except Exception as e:
             self.log(f"Failed to fill autocomplete for {label_text}: {e}")
             raise

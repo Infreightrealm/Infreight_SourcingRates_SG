@@ -1332,6 +1332,7 @@ class MaerskConnector(BaseCarrierConnector):
                         return CarrierResultStatus.NO_QUOTES_AVAILABLE
                         
                     print("[MAERSK] Origin Port selected successfully.")
+                    await self.page.wait_for_timeout(2000)
                 else:
                     raise Exception("Origin Port input field not found")
 
@@ -1575,22 +1576,22 @@ class MaerskConnector(BaseCarrierConnector):
                             if js_result:
                                 print(f"[MAERSK] JS shadow-DOM exact match click succeeded: '{js_result}'")
                                 clicked = True
-                                if origin_locode:
-                                    set_cached_carrier_port("maersk", origin_locode, js_result)
+                                if destination_locode:
+                                    set_cached_carrier_port("maersk", destination_locode, js_result)
                                 await self.page.wait_for_timeout(400)
                             else:
-                                print(f"[MAERSK] JS shadow-DOM found no EXACT match for '{origin_query}'.")
+                                print(f"[MAERSK] JS shadow-DOM found no EXACT match for '{destination_query}'.")
                         except Exception as js_e:
                             print(f"[MAERSK] JS shadow-DOM fallback failed: {js_e}")
                             
                     if not clicked:
-                        print(f"[MAERSK] [ABORT] Could not auto-fill origin port exactly. Aborting to prevent random port selection.")
+                        print(f"[MAERSK] [ABORT] Could not auto-fill destination port exactly. Aborting to prevent random port selection.")
                         return CarrierResultStatus.NO_QUOTES_AVAILABLE
                         
                     print("[MAERSK] Destination Port selected successfully.")
                     
                     # 2.5 Commodity selection (What do you want to ship?) - MUST BE FIRST TO UNLOCK CONTAINER OPTIONS
-                    await self.page.wait_for_timeout(1000)
+                    await self.page.wait_for_timeout(2000)
                     try:
                         # Scroll to shipping section to ensure visibility
                         ship_heading = self.page.locator('h3:has-text("ship"), h2:has-text("ship"), text=/What do you want to ship/i').first
@@ -1696,6 +1697,16 @@ class MaerskConnector(BaseCarrierConnector):
                             break
                             
                     if container_field:
+                        # Wait dynamically for the container field to be enabled (up to 5s)
+                        for _ in range(10):
+                            try:
+                                is_disabled = await container_field.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
+                                if not is_disabled:
+                                    break
+                            except Exception:
+                                pass
+                            await self.page.wait_for_timeout(500)
+                            
                         await container_field.scroll_into_view_if_needed()
                         await container_field.click()
                         await self.page.wait_for_timeout(1000)
@@ -1851,6 +1862,16 @@ class MaerskConnector(BaseCarrierConnector):
                             break
                             
                     if search_btn:
+                        # Wait dynamically for the Search/Show Rates button to be enabled (up to 5s)
+                        for _ in range(10):
+                            try:
+                                is_disabled = await search_btn.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
+                                if not is_disabled:
+                                    break
+                            except Exception:
+                                pass
+                            await self.page.wait_for_timeout(500)
+                            
                         await search_btn.click(force=True)
                         print("[MAERSK] Clicked Search/Show Rates button successfully.")
                     else:
