@@ -975,8 +975,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                             pass
 
                 if container_box:
-                    await container_box.scroll_into_view_if_needed()
-                    await container_box.click(timeout=5000)
+                    await container_box.click(force=True, timeout=5000)
                     await self._human_delay(1000, 1800)
 
                     # Select matching option
@@ -1433,7 +1432,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 if not container_box:
                     container_box = self.page.locator('input.q-select__focus-target').first
 
-                await container_box.click(timeout=5000)
+                await container_box.click(force=True, timeout=5000)
                 await self._human_delay(1000, 1800)
 
                 # Choose option containing container type name
