@@ -351,12 +351,12 @@ class HapagLloydConnector(BaseCarrierConnector):
             await self._human_delay(3000, 5000)
 
             # Wait for either the login form (credentials required) or the Quick Quote page (already logged in) to settle
-            print("[HAPAG] Waiting for page to settle (up to 90s) to detect if login is required or already logged in...")
+            print("[HAPAG] Waiting for page to settle (up to 180s) to detect if login is required or already logged in...")
             is_logged_in = False
             settle_start_time = asyncio.get_event_loop().time()
             settled = False
             
-            while asyncio.get_event_loop().time() - settle_start_time < 90:
+            while asyncio.get_event_loop().time() - settle_start_time < 180:
                 # Check for login selectors
                 login_selectors = [
                     'input#email',
