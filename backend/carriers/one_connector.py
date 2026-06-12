@@ -250,12 +250,26 @@ class ONEConnector(BaseCarrierConnector):
             return original_locode or value
 
         try:
-            try:
-                await self.page.locator('[role="option"]').first.wait_for(state="visible", timeout=5000)
-            except Exception:
-                pass
-            options = self.page.locator('[role="option"]:visible')
-            option_count = await options.count()
+            # Wait dynamically up to 10 seconds for role="option" elements to appear and load (excluding "loading" text)
+            options = None
+            option_count = 0
+            for check in range(50):  # 50 * 0.2s = 10s max wait
+                try:
+                    options = self.page.locator('[role="option"]:visible')
+                    option_count = await options.count()
+                    if option_count > 0:
+                        # Inspect the first visible option text
+                        first_text = (await options.first.inner_text()).strip().upper()
+                        if first_text and "LOADING" not in first_text:
+                            break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.2)
+                
+            if option_count == 0:
+                print(f"[ONE] {label}: Timed out waiting for dropdown options to appear (count=0)")
+                return False
+
             print(f"[ONE] {label}: {option_count} dropdown options visible (searching for '{value}', locode='{locode}')")
 
             # 1. Try strict LOCODE matching first (handles cases where ONE shows a different LOCODE)
