@@ -1777,7 +1777,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 // Use innerText to collapse child text, so date cells with nested spans are matched.
                 // Only exclude elements whose innerText is WAY longer than a date string (> 30 chars).
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
-                    const raw = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                    const raw = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
                     // Quick length gate — dates are short
                     if (!raw || raw.length > 30) return false;
                     if (!patterns.some(pat => pat.test(raw))) return false;
@@ -1974,7 +1974,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2},\\s+\\d{4}$/i
                 ];
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
-                    const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                    const txt = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
                     while (parent) {

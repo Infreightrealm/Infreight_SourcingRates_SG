@@ -91,40 +91,12 @@ class MSCConnector(BaseCarrierConnector):
             login_btn = self.page.locator("button:has-text('Login'), button:has-text('Sign in')")
             await login_btn.click()
 
-            # Verification Loop (HITL Bypassing)
-            self.log("Waiting for dashboard redirect or verification gate...")
-            for i in range(180):
-                await asyncio.sleep(1)
-                curr_url = self.page.url
-                
-                # Check for successful redirects
-                if "welcome" in curr_url.lower():
-                    self.log("Login successful.")
-                    return True
-
-                # Active challenge/captcha/2FA detection
-                if await self.check_captcha_challenge():
-                    if not self.captcha_detected:
-                        self.captcha_detected = True
-                        self.log("[ACTION REQUIRED] Bot challenge, CAPTCHA, or 2FA verification page detected! Please look at the opened VNC window to solve it.")
-                
-                # Print manual action notices
-                if i % 15 == 14:
-                    if self.captcha_detected:
-                        self.log("[ACTION REQUIRED] Still blocked by CAPTCHA/2FA challenge. Please solve it in the VNC window.")
-                    else:
-                        self.log("[ACTION REQUIRED] MSC Verification/2FA Page Detected!")
-                        self.log("Please look at the opened Chromium window and manually complete the verification/CAPTCHA.")
-                    self.log(f"Still waiting... {180 - i - 1} seconds remaining.")
-
-            # Check if we somehow ended up on dashboard but loop timed out
-            curr_url = self.page.url
-            if "welcome" in curr_url.lower():
-                self.log("Login successful (redirected after timeout)!")
-                return True
-
-            self.log("[TIMEOUT] Login verification timed out.")
-            return False
+            # Wait for dashboard to load (up to 45 seconds)
+            self.log("Waiting for dashboard to load...")
+            # Verify login success by checking the URL
+            await self.page.wait_for_url("**/welcome", timeout=45000)
+            self.log("Login successful.")
+            return True
 
         except Exception as e:
             self.log(f"Login failed: {e}")
@@ -144,7 +116,7 @@ class MSCConnector(BaseCarrierConnector):
             target_eq = ""
             if "20" in request.container_type:
                 target_eq = "20DV"
-            elif "40H" in request.container_type or "HC" in request.container_type or "HQ" in request.container_type:
+            elif "40H" in request.container_type:
                 target_eq = "40HC"
             elif "40" in request.container_type:
                 target_eq = "40DV"
@@ -154,86 +126,26 @@ class MSCConnector(BaseCarrierConnector):
             self.log(f"Target equipment: {target_eq}")
 
             for eq_type in ["20DV", "40DV", "40HC"]:
-                should_be_checked = (eq_type == target_eq)
-                try:
-                    # Find the label wrapping this equipment type checkbox
-                    checkbox_wrapper = self.page.locator(f"label:has-text('{eq_type}'), span:has-text('{eq_type}')").first
-                    await checkbox_wrapper.wait_for(state="visible", timeout=5000)
-                    
-                    # Try to find standard checkbox input inside the wrapper
-                    checkbox_input = checkbox_wrapper.locator("input[type='checkbox']").first
-                    is_checked = False
-                    if await checkbox_input.count() > 0:
-                        is_checked = await checkbox_input.is_checked()
-                        self.log(f"Playwright detected checkbox {eq_type} input.checked = {is_checked}")
-                    else:
-                        # Fallback: check classes of wrapper or any child span
-                        class_attr = await checkbox_wrapper.get_attribute("class") or ""
-                        child_classes = await checkbox_wrapper.evaluate('''el => {
-                            return Array.from(el.querySelectorAll('*')).map(c => c.className).join(" ");
-                        }''')
-                        combined_classes = (class_attr + " " + child_classes).lower()
-                        is_checked = "checked" in combined_classes or "active" in combined_classes
-                        self.log(f"Fallback detected checkbox {eq_type} checked = {is_checked}")
-                        
-                    if is_checked != should_be_checked:
-                        self.log(f"Toggling checkbox {eq_type} to {should_be_checked}")
-                        # Click the wrapper or label (clicking the input directly might be blocked if it's hidden/styled)
-                        await checkbox_wrapper.click()
-                        await self.page.wait_for_timeout(500)
-                        
-                        # Verify toggled state
-                        if await checkbox_input.count() > 0:
-                            new_checked = await checkbox_input.is_checked()
-                            self.log(f"After click, checkbox {eq_type} checked = {new_checked}")
-                except Exception as ex:
-                    self.log(f"Error toggling checkbox {eq_type}: {ex}")
+                if eq_type != target_eq:
+                    self.log(f"Unchecking {eq_type}...")
+                    checkbox_wrapper = self.page.locator(f"label:has-text('{eq_type}')")
+                    if await checkbox_wrapper.is_visible():
+                        input_el = checkbox_wrapper.locator("input[type='checkbox']")
+                        if await input_el.count() > 0:
+                            if await input_el.first.is_checked():
+                                await checkbox_wrapper.first.click()
+                                await self.page.wait_for_timeout(500)
+                        else:
+                            await checkbox_wrapper.first.click()
+                            await self.page.wait_for_timeout(500)
 
             # 2. Cargo Weight
             self.log(f"Setting cargo weight to {request.weight_per_container_kg}...")
-            # Target by label text proximity, placeholder, or type
-            weight_selectors = [
-                "input[aria-label*='weight' i]",
-                "input[placeholder*='weight' i]",
-                "input[name*='weight' i]",
-                "input[type='number']"
-            ]
-            weight_input = None
-            for sel in weight_selectors:
-                try:
-                    loc = self.page.locator(sel).first
-                    if await loc.is_visible(timeout=1000):
-                        weight_input = loc
-                        self.log(f"Found cargo weight input using: {sel}")
-                        break
-                except:
-                    pass
-            if not weight_input:
-                weight_input = self.page.locator("input[type='number']").first
-                
-            await weight_input.wait_for(state="visible", timeout=5000)
-            await weight_input.scroll_into_view_if_needed()
-            await weight_input.focus()
-            
-            # Use atomic fill first (which is standard and doesn't trigger multiple keystrokes that append)
+            weight_input = self.page.locator("input[type='number']").first
+            await weight_input.wait_for(state="visible")
+            await weight_input.click()
+            # To overwrite value, we can use fill
             await weight_input.fill(str(request.weight_per_container_kg))
-            await weight_input.blur()
-            await self.page.wait_for_timeout(300)
-            
-            # Double check entered value
-            val = await weight_input.input_value()
-            if val != str(request.weight_per_container_kg):
-                self.log(f"Warning: Cargo weight not updated correctly via fill (current: {val}). Forcing via JS event dispatch...")
-                await weight_input.evaluate(f'''(el) => {{
-                    el.value = "{request.weight_per_container_kg}";
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    el.blur();
-                }}''')
-                val = await weight_input.input_value()
-                self.log(f"JS fallback verification: cargo weight is now {val}")
-            else:
-                self.log(f"Cargo weight successfully set to {val}")
 
             # 3. Origin and Destination
             origin_locode = resolve_port_for_carrier(request.origin, "msc")
@@ -328,9 +240,7 @@ class MSCConnector(BaseCarrierConnector):
             input_box = label_element.locator("xpath=..").locator("input").first
             await input_box.wait_for(state="visible", timeout=5000)
             await input_box.click()
-            await input_box.fill("")
-            await self.page.wait_for_timeout(500)
-            await input_box.type(locode, delay=100)
+            await input_box.fill(locode)
             
             self.log(f"Waiting for dropdown option containing [{locode}]...")
             await self.page.wait_for_timeout(2000)
@@ -344,20 +254,10 @@ class MSCConnector(BaseCarrierConnector):
 
             if await exact_option.is_visible():
                 self.log(f"Found exact word match for '{locode}'. Clicking it.")
-                try:
-                    await exact_option.scroll_into_view_if_needed()
-                    await exact_option.click(timeout=3000)
-                except Exception as click_err:
-                    self.log(f"Playwright click on exact option failed: {click_err}. Trying JS click...")
-                    await exact_option.evaluate("el => el.click()")
+                await exact_option.click()
             elif await fallback_option.is_visible():
                 self.log(f"Found substring match for '{locode}'. Clicking it.")
-                try:
-                    await fallback_option.scroll_into_view_if_needed()
-                    await fallback_option.click(timeout=3000)
-                except Exception as click_err:
-                    self.log(f"Playwright click on fallback option failed: {click_err}. Trying JS click...")
-                    await fallback_option.evaluate("el => el.click()")
+                await fallback_option.click()
             else:
                 self.log("Warning: Option containing LOCODE not visible, pressing Enter.")
                 await input_box.press("Enter")
@@ -535,12 +435,17 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
-                quote_conditions_tab = modal.locator("button:has-text('Quote Conditions'), [role='tab']:has-text('Quote Conditions'), text='Quote Conditions'").first
+                quote_conditions_tab = modal.locator("text='Quote Conditions'").first
+                text_before_qc = await modal.inner_text()
                 await quote_conditions_tab.click()
-                try:
-                    await modal.locator("text='Routing:'").first.wait_for(state="visible", timeout=4000)
-                except Exception:
-                    pass
+                # Wait dynamically for tab content to update (up to 2s)
+                for _ in range(10):
+                    await self.page.wait_for_timeout(200)
+                    try:
+                        if await modal.inner_text() != text_before_qc:
+                            break
+                    except Exception:
+                        break
                 
                 routing_el = modal.locator("text='Routing:'").locator("xpath=..")
                 routing_text = ""
@@ -576,15 +481,17 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
-                schedule_tab = modal.locator("button:has-text('Schedule'), [role='tab']:has-text('Schedule'), text='Schedule'").first
+                schedule_tab = modal.locator("text='Schedule'").first
+                text_before_sched = await modal.inner_text()
                 await schedule_tab.click()
-                
-                # Wait dynamically for schedule table to render (up to 8s)
-                try:
-                    await modal.locator("tr:has-text('Days'), td:has-text('Days')").first.wait_for(state="visible", timeout=8000)
-                    await self.page.wait_for_timeout(1000) # extra buffer for full list to hydrate
-                except Exception as e:
-                    self.log(f"Timed out waiting for schedule rows: {e}")
+                # Wait dynamically for schedule table to render (up to 3s)
+                for _ in range(15):
+                    await self.page.wait_for_timeout(200)
+                    try:
+                        if await modal.inner_text() != text_before_sched:
+                            break
+                    except Exception:
+                        break
 
                 # The schedule table has rows with Vessel, Voyage, ETD, ETA, Service, Est.TT.
                 # Let's find rows that contain "Days" for Transit Time
@@ -648,12 +555,6 @@ class MSCConnector(BaseCarrierConnector):
                         const backdrops = document.querySelectorAll('.MuiBackdrop-root');
                         backdrops.forEach(b => b.style.display = 'none');
                     }''')
-                
-                # Wait for modal to be hidden/detached
-                try:
-                    await self.page.locator("div[data-test-id='BreakdownModal']").wait_for(state="hidden", timeout=5000)
-                except Exception:
-                    pass
                 await self.page.wait_for_timeout(1000)
 
             if quotes:
