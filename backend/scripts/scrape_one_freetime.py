@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import re
 from playwright.async_api import async_playwright
 from dotenv import load_dotenv
 
@@ -10,7 +11,6 @@ COUNTRIES = [
     "MALAYSIA", "TAIWAN", "CHINA", "VIETNAM", "PAKISTAN", "INDIA",
     "SAUDI ARABIA", "UNITED ARAB EMIRATES", "OMAN", "EGYPT", "INDONESIA",
     "AUSTRALIA", "THAILAND", "CAMBODIA",
-    # Additional common shipping origins
     "SINGAPORE", "HONG KONG", "KOREA REPUBLIC OF", "JAPAN", "PHILIPPINES"
 ]
 
@@ -23,7 +23,41 @@ COUNTRY_CODES = {
     "JAPAN": "JP", "PHILIPPINES": "PH"
 }
 
-DESTINATIONS = ["ASIA", "NORTH AMERICA", "LATIN AMERICA", "EUROPE", "AFRICA"]
+ORIGINS = ["ASIA", "NORTH AMERICA", "LATIN AMERICA", "EUROPE", "AFRICA"]
+
+async def check_and_wait_for_captcha(page, timeout_sec=90):
+    captcha_selectors = [
+        '.geetest_holder', '.geetest_panel', '[class*="captcha" i]', 
+        'iframe[src*="captcha" i]', 'iframe[src*="cargosmart" i]',
+        'text=/verify/i', 'text=/captcha/i'
+    ]
+    detected = False
+    for selector in captcha_selectors:
+        try:
+            if await page.locator(selector).first.is_visible(timeout=1000):
+                detected = True
+                break
+        except:
+            pass
+            
+    if detected:
+        print("\n⚠️ [ONE Freetime] CAPTCHA detected! Please solve the CAPTCHA in the browser window.")
+        print(f"Waiting up to {timeout_sec} seconds for you to react and solve it...")
+        # Check every 2 seconds if the captcha selector is still visible
+        for elapsed in range(0, timeout_sec, 2):
+            still_visible = False
+            for selector in captcha_selectors:
+                try:
+                    if await page.locator(selector).first.is_visible(timeout=500):
+                        still_visible = True
+                        break
+                except:
+                    pass
+            if not still_visible:
+                print("[ONE Freetime] CAPTCHA cleared! Continuing...")
+                return
+            await asyncio.sleep(2)
+        print("[ONE Freetime] Timeout waiting for CAPTCHA to be solved. Proceeding anyway.")
 
 async def login(page):
     username = os.getenv("ONE_USER_ID", "brian@cslive.com.my")
@@ -34,6 +68,10 @@ async def login(page):
     await page.fill('input[name="username"]', username)
     await page.fill('input[name="password"]', password)
     await page.click('button[type="submit"], button:has-text("Login")')
+    
+    # Check for login captcha here
+    await check_and_wait_for_captcha(page, timeout_sec=90)
+    
     await page.wait_for_timeout(5000)
     try:
         concurrent_btn = page.locator('button:has-text("Force Login"), button:has-text("Disconnect other session")')
@@ -47,14 +85,34 @@ async def login(page):
 
 async def main():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
+        is_prod = os.name != "nt"
+        browser_env = os.environ.copy()
+        if is_prod:
+            browser_env["DISPLAY"] = ":105"
+            
+        browser = await p.chromium.launch(
+            headless=False,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+            ],
+            env=browser_env,
+        )
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            ignore_https_errors=True,
+        )
         page = await context.new_page()
+        page.set_default_timeout(30000)
         
         await login(page)
         
         # Load existing cache to merge new values
-        cache_path = os.path.join("backend", "data", "one_freetime.json")
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        cache_path = os.path.abspath(os.path.join(script_dir, "..", "data", "one_freetime.json"))
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         freetime_cache = {}
         if os.path.exists(cache_path):
             try:
@@ -64,17 +122,15 @@ async def main():
             except Exception as e:
                 print(f"[ONE Freetime] Error loading cache: {e}")
 
-        # Only target newly added countries to save time
-        TARGET_COUNTRIES = ["SINGAPORE", "HONG KONG", "KOREA REPUBLIC OF", "JAPAN", "PHILIPPINES"]
-
-        for country in TARGET_COUNTRIES:
+        # Target all countries for inbound free time lookup
+        for country in COUNTRIES:
             code = COUNTRY_CODES[country]
             if code not in freetime_cache:
                 freetime_cache[code] = {}
             
-            for dest in DESTINATIONS:
+            for origin_continent in ORIGINS:
                 try:
-                    print(f"\n[ONE Freetime] Scraping Export Detention for {country} to {dest}...")
+                    print(f"\n[ONE Freetime] Scraping Import Demurrage/Detention for {country} from {origin_continent}...")
                     
                     await page.goto("https://ecomm.one-line.com/one-ecom/prices/basic-tariff", wait_until="domcontentloaded")
                     await page.wait_for_timeout(4000)
@@ -88,7 +144,7 @@ async def main():
 
                     frame = page.frame_locator('iframe[src*="CUP_HOM_3701"]').first
                     
-                    # 1. Country
+                    # 1. Country (destination)
                     await frame.locator('#cvrgCntNm').fill('')
                     await page.wait_for_timeout(200)
                     await frame.locator('#cvrgCntNm').press_sequentially(country, delay=100)
@@ -100,20 +156,23 @@ async def main():
                         
                     await page.wait_for_timeout(2000)
                     
-                    # 2. Bound: Outbound
-                    await frame.locator('#outbound').click(force=True)
+                    # 2. Bound: Inbound
+                    await frame.locator('#inbound').click(force=True)
                     await page.wait_for_timeout(500)
                     
-                    # 3. Destination Continent
-                    await frame.locator('#orgDestContiCd').select_option(label=dest)
+                    # 3. Origin Continent
+                    await frame.locator('#orgDestContiCd').select_option(label=origin_continent)
                     await page.wait_for_timeout(500)
                     
                     # 4. Tariff Type
                     try:
-                        await frame.locator('#dmdtTrfCd').select_option(value='DET', timeout=2000)
+                        await frame.locator('#dmdtTrfCd').select_option(value='DEMDET', timeout=2000)
                     except:
-                        print(f"      [!] Used Combined Tariff for {country} to {dest}")
-                        await frame.locator('#dmdtTrfCd').select_option(value='DEMDET')
+                        try:
+                            await frame.locator('#dmdtTrfCd').select_option(value='DET', timeout=2000)
+                        except:
+                            print(f"      [!] Used DEM for {country} from {origin_continent}")
+                            await frame.locator('#dmdtTrfCd').select_option(value='DEM')
                     await page.wait_for_timeout(500)
                     
                     # 5. Container Type: Dry
@@ -135,18 +194,17 @@ async def main():
                     
                     # 7. Search
                     await frame.locator('#btnSearch').click(force=True)
-                    print(f"[ONE Freetime] Clicked Search for {country} to {dest}. Waiting for results...")
+                    print(f"[ONE Freetime] Clicked Search for {country} from {origin_continent}. Waiting for results...")
+                    
+                    # Check for search captcha here
+                    await check_and_wait_for_captcha(page, timeout_sec=90)
                     
                     try:
                         await frame.locator('tr.jqgrow').first.wait_for(state="visible", timeout=10000)
                     except:
                         pass # Might be empty or timed out
                         
-                    await page.wait_for_timeout(2000) # Give it an extra second just to be fully rendered
-                    
-                    # Take screenshot for debugging!
-                    await page.screenshot(path=f"C:\\Users\\Brian\\.gemini\\antigravity\\brain\\2febadc4-254a-470f-9d04-a43202bfc8dc\\artifacts\\debug_{country}_{dest}.png", full_page=True)
-                    print(f"      [Debug] Screenshot saved to debug_{country}_{dest}.png")
+                    await page.wait_for_timeout(2000)
                     
                     # Extract data
                     freedays = None
@@ -158,14 +216,10 @@ async def main():
                         print(f"      [Debug] Row cells: {cell_texts}")
                         
                         if len(cells) > 5:
-                            # Iterate through cells to find the first numeric value that looks like free days
-                            # or just use the 6th or 7th column based on the dump
                             for idx, text in enumerate(cell_texts):
                                 if "YES" in text or "NO" in text:
-                                    # Free day is usually right before the YES/NO columns
                                     try:
                                         freedays_text = cell_texts[idx-1]
-                                        import re
                                         m = re.search(r'\d+', freedays_text)
                                         if m:
                                             freedays = int(m.group())
@@ -177,22 +231,20 @@ async def main():
                                 break
                     
                     if freedays is not None:
-                        print(f"[ONE Freetime] Found {freedays} days for {country} to {dest}")
-                        freetime_cache[code][dest] = freedays
+                        print(f"[ONE Freetime] Found {freedays} days for {country} from {origin_continent}")
+                        freetime_cache[code][origin_continent] = freedays
                     else:
-                        print(f"[ONE Freetime] No freetime data found for {country} to {dest}")
-                        freetime_cache[code][dest] = None
+                        print(f"[ONE Freetime] No freetime data found for {country} from {origin_continent}")
+                        freetime_cache[code][origin_continent] = None
+                        
+                    # Save progress iteratively in case of interruption
+                    with open(cache_path, "w") as f:
+                        json.dump(freetime_cache, f, indent=4)
                         
                 except Exception as e:
-                    print(f"[ONE Freetime] Error on {country} to {dest}: {e}")
-                    freetime_cache[code][dest] = None
+                    print(f"[ONE Freetime] Error on {country} from {origin_continent}: {e}")
+                    freetime_cache[code][origin_continent] = None
                 
-        # Save to JSON
-        cache_path = os.path.join("backend", "data", "one_freetime.json")
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        with open(cache_path, "w") as f:
-            json.dump(freetime_cache, f, indent=4)
-            
         print(f"\n[ONE Freetime] Finished! Cache saved to {cache_path}")
         await browser.close()
 

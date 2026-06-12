@@ -1340,9 +1340,9 @@ class ONEConnector(BaseCarrierConnector):
                 import json
                 with open(cache_path, "r") as f:
                     freetime_cache = json.load(f)
-                    
                 origin_country = None
-                dest_continent = None
+                dest_country = None
+                origin_continent = None
                 
                 if hasattr(self, 'origin_locode') and self.origin_locode:
                     origin_country = self.origin_locode[:2].upper()
@@ -1353,7 +1353,7 @@ class ONEConnector(BaseCarrierConnector):
                     # Comprehensive country→region maps.
                     # City names (e.g. Hai Phong, Lagos) are first resolved to LOCODEs
                     # by port_manager (e.g. VNHPH, NGLOS), then the 2-letter country
-                    # prefix (VN, NG) is used to classify the destination region.
+                    # prefix (VN, NG) is used to classify the origin region.
                     EUROPE = [
                         "AL", "AD", "AT", "BY", "BE", "BA", "BG", "HR", "CY", "CZ",
                         "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT",
@@ -1404,19 +1404,19 @@ class ONEConnector(BaseCarrierConnector):
                         "AR", "BO", "BR", "CL", "CO", "EC", "GF", "GY",
                         "PY", "PE", "SR", "UY", "VE",
                     ]
-
-                    if dest_country in EUROPE: dest_continent = "EUROPE"
-                    elif dest_country in AFRICA: dest_continent = "AFRICA"
-                    elif dest_country in LATIN_AMERICA: dest_continent = "LATIN AMERICA"
-                    elif dest_country in NORTH_AMERICA: dest_continent = "NORTH AMERICA"
-                    elif dest_country in ASIA: dest_continent = "ASIA"
-
-                if origin_country and dest_continent and origin_country in freetime_cache:
-                    fd = freetime_cache[origin_country].get(dest_continent)
+ 
+                    if origin_country in EUROPE: origin_continent = "EUROPE"
+                    elif origin_country in AFRICA: origin_continent = "AFRICA"
+                    elif origin_country in LATIN_AMERICA: origin_continent = "LATIN AMERICA"
+                    elif origin_country in NORTH_AMERICA: origin_continent = "NORTH AMERICA"
+                    elif origin_country in ASIA: origin_continent = "ASIA"
+ 
+                if dest_country and origin_continent and dest_country in freetime_cache:
+                    fd = freetime_cache[dest_country].get(origin_continent)
                     if fd is not None:
                         quote_schema.free_time = fd
                         if os.getenv("ONE_DEBUG", "").lower() == "true":
-                            print(f"[ONE] Successfully mapped offline Freetime: {origin_country} -> {dest_continent} = {fd} days")
+                            print(f"[ONE] Successfully mapped offline Inbound Freetime: {dest_country} <- {origin_continent} = {fd} days")
             except Exception as e:
                 print(f"[ONE] Warning: Failed to apply freetime from cache: {e}")
                 
