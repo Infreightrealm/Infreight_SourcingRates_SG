@@ -2043,6 +2043,14 @@ class MaerskConnector(BaseCarrierConnector):
             for i in range(90):
                 await asyncio.sleep(1)
                 
+                # Active challenge/captcha/2FA detection
+                if await self.check_captcha_challenge():
+                    if not self.captcha_detected:
+                        self.captcha_detected = True
+                        print("[MAERSK] [ACTION REQUIRED] Bot challenge, CAPTCHA, or 2FA verification page detected! Please look at the VNC window.")
+                    if i % 10 == 0:
+                        print("[MAERSK] [ACTION REQUIRED] Solving captcha challenge in VNC window...")
+                
                 # --- Watchdog Deadlock Check ---
                 try:
                     await self.page.evaluate("1", timeout=1500)

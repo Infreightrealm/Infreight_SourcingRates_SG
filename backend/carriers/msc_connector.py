@@ -535,17 +535,12 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
-                quote_conditions_tab = modal.locator("text='Quote Conditions'").first
-                text_before_qc = await modal.inner_text()
+                quote_conditions_tab = modal.locator("button:has-text('Quote Conditions'), [role='tab']:has-text('Quote Conditions'), text='Quote Conditions'").first
                 await quote_conditions_tab.click()
-                # Wait dynamically for tab content to update (up to 2s)
-                for _ in range(10):
-                    await self.page.wait_for_timeout(200)
-                    try:
-                        if await modal.inner_text() != text_before_qc:
-                            break
-                    except Exception:
-                        break
+                try:
+                    await modal.locator("text='Routing:'").first.wait_for(state="visible", timeout=4000)
+                except Exception:
+                    pass
                 
                 routing_el = modal.locator("text='Routing:'").locator("xpath=..")
                 routing_text = ""
@@ -581,17 +576,15 @@ class MSCConnector(BaseCarrierConnector):
 
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
-                schedule_tab = modal.locator("text='Schedule'").first
-                text_before_sched = await modal.inner_text()
+                schedule_tab = modal.locator("button:has-text('Schedule'), [role='tab']:has-text('Schedule'), text='Schedule'").first
                 await schedule_tab.click()
-                # Wait dynamically for schedule table to render (up to 3s)
-                for _ in range(15):
-                    await self.page.wait_for_timeout(200)
-                    try:
-                        if await modal.inner_text() != text_before_sched:
-                            break
-                    except Exception:
-                        break
+                
+                # Wait dynamically for schedule table to render (up to 8s)
+                try:
+                    await modal.locator("tr:has-text('Days'), td:has-text('Days')").first.wait_for(state="visible", timeout=8000)
+                    await self.page.wait_for_timeout(1000) # extra buffer for full list to hydrate
+                except Exception as e:
+                    self.log(f"Timed out waiting for schedule rows: {e}")
 
                 # The schedule table has rows with Vessel, Voyage, ETD, ETA, Service, Est.TT.
                 # Let's find rows that contain "Days" for Transit Time
@@ -655,6 +648,12 @@ class MSCConnector(BaseCarrierConnector):
                         const backdrops = document.querySelectorAll('.MuiBackdrop-root');
                         backdrops.forEach(b => b.style.display = 'none');
                     }''')
+                
+                # Wait for modal to be hidden/detached
+                try:
+                    await self.page.locator("div[data-test-id='BreakdownModal']").wait_for(state="hidden", timeout=5000)
+                except Exception:
+                    pass
                 await self.page.wait_for_timeout(1000)
 
             if quotes:

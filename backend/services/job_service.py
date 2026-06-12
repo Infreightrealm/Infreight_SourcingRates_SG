@@ -48,6 +48,21 @@ async def run_carrier_search(
             # Get the connector (mock or live based on env)
             connector = get_connector(carrier_code)
 
+            # Set real-time status update callback
+            async def update_status_cb(new_status: CarrierResultStatus):
+                async with get_async_session_maker()() as cb_session:
+                    cb_result_query = select(CarrierSearchResult).where(
+                        CarrierSearchResult.search_id == search_id,
+                        CarrierSearchResult.carrier == carrier_code,
+                    )
+                    cb_db_result = (await cb_session.execute(cb_result_query)).scalar_one_or_none()
+                    if cb_db_result:
+                        cb_db_result.status = new_status.value
+                        await cb_session.commit()
+                        print(f"[JOB] Real-time status update for {carrier_code}: {new_status.value}")
+
+            connector.status_update_callback = update_status_cb
+
             # Run the full search flow
             status, quotes = await connector.run_full_search(request)
 

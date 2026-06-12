@@ -18,10 +18,7 @@ class CarrierCode(str, Enum):
     CMA_CGM = "CMA_CGM"
     HAPAG_LLOYD = "HAPAG_LLOYD"
     MSC = "MSC"
-    EVERGREEN = "EVERGREEN"
-    COSCO = "COSCO"
     OOCL = "OOCL"
-    HMM = "HMM"
     GREENX = "GREENX"
 
 

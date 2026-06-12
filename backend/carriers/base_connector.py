@@ -21,6 +21,7 @@ class BaseCarrierConnector(ABC):
         self.page = None
         self.context = None
         self.captcha_detected = False
+        self.status_update_callback = None
 
     @abstractmethod
     async def login(self) -> bool:
@@ -104,64 +105,89 @@ class BaseCarrierConnector(ABC):
         if not self.page:
             return False
         try:
+            is_challenge = False
+            
             # 1. Check page title and URL for common challenge patterns
             url = self.page.url.lower()
             title = (await self.page.title()).lower()
-            if any(k in url or k in title for k in ["challenge", "turnstile", "captcha", "recaptcha", "hcaptcha"]):
-                return True
+            if any(k in url or k in title for k in ["challenge", "turnstile", "captcha", "recaptcha", "hcaptcha", "arkose", "funcaptcha"]):
+                is_challenge = True
 
-            # 2. Check for Cloudflare/Akamai challenge markers
-            cf_selectors = [
-                'iframe[src*="cloudflare" i]',
-                'iframe[src*="recaptcha" i]',
-                'iframe[src*="hcaptcha" i]',
-                '#cf-turnstile',
-                '#challenge-running',
-                '.g-recaptcha',
-                '#captcha-container',
-                '[class*="captcha" i]',
-                '[id*="captcha" i]',
-                '[src*="turnstile" i]'
-            ]
-            for sel in cf_selectors:
-                try:
-                    if await self.page.locator(sel).first.is_visible(timeout=100):
-                        return True
-                except Exception:
-                    pass
+            # 2. Check for Cloudflare/Akamai/Arkose challenge markers
+            if not is_challenge:
+                cf_selectors = [
+                    'iframe[src*="cloudflare" i]',
+                    'iframe[src*="recaptcha" i]',
+                    'iframe[src*="hcaptcha" i]',
+                    'iframe[src*="arkose" i]',
+                    'iframe[src*="funcaptcha" i]',
+                    '#cf-turnstile',
+                    '#challenge-running',
+                    '.g-recaptcha',
+                    '#captcha-container',
+                    '[class*="captcha" i]',
+                    '[id*="captcha" i]',
+                    '[src*="turnstile" i]',
+                    'div[class*="arkose" i]'
+                ]
+                for sel in cf_selectors:
+                    try:
+                        if await self.page.locator(sel).first.is_visible(timeout=100):
+                            is_challenge = True
+                            break
+                    except Exception:
+                        pass
 
             # 3. Check for 2FA / Verification code input fields
-            two_factor_selectors = [
-                'input[id*="verificationCode" i]',
-                'input[name*="code" i]',
-                'input[id*="otp" i]',
-                'input[placeholder*="verification code" i]',
-                'input[placeholder*="security code" i]',
-                'input[placeholder*="OTP" i]'
-            ]
-            for sel in two_factor_selectors:
-                try:
-                    if await self.page.locator(sel).first.is_visible(timeout=100):
-                        return True
-                except Exception:
-                    pass
+            if not is_challenge:
+                two_factor_selectors = [
+                    'input[id*="verificationCode" i]',
+                    'input[name*="code" i]',
+                    'input[id*="otp" i]',
+                    'input[placeholder*="verification code" i]',
+                    'input[placeholder*="security code" i]',
+                    'input[placeholder*="OTP" i]'
+                ]
+                for sel in two_factor_selectors:
+                    try:
+                        if await self.page.locator(sel).first.is_visible(timeout=100):
+                            is_challenge = True
+                            break
+                    except Exception:
+                        pass
 
             # 4. Check for common challenge text on page
-            body_text = (await self.page.locator("body").inner_text(timeout=200)).lower()
-            challenge_phrases = [
-                "verify your identity",
-                "verification code",
-                "two-factor authentication",
-                "enter security code",
-                "enter the code",
-                "confirm 2fa",
-                "verify you are human",
-                "security verification",
-                "robot check",
-                "one-time password",
-                "otp code"
-            ]
-            if any(phrase in body_text for phrase in challenge_phrases):
+            if not is_challenge:
+                body_text = (await self.page.locator("body").inner_text(timeout=200)).lower()
+                challenge_phrases = [
+                    "verify your identity",
+                    "verification code",
+                    "two-factor authentication",
+                    "enter security code",
+                    "enter the code",
+                    "confirm 2fa",
+                    "verify you are human",
+                    "security verification",
+                    "robot check",
+                    "one-time password",
+                    "otp code",
+                    "drag the letter",
+                    "where it fits",
+                    "drag the slider",
+                    "slide to verify",
+                    "select the shadow",
+                    "solve the puzzle",
+                    "complete the security check",
+                    "press and hold"
+                ]
+                if any(phrase in body_text for phrase in challenge_phrases):
+                    is_challenge = True
+
+            if is_challenge:
+                if not self.captcha_detected:
+                    self.captcha_detected = True
+                    if self.status_update_callback:
+                        asyncio.create_task(self.status_update_callback(CarrierResultStatus.WAITING_FOR_HUMAN_VERIFICATION))
                 return True
 
         except Exception:
