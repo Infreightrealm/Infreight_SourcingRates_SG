@@ -11,7 +11,14 @@ COUNTRIES = [
     "MALAYSIA", "TAIWAN", "CHINA", "VIETNAM", "PAKISTAN", "INDIA",
     "SAUDI ARABIA", "UNITED ARAB EMIRATES", "OMAN", "EGYPT", "INDONESIA",
     "AUSTRALIA", "THAILAND", "CAMBODIA",
-    "SINGAPORE", "HONG KONG", "KOREA REPUBLIC OF", "JAPAN", "PHILIPPINES"
+    "SINGAPORE", "HONG KONG", "KOREA REPUBLIC OF", "JAPAN", "PHILIPPINES",
+    # Turkey & European Countries
+    "TURKEY", "UNITED KINGDOM", "GERMANY", "NETHERLANDS", "BELGIUM",
+    "FRANCE", "ITALY", "SPAIN", "PORTUGAL", "GREECE", "POLAND",
+    "DENMARK", "NORWAY", "SWEDEN", "FINLAND", "IRELAND",
+    "ALBANIA", "AUSTRIA", "BULGARIA", "CROATIA", "CYPRUS",
+    "CZECH REPUBLIC", "ESTONIA", "HUNGARY", "LATVIA", "LITHUANIA",
+    "MALTA", "ROMANIA", "SLOVAKIA", "SLOVENIA", "SWITZERLAND", "UKRAINE"
 ]
 
 COUNTRY_CODES = {
@@ -20,7 +27,16 @@ COUNTRY_CODES = {
     "UNITED ARAB EMIRATES": "AE", "OMAN": "OM", "EGYPT": "EG",
     "INDONESIA": "ID", "AUSTRALIA": "AU", "THAILAND": "TH", "CAMBODIA": "KH",
     "SINGAPORE": "SG", "HONG KONG": "HK", "KOREA REPUBLIC OF": "KR",
-    "JAPAN": "JP", "PHILIPPINES": "PH"
+    "JAPAN": "JP", "PHILIPPINES": "PH",
+    # Turkey & European Countries
+    "TURKEY": "TR", "UNITED KINGDOM": "GB", "GERMANY": "DE", "NETHERLANDS": "NL",
+    "BELGIUM": "BE", "FRANCE": "FR", "ITALY": "IT", "SPAIN": "ES",
+    "PORTUGAL": "PT", "GREECE": "GR", "POLAND": "PL", "DENMARK": "DK",
+    "NORWAY": "NO", "SWEDEN": "SE", "FINLAND": "FI", "IRELAND": "IE",
+    "ALBANIA": "AL", "AUSTRIA": "AT", "BULGARIA": "BG", "CROATIA": "HR",
+    "CYPRUS": "CY", "CZECH REPUBLIC": "CZ", "ESTONIA": "EE", "HUNGARY": "HU",
+    "LATVIA": "LV", "LITHUANIA": "LT", "MALTA": "MT", "ROMANIA": "RO",
+    "SLOVAKIA": "SK", "SLOVENIA": "SI", "SWITZERLAND": "CH", "UKRAINE": "UA"
 }
 
 ORIGINS = ["ASIA", "NORTH AMERICA", "LATIN AMERICA", "EUROPE", "AFRICA"]
@@ -129,6 +145,9 @@ async def main():
                 freetime_cache[code] = {}
             
             for origin_continent in ORIGINS:
+                if origin_continent in freetime_cache[code] and freetime_cache[code][origin_continent] is not None:
+                    print(f"[ONE Freetime] Skipping {country} from {origin_continent} (already cached: {freetime_cache[code][origin_continent]} days)")
+                    continue
                 try:
                     print(f"\n[ONE Freetime] Scraping Import Demurrage/Detention for {country} from {origin_continent}...")
                     
@@ -150,29 +169,55 @@ async def main():
                     await frame.locator('#cvrgCntNm').press_sequentially(country, delay=100)
                     
                     try:
-                        await frame.locator('.ui-autocomplete li.ui-menu-item:visible').first.click(timeout=3000)
+                        autocomplete_items = frame.locator('.ui-autocomplete li.ui-menu-item:visible')
+                        await autocomplete_items.first.wait_for(state="visible", timeout=5000)
+                        count = await autocomplete_items.count()
+                        clicked = False
+                        for i in range(count):
+                            text = (await autocomplete_items.nth(i).inner_text()).strip().upper()
+                            if text == country.upper() or text.startswith(country.upper() + ",") or text.startswith(country.upper() + " "):
+                                await autocomplete_items.nth(i).click()
+                                clicked = True
+                                print(f"      [ONE Freetime] Clicked autocomplete match: '{text}'")
+                                break
+                        if not clicked:
+                            first_text = (await autocomplete_items.first.inner_text()).strip()
+                            await autocomplete_items.first.click()
+                            print(f"      [ONE Freetime] Fallback clicked first autocomplete: '{first_text}'")
                     except Exception as e:
                         print(f"      [!] Failed to click autocomplete for {country}: {e}")
                         
+                    # Handle any 'no data' or modal warning dialog that might have popped up
+                    try:
+                        dialog_close = frame.locator('.ui-dialog-titlebar-close, button:has-text("Close")').first
+                        if await dialog_close.is_visible(timeout=1000):
+                            await dialog_close.click()
+                            print("      [!] Dismissed popup dialog.")
+                    except:
+                        pass
+
                     await page.wait_for_timeout(2000)
                     
                     # 2. Bound: Inbound
                     await frame.locator('#inbound').click(force=True)
-                    await page.wait_for_timeout(500)
+                    await page.wait_for_timeout(1500) # Wait for bound change to trigger AJAX
                     
                     # 3. Origin Continent
                     await frame.locator('#orgDestContiCd').select_option(label=origin_continent)
-                    await page.wait_for_timeout(500)
+                    await page.wait_for_timeout(1500) # Wait for origin continent change to trigger AJAX
                     
                     # 4. Tariff Type
-                    try:
-                        await frame.locator('#dmdtTrfCd').select_option(value='DEMDET', timeout=2000)
-                    except:
+                    selected_tariff = False
+                    for val in ['DEMDET', 'DET', 'DEM']:
                         try:
-                            await frame.locator('#dmdtTrfCd').select_option(value='DET', timeout=2000)
+                            await frame.locator('#dmdtTrfCd').select_option(value=val, timeout=2000)
+                            print(f"      [ONE Freetime] Selected Tariff Type: {val}")
+                            selected_tariff = True
+                            break
                         except:
-                            print(f"      [!] Used DEM for {country} from {origin_continent}")
-                            await frame.locator('#dmdtTrfCd').select_option(value='DEM')
+                            continue
+                    if not selected_tariff:
+                        print(f"      [!] Warning: Failed to select any tariff type for {country} from {origin_continent}")
                     await page.wait_for_timeout(500)
                     
                     # 5. Container Type: Dry
