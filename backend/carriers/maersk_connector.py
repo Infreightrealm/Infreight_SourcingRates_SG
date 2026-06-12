@@ -108,6 +108,7 @@ class MaerskConnector(BaseCarrierConnector):
         self.temp_profile_dir = None
         self.master_profile_dir = None
         self.is_login_successful = False
+        self.captcha_detected = False
 
     # ────────────────────────────────────────
     # DYNAMIC SEARCH ENGINE OVERRIDE
@@ -128,6 +129,8 @@ class MaerskConnector(BaseCarrierConnector):
             # Step 1: Login
             login_ok = await self.login()
             if not login_ok:
+                if getattr(self, "captcha_detected", False):
+                    return CarrierResultStatus.CAPTCHA_OR_MANUAL_REVIEW_REQUIRED, []
                 return CarrierResultStatus.LOGIN_FAILED, []
 
             # Step 2: Search
@@ -919,10 +922,19 @@ class MaerskConnector(BaseCarrierConnector):
                     await self.page.wait_for_timeout(2000)
                     return True
 
+                # Active challenge/captcha/2FA detection
+                if await self.check_captcha_challenge():
+                    if not self.captcha_detected:
+                        self.captcha_detected = True
+                        print("[MAERSK] [ACTION REQUIRED] Bot challenge, CAPTCHA, or 2FA verification page detected! Please look at the opened VNC window to solve it.")
+                
                 # Print manual action notices
                 if i % 15 == 14:
-                    print("[MAERSK] [ACTION REQUIRED] Maersk Verification/2FA Page Detected!")
-                    print("[MAERSK] Please look at the opened Chromium window and manually complete the verification/CAPTCHA.")
+                    if self.captcha_detected:
+                        print("[MAERSK] [ACTION REQUIRED] Still blocked by CAPTCHA/2FA challenge. Please solve it in the VNC window.")
+                    else:
+                        print("[MAERSK] [ACTION REQUIRED] Maersk Verification/2FA Page Detected!")
+                        print("[MAERSK] Please look at the opened Chromium window and manually complete the verification/CAPTCHA.")
                     print(f"[MAERSK] Still waiting... {300 - i - 1} seconds remaining.")
 
             print("[MAERSK] [TIMEOUT] Login verification timed out.")

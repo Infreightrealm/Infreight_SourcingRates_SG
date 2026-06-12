@@ -20,6 +20,7 @@ class BaseCarrierConnector(ABC):
         self.browser = None
         self.page = None
         self.context = None
+        self.captcha_detected = False
 
     @abstractmethod
     async def login(self) -> bool:
@@ -94,6 +95,78 @@ class BaseCarrierConnector(ABC):
             Normalized QuoteSchema.
         """
         pass
+
+    async def check_captcha_challenge(self) -> bool:
+        """
+        Detects if a CAPTCHA, Turnstile, hCaptcha, reCAPTCHA, or 2FA screen
+        is currently visible on the active page.
+        """
+        if not self.page:
+            return False
+        try:
+            # 1. Check page title and URL for common challenge patterns
+            url = self.page.url.lower()
+            title = (await self.page.title()).lower()
+            if any(k in url or k in title for k in ["challenge", "turnstile", "captcha", "recaptcha", "hcaptcha"]):
+                return True
+
+            # 2. Check for Cloudflare/Akamai challenge markers
+            cf_selectors = [
+                'iframe[src*="cloudflare" i]',
+                'iframe[src*="recaptcha" i]',
+                'iframe[src*="hcaptcha" i]',
+                '#cf-turnstile',
+                '#challenge-running',
+                '.g-recaptcha',
+                '#captcha-container',
+                '[class*="captcha" i]',
+                '[id*="captcha" i]',
+                '[src*="turnstile" i]'
+            ]
+            for sel in cf_selectors:
+                try:
+                    if await self.page.locator(sel).first.is_visible(timeout=100):
+                        return True
+                except Exception:
+                    pass
+
+            # 3. Check for 2FA / Verification code input fields
+            two_factor_selectors = [
+                'input[id*="verificationCode" i]',
+                'input[name*="code" i]',
+                'input[id*="otp" i]',
+                'input[placeholder*="verification code" i]',
+                'input[placeholder*="security code" i]',
+                'input[placeholder*="OTP" i]'
+            ]
+            for sel in two_factor_selectors:
+                try:
+                    if await self.page.locator(sel).first.is_visible(timeout=100):
+                        return True
+                except Exception:
+                    pass
+
+            # 4. Check for common challenge text on page
+            body_text = (await self.page.locator("body").inner_text(timeout=200)).lower()
+            challenge_phrases = [
+                "verify your identity",
+                "verification code",
+                "two-factor authentication",
+                "enter security code",
+                "enter the code",
+                "confirm 2fa",
+                "verify you are human",
+                "security verification",
+                "robot check",
+                "one-time password",
+                "otp code"
+            ]
+            if any(phrase in body_text for phrase in challenge_phrases):
+                return True
+
+        except Exception:
+            pass
+        return False
 
     async def close(self):
         """Clean up browser resources."""

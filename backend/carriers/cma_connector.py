@@ -218,8 +218,9 @@ class CMAConnector(BaseCarrierConnector):
         captcha_iframe = self.page.locator(frame_selector).first
 
         try:
+            self.captcha_detected = True
             print("[CMA] [WARN] [ACTION REQUIRED] DataDome CAPTCHA/Verification Page Detected!")
-            print("[CMA] [WARN] Please look at the opened Chrome browser window on your screen.")
+            print("[CMA] [WARN] Please look at the opened Chrome browser window on your VNC display.")
             print("[CMA] [WARN] Manually DRAG the slider handle to the right to solve the CAPTCHA.")
             print("[CMA] [WARN] Waiting up to 3 minutes for manual resolution...")
 

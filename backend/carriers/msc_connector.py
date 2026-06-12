@@ -91,12 +91,40 @@ class MSCConnector(BaseCarrierConnector):
             login_btn = self.page.locator("button:has-text('Login'), button:has-text('Sign in')")
             await login_btn.click()
 
-            # Wait for dashboard to load (up to 45 seconds)
-            self.log("Waiting for dashboard to load...")
-            # Verify login success by checking the URL
-            await self.page.wait_for_url("**/welcome", timeout=45000)
-            self.log("Login successful.")
-            return True
+            # Verification Loop (HITL Bypassing)
+            self.log("Waiting for dashboard redirect or verification gate...")
+            for i in range(180):
+                await asyncio.sleep(1)
+                curr_url = self.page.url
+                
+                # Check for successful redirects
+                if "welcome" in curr_url.lower():
+                    self.log("Login successful.")
+                    return True
+
+                # Active challenge/captcha/2FA detection
+                if await self.check_captcha_challenge():
+                    if not self.captcha_detected:
+                        self.captcha_detected = True
+                        self.log("[ACTION REQUIRED] Bot challenge, CAPTCHA, or 2FA verification page detected! Please look at the opened VNC window to solve it.")
+                
+                # Print manual action notices
+                if i % 15 == 14:
+                    if self.captcha_detected:
+                        self.log("[ACTION REQUIRED] Still blocked by CAPTCHA/2FA challenge. Please solve it in the VNC window.")
+                    else:
+                        self.log("[ACTION REQUIRED] MSC Verification/2FA Page Detected!")
+                        self.log("Please look at the opened Chromium window and manually complete the verification/CAPTCHA.")
+                    self.log(f"Still waiting... {180 - i - 1} seconds remaining.")
+
+            # Check if we somehow ended up on dashboard but loop timed out
+            curr_url = self.page.url
+            if "welcome" in curr_url.lower():
+                self.log("Login successful (redirected after timeout)!")
+                return True
+
+            self.log("[TIMEOUT] Login verification timed out.")
+            return False
 
         except Exception as e:
             self.log(f"Login failed: {e}")

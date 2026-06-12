@@ -394,50 +394,45 @@ class ONEConnector(BaseCarrierConnector):
                     print("[ONE] ERROR message found in page HTML")
                 return False
             
-            print("[ONE] Waiting for navigation after submit...")
-            try:
-                # Wait for page to navigate away from login (to OAuth callback or dashboard)
-                await self.page.wait_for_url(lambda url: "login" not in url.lower() and "sign" not in url.lower(), timeout=12000)
-                print(f"[ONE] Navigation successful! Current URL: {self.page.url}")
+            # Verification Loop (HITL Bypassing)
+            print("[ONE] Waiting for dashboard redirect or verification gate...")
+            for i in range(180):
+                await asyncio.sleep(1)
+                curr_url = self.page.url
                 
-                # If on OAuth callback, wait for final redirect to dashboard
-                if "callback" in self.page.url.lower() or "authorization" in self.page.url.lower():
-                    print("[ONE] On OAuth callback page, waiting for dashboard redirect...")
-                    await self.page.wait_for_timeout(3000)  # Wait for redirect
-                    # Try to wait for page to fully load or redirect
-                    try:
-                        await self.page.wait_for_url(lambda url: "callback" not in url.lower(), timeout=10000)
-                        print(f"[ONE] Redirected to dashboard: {self.page.url}")
-                    except:
-                        # Even if redirect times out, login was successful
-                        print("[ONE] OAuth callback processed, assuming success")
-                
-                print("[ONE] Login successful!")
-                return True
-            except Exception as e:
-                print(f"[ONE] Navigation timeout: {e}")
-                # Check if we're still on login page
-                current_url = self.page.url
-                print(f"[ONE] Current URL after wait: {current_url}")
-                
-                # Try to capture any error messages on the page
-                try:
-                    page_html = await self.page.content()
-                    if "invalid" in page_html.lower():
-                        print("[ONE] INVALID credentials message found in page")
-                    if "error" in page_html.lower():
-                        print("[ONE] ERROR message found in page")
-                    if "wrong" in page_html.lower():
-                        print("[ONE] WRONG password message found in page")
-                except:
-                    pass
-                
-                if "login" in current_url.lower() or "sign" in current_url.lower():
-                    print("[ONE] Login failed — still on login page after submit")
-                    return False
-                else:
-                    print("[ONE] URL changed away from login, assuming success")
+                # Check for successful redirects
+                if "login" not in curr_url.lower() and "sign" not in curr_url.lower() and "auth" not in curr_url.lower():
+                    # If on OAuth callback, wait for final redirect to dashboard
+                    if "callback" in curr_url.lower() or "authorization" in curr_url.lower():
+                        if i % 10 == 0:
+                            print("[ONE] On OAuth callback page, waiting for dashboard redirect...")
+                        continue
+                    print("[ONE] Login successful!")
                     return True
+
+                # Active challenge/captcha/2FA detection
+                if await self.check_captcha_challenge():
+                    if not self.captcha_detected:
+                        self.captcha_detected = True
+                        print("[ONE] [ACTION REQUIRED] Bot challenge, CAPTCHA, or 2FA verification page detected! Please look at the opened VNC window to solve it.")
+                
+                # Print manual action notices
+                if i % 15 == 14:
+                    if self.captcha_detected:
+                        print("[ONE] [ACTION REQUIRED] Still blocked by CAPTCHA/2FA challenge. Please solve it in the VNC window.")
+                    else:
+                        print("[ONE] [ACTION REQUIRED] ONE Verification/2FA Page Detected!")
+                        print("[ONE] Please look at the opened Chromium window and manually complete the verification/CAPTCHA.")
+                    print(f"[ONE] Still waiting... {180 - i - 1} seconds remaining.")
+
+            # Check if we somehow ended up on dashboard but loop timed out
+            curr_url = self.page.url
+            if "login" not in curr_url.lower() and "sign" not in curr_url.lower():
+                print("[ONE] Login successful (redirected after timeout)!")
+                return True
+
+            print("[ONE] [TIMEOUT] Login verification timed out.")
+            return False
         except Exception as e:
             print(f"[ONE] Login failed: {e}")
             return False

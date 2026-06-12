@@ -409,7 +409,16 @@ class HapagLloydConnector(BaseCarrierConnector):
                 # Also print a status update every 5 seconds
                 elapsed = int(asyncio.get_event_loop().time() - settle_start_time)
                 if elapsed > 0 and elapsed % 5 == 0:
-                    print(f"[HAPAG] Still waiting for page to settle... (elapsed {elapsed}s). Solve Cloudflare in VNC if prompted.")
+                    if self.captcha_detected:
+                        print(f"[HAPAG] [ACTION REQUIRED] Still blocked by CAPTCHA/Turnstile. Please solve it in the VNC window. (elapsed {elapsed}s)")
+                    else:
+                        print(f"[HAPAG] Still waiting for page to settle... (elapsed {elapsed}s). Solve Cloudflare in VNC if prompted.")
+
+                # Check for active challenge/captcha
+                if await self.check_captcha_challenge():
+                    if not self.captcha_detected:
+                        self.captcha_detected = True
+                        print("[HAPAG] [ACTION REQUIRED] Bot challenge, CAPTCHA, or Turnstile page detected! Please look at the opened VNC window to solve it.")
                 
                 await asyncio.sleep(1)
 
@@ -564,8 +573,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                     
                     elapsed = int(asyncio.get_event_loop().time() - confirm_start_time)
                     if elapsed > 0 and elapsed % 5 == 0:
-                        print(f"[HAPAG] Still waiting for Quick Quote page to load... (elapsed {elapsed}s). Solve 2FA / Verification code in VNC if prompted.")
+                        if self.captcha_detected:
+                            print(f"[HAPAG] [ACTION REQUIRED] Still blocked by CAPTCHA/Turnstile. Please solve it in the VNC window. (elapsed {elapsed}s)")
+                        else:
+                            print(f"[HAPAG] Still waiting for Quick Quote page to load... (elapsed {elapsed}s). Solve 2FA / Verification code in VNC if prompted.")
                         
+                    # Check for active challenge/captcha
+                    if await self.check_captcha_challenge():
+                        if not self.captcha_detected:
+                            self.captcha_detected = True
+                            print("[HAPAG] [ACTION REQUIRED] Bot challenge, CAPTCHA, or Turnstile page detected! Please look at the opened VNC window to solve it.")
+                            
                     await asyncio.sleep(1)
                 
                 if not form_loaded:

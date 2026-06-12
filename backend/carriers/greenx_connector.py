@@ -144,14 +144,42 @@ class GreenXConnector(BaseCarrierConnector):
             print("[GreenX] Clicking submit...")
             await submit_btn.click()
             
-            # Wait dynamically for dashboard redirect (up to 10 seconds)
-            for _ in range(20):
-                await self.page.wait_for_timeout(500)
-                if "SignIn" not in self.page.url and "login" not in self.page.url.lower():
-                    break
-            await self._clear_cookie_overlay()
-            print(f"[GreenX] Current URL after login: {self.page.url}")
-            return True
+            # Verification Loop (HITL Bypassing)
+            print("[GreenX] Waiting for dashboard redirect or verification gate...")
+            for i in range(180):
+                await asyncio.sleep(1)
+                curr_url = self.page.url
+                
+                # Check for successful redirects
+                if "signin" not in curr_url.lower() and "login" not in curr_url.lower() and "auth" not in curr_url.lower():
+                    print("[GreenX] Login successful!")
+                    await self._clear_cookie_overlay()
+                    return True
+
+                # Active challenge/captcha/2FA detection
+                if await self.check_captcha_challenge():
+                    if not self.captcha_detected:
+                        self.captcha_detected = True
+                        print("[GreenX] [ACTION REQUIRED] Bot challenge, CAPTCHA, or 2FA verification page detected! Please look at the opened VNC window to solve it.")
+                
+                # Print manual action notices
+                if i % 15 == 14:
+                    if self.captcha_detected:
+                        print("[GreenX] [ACTION REQUIRED] Still blocked by CAPTCHA/2FA challenge. Please solve it in the VNC window.")
+                    else:
+                        print("[GreenX] [ACTION REQUIRED] GreenX Verification/2FA Page Detected!")
+                        print("[GreenX] Please look at the opened Chromium window and manually complete the verification/CAPTCHA.")
+                    print(f"[GreenX] Still waiting... {180 - i - 1} seconds remaining.")
+
+            # Check if we somehow ended up on dashboard but loop timed out
+            curr_url = self.page.url
+            if "signin" not in curr_url.lower() and "login" not in curr_url.lower():
+                print("[GreenX] Login successful (redirected after timeout)!")
+                await self._clear_cookie_overlay()
+                return True
+
+            print("[GreenX] [TIMEOUT] Login verification timed out.")
+            return False
 
         except Exception as e:
             print(f"[GreenX] Login error: {e}")
