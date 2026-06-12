@@ -340,7 +340,13 @@ class MSCConnector(BaseCarrierConnector):
                 bof_value = 0.0
                 currency = "USD"
                 
+                # Re-resolve modal fresh for EACH window to avoid stale/hidden element hangs
                 modal = self.page.locator("div[data-test-id='BreakdownModal']")
+                try:
+                    await modal.wait_for(state="visible", timeout=10000)
+                except Exception as e:
+                    self.log(f"Modal did not become visible for window {i+1}: {e}")
+                    continue
                 
                 # Wait for the charges to actually render inside the modal before reading inner_text
                 try:
@@ -352,7 +358,7 @@ class MSCConnector(BaseCarrierConnector):
                 # Because the modal uses MuiGrid, inner_text often collapses into a single massive string.
                 # We split the text by known headers to categorize charges, then use regex to extract amounts.
                 # We convert everything to uppercase because CSS text-transform affects inner_text.
-                popup_text = (await modal.inner_text()).replace('\n', ' ').upper()
+                popup_text = (await modal.inner_text(timeout=15000)).replace('\n', ' ').upper()
                 self.log(f"Popup text length: {len(popup_text)}")
                 
                 def extract_section(txt, current_header, next_headers):
@@ -411,13 +417,13 @@ class MSCConnector(BaseCarrierConnector):
                 try:
                     free_time_tab = modal.locator("text='Free Time'").first
                     if await free_time_tab.is_visible():
-                        text_before_ft = await modal.inner_text()
+                        text_before_ft = await modal.inner_text(timeout=10000)
                         await free_time_tab.click()
                         # Wait dynamically for free time content to load (up to 3s)
                         for _ in range(15):
                             await self.page.wait_for_timeout(200)
                             try:
-                                if await modal.inner_text() != text_before_ft:
+                                if await modal.inner_text(timeout=5000) != text_before_ft:
                                     break
                             except Exception:
                                 break
@@ -425,7 +431,7 @@ class MSCConnector(BaseCarrierConnector):
                         free_time_el = modal.locator("*:has-text('Import Combined')").last
                         await free_time_el.wait_for(state="visible", timeout=5000)
                         
-                        popup_inner = await modal.inner_text()
+                        popup_inner = await modal.inner_text(timeout=10000)
                         
                         match = re.search(r"Import Combined.*?(\d+)\s*Calendar", popup_inner, re.IGNORECASE | re.DOTALL)
                         if match:
@@ -436,13 +442,17 @@ class MSCConnector(BaseCarrierConnector):
                 # 4. Extract Routing (Tab 2)
                 self.log("Extracting routing...")
                 quote_conditions_tab = modal.locator("text='Quote Conditions'").first
-                text_before_qc = await modal.inner_text()
+                try:
+                    text_before_qc = await modal.inner_text(timeout=10000)
+                except Exception as e:
+                    self.log(f"Failed to read modal text before Quote Conditions tab: {e}")
+                    text_before_qc = ""
                 await quote_conditions_tab.click()
                 # Wait dynamically for tab content to update (up to 2s)
                 for _ in range(10):
                     await self.page.wait_for_timeout(200)
                     try:
-                        if await modal.inner_text() != text_before_qc:
+                        if await modal.inner_text(timeout=5000) != text_before_qc:
                             break
                     except Exception:
                         break
@@ -482,13 +492,17 @@ class MSCConnector(BaseCarrierConnector):
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
                 schedule_tab = modal.locator("text='Schedule'").first
-                text_before_sched = await modal.inner_text()
+                try:
+                    text_before_sched = await modal.inner_text(timeout=10000)
+                except Exception as e:
+                    self.log(f"Failed to read modal text before Schedule tab: {e}")
+                    text_before_sched = ""
                 await schedule_tab.click()
                 # Wait dynamically for schedule table to render (up to 3s)
                 for _ in range(15):
                     await self.page.wait_for_timeout(200)
                     try:
-                        if await modal.inner_text() != text_before_sched:
+                        if await modal.inner_text(timeout=5000) != text_before_sched:
                             break
                     except Exception:
                         break
@@ -537,11 +551,9 @@ class MSCConnector(BaseCarrierConnector):
                     )
                     quotes.append(quote)
 
-                # Close popup
+                # Close popup and wait for it to be fully gone before next iteration
                 self.log("Closing popup...")
                 try:
-                    modal = self.page.locator("div[data-test-id='BreakdownModal']")
-                    # Usually the close button is an SVG or button at the top right
                     close_btn = modal.locator("button, svg").first
                     await close_btn.click(timeout=5000)
                 except Exception as e:
@@ -549,13 +561,17 @@ class MSCConnector(BaseCarrierConnector):
                     await self.page.evaluate('''() => {
                         const modal = document.querySelector('[data-test-id="BreakdownModal"]');
                         if (modal) {
-                            // Find any button inside and try to click it, or just hide the modal
                             modal.style.display = 'none';
                         }
                         const backdrops = document.querySelectorAll('.MuiBackdrop-root');
                         backdrops.forEach(b => b.style.display = 'none');
                     }''')
-                await self.page.wait_for_timeout(1000)
+                # Wait for modal to disappear before processing next window
+                try:
+                    await modal.wait_for(state="hidden", timeout=5000)
+                except Exception:
+                    pass
+                await self.page.wait_for_timeout(500)
 
             if quotes:
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
