@@ -44,7 +44,10 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
   // Auto-open when searching starts
   useEffect(() => {
     if (isSearching && isAvailable) {
-      setIsOpen(true);
+      const timer = setTimeout(() => {
+        setIsOpen(true);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [isSearching, isAvailable]);
 
@@ -129,6 +132,14 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
 
     if (result) {
       const status = result.status;
+      if (
+        status === "MANUAL_ACTION_REQUIRED" ||
+        status === "WAITING_FOR_HUMAN_VERIFICATION" ||
+        status === "BOT_CHALLENGE_DETECTED" ||
+        status === "CAPTCHA_OR_MANUAL_REVIEW_REQUIRED"
+      ) {
+        return "bg-amber-500 dark:bg-amber-400 animate-ping";
+      }
       if (status === "RUNNING" || status === "QUEUED") {
         return "bg-emerald-500 dark:bg-emerald-400 animate-pulse";
       } else if (
@@ -152,6 +163,20 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
     return `${getPulseColor(carrierCode)} opacity-80`;
   };
 
+  // Find which carriers require manual action/verification
+  const manualActionCarriers = carriers.filter((carrier) => {
+    const backendKey = getBackendCarrierKey(carrier.code);
+    const result = results?.find((r) => r.carrier === backendKey);
+    if (!result) return false;
+    const status = result.status;
+    return (
+      status === "MANUAL_ACTION_REQUIRED" ||
+      status === "WAITING_FOR_HUMAN_VERIFICATION" ||
+      status === "BOT_CHALLENGE_DETECTED" ||
+      status === "CAPTCHA_OR_MANUAL_REVIEW_REQUIRED"
+    );
+  });
+
   return (
     <div className="fixed bottom-0 right-0 z-50 flex flex-col items-end">
       {/* Toggle Button */}
@@ -164,9 +189,11 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
           ${
             isOpen
               ? "bg-red-100 text-red-700 border border-red-200 border-b-0 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30 dark:hover:bg-red-500/30"
-              : isSearching
-                ? "bg-emerald-100 text-emerald-700 border border-emerald-200 border-b-0 hover:bg-emerald-200 animate-pulse dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30 dark:hover:bg-emerald-500/30"
-                : "bg-slate-200 text-slate-700 border border-slate-300 border-b-0 hover:bg-slate-300 dark:bg-white/10 dark:text-white/60 dark:border-white/10 dark:hover:bg-white/20"
+              : manualActionCarriers.length > 0
+                ? "bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold border border-amber-600 border-b-0 animate-bounce"
+                : isSearching
+                  ? "bg-emerald-100 text-emerald-700 border border-emerald-200 border-b-0 hover:bg-emerald-200 animate-pulse dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30 dark:hover:bg-emerald-500/30"
+                  : "bg-slate-200 text-slate-700 border border-slate-300 border-b-0 hover:bg-slate-300 dark:bg-white/10 dark:text-white/60 dark:border-white/10 dark:hover:bg-white/20"
           }
         `}
       >
@@ -179,10 +206,20 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
           </>
         ) : (
           <>
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a9 9 0 11-18 0V5.25" />
-            </svg>
-            {isSearching ? "🔴 Live Browser Tabs" : "Live Browser Tabs"}
+            {manualActionCarriers.length > 0 ? (
+              <svg className="w-3.5 h-3.5 animate-pulse" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a9 9 0 11-18 0V5.25" />
+              </svg>
+            )}
+            {manualActionCarriers.length > 0
+              ? `⚠️ Solve CAPTCHA (${manualActionCarriers.map((c) => c.name).join(", ")})`
+              : isSearching
+                ? "🔴 Live Browser Tabs"
+                : "Live Browser Tabs"}
           </>
         )}
       </button>
@@ -205,6 +242,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
               <div className="flex items-center gap-1">
                 {carriers.map((carrier) => {
                   const isActive = activeTab === carrier.code;
+                  const needsAction = manualActionCarriers.some((c) => c.code === carrier.code);
                   return (
                     <button
                       key={carrier.code}
@@ -212,11 +250,15 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
                       className={`
                         px-3 py-1.5 rounded-lg text-xs font-semibold
                         transition-all duration-200 flex items-center gap-2 border-b-2
-                        ${getBrandColorStyles(carrier.code, isActive)}
+                        ${
+                          needsAction
+                            ? "border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 animate-pulse font-bold"
+                            : getBrandColorStyles(carrier.code, isActive)
+                        }
                       `}
                     >
-                      <span className={`w-2 h-2 rounded-full ${getIndicatorStyle(carrier.code)}`} />
-                      {carrier.name}
+                      <span className={`w-2 h-2 rounded-full ${needsAction ? "bg-amber-500 dark:bg-amber-400 animate-ping" : getIndicatorStyle(carrier.code)}`} />
+                      {needsAction ? `⚠️ ${carrier.name}` : carrier.name}
                     </button>
                   );
                 })}
@@ -245,6 +287,22 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
               </button>
             </div>
           </div>
+
+          {/* Action Required Banner */}
+          {manualActionCarriers.length > 0 && (
+            <div className="bg-amber-500/15 dark:bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-400 animate-pulse">
+              <svg className="w-4 h-4 flex-shrink-0 animate-bounce text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>
+                <strong>CAPTCHA / Verification Required:</strong> Human intervention is needed on{" "}
+                <span className="font-bold underline">
+                  {manualActionCarriers.map((c) => c.name).join(", ")}
+                </span>
+                . Select the active tab(s) below and solve the challenge inside the display.
+              </span>
+            </div>
+          )}
 
           {/* VNC iframes (mounted concurrently to maintain state, but toggled via css visibility) */}
           <div className="flex-1 relative bg-white dark:bg-black">
