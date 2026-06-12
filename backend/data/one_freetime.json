@@ -7,11 +7,11 @@
         "AFRICA": 5
     },
     "TW": {
-        "ASIA": 5,
-        "NORTH AMERICA": 5,
-        "LATIN AMERICA": 5,
-        "EUROPE": 5,
-        "AFRICA": 5
+        "ASIA": 3,
+        "NORTH AMERICA": 3,
+        "LATIN AMERICA": 3,
+        "EUROPE": 3,
+        "AFRICA": 3
     },
     "CN": {
         "ASIA": 7,
@@ -21,46 +21,46 @@
         "AFRICA": 7
     },
     "VN": {
-        "ASIA": 10,
-        "NORTH AMERICA": 10,
-        "LATIN AMERICA": 10,
-        "EUROPE": 10,
-        "AFRICA": 10
+        "ASIA": 3,
+        "NORTH AMERICA": 3,
+        "LATIN AMERICA": 3,
+        "EUROPE": 3,
+        "AFRICA": 3
     },
     "PK": {
-        "ASIA": 14,
-        "NORTH AMERICA": 14,
-        "LATIN AMERICA": 14,
-        "EUROPE": 14,
-        "AFRICA": 14
-    },
-    "IN": {
-        "ASIA": 10,
-        "NORTH AMERICA": 10,
-        "LATIN AMERICA": 10,
-        "EUROPE": 10,
-        "AFRICA": 10
-    },
-    "SA": {
-        "ASIA": 15,
-        "NORTH AMERICA": 15,
-        "LATIN AMERICA": 15,
-        "EUROPE": 15,
-        "AFRICA": 15
-    },
-    "AE": {
         "ASIA": 7,
         "NORTH AMERICA": 7,
         "LATIN AMERICA": 7,
         "EUROPE": 7,
         "AFRICA": 7
     },
+    "IN": {
+        "ASIA": null,
+        "NORTH AMERICA": null,
+        "LATIN AMERICA": null,
+        "EUROPE": null,
+        "AFRICA": null
+    },
+    "SA": {
+        "ASIA": 7,
+        "NORTH AMERICA": 7,
+        "LATIN AMERICA": 7,
+        "EUROPE": 7,
+        "AFRICA": 7
+    },
+    "AE": {
+        "ASIA": 5,
+        "NORTH AMERICA": 5,
+        "LATIN AMERICA": 5,
+        "EUROPE": 5,
+        "AFRICA": 5
+    },
     "OM": {
-        "ASIA": 10,
-        "NORTH AMERICA": 10,
-        "LATIN AMERICA": 10,
-        "EUROPE": 10,
-        "AFRICA": 10
+        "ASIA": 7,
+        "NORTH AMERICA": 7,
+        "LATIN AMERICA": 7,
+        "EUROPE": 7,
+        "AFRICA": 7
     },
     "EG": {
         "ASIA": 14,
@@ -98,38 +98,38 @@
         "AFRICA": 7
     },
     "SG": {
-        "ASIA": 7,
-        "NORTH AMERICA": 7,
-        "LATIN AMERICA": 7,
-        "EUROPE": 7,
-        "AFRICA": 7
+        "ASIA": 5,
+        "NORTH AMERICA": 5,
+        "LATIN AMERICA": 5,
+        "EUROPE": 5,
+        "AFRICA": 5
     },
     "HK": {
-        "ASIA": 7,
-        "NORTH AMERICA": 7,
-        "LATIN AMERICA": 7,
-        "EUROPE": 7,
-        "AFRICA": 7
+        "ASIA": 2,
+        "NORTH AMERICA": 2,
+        "LATIN AMERICA": 2,
+        "EUROPE": 2,
+        "AFRICA": 2
     },
     "KR": {
-        "ASIA": 16,
-        "NORTH AMERICA": 16,
-        "LATIN AMERICA": 16,
-        "EUROPE": 16,
-        "AFRICA": 16
-    },
-    "JP": {
         "ASIA": 10,
         "NORTH AMERICA": 10,
         "LATIN AMERICA": 10,
         "EUROPE": 10,
         "AFRICA": 10
     },
+    "JP": {
+        "ASIA": 4,
+        "NORTH AMERICA": 4,
+        "LATIN AMERICA": 4,
+        "EUROPE": 4,
+        "AFRICA": 4
+    },
     "PH": {
-        "ASIA": 6,
-        "NORTH AMERICA": 6,
-        "LATIN AMERICA": 6,
-        "EUROPE": 6,
-        "AFRICA": 6
+        "ASIA": 9,
+        "NORTH AMERICA": 9,
+        "LATIN AMERICA": 9,
+        "EUROPE": 9,
+        "AFRICA": 9
     }
 }
