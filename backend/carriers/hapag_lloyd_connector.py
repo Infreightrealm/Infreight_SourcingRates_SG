@@ -2088,8 +2088,32 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                 return False
                 
-            # Buffer sleep for details to populate
-            await self._human_delay(2000, 3000)
+            # Wait for any loading indicator to disappear (up to 15 seconds)
+            print("[HAPAG] Waiting for details loading spinner to hide...")
+            try:
+                for check in range(30):
+                    loading_selectors = [
+                        'text="Offer is loading" i',
+                        '.q-loading',
+                        '.loading',
+                        '[class*="loading" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"])'
+                    ]
+                    is_still_loading = False
+                    for sel in loading_selectors:
+                        try:
+                            loc = self.page.locator(sel).first
+                            if await loc.is_visible(timeout=100):
+                                is_still_loading = True
+                                break
+                        except:
+                            pass
+                    if not is_still_loading:
+                        break
+                    await asyncio.sleep(0.5)
+            except Exception as wait_err:
+                print(f"[HAPAG] Warning: Error waiting for loading spinner: {wait_err}")
+                
+            await self._human_delay(1200, 2200)
             
             # --- PARSE DETAILS FROM LEFT PANEL ---
             tt = None
@@ -2421,22 +2445,46 @@ class HapagLloydConnector(BaseCarrierConnector):
             try:
                 print("[HAPAG] Closing Price Breakdown modal...")
                 await self.page.keyboard.press("Escape")
-                await self._human_delay(500, 1000)
+                await self._human_delay(400, 700)
                 
                 close_selectors = [
                     'div[role="dialog"] button i.el-icon-close',
                     'button:has-text("Close")',
                     'div[role="dialog"] button',
-                    'span:has-text("Close")'
+                    'span:has-text("Close")',
+                    '.el-dialog__headerbtn',
+                    '.q-dialog__close',
+                    '[aria-label*="close" i]'
                 ]
                 for sel in close_selectors:
                     try:
                         btn = self.page.locator(sel).first
-                        if await btn.is_visible(timeout=500):
-                            btn.click()
+                        if await btn.is_visible(timeout=300):
+                            await btn.scroll_into_view_if_needed()
+                            try:
+                                await btn.click(timeout=2000)
+                            except Exception:
+                                await btn.evaluate("el => el.click()")
+                            print(f"[HAPAG] Closed modal via selector: {sel}")
+                            await self._human_delay(500, 1000)
                             break
                     except:
                         pass
+                
+                # Bulletproof JS cleanup: hide all dialogs/modals and remove backdrops to ensure no blocking overlay remains
+                await self.page.evaluate('''() => {
+                    const dialogs = document.querySelectorAll('div[role="dialog"], .el-dialog, .modal, .q-dialog');
+                    dialogs.forEach(d => {
+                        d.style.display = 'none';
+                    });
+                    const backdrops = document.querySelectorAll('.v-modal, .q-dialog__backdrop, [class*="backdrop" i], [class*="overlay" i]');
+                    backdrops.forEach(b => {
+                        b.remove();
+                    });
+                    document.body.classList.remove('q-body--prevent-scroll', 'el-popup-parent--hidden');
+                    document.body.style.overflow = '';
+                }''')
+                
             except Exception as close_err:
                 print(f"[HAPAG] Error closing modal: {close_err}")
                 

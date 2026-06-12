@@ -185,16 +185,27 @@ class MSCConnector(BaseCarrierConnector):
                 
             await weight_input.wait_for(state="visible", timeout=5000)
             await weight_input.scroll_into_view_if_needed()
-            await weight_input.click()
+            await weight_input.focus()
+            
+            # Use atomic fill first (which is standard and doesn't trigger multiple keystrokes that append)
+            await weight_input.fill(str(request.weight_per_container_kg))
+            await weight_input.blur()
             await self.page.wait_for_timeout(300)
             
-            # Use select-all and backspace to clear the input and trigger React state
-            await weight_input.press("Control+A")
-            await weight_input.press("Backspace")
-            await weight_input.fill("")
-            await self.page.wait_for_timeout(200)
-            await weight_input.type(str(request.weight_per_container_kg), delay=100)
-            await self.page.wait_for_timeout(500)
+            # Double check entered value
+            val = await weight_input.input_value()
+            if val != str(request.weight_per_container_kg):
+                self.log(f"Warning: Cargo weight not updated correctly via fill (current: {val}). Forcing via JS event dispatch...")
+                await weight_input.evaluate(f'''(el) => {{
+                    el.value = "{request.weight_per_container_kg}";
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    el.blur();
+                }}''')
+                val = await weight_input.input_value()
+                self.log(f"JS fallback verification: cargo weight is now {val}")
+            else:
+                self.log(f"Cargo weight successfully set to {val}")
 
             # 3. Origin and Destination
             origin_locode = resolve_port_for_carrier(request.origin, "msc")
