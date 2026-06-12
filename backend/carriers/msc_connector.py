@@ -128,36 +128,73 @@ class MSCConnector(BaseCarrierConnector):
             for eq_type in ["20DV", "40DV", "40HC"]:
                 should_be_checked = (eq_type == target_eq)
                 try:
-                    toggled = await self.page.evaluate('''([eqType, shouldBeChecked]) => {
-                        const labels = Array.from(document.querySelectorAll('label'));
-                        const label = labels.find(l => (l.textContent || '').trim().includes(eqType));
-                        if (!label) return false;
-                        const input = label.querySelector('input[type="checkbox"]');
-                        const isChecked = input ? (input.checked || label.classList.contains('Mui-checked') || !!label.querySelector('.Mui-checked')) : false;
-                        if (!!isChecked !== !!shouldBeChecked) {
-                            label.click();
-                            return true;
-                        }
-                        return false;
-                    }''', [eq_type, should_be_checked])
-                    if toggled:
-                        self.log(f"Toggled checkbox {eq_type} to {should_be_checked}")
-                        await self.page.wait_for_timeout(500)
-                except Exception as e:
-                    self.log(f"Warning: Failed to toggle checkbox {eq_type} via JS: {e}. Trying fallback...")
-                    # Fallback click
-                    checkbox_wrapper = self.page.locator(f"label:has-text('{eq_type}')").first
-                    if await checkbox_wrapper.is_visible():
+                    # Find the label wrapping this equipment type checkbox
+                    checkbox_wrapper = self.page.locator(f"label:has-text('{eq_type}'), span:has-text('{eq_type}')").first
+                    await checkbox_wrapper.wait_for(state="visible", timeout=5000)
+                    
+                    # Try to find standard checkbox input inside the wrapper
+                    checkbox_input = checkbox_wrapper.locator("input[type='checkbox']").first
+                    is_checked = False
+                    if await checkbox_input.count() > 0:
+                        is_checked = await checkbox_input.is_checked()
+                        self.log(f"Playwright detected checkbox {eq_type} input.checked = {is_checked}")
+                    else:
+                        # Fallback: check classes of wrapper or any child span
+                        class_attr = await checkbox_wrapper.get_attribute("class") or ""
+                        child_classes = await checkbox_wrapper.evaluate('''el => {
+                            return Array.from(el.querySelectorAll('*')).map(c => c.className).join(" ");
+                        }''')
+                        combined_classes = (class_attr + " " + child_classes).lower()
+                        is_checked = "checked" in combined_classes or "active" in combined_classes
+                        self.log(f"Fallback detected checkbox {eq_type} checked = {is_checked}")
+                        
+                    if is_checked != should_be_checked:
+                        self.log(f"Toggling checkbox {eq_type} to {should_be_checked}")
+                        # Click the wrapper or label (clicking the input directly might be blocked if it's hidden/styled)
                         await checkbox_wrapper.click()
                         await self.page.wait_for_timeout(500)
+                        
+                        # Verify toggled state
+                        if await checkbox_input.count() > 0:
+                            new_checked = await checkbox_input.is_checked()
+                            self.log(f"After click, checkbox {eq_type} checked = {new_checked}")
+                except Exception as ex:
+                    self.log(f"Error toggling checkbox {eq_type}: {ex}")
 
             # 2. Cargo Weight
             self.log(f"Setting cargo weight to {request.weight_per_container_kg}...")
-            weight_input = self.page.locator("input[type='number']").first
-            await weight_input.wait_for(state="visible")
+            # Target by label text proximity, placeholder, or type
+            weight_selectors = [
+                "input[aria-label*='weight' i]",
+                "input[placeholder*='weight' i]",
+                "input[name*='weight' i]",
+                "input[type='number']"
+            ]
+            weight_input = None
+            for sel in weight_selectors:
+                try:
+                    loc = self.page.locator(sel).first
+                    if await loc.is_visible(timeout=1000):
+                        weight_input = loc
+                        self.log(f"Found cargo weight input using: {sel}")
+                        break
+                except:
+                    pass
+            if not weight_input:
+                weight_input = self.page.locator("input[type='number']").first
+                
+            await weight_input.wait_for(state="visible", timeout=5000)
+            await weight_input.scroll_into_view_if_needed()
             await weight_input.click()
-            # To overwrite value, we can use fill
-            await weight_input.fill(str(request.weight_per_container_kg))
+            await self.page.wait_for_timeout(300)
+            
+            # Use select-all and backspace to clear the input and trigger React state
+            await weight_input.press("Control+A")
+            await weight_input.press("Backspace")
+            await weight_input.fill("")
+            await self.page.wait_for_timeout(200)
+            await weight_input.type(str(request.weight_per_container_kg), delay=100)
+            await self.page.wait_for_timeout(500)
 
             # 3. Origin and Destination
             origin_locode = resolve_port_for_carrier(request.origin, "msc")
