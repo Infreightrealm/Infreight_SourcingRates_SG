@@ -492,16 +492,40 @@ class MSCConnector(BaseCarrierConnector):
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
                 schedule_tab = modal.locator("text='Schedule'").first
+
+                # Phase 1: snapshot modal text BEFORE clicking Schedule tab.
+                # On window 2+, the modal may still have stale Schedule rows from the previous
+                # window cached in the DOM. We need to confirm React actually re-rendered new data
+                # before we read anything.
+                try:
+                    text_before_sched = await modal.inner_text(timeout=8000)
+                except Exception:
+                    text_before_sched = ""
+
                 await schedule_tab.click()
-                # Wait explicitly for actual schedule data rows to render (not just any text change)
-                # The text-change check fires too early (on tab heading change) before rows are ready
+
+                # Phase 2a: wait for modal content to change (proves React tore down old data)
                 sched_rows = modal.locator("tr:has-text('Days')")
+                content_changed = False
+                for _ in range(30):  # up to 6s
+                    await self.page.wait_for_timeout(200)
+                    try:
+                        current_text = await modal.inner_text(timeout=3000)
+                        if current_text != text_before_sched:
+                            content_changed = True
+                            break
+                    except Exception:
+                        break
+
+                if not content_changed:
+                    self.log("Warning: modal content did not change after clicking Schedule tab.")
+
+                # Phase 2b: now wait for actual tr rows to be visible (data fully rendered)
                 try:
                     await sched_rows.first.wait_for(state="visible", timeout=15000)
                     self.log("Schedule rows visible.")
                 except Exception as e:
                     self.log(f"Timed out waiting for schedule rows (tr:has-text('Days')): {e}")
-                    # Log modal text for diagnostics
                     try:
                         debug_text = await modal.inner_text(timeout=5000)
                         self.log(f"Modal text at schedule timeout: {debug_text[:300]}")
