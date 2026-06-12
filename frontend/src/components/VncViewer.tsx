@@ -131,7 +131,10 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
     const result = results?.find((r) => r.carrier === backendKey);
 
     if (result) {
-      const status = result.status;
+      let status = result.status;
+      if (backendKey === "MSC" && status === "TIMEOUT") {
+        status = "NO_QUOTES_AVAILABLE";
+      }
       if (
         status === "MANUAL_ACTION_REQUIRED" ||
         status === "WAITING_FOR_HUMAN_VERIFICATION" ||

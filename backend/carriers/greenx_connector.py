@@ -52,14 +52,67 @@ class GreenXConnector(BaseCarrierConnector):
         self.page.set_default_timeout(30000)
 
     async def _clear_cookie_overlay(self) -> None:
+        """Dismiss any cookie/alert modal that would intercept pointer events."""
         try:
-            accept_btn = self.page.locator('button:has-text("Accept All"), button:has-text("Accept all"), [class*="accept" i]').first
+            # Target the specific Bootstrap modal by ID first
+            cookie_modal = self.page.locator("#modal_cookie_alert")
+            if await cookie_modal.count() > 0 and await cookie_modal.is_visible():
+                print("[GreenX] Cookie alert modal detected (#modal_cookie_alert). Dismissing...")
+                # Try clicking any button inside it (Accept, OK, Close, etc.)
+                dismissed = False
+                for btn_sel in [
+                    "#modal_cookie_alert button",
+                    "#modal_cookie_alert .btn",
+                    "#modal_cookie_alert [class*='accept' i]",
+                    "#modal_cookie_alert [class*='close' i]",
+                    "#modal_cookie_alert [data-bs-dismiss]",
+                ]:
+                    btn = self.page.locator(btn_sel).first
+                    if await btn.count() > 0:
+                        try:
+                            await btn.click(timeout=3000)
+                            dismissed = True
+                            print(f"[GreenX] Clicked dismiss button via selector: {btn_sel}")
+                            break
+                        except Exception:
+                            continue
+
+                if not dismissed:
+                    # Force-hide via JS as fallback
+                    print("[GreenX] Force-hiding cookie modal via JS...")
+                    await self.page.evaluate("""
+                        const m = document.getElementById('modal_cookie_alert');
+                        if (m) {
+                            m.classList.remove('show');
+                            m.style.display = 'none';
+                            m.setAttribute('aria-hidden', 'true');
+                            m.removeAttribute('aria-modal');
+                            document.body.classList.remove('modal-open');
+                            const backdrop = document.querySelector('.modal-backdrop');
+                            if (backdrop) backdrop.remove();
+                        }
+                    """)
+
+                # Wait for modal to fully disappear
+                try:
+                    await cookie_modal.wait_for(state="hidden", timeout=5000)
+                    print("[GreenX] Cookie modal dismissed successfully.")
+                except Exception:
+                    pass
+                await self.page.wait_for_timeout(500)
+                return
+
+            # Fallback: generic accept-all button scan
+            accept_btn = self.page.locator(
+                'button:has-text("Accept All"), button:has-text("Accept all"), [class*="accept" i]'
+            ).first
             if await accept_btn.count() > 0 and await accept_btn.is_visible():
-                print("[GreenX] Cookie preferences overlay detected. Clicking 'Accept All'...")
+                print("[GreenX] Generic cookie overlay detected. Clicking 'Accept All'...")
                 await accept_btn.click()
                 await self.page.wait_for_timeout(1000)
         except Exception as e:
             print(f"[GreenX] Warning: failed to clear cookie overlay: {e}")
+
 
     async def login(self) -> bool:
         username = os.getenv("GREENX_USERNAME", "INFREIGHT.SG@IN-FREIGHT.COM")

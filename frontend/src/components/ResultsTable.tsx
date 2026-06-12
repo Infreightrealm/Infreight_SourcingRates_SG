@@ -22,12 +22,15 @@ export default function ResultsTable({ data }: ResultsTableProps) {
   for (const cr of data.results) {
     const carrierInfo = CARRIERS.find((c) => c.code === cr.carrier);
     const color = carrierInfo?.color || "#666";
+    
+    // Normalize MSC Timeout to No Quotes
+    const status = (cr.carrier === "MSC" && cr.status === "TIMEOUT") ? "NO_QUOTES_AVAILABLE" : cr.status;
 
     if (cr.quotes.length === 0) {
-      allRows.push({ carrier: cr.carrier, carrierColor: color, status: cr.status, error: cr.error_message });
+      allRows.push({ carrier: cr.carrier, carrierColor: color, status: status, error: cr.error_message });
     } else {
       for (const q of cr.quotes) {
-        allRows.push({ carrier: cr.carrier, carrierColor: color, status: cr.status, quote: q });
+        allRows.push({ carrier: cr.carrier, carrierColor: color, status: status, quote: q });
       }
     }
   }

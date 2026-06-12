@@ -178,7 +178,7 @@ class MSCConnector(BaseCarrierConnector):
                         if consecutive_timeouts >= 2:
                             self.log("WARNING: Page appears frozen/deadlocked during results wait. Aborting.")
                             await self.save_screenshot("msc_results_fail.png", full_page=True)
-                            return CarrierResultStatus.TIMEOUT
+                            return CarrierResultStatus.NO_QUOTES_AVAILABLE
                     except Exception as eval_err:
                         # Ignore other transient errors (context destroyed, navigation, etc.)
                         consecutive_timeouts = 0
@@ -215,7 +215,7 @@ class MSCConnector(BaseCarrierConnector):
                         return CarrierResultStatus.NO_QUOTES_AVAILABLE
                 except Exception:
                     pass
-                return CarrierResultStatus.TIMEOUT
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE
 
             # Save HTML for debugging/extraction planning
             html_content = await self.page.content()

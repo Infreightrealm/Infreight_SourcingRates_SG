@@ -11,6 +11,27 @@ from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, 
 from carriers.base_connector import BaseCarrierConnector
 from services.normalizer import standardize_date_string
 
+MONTH_MAP = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
+}
+
+def parse_oocl_date(date_str: str, year: int) -> Optional[str]:
+    if not date_str:
+        return None
+    try:
+        parts = date_str.strip().split()
+        if len(parts) >= 2:
+            day = int(parts[0])
+            month_str = parts[1].lower()[:3]
+            month = MONTH_MAP.get(month_str)
+            if month:
+                dt = date(year, month, day)
+                return dt.strftime("%Y-%m-%d")
+    except Exception as e:
+        print(f"[OOCL] Error parsing date {date_str}: {e}")
+    return None
+
 class OOCLConnector(BaseCarrierConnector):
     carrier_code = "OOCL"
     carrier_name = "OOCL"
@@ -184,8 +205,36 @@ class OOCLConnector(BaseCarrierConnector):
         quotes = []
         try:
             print("[OOCL] Extracting results...")
-            await self.page.wait_for_timeout(2000) # Wait for grid to settle
             
+            # Wait for the Search Result count text to appear and be stable
+            result_count_locator = self.page.locator('span:has-text("Search Result:")')
+            expected_count = 0
+            try:
+                await result_count_locator.wait_for(state="visible", timeout=15000)
+                await self.page.wait_for_timeout(1000) # Let it settle to ensure accurate number
+                text = await result_count_locator.inner_text()
+                match = re.search(r'Search Result:\s*(\d+)', text)
+                if match:
+                    expected_count = int(match.group(1))
+                    print(f"[OOCL] Expected result count: {expected_count}")
+            except Exception as e:
+                print(f"[OOCL] Warning: could not parse expected result count: {e}")
+
+            # Wait up to 15 seconds for the .ag-row count to match expected_count (or be stable and >0)
+            for attempt in range(30):
+                rows = self.page.locator('.ag-row')
+                count = await rows.count()
+                if expected_count > 0 and count >= expected_count:
+                    print(f"[OOCL] All {count} rows loaded successfully matching expected count.")
+                    break
+                elif expected_count == 0 and count > 0:
+                    await self.page.wait_for_timeout(500)
+                    new_count = await rows.count()
+                    if new_count == count:
+                        print(f"[OOCL] Count settled at {count} rows.")
+                        break
+                await asyncio.sleep(0.5)
+
             os.makedirs("scratch", exist_ok=True)
             await self.page.screenshot(path="scratch/oocl_results.png", full_page=True)
             html = await self.page.content()
@@ -232,15 +281,9 @@ class OOCLConnector(BaseCarrierConnector):
                     current_year = datetime.now().year
                     
                     if etd_str:
-                        try:
-                            dt = datetime.strptime(f"{etd_str} {current_year}", "%d %b %Y")
-                            etd_iso = dt.strftime("%Y-%m-%d")
-                        except: pass
+                        etd_iso = parse_oocl_date(etd_str, current_year)
                     if eta_str:
-                        try:
-                            dt = datetime.strptime(f"{eta_str} {current_year}", "%d %b %Y")
-                            eta_iso = dt.strftime("%Y-%m-%d")
-                        except: pass
+                        eta_iso = parse_oocl_date(eta_str, current_year)
                         
                     # Extract Service, Vessel, Voyage
                     service_info_links = await row.locator('a.service-info').all_inner_texts()
