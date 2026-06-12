@@ -492,25 +492,24 @@ class MSCConnector(BaseCarrierConnector):
                 # 5. Extract Schedules (Tab 3)
                 self.log("Extracting schedules...")
                 schedule_tab = modal.locator("text='Schedule'").first
-                try:
-                    text_before_sched = await modal.inner_text(timeout=10000)
-                except Exception as e:
-                    self.log(f"Failed to read modal text before Schedule tab: {e}")
-                    text_before_sched = ""
                 await schedule_tab.click()
-                # Wait dynamically for schedule table to render (up to 3s)
-                for _ in range(15):
-                    await self.page.wait_for_timeout(200)
-                    try:
-                        if await modal.inner_text(timeout=5000) != text_before_sched:
-                            break
-                    except Exception:
-                        break
-
-                # The schedule table has rows with Vessel, Voyage, ETD, ETA, Service, Est.TT.
-                # Let's find rows that contain "Days" for Transit Time
+                # Wait explicitly for actual schedule data rows to render (not just any text change)
+                # The text-change check fires too early (on tab heading change) before rows are ready
                 sched_rows = modal.locator("tr:has-text('Days')")
+                try:
+                    await sched_rows.first.wait_for(state="visible", timeout=15000)
+                    self.log("Schedule rows visible.")
+                except Exception as e:
+                    self.log(f"Timed out waiting for schedule rows (tr:has-text('Days')): {e}")
+                    # Log modal text for diagnostics
+                    try:
+                        debug_text = await modal.inner_text(timeout=5000)
+                        self.log(f"Modal text at schedule timeout: {debug_text[:300]}")
+                    except Exception:
+                        pass
+
                 s_count = await sched_rows.count()
+                self.log(f"Schedule rows found: {s_count}")
                 
                 for s in range(s_count):
                     s_text = await sched_rows.nth(s).inner_text()
