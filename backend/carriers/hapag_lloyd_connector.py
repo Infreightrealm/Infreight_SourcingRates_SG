@@ -1064,6 +1064,39 @@ class HapagLloydConnector(BaseCarrierConnector):
             except:
                 pass
 
+            # --- VALIDATE AND RE-FILL IF TURNSTILE CLEARED INPUTS ---
+            try:
+                orig_val = ""
+                dest_val = ""
+                if start_field:
+                    orig_val = (await start_field.input_value()).strip()
+                if end_field:
+                    dest_val = (await end_field.input_value()).strip()
+                    
+                if not orig_val or not dest_val:
+                    print("[HAPAG] Warning: Form input fields are empty prior to schedule search (Turnstile redirect likely cleared them). Re-filling...")
+                    if not orig_val and start_field:
+                        await start_field.scroll_into_view_if_needed()
+                        await start_field.click()
+                        await start_field.press("Control+A")
+                        await start_field.press("Backspace")
+                        await start_field.fill("")
+                        await start_field.type(origin_locode, delay=50)
+                        await self._human_delay(1500, 2500)
+                        await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached)
+                        
+                    if not dest_val and end_field:
+                        await end_field.scroll_into_view_if_needed()
+                        await end_field.click()
+                        await end_field.press("Control+A")
+                        await end_field.press("Backspace")
+                        await end_field.fill("")
+                        await end_field.type(dest_locode, delay=50)
+                        await self._human_delay(1500, 2500)
+                        await self._select_hapag_dropdown_option("End Location", dest_locode, dest_cached)
+            except Exception as re_err:
+                print(f"[HAPAG] Warning: Validation/Re-filling empty inputs failed: {re_err}")
+
             # --- SEARCH ---
             print("[HAPAG] Schedule: Clicking Search...")
             search_btn = None
@@ -1095,10 +1128,22 @@ class HapagLloydConnector(BaseCarrierConnector):
                 # Fallback to specifically avoid the top nav if possible
                 search_btn = self.page.locator('button:has-text("Search")').last
 
-            await search_btn.scroll_into_view_if_needed()
+            try:
+                await search_btn.scroll_into_view_if_needed()
+            except Exception as scroll_e:
+                print(f"[HAPAG] Warning: scroll_into_view failed for search button: {scroll_e}")
             await self._human_delay(500, 1000)
-            await search_btn.click(force=True)
-            print("[HAPAG] Schedule: Search button clicked.")
+            
+            try:
+                await search_btn.click(force=True)
+                print("[HAPAG] Schedule: Search button clicked.")
+            except Exception as click_err:
+                print(f"[HAPAG] Warning: Playwright click on search button failed: {click_err}. Trying JS click...")
+                try:
+                    await search_btn.evaluate("el => el.click()")
+                except Exception as js_err:
+                    print(f"[HAPAG] JS click on search button failed: {js_err}. Trying fallback click...")
+                    await self.page.locator('button:has-text("Search")').last.click(force=True)
             
             # Additional fallback: press Enter just in case the button click was intercepted
             try:
