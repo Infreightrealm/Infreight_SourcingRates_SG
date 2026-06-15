@@ -5,6 +5,31 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-06-12] — OOCL, MSC, ONE Inbound Free Time & Concurrency Queue Control
+
+### ONE — Inbound Free Time Swap & Scraper Upgrade
+- **Feature**: Refactored the ONE connector (`one_connector.py`) to query destination-based inbound demurrage/detention limits instead of outbound export limits. Maps the origin port's country to its continent and queries the cache via `freetime_cache[dest_country].get(origin_continent)`.
+- **Scraper**: Rewrote `scrape_one_freetime.py` to crawl inbound demurrage/detention tariffs. Updated country matching in autocomplete to use exact string checks instead of first-index matching, resolving false selections (like selecting *"British Indian Ocean Territory"* for *"India"*).
+- **Captcha Safeguard**: Integrated custom Geetest/Cargosmart CAPTCHA detection that automatically pauses the scraper for up to 90 seconds to allow manual solving on the VNC screen.
+- **Cache Database**: Expanded `one_freetime.json` to include 19 core countries, Turkey, and 31 European destinations (including Germany, UK, France, Netherlands, Belgium, Italy, Spain, Sweden, Poland, and Ukraine).
+
+### OOCL — Orient Overseas Container Line Connector Implementation
+- **Feature**: Implemented the full OOCL schedules connector and VNC display mapping (Xvfb `:105`, VNC `5906`).
+- **Parsing**: Developed selectors to extract direct/transshipment route parameters from the CargoSmart schedule grids.
+- **Tarpit Evasion**: Configured a 90-second wait selector on grid elements and verified grid result counts dynamically to handle CargoSmart loading tarpits.
+
+### MSC — Mediterranean Shipping Company Connector Implementation
+- **Feature**: Developed the full MSC schedules and pricing connector and VNC display mapping (Xvfb `:104`, VNC `5904`).
+- **Parsing**: Built a robust regex-splitting parser to parse individual charges from React single-string MuiGrid layouts.
+- **Timeout Fix**: Added a two-phase check in the schedule wait loop to confirm the search content changed before testing row visibility, preventing the extractor from picking up stale data and finishing prematurely.
+
+### Concurrency Limit Queue & Admin Control Panel
+- **FIFO Queue System**: Added a global backend FIFO queue system and locked concurrent searches to a maximum of **3 slots**, prioritizing slower carriers.
+- **Admin Dashboard**: Created a name-based login registry, session tracking system, LoginModal.tsx, and a "Force Stop" override feature to clear active queues.
+- **Debug Screenshots**: Mounted a static `/screenshots` route to serve browser debug screens and validation logs directly from the backend.
+
+---
+
 ## [2026-06-04] — Routing, Free Time, Sold Out Rows & Storage Cleanup
 
 ### Excel Export — Sold Out Rows Not Showing
