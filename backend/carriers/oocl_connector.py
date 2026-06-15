@@ -81,11 +81,12 @@ class OOCLConnector(BaseCarrierConnector):
             await self.page.keyboard.press("Backspace")
             
             await field.type(location_name, delay=100)
-            await self.page.wait_for_timeout(2000)
             
             dropdown_sel = 'ul[role="listbox"] li, .ui-autocomplete-items li, .dropdown-menu li, .cdk-overlay-container [role="option"], [role="option"]'
+
             try:
-                await self.page.locator(dropdown_sel).first.wait_for(state="visible", timeout=8000)
+                # Give the dropdown up to 15s to appear, as OOCL API can be slow
+                await self.page.locator(dropdown_sel).first.wait_for(state="visible", timeout=15000)
             except Exception:
                 print(f"[OOCL] No dropdown appeared for {label}")
                 os.makedirs("scratch", exist_ok=True)
@@ -104,14 +105,18 @@ class OOCLConnector(BaseCarrierConnector):
             for i in range(count):
                 opt = options.nth(i)
                 text = await opt.inner_text()
-                if location_name.lower() in text.lower():
+                if text and location_name.lower() in text.lower():
+                    await opt.scroll_into_view_if_needed()
                     await opt.click()
                     print(f"[OOCL] Selected {label} from dropdown: {text.strip()}")
+                    await self.page.wait_for_timeout(1000) # Give Angular time to sync the ng-model
                     return True
                     
             opt_text = await options.nth(0).inner_text()
+            await options.nth(0).scroll_into_view_if_needed()
             await options.nth(0).click()
             print(f"[OOCL] Selected first {label} option: {opt_text.strip()}")
+            await self.page.wait_for_timeout(1000) # Give Angular time to sync the ng-model
             return True
             
         except Exception as e:
@@ -161,18 +166,13 @@ class OOCLConnector(BaseCarrierConnector):
                     
             try:
                 await self.page.keyboard.press("Tab")
-                await self.page.wait_for_timeout(1500)
+                await self.page.wait_for_timeout(500)
                 
-                # Highlight the button so the user sees it in VNC!
-                await self.page.evaluate('''() => {
-                    const btn = document.querySelector('button[ng-click="displayResult()"]') || document.querySelector('button[form="searchForm"]');
-                    if(btn) {
-                        btn.style.border = "5px solid red";
-                        btn.style.boxShadow = "0 0 10px red";
-                        btn.click();
-                    }
-                }''')
-                print("[OOCL] Clicked Search button via JS evaluate.")
+                # Use Playwright's native click so it waits for actionability/overlays
+                search_btn = self.page.locator('button[ng-click="displayResult()"], button[form="searchForm"]').first
+                await search_btn.wait_for(state="visible", timeout=5000)
+                await search_btn.click()
+                print("[OOCL] Clicked Search button.")
             except Exception as e:
                 print(f"[OOCL] Failed to click Search button: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
