@@ -731,7 +731,7 @@ class ONEConnector(BaseCarrierConnector):
                 try:
                     # Scope to active listbox container to avoid stale options from previous fields
                     first_option = self.page.locator('[role="listbox"] [role="option"]:visible, [role="listbox"] li:visible, [role="option"]:visible').first
-                    await first_option.wait_for(state="visible", timeout=2000)
+                    await first_option.wait_for(state="visible", timeout=8000)
 
                     # Try to find a case-insensitive match first, else pick the first option
                     commodity_upper = request.commodity.strip().upper()
@@ -755,7 +755,9 @@ class ONEConnector(BaseCarrierConnector):
                         print("[ONE] Commodity: no exact match, selected first available option")
                 except Exception as e:
                     # No dropdown appeared or click timed out — press Enter and continue
-                    print(f"[ONE] Commodity: no dropdown appeared or click timed out ({e}), pressing Enter")
+                    print(f"[ONE] Commodity: no dropdown appeared or click timed out ({e}), pressing ArrowDown then Enter")
+                    await self.page.keyboard.press("ArrowDown")
+                    await self.page.wait_for_timeout(200)
                     await self.page.keyboard.press("Enter")
 
                 await self.page.wait_for_timeout(200)
