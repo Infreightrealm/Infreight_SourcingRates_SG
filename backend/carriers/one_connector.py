@@ -729,38 +729,56 @@ class ONEConnector(BaseCarrierConnector):
 
                 # Wait for dropdown suggestions to appear
                 try:
-                    # Scope to active listbox container to avoid stale options from previous fields
-                    first_option = self.page.locator('[role="listbox"] [role="option"]:visible, [role="listbox"] li:visible, [role="option"]:visible').first
-                    await first_option.wait_for(state="visible", timeout=8000)
+                    options_locator = self.page.locator('[role="listbox"] [role="option"]:visible, [role="listbox"] li:visible, [role="option"]:visible')
+                    
+                    # Wait for at least one option that is NOT loading (max ~8 seconds)
+                    for _ in range(40):
+                        if await options_locator.count() > 0:
+                            first_text = await options_locator.first.inner_text()
+                            if "LOADING" not in first_text.upper():
+                                break
+                        await self.page.wait_for_timeout(200)
 
-                    # Try to find a case-insensitive match first, else pick the first option
+                    # Try to find a match
                     commodity_upper = request.commodity.strip().upper()
-                    all_options = self.page.locator('[role="listbox"] [role="option"]:visible, [role="listbox"] li:visible, [role="option"]:visible')
                     opted = False
-                    for i in range(await all_options.count()):
+                    for i in range(await options_locator.count()):
                         try:
-                            # Use small timeout to prevent waiting for detached placeholder elements (e.g. Loading...)
-                            opt_text = (await all_options.nth(i).inner_text(timeout=1000)).strip().upper()
+                            opt_text = (await options_locator.nth(i).inner_text(timeout=1000)).strip().upper()
                             if "LOADING" in opt_text:
                                 continue
                             if commodity_upper in opt_text or opt_text.startswith(commodity_upper[:6]):
-                                await all_options.nth(i).click(timeout=1500)
+                                await options_locator.nth(i).click(timeout=1500)
                                 print(f"[ONE] Commodity matched: '{opt_text}'")
                                 opted = True
                                 break
                         except Exception:
                             pass
+                    
                     if not opted:
-                        await first_option.click(timeout=1500)
-                        print("[ONE] Commodity: no exact match, selected first available option")
+                        # Find the first option that isn't LOADING
+                        for i in range(await options_locator.count()):
+                            try:
+                                opt_text = (await options_locator.nth(i).inner_text(timeout=1000)).strip().upper()
+                                if "LOADING" not in opt_text:
+                                    await options_locator.nth(i).click(timeout=1500)
+                                    print(f"[ONE] Commodity: no exact match, selected fallback: '{opt_text}'")
+                                    opted = True
+                                    break
+                            except Exception:
+                                pass
+                                
+                        if not opted:
+                            raise Exception("No valid options found to click")
+
                 except Exception as e:
-                    # No dropdown appeared or click timed out — press Enter and continue
+                    # No dropdown appeared or click timed out — press ArrowDown then Enter and continue
                     print(f"[ONE] Commodity: no dropdown appeared or click timed out ({e}), pressing ArrowDown then Enter")
                     await self.page.keyboard.press("ArrowDown")
                     await self.page.wait_for_timeout(200)
                     await self.page.keyboard.press("Enter")
 
-                await self.page.wait_for_timeout(200)
+                await self.page.wait_for_timeout(500)
             except Exception as e:
                 print(f"[ONE] Commodity selection failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
