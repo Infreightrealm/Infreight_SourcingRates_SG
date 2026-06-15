@@ -21,6 +21,14 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
   const [carriers, setCarriers] = useState<CarrierVnc[]>([]);
   const [fallbackVncPath, setFallbackVncPath] = useState("");
   const [activeTab, setActiveTab] = useState<string>("maersk");
+  const [dismissedOverlays, setDismissedOverlays] = useState<Record<string, boolean>>({});
+
+  // Reset dismissed overlays when a new search starts
+  useEffect(() => {
+    if (isSearching) {
+      setDismissedOverlays({});
+    }
+  }, [isSearching]);
 
   useEffect(() => {
     // Check if VNC is available on mount
@@ -312,6 +320,55 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
             {carriers.length > 0 ? (
               carriers.map((carrier) => {
                 const isActive = activeTab === carrier.code;
+                const backendKey = getBackendCarrierKey(carrier.code);
+                const result = results?.find((r) => r.carrier === backendKey);
+                const status = result?.status;
+                const isDismissed = dismissedOverlays[carrier.code];
+
+                // Determine overlay content
+                let overlayContent = null;
+                if (!isSearching) {
+                  overlayContent = {
+                    title: "System Idle",
+                    desc: "Start a new rate search to watch the live carrier portal browser automation.",
+                    icon: (
+                      <svg className="w-10 h-10 text-slate-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z" />
+                      </svg>
+                    ),
+                    spinner: false
+                  };
+                } else if (results && results.length > 0 && !result) {
+                  overlayContent = {
+                    title: "Not Selected",
+                    desc: `${carrier.name} was not selected for this rate search.`,
+                    icon: (
+                      <svg className="w-10 h-10 text-slate-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                    ),
+                    spinner: false
+                  };
+                } else if (status === "QUEUED") {
+                  overlayContent = {
+                    title: "Sourcing is Queued",
+                    desc: "We limit concurrent carrier browsers to prevent resource overload. Sourcing for this carrier will start automatically once a slot becomes available.",
+                    icon: null,
+                    spinner: true
+                  };
+                } else if (status && ["COMPLETED", "AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "FAILED", "LOGIN_FAILED", "CONNECTOR_NOT_AVAILABLE", "TIMEOUT", "UNKNOWN_ERROR", "EXTRACTION_FAILED", "INVALID_SEARCH_INPUT", "CARRIER_SITE_CHANGED"].includes(status)) {
+                  overlayContent = {
+                    title: "Sourcing Finished",
+                    desc: `Search completed with status: ${status.replace(/_/g, " ")}.`,
+                    icon: (
+                      <svg className="w-10 h-10 text-emerald-500/80 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    ),
+                    spinner: false
+                  };
+                }
+
                 return (
                   <div
                     key={carrier.code}
@@ -324,6 +381,27 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
                       allow="clipboard-read; clipboard-write"
                       title={`Live Browser View — ${carrier.name}`}
                     />
+                    {!isDismissed && overlayContent && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 text-white z-10 p-6 text-center animate-in fade-in duration-200">
+                        {overlayContent.spinner ? (
+                          <div className="w-10 h-10 rounded-full border-4 border-slate-700 border-t-emerald-500 animate-spin mb-4" />
+                        ) : (
+                          overlayContent.icon
+                        )}
+                        <h4 className="text-sm font-semibold mb-1">
+                          {overlayContent.title}
+                        </h4>
+                        <p className="text-xs text-slate-400 max-w-sm mb-4 leading-relaxed">
+                          {overlayContent.desc}
+                        </p>
+                        <button
+                          onClick={() => setDismissedOverlays(prev => ({ ...prev, [carrier.code]: true }))}
+                          className="px-3 py-1.5 bg-white/10 hover:bg-white/20 active:bg-white/30 rounded-lg text-[10px] font-medium transition-colors border border-white/5"
+                        >
+                          Dismiss Overlay
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })
