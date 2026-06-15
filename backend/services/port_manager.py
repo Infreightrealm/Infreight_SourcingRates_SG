@@ -21,6 +21,7 @@ CARRIER_PORT_OVERRIDES = {
         "INNSA": "Jawaharlal Nehru (MAHARASHTRA), India",
         "SAJED": "Jeddah, Saudi Arabia",
         "EGAIS": "Ain Sukhna, Egypt",
+        "EGALX": "Alexandria, Egypt",
         "EGALY": "Alexandria, Egypt",
         "IDJKT": "Jakarta",
         "IDBTM": "Batam",
