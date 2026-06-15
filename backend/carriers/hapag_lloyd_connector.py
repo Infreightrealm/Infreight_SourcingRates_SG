@@ -23,6 +23,11 @@ from carriers.base_connector import BaseCarrierConnector
 from services.port_manager import get_cached_carrier_port, set_cached_carrier_port, resolve_port_for_carrier
 
 
+class HapagServiceUnavailableException(Exception):
+    """Exception raised when Hapag-Lloyd API Gateway reports service is unavailable."""
+    pass
+
+
 class HapagLloydConnector(BaseCarrierConnector):
     carrier_code = "HAPAG_LLOYD"
     carrier_name = "Hapag-Lloyd"
@@ -41,6 +46,28 @@ class HapagLloydConnector(BaseCarrierConnector):
         self.master_profile_dir = None
         self.temp_profile_dir = None
         self.is_login_successful = False
+
+    async def _check_service_unavailable(self):
+        """Checks if Hapag-Lloyd API Gateway has returned 'This service is currently unavailable'."""
+        try:
+            if not self.page:
+                return
+
+            # Check modal visibility quickly
+            modal = self.page.locator('div:has-text("This service is currently unavailable"), h1:has-text("This service is currently unavailable"), p:has-text("This service is currently unavailable")').first
+            if await modal.is_visible(timeout=500):
+                print("[HAPAG] Hapag-Lloyd API Gateway error detected: 'This service is currently unavailable'.")
+                raise HapagServiceUnavailableException("Hapag-Lloyd service is currently unavailable.")
+            
+            # Check content
+            content = await self.page.content()
+            if "This service is currently unavailable" in content or "Global transaction ID" in content:
+                print("[HAPAG] Hapag-Lloyd API Gateway text detected in content: 'This service is currently unavailable'.")
+                raise HapagServiceUnavailableException("Hapag-Lloyd service is currently unavailable.")
+        except HapagServiceUnavailableException:
+            raise
+        except Exception:
+            pass
 
     async def _init_browser(self):
         is_prod = os.name != "nt"
@@ -188,6 +215,7 @@ class HapagLloydConnector(BaseCarrierConnector):
         """
         Dismisses any obscuring modal popups (including multi-step tutorial dialogs).
         """
+        await self._check_service_unavailable()
         print("[HAPAG] Dismissing any obscuring modal popups or onboarding wizards...")
         try:
             dismissed_any = False
@@ -304,6 +332,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
             except:
                 pass
+            await self._check_service_unavailable()
             await self._human_delay(1500, 2500)
 
             # Accept cookies banner if present
@@ -806,6 +835,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
             except:
                 pass
+            await self._check_service_unavailable()
             await self._human_delay(1500, 2500)
 
             # Dismiss any active modals
@@ -2039,66 +2069,103 @@ class HapagLloydConnector(BaseCarrierConnector):
                 }).map(el => el.textContent.trim());
             }'''
 
-            # ------------------------------------------------------------------
-            # Step 1: navigate right until target date is visible in the grid
-            # ------------------------------------------------------------------
-            ARROW_RIGHT_SELECTORS = [
-                'button[aria-label*="next" i]',
-                'button[aria-label*="forward" i]',
-                'button[aria-label*="right" i]',
-                '[class*="arrow-right" i]',
-                'button[class*="next" i]',
-                'button.q-btn:not([type="submit"]):not([aria-label*="search" i])'
-            ]
+            JS_CLICK_LEFT_ARROW = '''() => {
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                const visible = candidates.filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+                const arrows = visible.filter(el => {
+                    const txt = (el.textContent || '').trim();
+                    const cls = (el.className || '').toLowerCase();
+                    const lbl = (el.getAttribute('aria-label') || '').toLowerCase();
+                    const isNav = (
+                        txt === '<' ||
+                        cls.includes('arrow-left') || cls.includes('chevron-left') ||
+                        cls.includes('prev') || cls.includes('back') ||
+                        lbl.includes('prev') || lbl.includes('left') || lbl.includes('back') || lbl.includes('previous')
+                    );
+                    const isSearch = cls.includes('search') || lbl.includes('search') || el.type === 'submit';
+                    return isNav && !isSearch;
+                });
+                if (arrows.length > 0) {
+                    arrows.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+                    const btn = arrows[0];
+                    if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return 'disabled';
+                    btn.click();
+                    return 'clicked';
+                }
+                return 'not_found';
+            }'''
 
+            JS_CLICK_RIGHT_ARROW = '''() => {
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                const visible = candidates.filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+                const arrows = visible.filter(el => {
+                    const txt = (el.textContent || '').trim();
+                    const cls = (el.className || '').toLowerCase();
+                    const lbl = (el.getAttribute('aria-label') || '').toLowerCase();
+                    const isNav = (
+                        txt === '>' ||
+                        cls.includes('arrow-right') || cls.includes('chevron-right') ||
+                        cls.includes('next') ||
+                        lbl.includes('next') || lbl.includes('right') || lbl.includes('forward')
+                    );
+                    const isSearch = cls.includes('search') || lbl.includes('search') || el.type === 'submit';
+                    return isNav && !isSearch;
+                });
+                if (arrows.length > 0) {
+                    arrows.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
+                    const btn = arrows[0];
+                    if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return 'disabled';
+                    btn.click();
+                    return 'clicked';
+                }
+                return 'not_found';
+            }'''
+
+            target_idx = quote_ref.get("seq_idx", 0)
+
+            # ------------------------------------------------------------------
+            # Step 1: navigate left or right until target date is visible in the grid
+            # ------------------------------------------------------------------
             for nav_attempt in range(30):    # safety: at most 30 arrow clicks
                 visible: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
                 if raw_date in visible:
                     print(f"[HAPAG] Target date '{raw_date}' is now visible in grid.")
                     break
-                # Click right arrow
-                arrow_clicked = False
-                for arrow_sel in ARROW_RIGHT_SELECTORS:
-                    try:
-                        loc = self.page.locator(arrow_sel).last
-                        if await loc.is_visible(timeout=500):
-                            if await loc.is_disabled():
-                                break
-                            await loc.click()
-                            await self._human_delay(500, 800)
-                            arrow_clicked = True
-                            print(f"[HAPAG] Arrow click #{nav_attempt+1}, looking for '{raw_date}'...")
-                            break
-                    except:
-                        continue
-                if not arrow_clicked:
-                    # JS fallback
-                    js_ok = await self.page.evaluate('''() => {
-                        const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
-                        const visible = candidates.filter(el => {
-                            const r = el.getBoundingClientRect();
-                            return r.width > 0 && r.height > 0;
-                        });
-                        const arrows = visible.filter(el => {
-                            const txt = (el.textContent || '').trim();
-                            const cls = el.className || '';
-                            const lbl = (el.getAttribute('aria-label') || '').toLowerCase();
-                            return (txt === '>' || cls.includes('arrow-right') || cls.includes('chevron-right') ||
-                                    cls.includes('next') || lbl.includes('next') || lbl.includes('right'))
-                                && !cls.includes('search') && !lbl.includes('search');
-                        });
-                        if (arrows.length > 0) {
-                            arrows.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
-                            arrows[0].click();
-                            return true;
-                        }
-                        return false;
-                    }''')
-                    if js_ok:
-                        await self._human_delay(500, 800)
-                    else:
-                        print(f"[HAPAG] Could not navigate to '{raw_date}' -- date may not be present.")
-                        break
+
+                # Determine direction to move
+                direction = "right"  # default fallback
+                if self._all_quotes:
+                    visible_indices = []
+                    for vd in visible:
+                        match = next((q for q in self._all_quotes if q["raw_date"] == vd), None)
+                        if match:
+                            visible_indices.append(match["seq_idx"])
+                    if visible_indices:
+                        min_vis = min(visible_indices)
+                        max_vis = max(visible_indices)
+                        if target_idx < min_vis:
+                            direction = "left"
+                        elif target_idx > max_vis:
+                            direction = "right"
+
+                if direction == "left":
+                    arrow_result = await self.page.evaluate(JS_CLICK_LEFT_ARROW)
+                    print(f"[HAPAG] Left-arrow click #{nav_attempt+1} JS result: {arrow_result} (target_idx {target_idx})")
+                else:
+                    arrow_result = await self.page.evaluate(JS_CLICK_RIGHT_ARROW)
+                    print(f"[HAPAG] Right-arrow click #{nav_attempt+1} JS result: {arrow_result} (target_idx {target_idx})")
+
+                if arrow_result in ['disabled', 'not_found']:
+                    print(f"[HAPAG] Arrow navigation returned '{arrow_result}' -- assuming date not reachable.")
+                    break
+
+                await self._human_delay(800, 1200)
 
             # ------------------------------------------------------------------
             # Step 2: Click the correct date column by text content (not DOM index)
@@ -2798,6 +2865,9 @@ class HapagLloydConnector(BaseCarrierConnector):
             else:
                 return CarrierResultStatus.EXTRACTION_FAILED, []
 
+        except HapagServiceUnavailableException as e:
+            print(f"[HAPAG] Hapag-Lloyd service is currently unavailable: {e}")
+            return CarrierResultStatus.SERVICE_UNAVAILABLE, []
         except Exception as e:
             print(f"[HAPAG] Unexpected error in run_full_search: {e}")
             return CarrierResultStatus.UNKNOWN_ERROR, []

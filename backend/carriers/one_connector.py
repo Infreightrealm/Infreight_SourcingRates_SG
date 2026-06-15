@@ -1091,8 +1091,14 @@ class ONEConnector(BaseCarrierConnector):
                     is_sold_out = True
 
                 if is_sold_out:
-                    vessel = "Sold out"
-                    service_name = "Sold out"
+                    if vessel and vessel != "---" and vessel != "Sold out":
+                        vessel = f"{vessel} (Sold out)"
+                    else:
+                        vessel = "Sold out"
+                        
+                    if not service_name or service_name == "---":
+                        service_name = "Sold out"
+                        
                     status = "Sold Out"
                     total_price = 0.0
 

@@ -72,6 +72,8 @@ async def run_carrier_search(
 
             if status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
                 db_result.error_message = f"Connector for {carrier_code} is not yet implemented"
+            elif status == CarrierResultStatus.SERVICE_UNAVAILABLE:
+                db_result.error_message = f"Carrier service/website for {carrier_code} is currently unavailable (maintenance or downtime)"
 
             # Persist quotes
             for q in quotes:
