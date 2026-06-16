@@ -371,19 +371,30 @@ class HapagLloydConnector(BaseCarrierConnector):
             except:
                 pass
 
-            # Expand Quote Sidebar
-            print("[HAPAG] Expanding 'Quote' sidebar menu...")
-            quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
-            await quote_sidebar.scroll_into_view_if_needed()
-            await quote_sidebar.click(force=True)
-            await self._human_delay(1000, 1800)
+            # Check if Quick Quote form is already visible
+            start_input_selector = 'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]'
+            is_form_visible = False
+            try:
+                is_form_visible = await self.page.locator(start_input_selector).first.is_visible(timeout=2000)
+            except:
+                pass
 
-            # Click 'New Quote'
-            print("[HAPAG] Clicking 'New Quote' sub-menu...")
-            new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
-            await new_quote_btn.scroll_into_view_if_needed()
-            await new_quote_btn.click(force=True)
-            await self._human_delay(3000, 5000)
+            if is_form_visible:
+                print("[HAPAG] Already on New Quote page after login. Skipping sidebar clicks.")
+            else:
+                # Expand Quote Sidebar
+                print("[HAPAG] Expanding 'Quote' sidebar menu...")
+                quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+                await quote_sidebar.scroll_into_view_if_needed()
+                await quote_sidebar.click(force=True)
+                await self._human_delay(1000, 1800)
+
+                # Click 'New Quote'
+                print("[HAPAG] Clicking 'New Quote' sub-menu...")
+                new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+                await new_quote_btn.scroll_into_view_if_needed()
+                await new_quote_btn.click(force=True)
+                await self._human_delay(3000, 5000)
 
             # Wait for either the login form (credentials required) or the Quick Quote page (already logged in) to settle
             print("[HAPAG] Waiting for page to settle (up to 180s) to detect if login is required or already logged in...")
@@ -2732,20 +2743,32 @@ class HapagLloydConnector(BaseCarrierConnector):
                     pass
                 await self._human_delay(1500, 2500)
 
-                # Expand Quote sidebar and click New Quote
-                quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
-                await quote_sidebar.scroll_into_view_if_needed()
-                await quote_sidebar.click(force=True)
-                await self._human_delay(1000, 1800)
-
-                new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
-                await new_quote_btn.scroll_into_view_if_needed()
-                await new_quote_btn.click(force=True)
+                # Check if Quick Quote form is already visible
+                start_input_selector = 'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]'
+                is_form_visible = False
                 try:
-                    await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    is_form_visible = await self.page.locator(start_input_selector).first.is_visible(timeout=2000)
                 except:
                     pass
-                await self._human_delay(2000, 3500)
+
+                if is_form_visible:
+                    print("[HAPAG] Already on New Quote page after navigation. Skipping sidebar clicks.")
+                else:
+                    print("[HAPAG] Quote form not directly visible. Expanding sidebar menu to click 'New Quote'...")
+                    # Expand Quote sidebar and click New Quote
+                    quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+                    await quote_sidebar.scroll_into_view_if_needed()
+                    await quote_sidebar.click(force=True)
+                    await self._human_delay(1000, 1800)
+
+                    new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+                    await new_quote_btn.scroll_into_view_if_needed()
+                    await new_quote_btn.click(force=True)
+                    try:
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    except:
+                        pass
+                    await self._human_delay(2000, 3500)
                 print("[HAPAG] Transitioned to New Quote page.")
             except Exception as nav_err:
                 print(f"[HAPAG] Transition to New Quote failed: {nav_err}")
