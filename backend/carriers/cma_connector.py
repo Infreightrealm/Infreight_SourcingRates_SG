@@ -138,6 +138,8 @@ class CMAConnector(BaseCarrierConnector):
             "args": [
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
                 "--disable-infobars",
                 "--disable-component-update",
                 "--disable-default-apps",

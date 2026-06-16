@@ -43,7 +43,15 @@ class MSCConnector(BaseCarrierConnector):
 
         self.browser = await self.playwright.chromium.launch(
             headless=False,
-            args=["--start-maximized"],
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--start-maximized",
+            ],
             env=browser_env
         )
         self.context = await self.browser.new_context(viewport={'width': 1920, 'height': 1080})

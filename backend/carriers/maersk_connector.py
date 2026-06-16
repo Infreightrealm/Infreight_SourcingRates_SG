@@ -551,6 +551,8 @@ class MaerskConnector(BaseCarrierConnector):
             "args": [
                 "--disable-blink-features=AutomationControlled",  # Mask automation flag
                 "--no-sandbox",  # Required for Docker
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
