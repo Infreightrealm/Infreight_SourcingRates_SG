@@ -116,7 +116,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
         const q = r.quote;
         const freeTimeVal = getFreeTimeValue(q, r.carrier) ?? "-";
         const remarkVal = q.vessel || "-";
-        const rateVal = q.final_freight_value === 0.0 ? "Sold out" : q.final_freight_value;
+        const rateVal = q.final_freight_value === 0.0 ? (r.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out") : q.final_freight_value;
         
         sheet.addRow({
           pol: idx === 0 ? (data.origin || "") : "",
@@ -136,7 +136,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
           pol: idx === 0 ? (data.origin || "") : "",
           pod: idx === 0 ? (data.destination || "") : "",
           carrier: carrierName,
-          rate: "Sold out",
+          rate: r.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out",
           tt: "-",
           freetime: "-",
           validity: "-",
@@ -206,8 +206,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
       // Selected Container (Col D)
       const cellD = sheet.getCell(`D${r}`);
-      if (cellD.value === "Sold out") {
-        cellD.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'C00000' } }; // Bold red for Sold out
+      if (cellD.value === "Sold out" || cellD.value === "Offline rates") {
+        cellD.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'C00000' } }; // Bold red
         cellD.alignment = { horizontal: 'center', vertical: 'middle' };
         cellD.border = getThinBorder();
       } else {
@@ -395,7 +395,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         <td className="px-4 py-3 text-right">
                           {row.quote.final_freight_value === 0.0 ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400">
-                              Sold Out
+                              {row.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold Out"}
                             </span>
                           ) : (
                             <>
