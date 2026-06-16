@@ -1416,29 +1416,38 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Find Start Location text input
             start_selectors = [
-                'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
-                'input:below(:text("Start Location"))',
-                'div:has-text("Start Location") input',
                 'input[placeholder*="Start" i]',
                 'input[placeholder*="Origin" i]',
-                'input[type="text"]'  # Fallback to first text input
+                'div:has-text("Start Location") input',
+                'input:below(:text("Start Location"))',
+                'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
             ]
             
             start_field = None
-            for sel in start_selectors:
-                try:
-                    loc = self.page.locator(sel).first
-                    if await loc.is_visible(timeout=1000):
-                        start_field = loc
-                        print(f"[HAPAG] Start Location input found using selector: {sel}")
-                        break
-                except:
-                    pass
+            print("[HAPAG] Waiting for Start Location input field to become visible...")
+            for i in range(20):
+                for sel in start_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=300):
+                            start_field = loc
+                            print(f"[HAPAG] Start Location input found using selector: {sel}")
+                            break
+                    except:
+                        pass
+                if start_field:
+                    break
+                await asyncio.sleep(1)
             
             if not start_field:
                 # Absolute fallback: first visible input
-                start_field = self.page.locator('input').first
-                print("[HAPAG] Fallback to first general input on page.")
+                visible_inputs = self.page.locator('input:visible')
+                if await visible_inputs.count() > 0:
+                    start_field = visible_inputs.first
+                    print("[HAPAG] Fallback to first visible input on page.")
+                else:
+                    start_field = self.page.locator('input').first
+                    print("[HAPAG] Fallback to first general input on page.")
 
             # Try to fill and select Start Location (up to 3 attempts)
             start_success = False
@@ -1477,33 +1486,38 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Find End Location text input
             end_selectors = [
-                'xpath=(//*[contains(text(), "End Location")])[1]/following::input[1]',
-                'input:below(:text("End Location"))',
-                'div:has-text("End Location") input',
                 'input[placeholder*="End" i]',
                 'input[placeholder*="Destination" i]',
-                'input[type="text"]'  # Fallback to second text input
+                'div:has-text("End Location") input',
+                'input:below(:text("End Location"))',
+                'xpath=(//*[contains(text(), "End Location")])[1]/following::input[1]',
             ]
             
             end_field = None
-            for sel in end_selectors:
-                try:
-                    if sel == 'input[type="text"]':
-                        loc = self.page.locator(sel).nth(1)
-                    else:
+            print("[HAPAG] Waiting for End Location input field to become visible...")
+            for i in range(20):
+                for sel in end_selectors:
+                    try:
                         loc = self.page.locator(sel).first
-                        
-                    if await loc.is_visible(timeout=1000):
-                        end_field = loc
-                        print(f"[HAPAG] End Location input found using selector: {sel}")
-                        break
-                except:
-                    pass
+                        if await loc.is_visible(timeout=300):
+                            end_field = loc
+                            print(f"[HAPAG] End Location input found using selector: {sel}")
+                            break
+                    except:
+                        pass
+                if end_field:
+                    break
+                await asyncio.sleep(1)
             
             if not end_field:
-                # Absolute fallback: second visible input
-                end_field = self.page.locator('input').nth(1)
-                print("[HAPAG] Fallback to second general input on page.")
+                # Fallback to second visible input
+                visible_inputs = self.page.locator('input:visible')
+                if await visible_inputs.count() > 1:
+                    end_field = visible_inputs.nth(1)
+                    print("[HAPAG] Fallback to second visible input on page.")
+                else:
+                    end_field = self.page.locator('input').nth(1)
+                    print("[HAPAG] Fallback to second general input on page.")
 
             # Try to fill and select End Location (up to 3 attempts)
             end_success = False
