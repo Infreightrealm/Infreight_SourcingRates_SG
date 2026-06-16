@@ -12,7 +12,7 @@ from patchright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
 from services.charge_classifier import classify_charge
 from services.normalizer import normalize_quote
-from services.port_manager import resolve_port_for_carrier, get_carrier_search_query, get_cached_carrier_port, set_cached_carrier_port
+from services.port_manager import resolve_port_for_carrier, get_carrier_search_query, get_cached_carrier_port, set_cached_carrier_port, COUNTRY_CODE_TO_NAME
 from carriers.base_connector import BaseCarrierConnector
 
 from typing import Optional
@@ -30,45 +30,6 @@ SIZE_TYPE_MAP = {
     "DRY 45": "45' High Cube Dry",
 }
 
-COUNTRY_CODE_TO_NAME = {
-    "MA": "Morocco",
-    "CL": "Chile",
-    "MY": "Malaysia",
-    "VN": "Vietnam",
-    "SG": "Singapore",
-    "DE": "Germany",
-    "IN": "India",
-    "CN": "China",
-    "US": "United States",
-    "GB": "United Kingdom",
-    "FR": "France",
-    "ES": "Spain",
-    "IT": "Italy",
-    "NL": "Netherlands",
-    "BE": "Belgium",
-    "BR": "Brazil",
-    "AR": "Argentina",
-    "MX": "Mexico",
-    "ZA": "South Africa",
-    "JP": "Japan",
-    "KR": "South Korea",
-    "TW": "Taiwan",
-    "HK": "Hong Kong",
-    "AE": "United Arab Emirates",
-    "SA": "Saudi Arabia",
-    "TR": "Turkey",
-    "EG": "Egypt",
-    "TH": "Thailand",
-    "ID": "Indonesia",
-    "PH": "Philippines",
-    "PK": "Pakistan",
-    "BD": "Bangladesh",
-    "LK": "Sri Lanka",
-    "RU": "Russia",
-    "AU": "Australia",
-    "NZ": "New Zealand",
-    "CA": "Canada",
-}
 
 def extract_locode_and_country(text: str) -> tuple[Optional[str], Optional[str]]:
     """Extracts LOCODE and country name from text like 'CASABLANCA, MOROCCO (MACAS)'."""
@@ -1201,6 +1162,8 @@ class MaerskConnector(BaseCarrierConnector):
                         print(f"[MAERSK] Found {sug_count} autocomplete suggestions for Origin.")
                         
                         locode, country_from_text = extract_locode_and_country(request.origin)
+                        if not locode:
+                            locode = origin_locode
                         expected_country_code = None
                         if locode:
                             from services.port_manager import PortManager
@@ -1458,6 +1421,8 @@ class MaerskConnector(BaseCarrierConnector):
                         print(f"[MAERSK] Found {sug_count} autocomplete suggestions for Destination.")
                         
                         locode, country_from_text = extract_locode_and_country(request.destination)
+                        if not locode:
+                            locode = destination_locode
                         expected_country_code = None
                         if locode:
                             from services.port_manager import PortManager
@@ -1582,7 +1547,7 @@ class MaerskConnector(BaseCarrierConnector):
                         # JS shadow-DOM fallback with EXACT MATCH enforcement
                         try:
                             import json
-                            js_query = json.dumps(origin_query.strip())
+                            js_query = json.dumps(destination_query.strip())
                             
                             js_result = await self.page.evaluate(f"""
                                 () => {{
