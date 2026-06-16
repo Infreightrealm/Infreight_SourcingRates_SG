@@ -703,7 +703,11 @@ class MaerskConnector(BaseCarrierConnector):
             await self._init_browser()
             print("[MAERSK] Navigating to Maersk Login page...")
             # Navigate and wait for the full page load (MDS web components need JS to hydrate)
-            await self.page.goto("https://www.maersk.com/login", wait_until="load", timeout=60000)
+            try:
+                await self.page.goto("https://www.maersk.com/login", wait_until="load", timeout=60000)
+            except Exception as navigation_error:
+                print(f"[MAERSK] Navigation encountered an error/non-200 code: {navigation_error}")
+                print("[MAERSK] Proceeding anyway in case of Akamai/Cloudflare challenge rendering on 403...")
             # Extra wait for MDS web components (<mc-input>, <mc-button>) to fully hydrate via JavaScript
             await self.page.wait_for_timeout(5000)
             print(f"[MAERSK] Landed on: {self.page.url}")

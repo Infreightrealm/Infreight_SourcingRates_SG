@@ -329,7 +329,11 @@ class HapagLloydConnector(BaseCarrierConnector):
         try:
             await self._init_browser()
             print("[HAPAG] Navigating to home page...")
-            await self.page.goto(self.QUOTE_URL)
+            try:
+                await self.page.goto(self.QUOTE_URL)
+            except Exception as navigation_error:
+                print(f"[HAPAG] Navigation encountered an error/non-200 code: {navigation_error}")
+                print("[HAPAG] Proceeding anyway in case of Akamai/Cloudflare challenge rendering on 403...")
             try:
                 await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
             except:
