@@ -911,8 +911,6 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             end_selectors = [
                 'xpath=(//*[contains(text(), "End Location")])[1]/following::input[1]',
-                'input:below(:text("End Location"))',
-                'div:has-text("End Location") input',
                 'input[type="text"]'
             ]
 
@@ -931,7 +929,13 @@ class HapagLloydConnector(BaseCarrierConnector):
                     pass
 
             if not end_field:
-                end_field = self.page.locator('input').nth(1)
+                visible_inputs = self.page.locator('input:visible')
+                if await visible_inputs.count() > 1:
+                    end_field = visible_inputs.nth(1)
+                    print("[HAPAG] Fallback to second visible input on page.")
+                else:
+                    end_field = self.page.locator('input').nth(1)
+                    print("[HAPAG] Fallback to second general input on page.")
 
             end_success = False
             for attempt in range(1, 4):
@@ -1416,11 +1420,9 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Find Start Location text input
             start_selectors = [
+                'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
                 'input[placeholder*="Start" i]',
                 'input[placeholder*="Origin" i]',
-                'div:has-text("Start Location") input',
-                'input:below(:text("Start Location"))',
-                'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
             ]
             
             start_field = None
@@ -1486,11 +1488,9 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Find End Location text input
             end_selectors = [
+                'xpath=(//*[contains(text(), "End Location")])[1]/following::input[1]',
                 'input[placeholder*="End" i]',
                 'input[placeholder*="Destination" i]',
-                'div:has-text("End Location") input',
-                'input:below(:text("End Location"))',
-                'xpath=(//*[contains(text(), "End Location")])[1]/following::input[1]',
             ]
             
             end_field = None
