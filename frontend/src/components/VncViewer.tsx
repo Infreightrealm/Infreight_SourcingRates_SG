@@ -244,7 +244,6 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
             border border-slate-300 dark:border-white/10 rounded-tl-2xl
             shadow-2xl shadow-black/20 dark:shadow-black/50
             flex flex-col overflow-hidden
-            animate-slide-up
           "
         >
           {/* Panel Header & Tabs */}
@@ -261,7 +260,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
                       onClick={() => setActiveTab(carrier.code)}
                       className={`
                         px-3 py-1.5 rounded-lg text-xs font-semibold
-                        transition-all duration-200 flex items-center gap-2 border-b-2 btn-interactive
+                        transition-all duration-200 flex items-center gap-2 border-b-2
                         ${
                           needsAction
                             ? "border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 animate-pulse font-bold"
@@ -302,7 +301,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
 
           {/* Action Required Banner */}
           {manualActionCarriers.length > 0 && (
-            <div className="bg-amber-500/15 dark:bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-400 animate-shake">
+            <div className="bg-amber-500/15 dark:bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-400 animate-pulse">
               <svg className="w-4 h-4 flex-shrink-0 animate-bounce text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
@@ -383,7 +382,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
                       title={`Live Browser View — ${carrier.name}`}
                     />
                     {!isDismissed && overlayContent && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 text-white z-10 p-6 text-center animate-fade-in">
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 text-white z-10 p-6 text-center animate-in fade-in duration-200">
                         {overlayContent.spinner ? (
                           <div className="w-10 h-10 rounded-full border-4 border-slate-700 border-t-emerald-500 animate-spin mb-4" />
                         ) : (

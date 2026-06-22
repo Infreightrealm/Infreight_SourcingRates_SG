@@ -103,16 +103,15 @@ function HomeContent() {
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
       {/* Header */}
-      <header className="header-gradient-border bg-white/70 dark:bg-white/[0.02] backdrop-blur-xl sticky top-0 z-30 transition-colors">
+      <header className="border-b border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/[0.02] backdrop-blur-xl sticky top-0 z-30 transition-colors">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-shadow duration-300 hover:scale-105 active:scale-95">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/20">
               IF
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight font-heading">
-                <span className="gradient-text-animated">Infreight</span>{" "}
-                <span className="text-slate-900 dark:text-white">Ocean Carrier Rate Search</span>
+              <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                Infreight Ocean Carrier Rate Search
               </h1>
               <p className="text-xs text-slate-500 dark:text-white/40">Automated freight quotation comparison</p>
             </div>
@@ -130,7 +129,7 @@ function HomeContent() {
                   setSearchResult(null);
                   router.push("/");
                 }}
-                className="btn-interactive px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white font-medium text-xs transition-all duration-200"
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white font-medium text-xs transition-all duration-200"
               >
                 🔄 New Search
               </button>
@@ -148,7 +147,7 @@ function HomeContent() {
                   toast.error("Failed to stop searches");
                 }
               }}
-              className="btn-interactive px-3.5 py-1.5 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 font-medium text-xs transition-all duration-200 flex items-center gap-1.5"
+              className="px-3.5 py-1.5 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 font-medium text-xs transition-all duration-200 flex items-center gap-1.5"
               title="Force stop all queued and active searches"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -203,19 +202,19 @@ function HomeContent() {
         <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
 
         {/* Search Form Card */}
-        <section className="glass-card rounded-2xl p-6 shadow-sm animate-fade-in-up">
-          <div className="flex items-center gap-2 mb-5 animate-fade-in-up stagger-1">
-            <svg className="w-5 h-5 text-indigo-500 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <section className="bg-white/60 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 backdrop-blur-sm transition-colors shadow-sm">
+          <div className="flex items-center gap-2 mb-5">
+            <svg className="w-5 h-5 text-blue-500 dark:text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
             </svg>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-white font-heading">Search Parameters</h2>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Search Parameters</h2>
           </div>
           <RateSearchForm key={searchId || "new"} onSubmit={handleSearch} isLoading={isLoading} />
         </section>
 
         {/* Queue Status Overlay */}
         {searchResult && searchResult.status === "QUEUED" && searchResult.queue_position !== undefined && (
-          <section className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-6 backdrop-blur-sm text-center animate-fade-in-up">
+          <section className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-6 backdrop-blur-sm text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
             <h3 className="text-xl font-bold text-blue-400 mb-2">
               {searchResult.queue_position > 0 ? `You are #${searchResult.queue_position} in line` : "Your search is starting..."}
             </h3>
@@ -233,14 +232,14 @@ function HomeContent() {
 
         {/* Results */}
         {searchResult && (
-          <section className="animate-fade-in-up">
+          <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <ResultsTable data={searchResult} />
           </section>
         )}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 dark:border-white/5 py-6 mt-auto transition-colors animate-fade-in">
+      <footer className="border-t border-slate-200 dark:border-white/5 py-6 mt-auto transition-colors">
         <div className="max-w-7xl mx-auto px-6 text-center text-xs text-slate-500 dark:text-white/30">
           Infreight Logistics — Ocean Carrier Rate Automation System
         </div>
