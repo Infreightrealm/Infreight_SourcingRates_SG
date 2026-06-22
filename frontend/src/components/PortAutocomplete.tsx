@@ -81,7 +81,7 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
       </div>
 
       {showDropdown && suggestions.length > 0 && (
-        <div className="absolute z-50 left-0 right-0 mt-2 bg-white dark:bg-[#181a26] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden max-h-64 overflow-y-auto animate-dropdown-in">
+        <div className="absolute z-50 left-0 right-0 mt-2 bg-white dark:bg-[#181a26] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden max-h-64 overflow-y-auto animate-dropdown-in port-dropdown">
           {suggestions.map((port, index) => (
             <button
               key={port.code}
