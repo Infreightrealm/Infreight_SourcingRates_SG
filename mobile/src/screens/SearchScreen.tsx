@@ -20,6 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import CarrierChips from '@/components/CarrierChips';
 import PortField from '@/components/PortField';
 import QuoteCard from '@/components/QuoteCard';
+import TwoFactorModal from '@/components/TwoFactorModal';
 import { CONTAINER_TYPES, statusStyle } from '@/constants/api';
 import { useRateSearch } from '@/hooks/useRateSearch';
 import { brandGradient, palette } from '@/theme/colors';
@@ -43,6 +44,7 @@ export default function SearchScreen() {
   const [commodity, setCommodity] = useState('Furniture');
   const [departureDate, setDepartureDate] = useState('tomorrow');
   const [searchWindow, setSearchWindow] = useState(14);
+  const [solveCarrier, setSolveCarrier] = useState<string | null>(null);
 
   const submit = () => {
     if (carriers.length === 0) return;
@@ -69,6 +71,7 @@ export default function SearchScreen() {
   const showResults = !!search.searchId;
 
   return (
+    <>
     <ScrollView
       style={styles.root}
       contentContainerStyle={[
@@ -90,7 +93,7 @@ export default function SearchScreen() {
       </View>
 
       {showResults ? (
-        <ResultsSection search={search} onNewSearch={search.reset} />
+        <ResultsSection search={search} onNewSearch={search.reset} onSolve={setSolveCarrier} />
       ) : (
         <View style={styles.form}>
           <Text style={styles.sectionLabel}>CARRIERS</Text>
@@ -166,15 +169,19 @@ export default function SearchScreen() {
         </View>
       )}
     </ScrollView>
+    <TwoFactorModal carrierCode={solveCarrier} onClose={() => setSolveCarrier(null)} />
+    </>
   );
 }
 
 function ResultsSection({
   search,
   onNewSearch,
+  onSolve,
 }: {
   search: ReturnType<typeof useRateSearch>;
   onNewSearch: () => void;
+  onSolve: (carrier: string) => void;
 }) {
   const overall = statusStyle(search.status ?? 'QUEUED');
   const results = search.result?.results ?? [];
@@ -208,16 +215,7 @@ function ResultsSection({
       ) : (
         <View style={styles.cards}>
           {results.map((r) => (
-            <QuoteCard
-              key={r.carrier}
-              result={r}
-              onSolve={(carrier) =>
-                Alert.alert(
-                  'Human verification',
-                  `${carrier} needs a CAPTCHA/2FA solved. The in-app verification view is coming in the next build step.`,
-                )
-              }
-            />
+            <QuoteCard key={r.carrier} result={r} onSolve={onSolve} />
           ))}
         </View>
       )}

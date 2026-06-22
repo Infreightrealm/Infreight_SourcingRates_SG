@@ -15,6 +15,7 @@ import type {
   RateSearchResultResponse,
   UserSchema,
   PortSuggestion,
+  VncStatus,
 } from '@/types/api';
 
 async function parseError(res: Response, fallback: string): Promise<string> {
@@ -81,5 +82,14 @@ export async function getPortSuggestions(
 
 export async function healthCheck(): Promise<{ status: string; mock_mode: boolean }> {
   const res = await fetch(`${API_URL}/health`);
+  return res.json();
+}
+
+/** noVNC viewer availability + per-carrier paths (for the in-app 2FA flow). */
+export async function getVncStatus(): Promise<VncStatus> {
+  const res = await fetch(`${API_URL}/api/vnc-status`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
   return res.json();
 }

@@ -79,6 +79,20 @@ export interface UserSchema {
   created_at: string;
 }
 
+export interface VncCarrier {
+  name: string;
+  code: string;
+  path: string;
+  ws_path: string;
+}
+
+export interface VncStatus {
+  available: boolean;
+  carriers: VncCarrier[];
+  vnc_path: string;
+  message: string;
+}
+
 export interface PortSuggestion {
   name: string;
   code?: string;

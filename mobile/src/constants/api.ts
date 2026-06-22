@@ -21,6 +21,17 @@ export const CARRIERS = [
   { code: 'MSC', name: 'MSC' },
 ] as const;
 
+/** Maps rate-search carrier codes to the noVNC carrier codes used by /api/vnc-status. */
+export const VNC_CARRIER_CODE: Record<string, string> = {
+  MAERSK: 'maersk',
+  CMA_CGM: 'cma',
+  ONE: 'one',
+  HAPAG_LLOYD: 'hapag',
+  GREENX: 'greenx',
+  MSC: 'msc',
+  OOCL: 'oocl',
+};
+
 export const CONTAINER_TYPES = [
   'DRY 20',
   'DRY 40',
