@@ -9,7 +9,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { CARRIERS, statusStyle } from '@/constants/api';
 import { brandGradient, carrierColors, palette } from '@/theme/colors';
-import type { CarrierResultSchema, QuoteSchema } from '@/types/api';
+import type { CarrierResultSchema } from '@/types/api';
+import { bestQuote, money } from '@/utils/quotes';
 
 const MANUAL_STATUSES = new Set([
   'WAITING_FOR_HUMAN_VERIFICATION',
@@ -25,19 +26,6 @@ interface Props {
 
 function carrierName(code: string): string {
   return CARRIERS.find((c) => c.code === code)?.name ?? code;
-}
-
-function bestQuote(quotes: QuoteSchema[]): QuoteSchema | null {
-  return quotes.reduce<QuoteSchema | null>((best, q) => {
-    if (!(q.final_freight_value > 0)) return best;
-    if (!best || q.final_freight_value < best.final_freight_value) return q;
-    return best;
-  }, null);
-}
-
-function money(value: number, currency = 'USD'): string {
-  const prefix = currency === 'USD' ? '$' : `${currency} `;
-  return `${prefix}${Math.round(value).toLocaleString('en-US')}`;
 }
 
 export default function QuoteCard({ result, onSolve }: Props) {

@@ -23,9 +23,11 @@ import QuoteCard from '@/components/QuoteCard';
 import TwoFactorModal from '@/components/TwoFactorModal';
 import { CONTAINER_TYPES, statusStyle } from '@/constants/api';
 import { useRateSearch } from '@/hooks/useRateSearch';
+import { CARRIERS } from '@/constants/api';
 import { brandGradient, palette } from '@/theme/colors';
 import { useAuthStore } from '@/store/authStore';
 import type { RateSearchRequest } from '@/types/api';
+import { cheapestResult, money, sortResults } from '@/utils/quotes';
 
 const SEARCH_WINDOWS = [7, 14, 21, 30];
 
@@ -184,8 +186,13 @@ function ResultsSection({
   onSolve: (carrier: string) => void;
 }) {
   const overall = statusStyle(search.status ?? 'QUEUED');
-  const results = search.result?.results ?? [];
+  const rawResults = search.result?.results ?? [];
+  const results = sortResults(rawResults);
   const queuePos = search.result?.queue_position;
+  const cheapest = cheapestResult(rawResults);
+  const cheapestName = cheapest
+    ? CARRIERS.find((c) => c.code === cheapest.carrier)?.name ?? cheapest.carrier
+    : null;
 
   return (
     <View>
@@ -205,6 +212,21 @@ function ResultsSection({
 
       {typeof queuePos === 'number' && queuePos > 0 ? (
         <Text style={styles.queueText}>Queue position: {queuePos}</Text>
+      ) : null}
+
+      {cheapest && cheapestName ? (
+        <LinearGradient
+          colors={brandGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.bestBanner}
+        >
+          <View style={styles.bestText}>
+            <Text style={styles.bestLabel}>BEST RATE</Text>
+            <Text style={styles.bestCarrier}>{cheapestName}</Text>
+          </View>
+          <Text style={styles.bestPrice}>{money(cheapest.value, cheapest.currency)}</Text>
+        </LinearGradient>
       ) : null}
 
       {results.length === 0 ? (
@@ -290,6 +312,19 @@ const styles = StyleSheet.create({
   newBtn: { paddingHorizontal: 14, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.inputBg, borderWidth: 1, borderColor: palette.border },
   newBtnText: { color: palette.white, fontSize: 13, fontWeight: '600' },
   queueText: { color: palette.textMuted, fontSize: 12, marginBottom: 12 },
+  bestBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    marginBottom: 14,
+  },
+  bestText: { gap: 2 },
+  bestLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 10.5, fontWeight: '700', letterSpacing: 1.2 },
+  bestCarrier: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  bestPrice: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
   emptyState: { alignItems: 'center', gap: 12, paddingVertical: 40 },
   emptyText: { color: palette.textSecondary, fontSize: 13 },
   cards: { gap: 14 },
