@@ -47,16 +47,6 @@ select option {
   color: black;
 }
 
-/* Port Autocomplete Dropdown Opaque Background */
-.port-dropdown {
-  background-color: #ffffff !important;
-  opacity: 1 !important;
-}
-.dark .port-dropdown {
-  background-color: #1a1f2e !important;
-  opacity: 1 !important;
-}
-
 /* ═══════════════════════════════════════════════════════════════
    SCROLLBAR
    ═══════════════════════════════════════════════════════════════ */
