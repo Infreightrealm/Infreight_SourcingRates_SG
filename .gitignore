@@ -44,3 +44,7 @@ test-results/
 # Database
 *.db
 *.sqlite3
+
+# Dynamic Runtime Config / Cache
+backend/data/popular_ports_config.json
+backend/data/carrier_ports_cache.json
