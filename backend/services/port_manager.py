@@ -409,6 +409,17 @@ COUNTRY_CODE_TO_NAME = {
     "ZW": "Zimbabwe"
 }
 
+POPULAR_PORTS = {
+    "GBBEL", "NLRTM", "SGSIN", "DEHAM", "CNSHA", "CNTAO", "CNSZX", "CNNGB", "AEJEA", "VNHPH",
+    "VNSGN", "PKKHI", "INNSA", "SAJED", "EGAIS", "EGALX", "EGALY", "IDJKT", "IDBTM", "IDSUB",
+    "AUMEL", "AUSYD", "THBKK", "THLCH", "USLAX", "USLGB", "USNYC", "USOAK", "USSAV", "GBFXT",
+    "GBLGP", "GBSOU", "FRFOS", "FRLEH", "ESBCN", "ESALG", "ESVLC", "ITGOA", "ITSPE", "BEZEE",
+    "BEANR", "PLGDN", "GRPIR", "TRMER", "TRIST", "KRPUS", "JPTYO", "JPYOK", "JPOSK", "JPUKB",
+    "JPHKT", "TWKHH", "TWKEL", "TWTXG", "MYPKG", "MYLPK", "MYPEN", "MYPGU", "MYTPP", "LKCMB",
+    "BDCGP", "EGSOK", "OMSOH", "YEADE", "KHKOS", "KNPNH", "TLDIL", "INMAA", "IDSRG", "THLKR",
+    "VNVUT"
+}
+
 class PortManager:
     _instance = None
     _ports = {}
@@ -505,7 +516,13 @@ class PortManager:
 
     def get_port_by_code(self, code: str) -> Optional[Dict]:
         """Retrieve port data by full UN/LOCODE (e.g., 'SGSIN')."""
-        return self._ports.get(code.upper())
+        port = self._ports.get(code.upper())
+        if port:
+            port_copy = dict(port)
+            country_code = port_copy.get('country', '').upper()
+            port_copy['country_name'] = COUNTRY_CODE_TO_NAME.get(country_code, country_code)
+            return port_copy
+        return None
 
     def search_port(self, query: str, country: Optional[str] = None) -> List[Dict]:
         """
@@ -631,7 +648,10 @@ class PortManager:
 
         # Convert candidates to list of results
         for port, score in candidates.values():
-            results.append((port, score))
+            port_copy = dict(port)
+            country_code = port_copy.get('country', '').upper()
+            port_copy['country_name'] = COUNTRY_CODE_TO_NAME.get(country_code, country_code)
+            results.append((port_copy, score))
             seen_codes.add(port['code'])
 
         # 4. Fuzzy match on alias keys if we don't have enough results (Score 3.0)
@@ -645,20 +665,28 @@ class PortManager:
                         if port:
                             if country and port['country'].upper() != country.upper():
                                 continue
-                            results.append((port, 3.0))
+                            port_copy = dict(port)
+                            country_code = port_copy.get('country', '').upper()
+                            port_copy['country_name'] = COUNTRY_CODE_TO_NAME.get(country_code, country_code)
+                            results.append((port_copy, 3.0))
                             seen_codes.add(code)
 
         # Sorting logic:
-        # Rank by score (lower is better), then by status confidence, then by length of name
+        # Rank by score (lower is better), then by is_popular (popular ports first), then by status confidence, then by length of name
         def ranking_key(item):
             port, score = item
-            # Status confidence: AI (Approved) > RL (Recognized) > others
-            status_score = 0
-            if port['status'] == 'AI': status_score = 0
-            elif port['status'] == 'RL': status_score = 1
-            else: status_score = 2
+            is_popular = 0 if port['code'] in POPULAR_PORTS else 1
             
-            return (score, status_score, len(port['name']), port['name'])
+            # Status confidence: AI/AF > RL > others
+            status = port.get('status', '')
+            if status in ('AI', 'AF'):
+                status_score = 0
+            elif status == 'RL':
+                status_score = 1
+            else:
+                status_score = 2
+                
+            return (score, is_popular, status_score, len(port['name']), port['name'])
 
         results.sort(key=ranking_key)
         return [r[0] for r in results]

@@ -20,6 +20,12 @@ def test():
     for r in results[:3]:
         print(f"Match: {r['code']} - {r['name']} ({r['status']})")
 
+    print("\nSearching 'belfast'...")
+    results = search_port("belfast")
+    for r in results[:3]:
+        print(f"Match: {r['code']} - {r['name']} ({r['status']}) - Country: {r.get('country_name')}")
+    assert results[0]['code'] == 'GBBEL', f"Expected GBBEL to be first match for belfast, got {results[0]['code']}"
+
     print("\nTesting resolve_port_for_carrier...")
     test_cases = [
         ("VN HPH", "maersk", "VN HPH"),

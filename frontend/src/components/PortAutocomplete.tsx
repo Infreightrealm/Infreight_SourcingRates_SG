@@ -94,7 +94,7 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
                 <span className="text-blue-600 dark:text-blue-400 font-mono text-[10px] bg-blue-100 dark:bg-blue-500/10 px-1.5 py-0.5 rounded uppercase">{port.code}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-slate-500 dark:text-white/40 text-xs">{port.country}</span>
+                <span className="text-slate-500 dark:text-white/40 text-xs">{port.country_name || port.country}</span>
                 {port.status === 'AI' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Approved" />}
               </div>
             </button>

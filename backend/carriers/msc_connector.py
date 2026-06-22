@@ -9,6 +9,72 @@ from models.schemas import CarrierResultStatus, RateSearchRequest, QuoteSchema
 from services.port_manager import resolve_port_for_carrier
 from services.normalizer import standardize_date_string
 
+def resolve_msc_port(text: str) -> tuple[str, str]:
+    """
+    Resolves input text (e.g. 'Belfast (GBBEL)' or 'GBBEL') to a tuple of (query_text, locode).
+    query_text is what we type in the search input box.
+    locode is the 5-letter code we match in the dropdown options.
+    """
+    if not text:
+        return "", ""
+        
+    text_lower = text.lower().strip()
+    
+    # 0. Rotterdam override
+    if "rotterdam" in text_lower or text_lower == "nlrtm":
+        return "Rotterdam", "NLRTM"
+        
+    # 1. Extract LOCODE from input text
+    extracted_locode = None
+    paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+    if paren_match:
+        extracted_locode = (paren_match.group(1) + paren_match.group(2)).upper()
+    else:
+        word_match = re.search(r'\b([A-Za-z]{2})\s*([A-Za-z]{3})\b', text)
+        if word_match:
+            candidate = (word_match.group(1) + word_match.group(2)).upper()
+            from services.port_manager import PortManager
+            if candidate in PortManager()._ports:
+                extracted_locode = candidate
+    if not extracted_locode:
+        clean_word = text.strip()
+        if len(clean_word) == 5 and clean_word.isalpha():
+            candidate = clean_word.upper()
+            from services.port_manager import PortManager
+            if candidate in PortManager()._ports:
+                extracted_locode = candidate
+                
+    # 2. If not found, use search_port fallback
+    if not extracted_locode:
+        from services.port_manager import search_port
+        results = search_port(text)
+        if results:
+            extracted_locode = results[0]['code'].upper()
+            
+    # 3. Determine query_text (port name)
+    query_text = ""
+    if extracted_locode:
+        from services.port_manager import PortManager, CARRIER_PORT_OVERRIDES
+        # Check overrides
+        overrides = CARRIER_PORT_OVERRIDES.get("msc", {})
+        if extracted_locode in overrides:
+            query_text = overrides[extracted_locode]
+        else:
+            port_data = PortManager().get_port_by_code(extracted_locode)
+            if port_data:
+                # Clean name: remove parentheses
+                name = port_data.get("name", "")
+                query_text = re.sub(r'\s*\([^)]*\)', '', name).strip()
+                
+    if not query_text:
+        # Fallback to cleaning the input text
+        query_text = re.sub(r'\s*\([^)]*\)', '', text).strip()
+        
+    if not extracted_locode:
+        extracted_locode = ""
+        
+    return query_text, extracted_locode
+
 class MSCConnector(BaseCarrierConnector):
     """
     Playwright-based automation for MSC (Mediterranean Shipping Company).
@@ -156,19 +222,13 @@ class MSCConnector(BaseCarrierConnector):
             await weight_input.fill(str(request.weight_per_container_kg))
 
             # 3. Origin and Destination
-            if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
-                origin_locode = "Rotterdam"
-            else:
-                origin_locode = resolve_port_for_carrier(request.origin, "msc")
-            self.log(f"Filling origin: {origin_locode} (input: {request.origin})")
-            await self._fill_autocomplete("Select Start Point", origin_locode)
+            origin_query, origin_locode = resolve_msc_port(request.origin)
+            self.log(f"Filling origin: query='{origin_query}', locode='{origin_locode}' (input: '{request.origin}')")
+            await self._fill_autocomplete("Select Start Point", origin_query, origin_locode)
 
-            if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
-                dest_locode = "Rotterdam"
-            else:
-                dest_locode = resolve_port_for_carrier(request.destination, "msc")
-            self.log(f"Filling destination: {dest_locode} (input: {request.destination})")
-            await self._fill_autocomplete("Select End Point", dest_locode)
+            dest_query, dest_locode = resolve_msc_port(request.destination)
+            self.log(f"Filling destination: query='{dest_query}', locode='{dest_locode}' (input: '{request.destination}')")
+            await self._fill_autocomplete("Select End Point", dest_query, dest_locode)
 
             self.log("Clicking Search Rates button...")
             search_btn = self.page.locator("button:has-text('Search Rates')")
@@ -243,7 +303,7 @@ class MSCConnector(BaseCarrierConnector):
             await self.save_screenshot("msc_form_fail.png")
             return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-    async def _fill_autocomplete(self, label_text: str, locode: str):
+    async def _fill_autocomplete(self, label_text: str, query_text: str, locode: str):
         try:
             # Try to find the text label, then go to its parent, then find the input inside
             # MSC uses custom combobox components
@@ -254,44 +314,61 @@ class MSCConnector(BaseCarrierConnector):
             input_box = label_element.locator("xpath=..").locator("input").first
             await input_box.wait_for(state="visible", timeout=5000)
             await input_box.click()
-            await input_box.fill(locode)
+            await input_box.fill("")
+            await input_box.fill(query_text)
             
-            self.log(f"Waiting for dropdown option containing [{locode}]...")
+            self.log(f"Waiting for dropdown option containing [{locode}] for query '{query_text}'...")
             await self.page.wait_for_timeout(2000)
             
             import re as _re
 
-            if locode.lower() == "rotterdam":
-                matching_option = None
-                options = self.page.locator("li, div[role='option']")
-                count = await options.count()
-                for i in range(count):
-                    opt = options.nth(i)
-                    text = await opt.inner_text()
-                    if text and "rotterdam" in text.lower() and ("netherlands" in text.lower() or "nlrtm" in text.lower()):
-                        matching_option = opt
-                        break
-                if matching_option:
-                    self.log(f"Found Rotterdam option associated with Netherlands. Clicking it.")
-                    await matching_option.click()
-                    await self.page.wait_for_timeout(2000)
-                    return
-
-            # 1. Try exact word boundary match first to prevent false substring matches (e.g., 'Aden' matching 'Adena')
-            exact_option = self.page.locator("li, div[role='option']").filter(has_text=_re.compile(rf"\b{_re.escape(locode)}\b", _re.IGNORECASE)).first
+            # 1. Try to find the option matching the LOCODE (e.g. matching GBBEL or NLRTM in the text)
+            matching_option = None
+            options = self.page.locator("li, div[role='option']")
+            count = await options.count()
+            self.log(f"Found {count} dropdown options.")
             
-            # 2. Fallback to standard substring match
-            fallback_option = self.page.locator(f"li:has-text('{locode}'), div[role='option']:has-text('{locode}')").first
-
-            if await exact_option.is_visible():
-                self.log(f"Found exact word match for '{locode}'. Clicking it.")
-                await exact_option.click()
-            elif await fallback_option.is_visible():
-                self.log(f"Found substring match for '{locode}'. Clicking it.")
-                await fallback_option.click()
+            for i in range(count):
+                opt = options.nth(i)
+                text = await opt.inner_text()
+                if text:
+                    text_lower = text.lower()
+                    if locode and locode.lower() in text_lower:
+                        matching_option = opt
+                        self.log(f"Matched option by LOCODE '{locode}': '{text.strip()}'")
+                        break
+            
+            if matching_option:
+                await matching_option.click()
             else:
-                self.log("Warning: Option containing LOCODE not visible, pressing Enter.")
-                await input_box.press("Enter")
+                # Fallback: standard word boundary / substring matching using query_text / locode
+                exact_option = None
+                fallback_option = None
+                if locode:
+                    exact_option = self.page.locator("li, div[role='option']").filter(
+                        has_text=_re.compile(rf"\b{_re.escape(locode)}\b", _re.IGNORECASE)
+                    ).first
+                    fallback_option = self.page.locator(
+                        f"li:has-text('{locode}'), div[role='option']:has-text('{locode}')"
+                    ).first
+                
+                if exact_option and await exact_option.is_visible():
+                    self.log(f"Found exact word match for '{locode}'. Clicking it.")
+                    await exact_option.click()
+                elif fallback_option and await fallback_option.is_visible():
+                    self.log(f"Found substring match for '{locode}'. Clicking it.")
+                    await fallback_option.click()
+                else:
+                    # Fallback to query_text
+                    query_exact = self.page.locator("li, div[role='option']").filter(
+                        has_text=_re.compile(rf"\b{_re.escape(query_text)}\b", _re.IGNORECASE)
+                    ).first
+                    if await query_exact.is_visible():
+                        self.log(f"Found exact word match for query_text '{query_text}'. Clicking it.")
+                        await query_exact.click()
+                    else:
+                        self.log("Warning: Option matching LOCODE/query not found in loop/filters, pressing Enter.")
+                        await input_box.press("Enter")
             
             await self.page.wait_for_timeout(2000)
         except Exception as e:
