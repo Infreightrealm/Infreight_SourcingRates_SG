@@ -10,7 +10,9 @@ env/
 .env
 .env.local
 .env.production
+.env.experimental
 backend/.env
+backend/experimental/.env
 
 # IDE
 .vscode/

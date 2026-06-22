@@ -978,28 +978,34 @@ class MaerskConnector(BaseCarrierConnector):
             autofill_success = False
             try:
                 # Resolve origin locode
-                origin_locode, _ = extract_locode_and_country(request.origin)
-                if not origin_locode:
-                    clean = request.origin.strip()
-                    if len(clean) == 5 and clean.isalpha():
-                        origin_locode = clean.upper()
-                    else:
-                        from services.port_manager import search_port
-                        ports = search_port(request.origin)
-                        if ports:
-                            origin_locode = ports[0]['code']
+                if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
+                    origin_locode = "NLRTM"
+                else:
+                    origin_locode, _ = extract_locode_and_country(request.origin)
+                    if not origin_locode:
+                        clean = request.origin.strip()
+                        if len(clean) == 5 and clean.isalpha():
+                            origin_locode = clean.upper()
+                        else:
+                            from services.port_manager import search_port
+                            ports = search_port(request.origin)
+                            if ports:
+                                origin_locode = ports[0]['code']
 
                 # Resolve destination locode
-                destination_locode, _ = extract_locode_and_country(request.destination)
-                if not destination_locode:
-                    clean = request.destination.strip()
-                    if len(clean) == 5 and clean.isalpha():
-                        destination_locode = clean.upper()
-                    else:
-                        from services.port_manager import search_port
-                        ports = search_port(request.destination)
-                        if ports:
-                            destination_locode = ports[0]['code']
+                if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
+                    destination_locode = "NLRTM"
+                else:
+                    destination_locode, _ = extract_locode_and_country(request.destination)
+                    if not destination_locode:
+                        clean = request.destination.strip()
+                        if len(clean) == 5 and clean.isalpha():
+                            destination_locode = clean.upper()
+                        else:
+                            from services.port_manager import search_port
+                            ports = search_port(request.destination)
+                            if ports:
+                                destination_locode = ports[0]['code']
 
                 # Check cache first (retrieve cached values for fallback autocomplete matching)
                 origin_cached = get_cached_carrier_port("maersk", origin_locode) if origin_locode else None
@@ -1021,6 +1027,8 @@ class MaerskConnector(BaseCarrierConnector):
                         return "Aden, Yemen"
                     if "karachi" in raw_lower:
                         return "Karachi, Pakistan"
+                    if "rotterdam" in raw_lower or raw_lower == "nlrtm":
+                        return "Rotterdam"
                     if "melbourne" in raw_lower:
                         return "Melbourne, Australia"
                     if "sydney" in raw_lower or "ausyd" in raw_lower:

@@ -859,9 +859,12 @@ class HapagLloydConnector(BaseCarrierConnector):
             await self._dismiss_hapag_modals()
 
             # --- START LOCATION (ORIGIN) ---
-            origin_locode = resolve_port_for_carrier(request.origin, "hapag")
-            if not origin_locode or len(origin_locode) != 5:
-                origin_locode = request.origin[:5].upper()
+            if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
+                origin_locode = "NLRTM"
+            else:
+                origin_locode = resolve_port_for_carrier(request.origin, "hapag")
+                if not origin_locode or len(origin_locode) != 5:
+                    origin_locode = request.origin[:5].upper()
 
             origin_cached = get_cached_carrier_port("hapag", origin_locode)
             print(f"[HAPAG] Schedule: Filling Start Location: '{origin_locode}' (cached: '{origin_cached}')")
@@ -913,9 +916,12 @@ class HapagLloydConnector(BaseCarrierConnector):
             await self._human_delay(1000, 1800)
 
             # --- END LOCATION (DESTINATION) ---
-            dest_locode = resolve_port_for_carrier(request.destination, "hapag")
-            if not dest_locode or len(dest_locode) != 5:
-                dest_locode = request.destination[:5].upper()
+            if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
+                dest_locode = "NLRTM"
+            else:
+                dest_locode = resolve_port_for_carrier(request.destination, "hapag")
+                if not dest_locode or len(dest_locode) != 5:
+                    dest_locode = request.destination[:5].upper()
 
             dest_cached = get_cached_carrier_port("hapag", dest_locode)
             print(f"[HAPAG] Schedule: Filling End Location: '{dest_locode}' (cached: '{dest_cached}')")
@@ -1422,9 +1428,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                     print("[HAPAG] Warning: Edit button not found or not clickable.")
             
             # --- START LOCATION (ORIGIN) ---
-            origin_locode = resolve_port_for_carrier(request.origin, "hapag")
-            if not origin_locode or len(origin_locode) != 5:
-                origin_locode = request.origin[:5].upper()
+            if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
+                origin_locode = "NLRTM"
+            else:
+                origin_locode = resolve_port_for_carrier(request.origin, "hapag")
+                if not origin_locode or len(origin_locode) != 5:
+                    origin_locode = request.origin[:5].upper()
 
             origin_cached = get_cached_carrier_port("hapag", origin_locode)
             print(f"[HAPAG] Filling Start Location: '{origin_locode}' (cached: '{origin_cached}')")
@@ -1490,9 +1499,12 @@ class HapagLloydConnector(BaseCarrierConnector):
             await self._human_delay(1200, 2000)
 
             # --- END LOCATION (DESTINATION) ---
-            dest_locode = resolve_port_for_carrier(request.destination, "hapag")
-            if not dest_locode or len(dest_locode) != 5:
-                dest_locode = request.destination[:5].upper()
+            if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
+                dest_locode = "NLRTM"
+            else:
+                dest_locode = resolve_port_for_carrier(request.destination, "hapag")
+                if not dest_locode or len(dest_locode) != 5:
+                    dest_locode = request.destination[:5].upper()
 
             dest_cached = get_cached_carrier_port("hapag", dest_locode)
             print(f"[HAPAG] Filling End Location: '{dest_locode}' (cached: '{dest_cached}')")

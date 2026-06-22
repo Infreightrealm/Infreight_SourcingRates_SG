@@ -10,6 +10,7 @@ from playwright.async_api import async_playwright
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, ChargeSchema
 from carriers.base_connector import BaseCarrierConnector
 from services.normalizer import standardize_date_string
+from services.port_manager import resolve_port_for_carrier
 
 MONTH_MAP = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
@@ -150,11 +151,23 @@ class OOCLConnector(BaseCarrierConnector):
                 origin_field = 'input[type="text"] >> nth=0'
                 dest_field = 'input[type="text"] >> nth=1'
             
-            origin_success = await self._select_location("Origin", origin_field, request.origin)
+            if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
+                resolved_origin = "NLRTM"
+            else:
+                resolved_origin = resolve_port_for_carrier(request.origin, "oocl")
+                if not resolved_origin:
+                    resolved_origin = request.origin
+            origin_success = await self._select_location("Origin", origin_field, resolved_origin)
             if not origin_success:
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
                 
-            dest_success = await self._select_location("Destination", dest_field, request.destination)
+            if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
+                resolved_dest = "NLRTM"
+            else:
+                resolved_dest = resolve_port_for_carrier(request.destination, "oocl")
+                if not resolved_dest:
+                    resolved_dest = request.destination
+            dest_success = await self._select_location("Destination", dest_field, resolved_dest)
             if not dest_success:
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
                 

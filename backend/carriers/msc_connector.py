@@ -156,11 +156,17 @@ class MSCConnector(BaseCarrierConnector):
             await weight_input.fill(str(request.weight_per_container_kg))
 
             # 3. Origin and Destination
-            origin_locode = resolve_port_for_carrier(request.origin, "msc")
+            if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
+                origin_locode = "Rotterdam"
+            else:
+                origin_locode = resolve_port_for_carrier(request.origin, "msc")
             self.log(f"Filling origin: {origin_locode} (input: {request.origin})")
             await self._fill_autocomplete("Select Start Point", origin_locode)
 
-            dest_locode = resolve_port_for_carrier(request.destination, "msc")
+            if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
+                dest_locode = "Rotterdam"
+            else:
+                dest_locode = resolve_port_for_carrier(request.destination, "msc")
             self.log(f"Filling destination: {dest_locode} (input: {request.destination})")
             await self._fill_autocomplete("Select End Point", dest_locode)
 
@@ -254,6 +260,23 @@ class MSCConnector(BaseCarrierConnector):
             await self.page.wait_for_timeout(2000)
             
             import re as _re
+
+            if locode.lower() == "rotterdam":
+                matching_option = None
+                options = self.page.locator("li, div[role='option']")
+                count = await options.count()
+                for i in range(count):
+                    opt = options.nth(i)
+                    text = await opt.inner_text()
+                    if text and "rotterdam" in text.lower() and ("netherlands" in text.lower() or "nlrtm" in text.lower()):
+                        matching_option = opt
+                        break
+                if matching_option:
+                    self.log(f"Found Rotterdam option associated with Netherlands. Clicking it.")
+                    await matching_option.click()
+                    await self.page.wait_for_timeout(2000)
+                    return
+
             # 1. Try exact word boundary match first to prevent false substring matches (e.g., 'Aden' matching 'Adena')
             exact_option = self.page.locator("li, div[role='option']").filter(has_text=_re.compile(rf"\b{_re.escape(locode)}\b", _re.IGNORECASE)).first
             

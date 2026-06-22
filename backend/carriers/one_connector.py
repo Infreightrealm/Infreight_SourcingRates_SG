@@ -466,14 +466,17 @@ class ONEConnector(BaseCarrierConnector):
             self.port_fallback_notice = None
 
             # Resolve origin locode for strict dropdown selection matching
-            origin_locode = resolve_port_for_carrier(request.origin, "one")
-            if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
-                origin_locode = self._extract_port_code(request.origin)
-                if len(origin_locode) != 5 or not origin_locode.isupper():
-                    from services.port_manager import search_port
-                    ports = search_port(request.origin)
-                    if ports:
-                        origin_locode = ports[0]['code']
+            if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
+                origin_locode = "NLRTM"
+            else:
+                origin_locode = resolve_port_for_carrier(request.origin, "one")
+                if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
+                    origin_locode = self._extract_port_code(request.origin)
+                    if len(origin_locode) != 5 or not origin_locode.isupper():
+                        from services.port_manager import search_port
+                        ports = search_port(request.origin)
+                        if ports:
+                            origin_locode = ports[0]['code']
             
             self.origin_locode = origin_locode
 
@@ -529,14 +532,17 @@ class ONEConnector(BaseCarrierConnector):
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
             # Resolve destination locode for strict dropdown selection matching
-            destination_locode = resolve_port_for_carrier(request.destination, "one")
-            if not destination_locode or len(destination_locode) != 5 or not destination_locode.isupper():
-                destination_locode = self._extract_port_code(request.destination)
-                if len(destination_locode) != 5 or not destination_locode.isupper():
-                    from services.port_manager import search_port
-                    ports = search_port(request.destination)
-                    if ports:
-                        destination_locode = ports[0]['code']
+            if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
+                destination_locode = "NLRTM"
+            else:
+                destination_locode = resolve_port_for_carrier(request.destination, "one")
+                if not destination_locode or len(destination_locode) != 5 or not destination_locode.isupper():
+                    destination_locode = self._extract_port_code(request.destination)
+                    if len(destination_locode) != 5 or not destination_locode.isupper():
+                        from services.port_manager import search_port
+                        ports = search_port(request.destination)
+                        if ports:
+                            destination_locode = ports[0]['code']
             
             self.destination_locode = destination_locode
 

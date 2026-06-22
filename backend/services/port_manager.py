@@ -679,6 +679,13 @@ class PortManager:
 
         carrier_key = carrier.strip().lower()
 
+        text_lower = text.lower().strip()
+        if "rotterdam" in text_lower or text_lower == "nlrtm":
+            if carrier_key in ("maersk", "msc"):
+                return "Rotterdam"
+            else:
+                return "NLRTM"
+
         # Rule for GreenX and MSC: autocomplete field accepts the raw LOCODE (e.g. SGSIN, DEHAM)
         if carrier_key in ("greenx", "msc"):
             # Extract LOCODE from input text

@@ -41,6 +41,18 @@ def test():
         ("port klang", "maersk", "port klang"),
         ("port klang", "cma", "MYPKG"),
         ("port klang", "one", "MYPKG"),
+        # Rotterdam overrides
+        ("Rotterdam", "maersk", "Rotterdam"),
+        ("Rotterdam", "msc", "Rotterdam"),
+        ("Rotterdam", "one", "NLRTM"),
+        ("Rotterdam", "cma", "NLRTM"),
+        ("Rotterdam", "hapag", "NLRTM"),
+        ("Rotterdam", "greenx", "NLRTM"),
+        ("Rotterdam", "oocl", "NLRTM"),
+        ("Rotterdam, Netherlands", "maersk", "Rotterdam"),
+        ("Rotterdam, Netherlands", "one", "NLRTM"),
+        ("nlrtm", "maersk", "Rotterdam"),
+        ("nlrtm", "one", "NLRTM"),
     ]
 
     for q, carrier, expected in test_cases:

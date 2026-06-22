@@ -698,14 +698,17 @@ class CMAConnector(BaseCarrierConnector):
             self.port_fallback_notice = None
             
             # --- ORIGIN ---
-            origin_locode = resolve_port_for_carrier(request.origin, "cma")
-            if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
-                origin_locode = self._extract_port_code(request.origin)
-                if len(origin_locode) != 5 or not origin_locode.isupper():
-                    from services.port_manager import search_port
-                    ports = search_port(request.origin)
-                    if ports:
-                        origin_locode = ports[0]['code']
+            if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
+                origin_locode = "NLRTM"
+            else:
+                origin_locode = resolve_port_for_carrier(request.origin, "cma")
+                if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
+                    origin_locode = self._extract_port_code(request.origin)
+                    if len(origin_locode) != 5 or not origin_locode.isupper():
+                        from services.port_manager import search_port
+                        ports = search_port(request.origin)
+                        if ports:
+                            origin_locode = ports[0]['code']
 
             # Always type the LOCODE (e.g. SGSIN) — CMA accepts port codes and shows matching suggestions.
             origin_cached = get_cached_carrier_port("cma", origin_locode) if origin_locode else None
@@ -724,14 +727,17 @@ class CMAConnector(BaseCarrierConnector):
             print(f"[CMA] Origin selected: {origin_locode}")
 
             # --- DESTINATION ---
-            dest_locode = resolve_port_for_carrier(request.destination, "cma")
-            if not dest_locode or len(dest_locode) != 5 or not dest_locode.isupper():
-                dest_locode = self._extract_port_code(request.destination)
-                if len(dest_locode) != 5 or not dest_locode.isupper():
-                    from services.port_manager import search_port
-                    ports = search_port(request.destination)
-                    if ports:
-                        dest_locode = ports[0]['code']
+            if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
+                dest_locode = "NLRTM"
+            else:
+                dest_locode = resolve_port_for_carrier(request.destination, "cma")
+                if not dest_locode or len(dest_locode) != 5 or not dest_locode.isupper():
+                    dest_locode = self._extract_port_code(request.destination)
+                    if len(dest_locode) != 5 or not dest_locode.isupper():
+                        from services.port_manager import search_port
+                        ports = search_port(request.destination)
+                        if ports:
+                            dest_locode = ports[0]['code']
 
             # Check cache
             dest_cached = get_cached_carrier_port("cma", dest_locode) if dest_locode else None
