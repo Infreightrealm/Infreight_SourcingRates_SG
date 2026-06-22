@@ -409,7 +409,7 @@ COUNTRY_CODE_TO_NAME = {
     "ZW": "Zimbabwe"
 }
 
-POPULAR_PORTS = {
+DEFAULT_POPULAR_PORTS = {
     "GBBEL", "NLRTM", "SGSIN", "DEHAM", "CNSHA", "CNTAO", "CNSZX", "CNNGB", "AEJEA", "VNHPH",
     "VNSGN", "PKKHI", "INNSA", "SAJED", "EGAIS", "EGALX", "EGALY", "IDJKT", "IDBTM", "IDSUB",
     "AUMEL", "AUSYD", "THBKK", "THLCH", "USLAX", "USLGB", "USNYC", "USOAK", "USSAV", "GBFXT",
@@ -455,6 +455,61 @@ class PortManager:
         except Exception as e:
             print(f"Error loading carrier ports cache: {e}")
             self._carrier_ports_cache = {}
+
+        # Load dynamic popular ports and boosted countries config
+        self.popular_ports = set(DEFAULT_POPULAR_PORTS)
+        self.boosted_countries = set()
+        
+        config_path = os.path.join(os.path.dirname(__file__), "..", "data", "popular_ports_config.json")
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    if "popular_ports" in config:
+                        self.popular_ports = {p.upper().strip() for p in config["popular_ports"] if p.strip()}
+                    if "boosted_countries" in config:
+                        self.boosted_countries = {c.upper().strip() for c in config["boosted_countries"] if c.strip()}
+            else:
+                self._save_config()
+        except Exception as e:
+            print(f"Error loading popular ports config: {e}")
+
+    def _save_config(self):
+        config_path = os.path.join(os.path.dirname(__file__), "..", "data", "popular_ports_config.json")
+        config = {
+            "popular_ports": sorted(list(self.popular_ports)),
+            "boosted_countries": sorted(list(self.boosted_countries))
+        }
+        try:
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            print(f"Error saving popular ports config: {e}")
+
+    def update_popular_ports_config(self, popular_ports: List[str], boosted_countries: List[str]):
+        # Validate and filter codes
+        valid_ports = set()
+        for p in popular_ports:
+            p_clean = p.strip().upper()
+            if len(p_clean) == 5 and p_clean in self._ports:
+                valid_ports.add(p_clean)
+                
+        valid_countries = set()
+        for c in boosted_countries:
+            c_clean = c.strip().upper()
+            if c_clean in COUNTRY_CODE_TO_NAME:
+                valid_countries.add(c_clean)
+                
+        self.popular_ports = valid_ports
+        self.boosted_countries = valid_countries
+        self._save_config()
+
+    def get_popular_ports_config(self) -> Dict[str, List[str]]:
+        return {
+            "popular_ports": sorted(list(self.popular_ports)),
+            "boosted_countries": sorted(list(self.boosted_countries))
+        }
 
     def get_cached_carrier_port(self, carrier: str, locode: str) -> Optional[str]:
         """Retrieve verified carrier port name from persistent cache by UN/LOCODE."""
@@ -672,10 +727,11 @@ class PortManager:
                             seen_codes.add(code)
 
         # Sorting logic:
-        # Rank by score (lower is better), then by is_popular (popular ports first), then by status confidence, then by length of name
+        # Rank by score (lower is better), then by is_popular, then by is_boosted_country, then by status confidence, then by length of name
         def ranking_key(item):
             port, score = item
-            is_popular = 0 if port['code'] in POPULAR_PORTS else 1
+            is_popular = 0 if port['code'] in self.popular_ports else 1
+            is_boosted_country = 0 if port['country'] in self.boosted_countries else 1
             
             # Status confidence: AI/AF > RL > others
             status = port.get('status', '')
@@ -686,7 +742,7 @@ class PortManager:
             else:
                 status_score = 2
                 
-            return (score, is_popular, status_score, len(port['name']), port['name'])
+            return (score, is_popular, is_boosted_country, status_score, len(port['name']), port['name'])
 
         results.sort(key=ranking_key)
         return [r[0] for r in results]
@@ -952,3 +1008,9 @@ def get_cached_carrier_port(carrier: str, locode: str):
 
 def set_cached_carrier_port(carrier: str, locode: str, exact_name: str):
     return PortManager().set_cached_carrier_port(carrier, locode, exact_name)
+
+def get_popular_ports_config():
+    return PortManager().get_popular_ports_config()
+
+def update_popular_ports_config(popular_ports: List[str], boosted_countries: List[str]):
+    return PortManager().update_popular_ports_config(popular_ports, boosted_countries)

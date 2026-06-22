@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
 from models.database import get_session
@@ -23,6 +23,14 @@ class UserCreateRequest(BaseModel):
 
 class AdminLoginRequest(BaseModel):
     password: str
+
+class PortsConfigResponse(BaseModel):
+    popular_ports: List[str]
+    boosted_countries: List[str]
+
+class PortsConfigUpdateRequest(BaseModel):
+    popular_ports: List[str]
+    boosted_countries: List[str]
 
 @router.get("", response_model=List[UserSchema])
 async def list_users(session: AsyncSession = Depends(get_session)):
@@ -84,3 +92,18 @@ async def verify_admin(request: AdminLoginRequest):
     if request.password == "brian_infreight":
         return {"status": "SUCCESS"}
     raise HTTPException(401, "Invalid password")
+
+@admin_router.get("/config/ports", response_model=PortsConfigResponse)
+async def get_ports_config(x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    from services.port_manager import get_popular_ports_config
+    return get_popular_ports_config()
+
+@admin_router.post("/config/ports")
+async def save_ports_config(request: PortsConfigUpdateRequest, x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    from services.port_manager import update_popular_ports_config
+    update_popular_ports_config(request.popular_ports, request.boosted_countries)
+    return {"status": "SUCCESS"}

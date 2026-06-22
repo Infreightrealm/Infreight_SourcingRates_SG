@@ -16,6 +16,12 @@ async def search(q: str = Query(..., min_length=2), country: Optional[str] = Non
     results = search_port(q, country=country)
     return results
 
+@router.get("/countries")
+async def get_countries():
+    """Get list of countries for autocomplete dropdown."""
+    from services.port_manager import COUNTRY_CODE_TO_NAME
+    return COUNTRY_CODE_TO_NAME
+
 @router.get("/{code}")
 async def get_port(code: str):
     """Get specific port details by UN/LOCODE."""

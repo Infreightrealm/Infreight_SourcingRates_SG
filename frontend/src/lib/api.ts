@@ -77,3 +77,41 @@ export async function forceStopSearches(): Promise<{status: string, message: str
   if (!res.ok) throw new Error("Failed to force stop searches");
   return res.json();
 }
+
+export async function getCountriesMap(): Promise<Record<string, string>> {
+  const res = await fetch(`${API_URL}/api/ports/countries`);
+  if (!res.ok) return {};
+  return res.json();
+}
+
+export async function getPortsConfig(adminPassword?: string): Promise<{ popular_ports: string[]; boosted_countries: string[] }> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await fetch(`${API_URL}/api/admin/config/ports`, { headers });
+  if (!res.ok) {
+    throw new Error(`Failed to load ports config: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function savePortsConfig(
+  config: { popular_ports: string[]; boosted_countries: string[] },
+  adminPassword?: string
+): Promise<{ status: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await fetch(`${API_URL}/api/admin/config/ports`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to save ports config: ${res.status}`);
+  }
+  return res.json();
+}
