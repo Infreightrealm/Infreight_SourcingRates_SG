@@ -9,9 +9,11 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/images/icon.png",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.infreight.rates"
     },
     "android": {
+      "package": "com.infreight.rates",
       "adaptiveIcon": {
         "backgroundColor": "#0a0e1a",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
