@@ -48,3 +48,6 @@ test-results/
 # Dynamic Runtime Config / Cache
 backend/data/popular_ports_config.json
 backend/data/carrier_ports_cache.json
+
+# Scratch tooling for design mockups (not part of the app)
+.design-mockups/
