@@ -33,6 +33,67 @@ def parse_oocl_date(date_str: str, year: int) -> Optional[str]:
         print(f"[OOCL] Error parsing date {date_str}: {e}")
     return None
 
+def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
+    """
+    Resolves input text to (location_name, locode, country_code, country_name).
+    """
+    if not text:
+        return "", "", "", ""
+        
+    text_lower = text.lower().strip()
+    
+    # Rotterdam override
+    if "rotterdam" in text_lower or text_lower == "nlrtm":
+        return "Rotterdam", "NLRTM", "NL", "Netherlands"
+        
+    # Extract LOCODE
+    locode = None
+    paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+    if paren_match:
+        locode = (paren_match.group(1) + paren_match.group(2)).upper()
+    else:
+        word_match = re.search(r'\b([A-Za-z]{2})\s*([A-Za-z]{3})\b', text)
+        if word_match:
+            candidate = (word_match.group(1) + word_match.group(2)).upper()
+            from services.port_manager import PortManager
+            if candidate in PortManager()._ports:
+                locode = candidate
+    if not locode:
+        clean_word = text.strip()
+        if len(clean_word) == 5 and clean_word.isalpha():
+            candidate = clean_word.upper()
+            from services.port_manager import PortManager
+            if candidate in PortManager()._ports:
+                locode = candidate
+                
+    # If still not found, search in port manager database
+    if not locode:
+        from services.port_manager import search_port
+        results = search_port(text)
+        if results:
+            locode = results[0]['code'].upper()
+            
+    location_name = ""
+    country_code = ""
+    country_name = ""
+    
+    if locode:
+        from services.port_manager import PortManager, COUNTRY_CODE_TO_NAME
+        port_data = PortManager().get_port_by_code(locode)
+        if port_data:
+            name = port_data.get("name", "")
+            location_name = re.sub(r'\s*\([^)]*\)', '', name).strip()
+            country_code = port_data.get("country", "").upper()
+            country_name = COUNTRY_CODE_TO_NAME.get(country_code, "")
+            
+    if not location_name:
+        location_name = re.sub(r'\s*\([^)]*\)', '', text).strip()
+        
+    if not locode:
+        locode = ""
+        
+    return location_name, locode, country_code, country_name
+
 class OOCLConnector(BaseCarrierConnector):
     carrier_code = "OOCL"
     carrier_name = "OOCL"
@@ -73,7 +134,7 @@ class OOCLConnector(BaseCarrierConnector):
     async def login(self) -> bool:
         return True
 
-    async def _select_location(self, label: str, field_selector: str, location_name: str) -> bool:
+    async def _select_location(self, label: str, field_selector: str, location_name: str, locode: str = None, country_code: str = None, country_name: str = None) -> bool:
         try:
             print(f"[OOCL] Typing {label}: {location_name}")
             field = self.page.locator(field_selector).first
@@ -103,15 +164,42 @@ class OOCLConnector(BaseCarrierConnector):
                 print(f"[OOCL] Dropdown empty for {label}")
                 return False
                 
+            # Try to match option using LOCODE / Country
+            matching_option = None
             for i in range(count):
                 opt = options.nth(i)
                 text = await opt.inner_text()
-                if text and location_name.lower() in text.lower():
-                    await opt.scroll_into_view_if_needed()
-                    await opt.click()
-                    print(f"[OOCL] Selected {label} from dropdown: {text.strip()}")
-                    await self.page.wait_for_timeout(1000) # Give Angular time to sync the ng-model
-                    return True
+                if text:
+                    text_lower = text.lower()
+                    if location_name.lower() in text_lower:
+                        if locode or country_code or country_name:
+                            matched = False
+                            if locode and locode.lower() in text_lower:
+                                matched = True
+                            elif country_name and country_name.lower() in text_lower:
+                                matched = True
+                            elif country_code and (country_code.lower() in text_lower or re.search(rf'\b{re.escape(country_code.lower())}\b', text_lower)):
+                                matched = True
+                            if matched:
+                                matching_option = opt
+                                print(f"[OOCL] Matched option by LOCODE/Country for {label}: '{text.strip()}'")
+                                break
+            
+            # Fallback if no specific locode/country matched
+            if not matching_option:
+                for i in range(count):
+                    opt = options.nth(i)
+                    text = await opt.inner_text()
+                    if text and location_name.lower() in text.lower():
+                        matching_option = opt
+                        print(f"[OOCL] Fallback matched option by name for {label}: '{text.strip()}'")
+                        break
+            
+            if matching_option:
+                await matching_option.scroll_into_view_if_needed()
+                await matching_option.click()
+                await self.page.wait_for_timeout(1000) # Give Angular time to sync the ng-model
+                return True
                     
             opt_text = await options.nth(0).inner_text()
             await options.nth(0).scroll_into_view_if_needed()
@@ -151,23 +239,13 @@ class OOCLConnector(BaseCarrierConnector):
                 origin_field = 'input[type="text"] >> nth=0'
                 dest_field = 'input[type="text"] >> nth=1'
             
-            if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
-                resolved_origin = "NLRTM"
-            else:
-                resolved_origin = resolve_port_for_carrier(request.origin, "oocl")
-                if not resolved_origin:
-                    resolved_origin = request.origin
-            origin_success = await self._select_location("Origin", origin_field, resolved_origin)
+            origin_name, origin_locode, origin_cc, origin_cn = resolve_oocl_port_info(request.origin)
+            origin_success = await self._select_location("Origin", origin_field, origin_name, origin_locode, origin_cc, origin_cn)
             if not origin_success:
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
                 
-            if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
-                resolved_dest = "NLRTM"
-            else:
-                resolved_dest = resolve_port_for_carrier(request.destination, "oocl")
-                if not resolved_dest:
-                    resolved_dest = request.destination
-            dest_success = await self._select_location("Destination", dest_field, resolved_dest)
+            dest_name, dest_locode, dest_cc, dest_cn = resolve_oocl_port_info(request.destination)
+            dest_success = await self._select_location("Destination", dest_field, dest_name, dest_locode, dest_cc, dest_cn)
             if not dest_success:
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
                 
