@@ -10,9 +10,12 @@ export default function StatusBadge({ status, size = "sm" }: StatusBadgeProps) {
   const info = STATUS_MAP[status] || { label: status, color: "text-gray-400", bg: "bg-gray-400/10" };
   const sizeClass = size === "sm" ? "px-2.5 py-0.5 text-xs" : "px-3 py-1 text-sm";
 
+  const isRunning = status === "RUNNING";
+
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full font-medium ${info.bg} ${info.color} ${sizeClass}`}
+      className={`inline-flex items-center gap-1.5 rounded-full font-medium animate-scale-in ${isRunning ? "animate-gradient-shift" : ""} ${info.bg} ${info.color} ${sizeClass}`}
+      style={isRunning ? { background: "linear-gradient(270deg, #3b82f6, #8b5cf6, #3b82f6)", backgroundSize: "200% 200%", color: "white" } : undefined}
     >
       {(status === "RUNNING" || status === "QUEUED") && (
         <span className="relative flex h-2 w-2">

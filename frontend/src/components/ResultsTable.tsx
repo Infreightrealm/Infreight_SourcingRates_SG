@@ -272,7 +272,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
   return (
     <>
-      <div className="space-y-4">
+      <div className="space-y-4 animate-fade-in-up">
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
@@ -300,7 +300,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                 <button
                   key={key}
                   onClick={() => setSortBy(key)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                  className={`px-3 py-1 rounded-lg text-xs font-medium btn-interactive transition-all ${
                     sortBy === key 
                       ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30" 
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
@@ -314,7 +314,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             {quoteRows.length > 0 && (
               <button
                 onClick={exportToExcel}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 dark:border-white/10 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 dark:border-white/10 transition-colors btn-interactive shine-on-hover"
               >
                 <Download className="w-3.5 h-3.5" />
                 Export Excel
@@ -326,11 +326,13 @@ export default function ResultsTable({ data }: ResultsTableProps) {
         {/* Table / Empty State */}
         {sortedRows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 bg-white/50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-2xl">
-            <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center mb-4">
+            <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center mb-4 animate-float">
               <Inbox className="w-8 h-8 text-slate-400 dark:text-white/30" />
             </div>
-            <h3 className="text-slate-700 dark:text-white/80 font-medium text-lg">No Results Found</h3>
-            <p className="text-slate-500 dark:text-white/40 text-sm mt-1">Try adjusting your search parameters or selecting different carriers.</p>
+            <div className="animate-fade-in-up">
+              <h3 className="text-slate-700 dark:text-white/80 font-medium text-lg">No Results Found</h3>
+              <p className="text-slate-500 dark:text-white/40 text-sm mt-1">Try adjusting your search parameters or selecting different carriers.</p>
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] max-h-[600px] overflow-y-auto">
@@ -353,7 +355,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
               </thead>
               <tbody>
                 {sortedRows.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors">
+                  <tr key={i} className="border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-all duration-200 hover:-translate-y-[1px] row-enter" style={{animationDelay: `${i * 0.04}s`}}>
                     {/* Carrier */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">

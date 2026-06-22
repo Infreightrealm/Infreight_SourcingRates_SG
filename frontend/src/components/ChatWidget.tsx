@@ -79,12 +79,13 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
       {/* Floating Chat Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="
+        className={`
           flex items-center gap-2 px-4 py-2.5 rounded-full 
           bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700
           text-white shadow-xl shadow-indigo-500/20 hover:scale-105 active:scale-95
           transition-all duration-200 border border-white/20
-        "
+          ${!isOpen ? 'animate-glow-pulse' : ''}
+        `}
         title="Open Infreight Assistant"
         id="chat-floating-btn"
       >
@@ -119,8 +120,9 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
             border border-slate-300 dark:border-white/10 rounded-2xl
             shadow-2xl shadow-black/25 dark:shadow-black/50
             flex flex-col overflow-hidden
-            animate-in fade-in slide-in-from-bottom-6 duration-200
+            animate-scale-in-spring
           "
+          style={{ transformOrigin: 'bottom left' }}
         >
           {/* Header */}
           <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-white flex items-center justify-between">
@@ -146,7 +148,8 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
             {messages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex animate-fade-in-up ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                style={{ animationDelay: `${idx * 0.05}s` }}
               >
                 <div
                   className={`
@@ -168,9 +171,9 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
               <div className="flex justify-start">
                 <div className="bg-slate-200 dark:bg-white/5 border border-slate-300/30 dark:border-white/5 text-slate-800 dark:text-white/95 rounded-2xl rounded-bl-none px-4 py-2.5 shadow-sm">
                   <div className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-wave" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-wave" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-wave" style={{ animationDelay: "300ms" }} />
                   </div>
                 </div>
               </div>
@@ -190,7 +193,7 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
                 bg-white dark:bg-black/40 border border-slate-300 dark:border-white/10
                 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-white/30
                 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500
-                transition-all duration-150
+                transition-all duration-150 focus-glow
               "
               disabled={isLoading}
             />
@@ -200,7 +203,7 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
               className="
                 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs
                 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all duration-150
-                flex items-center justify-center shadow-md shadow-blue-500/10
+                flex items-center justify-center shadow-md shadow-blue-500/10 btn-interactive
               "
             >
               <svg className="w-4 h-4 transform rotate-90" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">

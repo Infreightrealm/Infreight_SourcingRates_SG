@@ -43,7 +43,7 @@ export default function CarrierMultiSelect({ selected, onChange }: CarrierMultiS
       <button
         type="button"
         onClick={toggleAll}
-        className={`w-full px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all duration-200 ${
+        className={`w-full px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all duration-200 btn-interactive shine-on-hover ${
           allSelected
             ? "bg-gradient-to-r from-blue-600 to-purple-600 border-blue-500/50 text-white shadow-lg shadow-blue-500/20"
             : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200 hover:border-slate-300 dark:bg-white/5 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/10 dark:hover:border-white/20"
@@ -54,21 +54,22 @@ export default function CarrierMultiSelect({ selected, onChange }: CarrierMultiS
 
       {/* Individual Carriers Grid */}
       <div className="grid grid-cols-3 gap-2">
-        {CARRIERS.map((carrier) => (
+        {CARRIERS.map((carrier, index) => (
           <button
             key={carrier.code}
             type="button"
             onClick={() => toggleCarrier(carrier.code)}
-            className={`relative px-3 py-2 rounded-lg border text-xs font-medium transition-all duration-200 ${
+            className={`relative px-3 py-2 rounded-lg border text-xs font-medium transition-all duration-200 btn-interactive animate-fade-in-up ${
               isSelected(carrier.code)
-                ? "border-slate-300 dark:border-white/30 text-slate-900 dark:text-white shadow-md bg-white dark:bg-transparent"
+                ? "border-slate-300 dark:border-white/30 text-slate-900 dark:text-white shadow-md bg-white dark:bg-transparent animate-glow-pulse"
                 : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:bg-white/5 dark:border-white/10 dark:text-white/50 dark:hover:bg-white/10 dark:hover:text-white/70"
             }`}
-            style={
-              isSelected(carrier.code)
+            style={{
+              animationDelay: `${index * 0.05}s`,
+              ...(isSelected(carrier.code)
                 ? { backgroundColor: carrier.color + "30", borderColor: carrier.color + "60" }
-                : {}
-            }
+                : {})
+            }}
           >
             <span
               className="inline-block w-2 h-2 rounded-full mr-1.5"

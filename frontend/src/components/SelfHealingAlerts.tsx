@@ -111,12 +111,14 @@ export default function SelfHealingAlerts({ backendUrl, isSearching }: SelfHeali
         return (
           <div
             key={idx}
-            className="
+            className={`
               bg-white/60 dark:bg-white/[0.02] backdrop-blur-md
               border border-amber-200 dark:border-amber-500/20 rounded-2xl p-5
               shadow-lg shadow-amber-500/5 transition-colors
               flex flex-col md:flex-row md:items-center justify-between gap-4
-            "
+              animate-fade-in-down ${report.risk_level === 'HIGH' ? 'animate-shake' : ''}
+            `}
+            style={{ animationDelay: `${idx * 0.05}s` }}
           >
             <div className="space-y-2 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
@@ -151,7 +153,7 @@ export default function SelfHealingAlerts({ backendUrl, isSearching }: SelfHeali
                 onClick={() => handleReject(report)}
                 className="
                   px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-white/10
-                  hover:bg-slate-100 dark:hover:bg-white/5 text-slate-600 dark:text-white/70 transition-all duration-150
+                  hover:bg-slate-100 dark:hover:bg-white/5 text-slate-600 dark:text-white/70 transition-all duration-150 btn-interactive
                 "
               >
                 Reject
@@ -161,7 +163,7 @@ export default function SelfHealingAlerts({ backendUrl, isSearching }: SelfHeali
                 className="
                   px-4 py-2 rounded-xl text-xs font-semibold
                   bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700
-                  text-white shadow-md shadow-emerald-500/10 hover:scale-102 active:scale-98 transition-all duration-150
+                  text-white shadow-md shadow-emerald-500/10 hover:scale-102 active:scale-98 transition-all duration-150 btn-interactive shine-on-hover
                 "
               >
                 Approve & Save
