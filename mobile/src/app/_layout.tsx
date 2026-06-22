@@ -1,10 +1,12 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
 import LoginScreen from '@/screens/LoginScreen';
+import { queryClient } from '@/services/queryClient';
 import { useAuthStore } from '@/store/authStore';
 
 export default function RootLayout() {
@@ -19,10 +21,12 @@ export default function RootLayout() {
   }, [hydrate]);
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      {/* Auth gate: wait for hydration, then show tabs or the login screen. */}
-      {hydrated ? user ? <AppTabs /> : <LoginScreen /> : null}
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AnimatedSplashOverlay />
+        {/* Auth gate: wait for hydration, then show tabs or the login screen. */}
+        {hydrated ? user ? <AppTabs /> : <LoginScreen /> : null}
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }

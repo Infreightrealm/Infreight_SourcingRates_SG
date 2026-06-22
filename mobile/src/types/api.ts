@@ -83,6 +83,8 @@ export interface PortSuggestion {
   name: string;
   code?: string;
   country?: string;
+  country_name?: string;
+  status?: string;
   [key: string]: unknown;
 }
 
