@@ -2809,6 +2809,57 @@ class HapagLloydConnector(BaseCarrierConnector):
             schedules = future_schedules
 
             quotes = []
+            matched_raw_quote_etds = set()
+
+            def _apply_freetime_to_quote(normalized):
+                if not freetime_config:
+                    return
+                dest_lower = request.destination.lower()
+                expanded_dest = dest_lower
+                data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+                try:
+                    import json
+                    cache_path = os.path.join(data_dir, "carrier_ports_cache.json")
+                    if os.path.exists(cache_path):
+                        with open(cache_path, "r", encoding="utf-8") as f:
+                            cache_data = json.load(f)
+                            for carrier, cache_dict in cache_data.items():
+                                for key, val in cache_dict.items():
+                                    clean_dest = dest_lower.replace(" ", "")
+                                    clean_val = str(val).lower().replace(" ", "")
+                                    if clean_dest in clean_val:
+                                        expanded_dest += f" {str(val).lower()}"
+                except Exception:
+                    pass
+                    
+                try:
+                    port_codes_path = os.path.join(data_dir, "port_codes.json")
+                    country_map_path = os.path.join(data_dir, "country_map.json")
+                    if os.path.exists(port_codes_path) and os.path.exists(country_map_path):
+                        with open(country_map_path, "r", encoding="utf-8") as f:
+                            cmap = json.load(f)
+                        with open(port_codes_path, "r", encoding="utf-8") as f:
+                            pcodes = json.load(f).get("ports", {})
+                            for pcode, pdata in pcodes.items():
+                                pname = pdata.get("name", "").lower()
+                                clean_dest = dest_lower.replace(" ", "")
+                                clean_pname = pname.replace(" ", "")
+                                if clean_dest == clean_pname or clean_dest in clean_pname:
+                                    ccode = pdata.get("country", "")
+                                    cname = cmap.get(ccode, "").lower()
+                                    expanded_dest += f" {pname} {ccode.lower()} {cname} {'usa' if ccode == 'US' else ''}"
+                except Exception as e:
+                    print(f"[HAPAG] Port expansion fallback error: {e}")
+
+                for country, ft_data in freetime_config.items():
+                    country_clean = country.lower().replace(" ", "")
+                    expanded_clean = expanded_dest.replace(" ", "")
+                    if country_clean in expanded_clean:
+                        if "20" in request.container_type:
+                            normalized.free_time = ft_data.get("20GP")
+                        elif "40" in request.container_type:
+                            normalized.free_time = ft_data.get("40GP")
+                        break
 
             if schedules:
                 for schedule in schedules:
@@ -2818,6 +2869,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         matching_raw_quote = next((q for q in raw_quotes if q["etd"] == sched_etd), None)
                         
                         if matching_raw_quote:
+                            matched_raw_quote_etds.add(sched_etd)
                             opened = await self.open_price_breakdown(matching_raw_quote)
                             raw_charges = []
                             if opened:
@@ -2861,61 +2913,44 @@ class HapagLloydConnector(BaseCarrierConnector):
                             normalized.transit_time_days = schedule["transit_time_days"]
                             
                         # Apply Freetime
-                        if freetime_config:
-                            dest_lower = request.destination.lower()
-                            
-                            # Expand destination string to include country names from cache
-                            expanded_dest = dest_lower
-                            data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-                            
-                            try:
-                                import json
-                                cache_path = os.path.join(data_dir, "carrier_ports_cache.json")
-                                if os.path.exists(cache_path):
-                                    with open(cache_path, "r", encoding="utf-8") as f:
-                                        cache_data = json.load(f)
-                                        for carrier, cache_dict in cache_data.items():
-                                            for key, val in cache_dict.items():
-                                                clean_dest = dest_lower.replace(" ", "")
-                                                clean_val = str(val).lower().replace(" ", "")
-                                                if clean_dest in clean_val:
-                                                    expanded_dest += f" {str(val).lower()}"
-                            except Exception:
-                                pass
-                                
-                            # Universal Fallback using port_codes and country_map (always in git)
-                            try:
-                                port_codes_path = os.path.join(data_dir, "port_codes.json")
-                                country_map_path = os.path.join(data_dir, "country_map.json")
-                                if os.path.exists(port_codes_path) and os.path.exists(country_map_path):
-                                    with open(country_map_path, "r", encoding="utf-8") as f:
-                                        cmap = json.load(f)
-                                    with open(port_codes_path, "r", encoding="utf-8") as f:
-                                        pcodes = json.load(f).get("ports", {})
-                                        for pcode, pdata in pcodes.items():
-                                            pname = pdata.get("name", "").lower()
-                                            clean_dest = dest_lower.replace(" ", "")
-                                            clean_pname = pname.replace(" ", "")
-                                            if clean_dest == clean_pname or clean_dest in clean_pname:
-                                                ccode = pdata.get("country", "")
-                                                cname = cmap.get(ccode, "").lower()
-                                                expanded_dest += f" {pname} {ccode.lower()} {cname} {'usa' if ccode == 'US' else ''}"
-                            except Exception as e:
-                                print(f"[HAPAG] Port expansion fallback error: {e}")
-
-                            for country, ft_data in freetime_config.items():
-                                country_clean = country.lower().replace(" ", "")
-                                expanded_clean = expanded_dest.replace(" ", "")
-                                if country_clean in expanded_clean:
-                                    if "20" in request.container_type:
-                                        normalized.free_time = ft_data.get("20GP")
-                                    elif "40" in request.container_type:
-                                        normalized.free_time = ft_data.get("40GP")
-                                    break
-
+                        _apply_freetime_to_quote(normalized)
+                        
                         quotes.append(normalized)
                     except Exception as e:
                         print(f"[HAPAG] Error processing schedule ETD {schedule.get('etd')}: {e}")
+                        continue
+
+                # Add unmatched raw quotes (quotes with no linked schedule)
+                for raw_quote in raw_quotes:
+                    try:
+                        sched_etd = raw_quote["etd"]
+                        if sched_etd in matched_raw_quote_etds:
+                            continue
+                        if sched_etd < today_str:
+                            continue
+                        
+                        print(f"[HAPAG] [UNMATCHED RAW QUOTE] Processing ETD {sched_etd} with default Hapag Vessel /Performa")
+                        opened = await self.open_price_breakdown(raw_quote)
+                        raw_charges = []
+                        if opened:
+                            raw_charges = await self.extract_charge_breakdown()
+                            
+                        normalized = await self.normalize_result(raw_quote, raw_charges)
+                        normalized.etd = standardize_date_string(sched_etd)
+                        normalized.vessel = "Hapag Vessel /Performa"
+                        if raw_quote.get("is_sold_out"):
+                            normalized.vessel += " (Sold out)"
+                        normalized.service_name = "Hapag Service"
+                        normalized.routing = "Direct"
+                        normalized.eta = None
+                        normalized.transit_time_days = None
+                        
+                        # Apply Freetime
+                        _apply_freetime_to_quote(normalized)
+                        
+                        quotes.append(normalized)
+                    except Exception as e:
+                        print(f"[HAPAG] Error processing unmatched raw quote ETD {raw_quote.get('etd')}: {e}")
                         continue
             else:
                 print("[HAPAG] Schedules list is empty. Falling back to iterating over raw quotes directly.")
@@ -2932,10 +2967,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                             
                         normalized = await self.normalize_result(raw_quote, raw_charges)
                         normalized.etd = standardize_date_string(sched_etd)
-                        normalized.vessel = "TBA (Schedule Unavailable)"
+                        normalized.vessel = "Hapag Vessel /Performa"
                         if raw_quote.get("is_sold_out"):
                             normalized.vessel += " (Sold out)"
-                        normalized.service_name = "TBA"
+                        normalized.service_name = "Hapag Service"
+                        normalized.routing = "Direct"
+                        normalized.eta = None
+                        normalized.transit_time_days = None
+                        
+                        # Apply Freetime
+                        _apply_freetime_to_quote(normalized)
+                        
                         quotes.append(normalized)
                     except Exception as e:
                         print(f"[HAPAG] Error processing raw quote ETD {raw_quote.get('etd')}: {e}")
