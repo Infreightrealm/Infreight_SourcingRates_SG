@@ -355,5 +355,12 @@
         "LATIN AMERICA": 10,
         "EUROPE": 10,
         "AFRICA": 10
+    },
+    "LB": {
+        "ASIA": 7,
+        "NORTH AMERICA": 7,
+        "LATIN AMERICA": 7,
+        "EUROPE": 7,
+        "AFRICA": 7
     }
 }

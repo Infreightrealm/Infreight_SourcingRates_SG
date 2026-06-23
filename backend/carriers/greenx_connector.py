@@ -747,8 +747,14 @@ class GreenXConnector(BaseCarrierConnector):
             # 3. Free Time
             print(f"[GreenX] Opening Free Time details for card {quote_ref['index']}...")
             if await self._click_detail_tab(card, "Free Time"):
-                free_time_text = await card.inner_text()
+                # Wait dynamically for "Tariff Free Time at Destination" to load (up to 4s)
+                for _ in range(20):
+                    free_time_text = await card.inner_text()
+                    if "Tariff Free Time at Destination" in free_time_text:
+                        break
+                    await self.page.wait_for_timeout(200)
                 
+                free_time_text = await card.inner_text()
                 if "Tariff Free Time at Destination" in free_time_text:
                     dest_part = free_time_text.split("Tariff Free Time at Destination")[1]
                     det_match = re.search(r"Container\s+Detention\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days", dest_part, re.IGNORECASE)

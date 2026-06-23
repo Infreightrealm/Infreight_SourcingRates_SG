@@ -1346,6 +1346,9 @@ class ONEConnector(BaseCarrierConnector):
                 if "emergency surcharge" in name.lower():
                     category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
                     reason = "Forced Emergency Surcharge override to freight surcharge"
+                if "premium cargo service" in name.lower():
+                    category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+                    reason = "Forced Premium Cargo Service override to freight surcharge"
 
                 charges.append({
                     "name": name,

@@ -1093,13 +1093,28 @@ class CMAConnector(BaseCarrierConnector):
                     await self._human_delay(1000, 1500)
                     
                     dd_text = await card.inner_text()
-                    # Look for Import free time, skip Export free time
-                    match = re.search(r'Import free time.*?(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
-                    if match:
-                        quote_ref["free_time"] = int(match.group(1))
-                        print(f"[CMA] Extracted Import Free Time: {quote_ref['free_time']} days")
+                    # Isolate the Import section of the D&D tab text
+                    import_idx = dd_text.lower().find("import")
+                    import_text = dd_text[import_idx:] if import_idx != -1 else dd_text
+                    
+                    # Try to extract separate demurrage and detention days
+                    dem_match = re.search(r'demurrage.*?(?:free\s*time)?.*?(\d+)\s+(?:Calendar|Day)', import_text, re.IGNORECASE | re.DOTALL)
+                    det_match = re.search(r'detention.*?(?:free\s*time)?.*?(\d+)\s+(?:Calendar|Day)', import_text, re.IGNORECASE | re.DOTALL)
+                    
+                    dem_days = int(dem_match.group(1)) if dem_match else 0
+                    det_days = int(det_match.group(1)) if det_match else 0
+                    
+                    if dem_days > 0 or det_days > 0:
+                        quote_ref["free_time"] = dem_days + det_days
+                        print(f"[CMA] Extracted separate D&D: Demurrage={dem_days}, Detention={det_days}. Total free_time={quote_ref['free_time']} days")
                     else:
-                        print("[CMA] D&D tab opened but could not parse Import free time.")
+                        # Fallback to general/combined match
+                        match = re.search(r'Import free time.*?(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
+                        if match:
+                            quote_ref["free_time"] = int(match.group(1))
+                            print(f"[CMA] Extracted Fallback Import Free Time: {quote_ref['free_time']} days")
+                        else:
+                            print("[CMA] D&D tab opened but could not parse free time.")
             except Exception as e:
                 print(f"[CMA] Error extracting free time from D&D: {e}")
 

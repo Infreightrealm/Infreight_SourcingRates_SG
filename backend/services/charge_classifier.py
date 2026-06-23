@@ -26,6 +26,8 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
     # ── SPECIAL OVERRIDES ────────────────────────────────────
     if "emergency surcharge" in name_lower:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Surcharge override to freight surcharge"
+    if "premium cargo service" in name_lower:
+        return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Premium Cargo Service override to freight surcharge"
 
     # ── BASIC OCEAN FREIGHT ──────────────────────────────────
     basic_freight_keywords = [

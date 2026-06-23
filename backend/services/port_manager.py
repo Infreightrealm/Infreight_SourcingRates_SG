@@ -48,6 +48,7 @@ CARRIER_PORT_OVERRIDES = {
         "THLKR": "Lat Krabang, Thailand",
         "KNPNH": "Phnom Penh, Cambodia",
         "TLDIL": "Dili, Timor Leste",
+        "CNXMN": "Xiamen (Fujian), China",
     },
     "one": {
         "VNHPH": "Hai Phong",
@@ -59,6 +60,7 @@ CARRIER_PORT_OVERRIDES = {
         "PKKHI": "Karachi",
         "INNSA": "Nhava Sheva",
         "AUMEL": "Melbourne",
+        "CNXMN": "Xiamen",
     },
     "greenx": {
         # GreenX autocomplete accepts LOCODE directly (e.g. SGSIN, DEHAM)
@@ -104,6 +106,7 @@ PORT_MAP_CMA_ONE = {
     "THLKR": "THLKR",
     "KNPNH": "KNPNH",
     "YEADE": "YEADE",
+    "CNXMN": "CNXMN",
 }
 
 PORT_NAME_KEYWORD_MAP = {
@@ -153,6 +156,7 @@ PORT_NAME_KEYWORD_MAP = {
     "latkrabang": "THLKR",
     "phnom penh": "KNPNH",
     "aden": "YEADE",
+    "xiamen": "CNXMN",
 }
 
 
@@ -417,7 +421,7 @@ DEFAULT_POPULAR_PORTS = {
     "BEANR", "PLGDN", "GRPIR", "TRMER", "TRIST", "KRPUS", "JPTYO", "JPYOK", "JPOSK", "JPUKB",
     "JPHKT", "TWKHH", "TWKEL", "TWTXG", "MYPKG", "MYLPK", "MYPEN", "MYPGU", "MYTPP", "LKCMB",
     "BDCGP", "EGSOK", "OMSOH", "YEADE", "KHKOS", "KNPNH", "TLDIL", "INMAA", "IDSRG", "THLKR",
-    "VNVUT"
+    "VNVUT", "CNXMN"
 }
 
 class PortManager:
