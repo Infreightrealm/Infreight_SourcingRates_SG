@@ -1880,9 +1880,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print("[HAPAG] Warning: No standard date headers found. Sifting page text elements directly...")
 
             # ------------------------------------------------------------------
-            # JS helper: scrape all visible date columns (excluding portal/dialog)
+            # JS helper: scrape all visible date columns and their prices (excluding portal/dialog)
             # ------------------------------------------------------------------
-            JS_GET_VISIBLE_DATES = '''() => {
+            JS_GET_VISIBLE_DATES_AND_PRICES = '''() => {
                 const patterns = [
                     /^\\d{4}-\\d{2}-\\d{2}$/,
                     /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
@@ -1892,14 +1892,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}$/i,
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2},\\s+\\d{4}$/i
                 ];
-                // Use innerText to collapse child text, so date cells with nested spans are matched.
-                // Only exclude elements whose innerText is WAY longer than a date string (> 30 chars).
                 const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
                     const raw = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
-                    // Quick length gate — dates are short
                     if (!raw || raw.length > 30) return false;
                     if (!patterns.some(pat => pat.test(raw))) return false;
-                    // Exclude modal / dialog parents
                     let parent = el.parentElement;
                     while (parent) {
                         const id = (parent.id || '').toLowerCase();
@@ -1912,8 +1908,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                     return true;
                 });
-                // Prefer leaf nodes — if a parent and child both match, keep only the innermost
-                const dateSet = new Set(dateEls.map(el => (el.innerText || el.textContent || '').trim()));
                 const cols = [];
                 const seen = new Set();
                 dateEls.forEach(el => {
@@ -1921,7 +1915,24 @@ class HapagLloydConnector(BaseCarrierConnector):
                     const txt = (el.innerText || el.textContent || '').trim();
                     if (rect.width > 0 && rect.height > 0 && !seen.has(txt)) {
                         seen.add(txt);
-                        cols.push(txt);
+                        
+                        // Extract price from parent container
+                        let price = null;
+                        let parent = el.parentElement;
+                        for (let i = 0; i < 4; i++) {
+                            if (!parent) break;
+                            const pTxt = (parent.innerText || parent.textContent || '').trim().replace(/\\s+/g, ' ');
+                            const match = pTxt.match(/(?:USD|\\$)\\s*([\\d,]+(?:\\.\\d{1,2})?)/i);
+                            if (match) {
+                                price = parseFloat(match[1].replace(/,/g, ''));
+                                break;
+                            }
+                            parent = parent.parentElement;
+                        }
+                        cols.push({
+                            raw_date: txt,
+                            price: price
+                        });
                     }
                 });
                 return cols;
@@ -1958,12 +1969,13 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             all_dates_seen: list[str] = []       # ordered, de-duped list of all ETD strings
             seen_set: set[str] = set()
+            date_to_price: dict[str, float] = {}
             max_pages = 25          # safety cap -- Hapag-Lloyd has at most ~8-12 weeks of departures
             page_num = 0
 
             # JS to click the rightmost visible arrow/chevron button in the grid
             JS_CLICK_RIGHT_ARROW = '''() => {
-                const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"], .q-btn, i, span'));
                 const visible = candidates.filter(el => {
                     const r = el.getBoundingClientRect();
                     return r.width > 0 && r.height > 0;
@@ -1971,11 +1983,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                 // Score each button: prefer ones whose text/class/aria-label suggests a right-navigation
                 // and exclude search/submit buttons
                 const arrows = visible.filter(el => {
-                    const txt = (el.textContent || '').trim();
+                    const txt = (el.textContent || '').trim().replace(/\s+/g, ' ');
                     const cls = (el.className || '').toLowerCase();
                     const lbl = (el.getAttribute('aria-label') || '').toLowerCase();
                     const isNav = (
                         txt === '>' ||
+                        txt.includes('chevron_right') ||
+                        txt.includes('chevron-right') ||
+                        txt.includes('arrow_forward') ||
                         cls.includes('arrow-right') || cls.includes('chevron-right') ||
                         cls.includes('next') ||
                         lbl.includes('next') || lbl.includes('right') || lbl.includes('forward')
@@ -1989,6 +2004,16 @@ class HapagLloydConnector(BaseCarrierConnector):
                     const btn = arrows[0];
                     // Check if disabled
                     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return 'disabled';
+                    
+                    let clickable = btn;
+                    while (clickable && clickable.tagName !== 'BUTTON' && !clickable.classList.contains('q-btn') && clickable.parentElement) {
+                        if (clickable.getAttribute('role') === 'button') break;
+                        clickable = clickable.parentElement;
+                    }
+                    if (clickable) {
+                        clickable.click();
+                        return 'clicked';
+                    }
                     btn.click();
                     return 'clicked';
                 }
@@ -1999,17 +2024,20 @@ class HapagLloydConnector(BaseCarrierConnector):
                 page_num += 1
                 await self._human_delay(600, 900)
 
-                # Read unique dates currently visible in the grid (JS dedupes with Set)
-                visible_dates: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
-                # Python-side incremental deduplication (fixes batch-filter bug)
+                # Read unique dates and prices currently visible in the grid
+                visible_data: list[dict] = await self.page.evaluate(JS_GET_VISIBLE_DATES_AND_PRICES)
                 new_count = 0
-                for d in visible_dates:
+                for item in visible_data:
+                    d = item["raw_date"]
+                    p = item["price"]
+                    if p is not None:
+                        date_to_price[d] = p
                     if d not in seen_set:
                         seen_set.add(d)
                         all_dates_seen.append(d)
                         new_count += 1
 
-                print(f"[HAPAG] Page {page_num}: {len(visible_dates)} columns visible, {new_count} new -> total {len(all_dates_seen)} unique dates so far")
+                print(f"[HAPAG] Page {page_num}: {len(visible_data)} columns visible, {new_count} new -> total {len(all_dates_seen)} unique dates so far")
 
                 # Try to click the right-arrow to advance to the next column window
                 # NOTE: we check the end sentinel only AFTER a click yields 0 new dates,
@@ -2029,7 +2057,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await self._human_delay(900, 1400)
 
                 # Check how many new dates appeared after the click
-                visible_after: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
+                visible_after_data: list[dict] = await self.page.evaluate(JS_GET_VISIBLE_DATES_AND_PRICES)
+                visible_after = [item["raw_date"] for item in visible_after_data]
                 new_after = sum(1 for d in visible_after if d not in seen_set)
 
                 if new_after == 0:
@@ -2048,6 +2077,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             self._all_quotes = []
             for seq_idx, raw_date_str in enumerate(all_dates_seen):
                 normalized_date = self._normalize_date_string(raw_date_str)
+                grid_price = date_to_price.get(raw_date_str, 0.0)
                 self._all_quotes.append({
                     # seq_idx is the logical position (0-based) across all paginated pages
                     # page_offset will be calculated in open_price_breakdown to know how many
@@ -2060,7 +2090,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     "via_routing": "",
                     "service_name": "Hapag Service",
                     "vessel": "Hapag Vessel",
-                    "total_price": 0.0,
+                    "total_price": grid_price,
                     "currency": "USD",
                     "is_sold_out": False,
                     "source": "carrier_portal",
@@ -2113,17 +2143,20 @@ class HapagLloydConnector(BaseCarrierConnector):
             }'''
 
             JS_CLICK_LEFT_ARROW = '''() => {
-                const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"], .q-btn, i, span'));
                 const visible = candidates.filter(el => {
                     const r = el.getBoundingClientRect();
                     return r.width > 0 && r.height > 0;
                 });
                 const arrows = visible.filter(el => {
-                    const txt = (el.textContent || '').trim();
+                    const txt = (el.textContent || '').trim().replace(/\s+/g, ' ');
                     const cls = (el.className || '').toLowerCase();
                     const lbl = (el.getAttribute('aria-label') || '').toLowerCase();
                     const isNav = (
                         txt === '<' ||
+                        txt.includes('chevron_left') ||
+                        txt.includes('chevron-left') ||
+                        txt.includes('arrow_back') ||
                         cls.includes('arrow-left') || cls.includes('chevron-left') ||
                         cls.includes('prev') || cls.includes('back') ||
                         lbl.includes('prev') || lbl.includes('left') || lbl.includes('back') || lbl.includes('previous')
@@ -2135,6 +2168,16 @@ class HapagLloydConnector(BaseCarrierConnector):
                     arrows.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
                     const btn = arrows[0];
                     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return 'disabled';
+                    
+                    let clickable = btn;
+                    while (clickable && clickable.tagName !== 'BUTTON' && !clickable.classList.contains('q-btn') && clickable.parentElement) {
+                        if (clickable.getAttribute('role') === 'button') break;
+                        clickable = clickable.parentElement;
+                    }
+                    if (clickable) {
+                        clickable.click();
+                        return 'clicked';
+                    }
                     btn.click();
                     return 'clicked';
                 }
@@ -2142,17 +2185,20 @@ class HapagLloydConnector(BaseCarrierConnector):
             }'''
 
             JS_CLICK_RIGHT_ARROW = '''() => {
-                const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"], .q-btn, i, span'));
                 const visible = candidates.filter(el => {
                     const r = el.getBoundingClientRect();
                     return r.width > 0 && r.height > 0;
                 });
                 const arrows = visible.filter(el => {
-                    const txt = (el.textContent || '').trim();
+                    const txt = (el.textContent || '').trim().replace(/\s+/g, ' ');
                     const cls = (el.className || '').toLowerCase();
                     const lbl = (el.getAttribute('aria-label') || '').toLowerCase();
                     const isNav = (
                         txt === '>' ||
+                        txt.includes('chevron_right') ||
+                        txt.includes('chevron-right') ||
+                        txt.includes('arrow_forward') ||
                         cls.includes('arrow-right') || cls.includes('chevron-right') ||
                         cls.includes('next') ||
                         lbl.includes('next') || lbl.includes('right') || lbl.includes('forward')
@@ -2164,6 +2210,16 @@ class HapagLloydConnector(BaseCarrierConnector):
                     arrows.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
                     const btn = arrows[0];
                     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return 'disabled';
+                    
+                    let clickable = btn;
+                    while (clickable && clickable.tagName !== 'BUTTON' && !clickable.classList.contains('q-btn') && clickable.parentElement) {
+                        if (clickable.getAttribute('role') === 'button') break;
+                        clickable = clickable.parentElement;
+                    }
+                    if (clickable) {
+                        clickable.click();
+                        return 'clicked';
+                    }
                     btn.click();
                     return 'clicked';
                 }
@@ -2183,18 +2239,19 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                 # Determine direction to move
                 direction = "right"  # default fallback
-                if self._all_quotes:
-                    visible_indices = []
+                target_etd = quote_ref.get("etd")
+                if self._all_quotes and target_etd:
+                    visible_etds = []
                     for vd in visible:
                         match = next((q for q in self._all_quotes if q["raw_date"] == vd), None)
-                        if match:
-                            visible_indices.append(match["seq_idx"])
-                    if visible_indices:
-                        min_vis = min(visible_indices)
-                        max_vis = max(visible_indices)
-                        if target_idx < min_vis:
+                        if match and match.get("etd"):
+                            visible_etds.append(match["etd"])
+                    if visible_etds:
+                        min_vis_etd = min(visible_etds)
+                        max_vis_etd = max(visible_etds)
+                        if target_etd < min_vis_etd:
                             direction = "left"
-                        elif target_idx > max_vis:
+                        elif target_etd > max_vis_etd:
                             direction = "right"
 
                 if direction == "left":
@@ -2696,6 +2753,8 @@ class HapagLloydConnector(BaseCarrierConnector):
         # Fallback to total price if no charges breakdown was found
         if final_value == 0.0 and raw_quote.get("total_price"):
             final_value = raw_quote["total_price"]
+            if basic_ocean_freight == 0.0:
+                basic_ocean_freight = final_value
             
         vessel = raw_quote.get("vessel", "Hapag Vessel")
         if raw_quote.get("is_sold_out"):
