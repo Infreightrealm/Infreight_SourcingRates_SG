@@ -11,7 +11,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Optional
 from playwright.async_api import async_playwright
-from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
+from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, ChargeCategory
 from services.charge_classifier import classify_charge
 from services.normalizer import normalize_quote
 from services.port_manager import resolve_port_for_carrier, get_carrier_search_query, get_cached_carrier_port, set_cached_carrier_port
@@ -1341,6 +1341,12 @@ class ONEConnector(BaseCarrierConnector):
 
                 # Classify the charge
                 category, reason = classify_charge(name, amount, section_heading)
+                
+                # Override for Emergency Surcharge to always be in freight surcharge (included)
+                if "emergency surcharge" in name.lower():
+                    category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+                    reason = "Forced Emergency Surcharge override to freight surcharge"
+
                 charges.append({
                     "name": name,
                     "amount": amount,
