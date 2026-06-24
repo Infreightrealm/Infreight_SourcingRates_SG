@@ -1342,13 +1342,20 @@ class ONEConnector(BaseCarrierConnector):
                 # Classify the charge
                 category, reason = classify_charge(name, amount, section_heading)
                 
+                name_clean = " ".join(name.lower().split())
                 # Override for Emergency Surcharge to always be in freight surcharge (included)
-                if "emergency surcharge" in name.lower():
+                if "emergency surcharge" in name_clean:
                     category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
                     reason = "Forced Emergency Surcharge override to freight surcharge"
-                if "premium cargo service" in name.lower():
+                if "premium cargo service" in name_clean:
                     category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
                     reason = "Forced Premium Cargo Service override to freight surcharge"
+                if "emergency fuel originrail" in name_clean:
+                    category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+                    reason = "Forced Emergency Fuel OriginRail override to freight surcharge"
+                if "origin landfreightrail" in name_clean:
+                    category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+                    reason = "Forced Origin LandfreightRail override to freight surcharge"
 
                 charges.append({
                     "name": name,
