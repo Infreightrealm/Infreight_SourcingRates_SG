@@ -186,32 +186,8 @@ class MSCConnector(BaseCarrierConnector):
             await self.page.locator("text='Equipment Type'").first.wait_for(state="visible", timeout=20000)
             await self.page.wait_for_timeout(2000)
 
-            # 1. Equipment Size
-            target_eq = ""
-            if "20" in request.container_type:
-                target_eq = "20DV"
-            elif "40H" in request.container_type:
-                target_eq = "40HC"
-            elif "40" in request.container_type:
-                target_eq = "40DV"
-            else:
-                target_eq = "20DV"
-
-            self.log(f"Target equipment: {target_eq}")
-
-            for eq_type in ["20DV", "40DV", "40HC"]:
-                if eq_type != target_eq:
-                    self.log(f"Unchecking {eq_type}...")
-                    checkbox_wrapper = self.page.locator(f"label:has-text('{eq_type}')")
-                    if await checkbox_wrapper.is_visible():
-                        input_el = checkbox_wrapper.locator("input[type='checkbox']")
-                        if await input_el.count() > 0:
-                            if await input_el.first.is_checked():
-                                await checkbox_wrapper.first.click()
-                                await self.page.wait_for_timeout(500)
-                        else:
-                            await checkbox_wrapper.first.click()
-                            await self.page.wait_for_timeout(500)
+            # 1. Equipment Size (leave default 20DV, 40DV, 40HC checked to search all simultaneously)
+            self.log("Leaving all equipment sizes checked (20DV, 40DV, 40HC)")
 
             # 2. Cargo Weight
             self.log(f"Setting cargo weight to {request.weight_per_container_kg}...")
@@ -376,26 +352,35 @@ class MSCConnector(BaseCarrierConnector):
             raise
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        if not hasattr(self, "_cached_quotes"):
+            self._cached_quotes = None
+            self._cached_status = None
+
+        if self._cached_quotes is not None:
+            self.log(f"Returning cached quotes for '{request.container_type}' (avoiding redundant browser search).")
+            matching_quotes = [q for q in self._cached_quotes if q.container_type == request.container_type]
+            return self._cached_status, matching_quotes
+
         quotes: list[QuoteSchema] = []
         try:
             # 1. Login
             login_ok = await self.login()
             if not login_ok:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.LOGIN_FAILED
                 return CarrierResultStatus.LOGIN_FAILED, []
 
             # 2. Search
             search_status = await self.search_quotes(request)
             if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                self._cached_quotes = []
+                self._cached_status = search_status
                 return search_status, []
 
             # 3. Extract quotes by iterating over Shipping Windows
             self.log("Extracting quotes from shipping windows...")
             
             # Find all shipping window cards
-            # The cards seem to contain text like "Shipping window"
-            window_cards = self.page.locator("div:has-text('Shipping window')")
-            # To avoid matching too broadly, let's find the specific clickable cards.
-            # In MSC, these cards usually have a class or role. Let's find elements that contain "Shipping window" and a date range.
             window_locators = self.page.locator("div.card, div[role='button']").filter(has_text="Shipping window")
             
             count = await window_locators.count()
@@ -406,6 +391,8 @@ class MSCConnector(BaseCarrierConnector):
 
             self.log(f"Found {count} shipping windows.")
             if count == 0:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
             for i in range(count):
@@ -423,294 +410,311 @@ class MSCConnector(BaseCarrierConnector):
                     except Exception:
                         break
 
-                # 1. Initialize Free Time
-                free_time = 0
+                # Find all visible "show details" buttons under this shipping window
+                show_details_locators = self.page.locator("text='show details':visible")
+                detail_btn_count = await show_details_locators.count()
+                self.log(f"Found {detail_btn_count} 'show details' buttons in shipping window {i+1}")
 
-                # 2. Open details popup
-                show_details_btn = self.page.locator("text='show details'").first
-                if not await show_details_btn.is_visible():
-                    self.log("Could not find 'show details' button, skipping window.")
-                    continue
-                await show_details_btn.click()
-                # Wait dynamically for modal to appear (up to 5s)
-                for _ in range(25):
-                    await self.page.wait_for_timeout(200)
-                    try:
-                        if await self.page.locator("div[data-test-id='BreakdownModal']").is_visible():
-                            break
-                    except Exception:
-                        break
-
-                # 3. Extract Charges (Tab 1)
-                self.log("Extracting charges...")
-                charges = []
-                total_freight = 0.0
-                bof_value = 0.0
-                currency = "USD"
-                
-                # Re-resolve modal fresh for EACH window to avoid stale/hidden element hangs
-                modal = self.page.locator("div[data-test-id='BreakdownModal']")
-                try:
-                    await modal.wait_for(state="visible", timeout=10000)
-                except Exception as e:
-                    self.log(f"Modal did not become visible for window {i+1}: {e}")
-                    continue
-                
-                # Wait for the charges to actually render inside the modal before reading inner_text
-                try:
-                    await modal.locator("*:has-text('Freight Charge'), *:has-text('Per Equipment')").first.wait_for(state="visible", timeout=15000)
-                except Exception as e:
-                    self.log(f"Timed out waiting for charges to render inside modal: {e}")
-                
-                # Parse charges by reading the full inner text.
-                # Because the modal uses MuiGrid, inner_text often collapses into a single massive string.
-                # We split the text by known headers to categorize charges, then use regex to extract amounts.
-                # We convert everything to uppercase because CSS text-transform affects inner_text.
-                popup_text = (await modal.inner_text(timeout=15000)).replace('\n', ' ').upper()
-                self.log(f"Popup text length: {len(popup_text)}")
-                
-                def extract_section(txt, current_header, next_headers):
-                    start = txt.find(current_header)
-                    if start == -1: return ""
-                    end_indices = [txt.find(h) for h in next_headers if txt.find(h) > start]
-                    end = min(end_indices) if end_indices else len(txt)
-                    return txt[start:end]
-
-                sections = {
-                    "FREIGHT CHARGE": ["FREIGHT SURCHARGES", "EXPORT SURCHARGES", "IMPORT SURCHARGES"],
-                    "FREIGHT SURCHARGES": ["EXPORT SURCHARGES", "IMPORT SURCHARGES"],
-                    "EXPORT SURCHARGES": ["IMPORT SURCHARGES"],
-                    "IMPORT SURCHARGES": ["TOTAL", "SUBJECT TO CHARGES"]
-                }
-                
-                for section_name, next_headers in sections.items():
-                    section_text = extract_section(popup_text, section_name, next_headers)
-                    if not section_text: continue
+                for j in range(detail_btn_count):
+                    btn = show_details_locators.nth(j)
                     
-                    # Regex to find: [Charge Name] Per Equipment/Bill of lading [Amount] [Currency] Prepaid/Collect
-                    pattern = r"(.*?)(?:PER EQUIPMENT|PER BILL OF LADING)\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s+(?:PREPAID|COLLECT)"
-                    
-                    for match in re.finditer(pattern, section_text, re.DOTALL):
-                        raw_name = match.group(1).strip()
-                        
-                        # Clean up garbage from previous charge
-                        clean_name = re.sub(r"^(?:,\s*ELSEWHERE|,\s*COLLECT|,\s*PREPAID|COLLECT|PREPAID)+", "", raw_name).strip()
-                        clean_name = re.sub(r"^(?:FREIGHT CHARGE|FREIGHT SURCHARGES|EXPORT SURCHARGES|IMPORT SURCHARGES)", "", clean_name).strip()
-                        clean_name = re.sub(r"^(?:TERMS OF PAYMENT ONLY\.?)", "", clean_name).strip(" ,.")
-                        
-                        if not clean_name: continue
-                        
-                        val = float(match.group(2).replace(",", ""))
-                        curr = match.group(3)
-                        
-                        charge_obj = {
-                            "name": clean_name.title(), # Title case for prettier UI
-                            "amount": val,
-                            "currency": curr,
-                            "category": "bof" if section_name == "FREIGHT CHARGE" else ("included" if section_name == "FREIGHT SURCHARGES" else "excluded")
-                        }
-                        
-                        if section_name == "FREIGHT CHARGE":
-                            bof_value += val
-                            total_freight += val
-                            currency = curr
-                        elif section_name == "FREIGHT SURCHARGES":
-                            total_freight += val
-                            currency = curr
-                        
-                        charges.append(charge_obj)
-                        
-                # 3.5. Extract Free Time
-                self.log("Extracting free time...")
-                try:
-                    free_time_tab = modal.locator("text='Free Time'").first
-                    if await free_time_tab.is_visible():
-                        text_before_ft = await modal.inner_text(timeout=10000)
-                        await free_time_tab.click()
-                        # Wait dynamically for free time content to load (up to 3s)
-                        for _ in range(15):
-                            await self.page.wait_for_timeout(200)
-                            try:
-                                if await modal.inner_text(timeout=5000) != text_before_ft:
-                                    break
-                            except Exception:
+                    # Walk up to find the card container text to determine the container type
+                    card_text = ""
+                    parent = btn
+                    for _ in range(6):
+                        try:
+                            parent = parent.locator("xpath=..")
+                            parent_text = await parent.inner_text()
+                            if any(kw in parent_text for kw in ["20' Dry Van", "40' Dry Van", "40' High Cube", "20DV", "40DV", "40HC"]):
+                                card_text = parent_text
                                 break
-                        
-                        free_time_el = modal.locator("*:has-text('Import Combined')").last
-                        await free_time_el.wait_for(state="visible", timeout=5000)
-                        
-                        popup_inner = await modal.inner_text(timeout=10000)
-                        
-                        match = re.search(r"Import Combined.*?(\d+)\s*Calendar", popup_inner, re.IGNORECASE | re.DOTALL)
-                        if match:
-                            free_time = int(match.group(1))
-                except Exception as e:
-                    self.log(f"Failed to find Free Time text in popup: {e}")
-
-                # 4. Extract Routing (Tab 2)
-                self.log("Extracting routing...")
-                quote_conditions_tab = modal.locator("text='Quote Conditions'").first
-                try:
-                    text_before_qc = await modal.inner_text(timeout=10000)
-                except Exception as e:
-                    self.log(f"Failed to read modal text before Quote Conditions tab: {e}")
-                    text_before_qc = ""
-                await quote_conditions_tab.click()
-                # Wait dynamically for tab content to update (up to 2s)
-                for _ in range(10):
-                    await self.page.wait_for_timeout(200)
-                    try:
-                        if await modal.inner_text(timeout=5000) != text_before_qc:
+                        except Exception:
                             break
-                    except Exception:
-                        break
-                
-                routing_el = modal.locator("text='Routing:'").locator("xpath=..")
-                routing_text = ""
-                if await routing_el.count() > 0:
-                    routing_text = await routing_el.first.inner_text()
-                
-                if not routing_text or "Routing:" not in routing_text:
-                    routing_text = await modal.inner_text()
-                
-                is_direct = "Direct" in routing_text
-                routing_val = "Direct"
-                if not is_direct:
-                    routing_section = ""
-                    r_idx = routing_text.find("Routing:")
-                    if r_idx != -1:
-                        routing_section = routing_text[r_idx:]
-                        end_keywords = ["INCLUSIVE OF", "QUOTE VALIDITY", "PAYMENT TERMS", "TRANSIT TIME", "CHARGES AND CONDITIONS"]
-                        end_idx = len(routing_section)
-                        for kw in end_keywords:
-                            kw_idx = routing_section.upper().find(kw)
-                            if kw_idx != -1 and kw_idx < end_idx:
-                                end_idx = kw_idx
-                        routing_section = routing_section[:end_idx]
+                            
+                    container_type = "DRY 20"
+                    if "40' High Cube" in card_text or "40HC" in card_text:
+                        container_type = "DRY 40H"
+                    elif "40' Dry Van" in card_text or "40DV" in card_text:
+                        container_type = "DRY 40"
+                    elif "20' Dry Van" in card_text or "20DV" in card_text:
+                        container_type = "DRY 20"
                     else:
-                        routing_section = routing_text
+                        container_type = request.container_type
+                        
+                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type}")
 
-                    via_match = re.search(r"Via\s*:\s*([^(\n\r]+)", routing_section, re.IGNORECASE)
-                    if via_match:
-                        via_port = via_match.group(1).strip()
-                        routing_val = f"Transit via {via_port}"
-                    else:
-                        routing_val = "Transshipment"
-
-                # 5. Extract Schedules (Tab 3)
-                self.log("Extracting schedules...")
-                schedule_tab = modal.locator("text='Schedule'").first
-
-                # Phase 1: snapshot modal text BEFORE clicking Schedule tab.
-                # On window 2+, the modal may still have stale Schedule rows from the previous
-                # window cached in the DOM. We need to confirm React actually re-rendered new data
-                # before we read anything.
-                try:
-                    text_before_sched = await modal.inner_text(timeout=8000)
-                except Exception:
-                    text_before_sched = ""
-
-                await schedule_tab.click()
-
-                # Phase 2a: wait for modal content to change (proves React tore down old data)
-                sched_rows = modal.locator("tr:has-text('Days')")
-                content_changed = False
-                for _ in range(30):  # up to 6s
-                    await self.page.wait_for_timeout(200)
-                    try:
-                        current_text = await modal.inner_text(timeout=3000)
-                        if current_text != text_before_sched:
-                            content_changed = True
+                    # Open details popup
+                    await btn.scroll_into_view_if_needed()
+                    await btn.click()
+                    
+                    # Wait dynamically for modal to appear (up to 5s)
+                    modal_visible = False
+                    for _ in range(25):
+                        await self.page.wait_for_timeout(200)
+                        try:
+                            if await self.page.locator("div[data-test-id='BreakdownModal']").is_visible():
+                                modal_visible = True
+                                break
+                        except Exception:
                             break
-                    except Exception:
-                        break
+                            
+                    if not modal_visible:
+                        self.log(f"Modal did not open for card {j+1}, skipping.")
+                        continue
 
-                if not content_changed:
-                    self.log("Warning: modal content did not change after clicking Schedule tab.")
+                    # 1. Initialize Free Time
+                    free_time = 0
 
-                # Phase 2b: now wait for actual tr rows to be visible (data fully rendered)
-                try:
-                    await sched_rows.first.wait_for(state="visible", timeout=15000)
-                    self.log("Schedule rows visible.")
-                except Exception as e:
-                    self.log(f"Timed out waiting for schedule rows (tr:has-text('Days')): {e}")
+                    # 2. Extract Charges (Tab 1)
+                    self.log("Extracting charges...")
+                    charges = []
+                    total_freight = 0.0
+                    bof_value = 0.0
+                    currency = "USD"
+                    
+                    # Re-resolve modal fresh for EACH card to avoid stale/hidden element hangs
+                    modal = self.page.locator("div[data-test-id='BreakdownModal']")
                     try:
-                        debug_text = await modal.inner_text(timeout=5000)
-                        self.log(f"Modal text at schedule timeout: {debug_text[:300]}")
+                        await modal.wait_for(state="visible", timeout=10000)
+                    except Exception as e:
+                        self.log(f"Modal did not become visible for card {j+1}: {e}")
+                        continue
+                    
+                    # Wait for the charges to actually render inside the modal before reading inner_text
+                    try:
+                        await modal.locator("*:has-text('Freight Charge'), *:has-text('Per Equipment')").first.wait_for(state="visible", timeout=15000)
+                    except Exception as e:
+                        self.log(f"Timed out waiting for charges to render inside modal: {e}")
+                    
+                    popup_text = (await modal.inner_text(timeout=15000)).replace('\n', ' ').upper()
+                    self.log(f"Popup text length: {len(popup_text)}")
+                    
+                    def extract_section(txt, current_header, next_headers):
+                        start = txt.find(current_header)
+                        if start == -1: return ""
+                        end_indices = [txt.find(h) for h in next_headers if txt.find(h) > start]
+                        end = min(end_indices) if end_indices else len(txt)
+                        return txt[start:end]
+
+                    sections = {
+                        "FREIGHT CHARGE": ["FREIGHT SURCHARGES", "EXPORT SURCHARGES", "IMPORT SURCHARGES"],
+                        "FREIGHT SURCHARGES": ["EXPORT SURCHARGES", "IMPORT SURCHARGES"],
+                        "EXPORT SURCHARGES": ["IMPORT SURCHARGES"],
+                        "IMPORT SURCHARGES": ["TOTAL", "SUBJECT TO CHARGES"]
+                    }
+                    
+                    for section_name, next_headers in sections.items():
+                        section_text = extract_section(popup_text, section_name, next_headers)
+                        if not section_text: continue
+                        
+                        pattern = r"(.*?)(?:PER EQUIPMENT|PER BILL OF LADING)\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s+(?:PREPAID|COLLECT)"
+                        
+                        for match in re.finditer(pattern, section_text, re.DOTALL):
+                            raw_name = match.group(1).strip()
+                            clean_name = re.sub(r"^(?:,\s*ELSEWHERE|,\s*COLLECT|,\s*PREPAID|COLLECT|PREPAID)+", "", raw_name).strip()
+                            clean_name = re.sub(r"^(?:FREIGHT CHARGE|FREIGHT SURCHARGES|EXPORT SURCHARGES|IMPORT SURCHARGES)", "", clean_name).strip()
+                            clean_name = re.sub(r"^(?:TERMS OF PAYMENT ONLY\.?)", "", clean_name).strip(" ,.")
+                            
+                            if not clean_name: continue
+                            
+                            val = float(match.group(2).replace(",", ""))
+                            curr = match.group(3)
+                            
+                            charge_obj = {
+                                "name": clean_name.title(),
+                                "amount": val,
+                                "currency": curr,
+                                "category": "bof" if section_name == "FREIGHT CHARGE" else ("included" if section_name == "FREIGHT SURCHARGES" else "excluded")
+                            }
+                            
+                            if section_name == "FREIGHT CHARGE":
+                                bof_value += val
+                                total_freight += val
+                                currency = curr
+                            elif section_name == "FREIGHT SURCHARGES":
+                                total_freight += val
+                                currency = curr
+                            
+                            charges.append(charge_obj)
+                            
+                    # 3. Extract Free Time
+                    self.log("Extracting free time...")
+                    try:
+                        free_time_tab = modal.locator("text='Free Time'").first
+                        if await free_time_tab.is_visible():
+                            text_before_ft = await modal.inner_text(timeout=10000)
+                            await free_time_tab.click()
+                            for _ in range(15):
+                                await self.page.wait_for_timeout(200)
+                                try:
+                                    if await modal.inner_text(timeout=5000) != text_before_ft:
+                                        break
+                                except Exception:
+                                    break
+                            
+                            free_time_el = modal.locator("*:has-text('Import Combined')").last
+                            await free_time_el.wait_for(state="visible", timeout=5000)
+                            popup_inner = await modal.inner_text(timeout=10000)
+                            
+                            match = re.search(r"Import Combined.*?(\d+)\s*Calendar", popup_inner, re.IGNORECASE | re.DOTALL)
+                            if match:
+                                free_time = int(match.group(1))
+                    except Exception as e:
+                        self.log(f"Failed to find Free Time text in popup: {e}")
+
+                    # 4. Extract Routing (Tab 2)
+                    self.log("Extracting routing...")
+                    quote_conditions_tab = modal.locator("text='Quote Conditions'").first
+                    try:
+                        text_before_qc = await modal.inner_text(timeout=10000)
+                    except Exception as e:
+                        self.log(f"Failed to read modal text before Quote Conditions tab: {e}")
+                        text_before_qc = ""
+                    await quote_conditions_tab.click()
+                    for _ in range(10):
+                        await self.page.wait_for_timeout(200)
+                        try:
+                            if await modal.inner_text(timeout=5000) != text_before_qc:
+                                break
+                        except Exception:
+                            break
+                    
+                    routing_el = modal.locator("text='Routing:'").locator("xpath=..")
+                    routing_text = ""
+                    if await routing_el.count() > 0:
+                        routing_text = await routing_el.first.inner_text()
+                    
+                    if not routing_text or "Routing:" not in routing_text:
+                        routing_text = await modal.inner_text()
+                    
+                    is_direct = "Direct" in routing_text
+                    routing_val = "Direct"
+                    if not is_direct:
+                        routing_section = ""
+                        r_idx = routing_text.find("Routing:")
+                        if r_idx != -1:
+                            routing_section = routing_text[r_idx:]
+                            end_keywords = ["INCLUSIVE OF", "QUOTE VALIDITY", "PAYMENT TERMS", "TRANSIT TIME", "CHARGES AND CONDITIONS"]
+                            end_idx = len(routing_section)
+                            for kw in end_keywords:
+                                kw_idx = routing_section.upper().find(kw)
+                                if kw_idx != -1 and kw_idx < end_idx:
+                                    end_idx = kw_idx
+                            routing_section = routing_section[:end_idx]
+                        else:
+                            routing_section = routing_text
+
+                        via_match = re.search(r"Via\s*:\s*([^(\n\r]+)", routing_section, re.IGNORECASE)
+                        if via_match:
+                            via_port = via_match.group(1).strip()
+                            routing_val = f"Transit via {via_port}"
+                        else:
+                            routing_val = "Transshipment"
+
+                    # 5. Extract Schedules (Tab 3)
+                    self.log("Extracting schedules...")
+                    schedule_tab = modal.locator("text='Schedule'").first
+                    try:
+                        text_before_sched = await modal.inner_text(timeout=8000)
+                    except Exception:
+                        text_before_sched = ""
+
+                    await schedule_tab.click()
+
+                    content_changed = False
+                    for _ in range(30):
+                        await self.page.wait_for_timeout(200)
+                        try:
+                            current_text = await modal.inner_text(timeout=3000)
+                            if current_text != text_before_sched:
+                                content_changed = True
+                                break
+                        except Exception:
+                            break
+
+                    if not content_changed:
+                        self.log("Warning: modal content did not change after clicking Schedule tab.")
+
+                    sched_rows = modal.locator("tr:has-text('Days')")
+                    try:
+                        await sched_rows.first.wait_for(state="visible", timeout=15000)
+                        self.log("Schedule rows visible.")
+                    except Exception as e:
+                        self.log(f"Timed out waiting for schedule rows: {e}")
+
+                    s_count = await sched_rows.count()
+                    self.log(f"Schedule rows found: {s_count}")
+                    
+                    for s in range(s_count):
+                        s_text = await sched_rows.nth(s).inner_text()
+                        parts = [p.strip() for p in s_text.split('\t') if p.strip()]
+                        if len(parts) < 5:
+                            parts = [p.strip() for p in s_text.split('\n') if p.strip()]
+                            
+                        tt_match = re.search(r"(\d+)\s*Days", s_text, re.IGNORECASE)
+                        tt_days = int(tt_match.group(1)) if tt_match else 0
+                        
+                        dates = re.findall(r"\d{1,2}\s+[A-Za-z]{3}\s+\d{4}", s_text)
+                        etd = dates[0] if len(dates) > 0 else ""
+                        eta = dates[1] if len(dates) > 1 else ""
+                        
+                        vessel = parts[0] if parts else "MSC Vessel"
+                        service_name = parts[-3] if len(parts) > 3 else "MSC Service"
+
+                        from models.schemas import ChargeSchema
+                        quote = QuoteSchema(
+                            service_name=service_name,
+                            routing=routing_val,
+                            transit_time_days=tt_days,
+                            etd=standardize_date_string(etd) if etd else None,
+                            eta=standardize_date_string(eta) if eta else None,
+                            vessel=vessel,
+                            free_time=free_time,
+                            currency=currency,
+                            container_type=container_type,
+                            basic_ocean_freight=bof_value,
+                            final_freight_value=total_freight,
+                            included_freight_surcharges=[ChargeSchema(**c) for c in charges if c.get("category") == "included"],
+                            excluded_charges=[ChargeSchema(**c) for c in charges if c.get("category") == "excluded"]
+                        )
+                        quotes.append(quote)
+
+                    # Close popup and wait for it to be fully gone before next iteration
+                    self.log("Closing popup...")
+                    try:
+                        close_btn = modal.locator("button, svg").first
+                        await close_btn.click(timeout=5000)
+                    except Exception as e:
+                        self.log(f"Failed to click close button normally: {e}")
+                        await self.page.evaluate('''() => {
+                            const modal = document.querySelector('[data-test-id="BreakdownModal"]');
+                            if (modal) {
+                                modal.style.display = 'none';
+                            }
+                            const backdrops = document.querySelectorAll('.MuiBackdrop-root');
+                            backdrops.forEach(b => b.style.display = 'none');
+                        }''')
+                    try:
+                        await modal.wait_for(state="hidden", timeout=5000)
                     except Exception:
                         pass
-
-                s_count = await sched_rows.count()
-                self.log(f"Schedule rows found: {s_count}")
-                
-                for s in range(s_count):
-                    s_text = await sched_rows.nth(s).inner_text()
-                    parts = [p.strip() for p in s_text.split('\t') if p.strip()]
-                    if len(parts) < 5:
-                        parts = [p.strip() for p in s_text.split('\n') if p.strip()]
-                        
-                    # Usually: [Vessel Name, Voyage, ETD, ETA, Service, TT]
-                    # We can use regex to find dates and TT
-                    tt_match = re.search(r"(\d+)\s*Days", s_text, re.IGNORECASE)
-                    tt_days = int(tt_match.group(1)) if tt_match else 0
-                    
-                    # Find dates (e.g., "14 Jun 2026")
-                    dates = re.findall(r"\d{1,2}\s+[A-Za-z]{3}\s+\d{4}", s_text)
-                    etd = dates[0] if len(dates) > 0 else ""
-                    eta = dates[1] if len(dates) > 1 else ""
-                    
-                    # Vessel name is usually at the start, Service name near the end
-                    # We can just capture the first text before Voyage
-                    vessel = parts[0] if parts else "MSC Vessel"
-                    service_name = parts[-3] if len(parts) > 3 else "MSC Service"
-
-                    # Create Quote Schema for this vessel
-                    from models.schemas import ChargeSchema
-                    quote = QuoteSchema(
-                        service_name=service_name,
-                        routing=routing_val,
-                        transit_time_days=tt_days,
-                        etd=standardize_date_string(etd) if etd else None,
-                        eta=standardize_date_string(eta) if eta else None,
-                        vessel=vessel,
-                        free_time=free_time,
-                        currency=currency,
-                        basic_ocean_freight=bof_value,
-                        final_freight_value=total_freight,
-                        included_freight_surcharges=[ChargeSchema(**c) for c in charges if c.get("category") == "included"],
-                        excluded_charges=[ChargeSchema(**c) for c in charges if c.get("category") == "excluded"]
-                    )
-                    quotes.append(quote)
-
-                # Close popup and wait for it to be fully gone before next iteration
-                self.log("Closing popup...")
-                try:
-                    close_btn = modal.locator("button, svg").first
-                    await close_btn.click(timeout=5000)
-                except Exception as e:
-                    self.log(f"Failed to click close button normally: {e}")
-                    await self.page.evaluate('''() => {
-                        const modal = document.querySelector('[data-test-id="BreakdownModal"]');
-                        if (modal) {
-                            modal.style.display = 'none';
-                        }
-                        const backdrops = document.querySelectorAll('.MuiBackdrop-root');
-                        backdrops.forEach(b => b.style.display = 'none');
-                    }''')
-                # Wait for modal to disappear before processing next window
-                try:
-                    await modal.wait_for(state="hidden", timeout=5000)
-                except Exception:
-                    pass
-                await self.page.wait_for_timeout(500)
+                    await self.page.wait_for_timeout(500)
 
             if quotes:
-                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
+                self._cached_quotes = quotes
+                self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
+            
+            self._cached_quotes = []
+            self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
             return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
         except Exception as e:
             self.log(f"Unexpected error in run_full_search: {e}")
             await self.save_screenshot("msc_error_fallback.png", full_page=True)
+            self._cached_quotes = []
+            self._cached_status = CarrierResultStatus.UNKNOWN_ERROR
             return CarrierResultStatus.UNKNOWN_ERROR, []
         finally:
             await asyncio.shield(self.close())
