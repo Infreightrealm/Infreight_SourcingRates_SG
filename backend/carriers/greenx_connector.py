@@ -667,10 +667,26 @@ class GreenXConnector(BaseCarrierConnector):
     async def _click_detail_tab(self, card, tab_text: str) -> bool:
         try:
             btn = card.locator(f'button:has-text("{tab_text}"), a:has-text("{tab_text}"), :text("{tab_text}")').first
+            try:
+                await btn.wait_for(state="attached", timeout=2000)
+            except Exception:
+                pass
+            
             await btn.scroll_into_view_if_needed()
             # Snapshot text before click to detect content change
             text_before = await card.inner_text()
-            await btn.click()
+            
+            # Click with JS fallback
+            try:
+                await btn.click(timeout=3000)
+            except Exception as ce:
+                print(f"[GreenX] Standard click on {tab_text} failed: {ce}. Retrying via JS click...")
+                try:
+                    await btn.evaluate("el => el.click()")
+                except Exception as je:
+                    print(f"[GreenX] JS click on {tab_text} failed: {je}")
+                    return False
+            
             # Wait dynamically for the card content to update (up to 3s)
             for _ in range(15):
                 await self.page.wait_for_timeout(200)
