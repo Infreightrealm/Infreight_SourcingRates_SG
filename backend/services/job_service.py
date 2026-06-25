@@ -84,6 +84,11 @@ async def run_carrier_search(
                 # Run the full search flow
                 status, quotes = await connector.run_full_search(req_copy)
                 
+                # Inject the current cycle container type into each quote schema if not already set
+                for q in quotes:
+                    if not q.container_type:
+                        q.container_type = c_type
+                
                 # Add the quotes to our list
                 all_quotes.extend(quotes)
                 
