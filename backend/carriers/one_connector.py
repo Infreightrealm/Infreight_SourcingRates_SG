@@ -31,9 +31,6 @@ class ONEConnector(BaseCarrierConnector):
         "DRY 40":    "DRY 40",
         "DRY 40H":   "DRY 40H",
         "DRY 45":    "DRY 40H",     # No 45' option on ONE; closest is 40H
-        "REEFER 20": "REEFER 20",
-        "REEFER 40": "REEFER 40H",  # No plain REEFER 40 on ONE; closest is 40H
-        "REEFER 40H":"REEFER 40H",
     }
 
     def __init__(self):

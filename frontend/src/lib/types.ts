@@ -49,6 +49,7 @@ export interface RateSearchResultResponse {
   origin?: string;
   destination?: string;
   container_type?: string;
+  container_types?: string[];
   container_quantity?: number;
   commodity?: string;
   created_at?: string;
@@ -62,7 +63,8 @@ export interface RateSearchRequest {
   origin: string;
   destination: string;
   service_term: string;
-  container_type: string;
+  container_types: string[];
+  container_type?: string;
   container_quantity: number;
   weight_per_container_kg: number;
   commodity: string;
@@ -85,9 +87,6 @@ export const CONTAINER_TYPES = [
   "DRY 20",
   "DRY 40",
   "DRY 40H",
-  "REEFER 20",
-  "REEFER 40",
-  "REEFER 40H",
 ] as const;
 
 export const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {

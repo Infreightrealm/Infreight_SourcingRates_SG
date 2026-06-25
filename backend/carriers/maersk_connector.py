@@ -24,9 +24,6 @@ SIZE_TYPE_MAP = {
     "DRY 20": "20' Dry Van",
     "DRY 40": "40' Dry Van",
     "DRY 40H": "40' High Cube Dry",
-    "REEFER 20": "20' Reefer",
-    "REEFER 40": "40' Reefer",
-    "REEFER 40H": "40' High Cube Reefer",
     "DRY 45": "45' High Cube Dry",
 }
 
@@ -571,9 +568,6 @@ class MaerskConnector(BaseCarrierConnector):
             "DRY 20": "20 Dry Standard",
             "DRY 40": "40 Dry Standard",
             "DRY 40H": "40 Dry High",
-            "REEFER 20": "20 Reefer Standard",
-            "REEFER 40": "40 Reefer Standard",
-            "REEFER 40H": "40 Reefer High",
         }
         return mapping.get(normalized, "40 Dry High")
 

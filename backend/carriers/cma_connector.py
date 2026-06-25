@@ -29,9 +29,6 @@ class CMAConnector(BaseCarrierConnector):
         "DRY 40": "40' Dry Standard",
         "DRY 40H": "40' Dry High Cube",
         "DRY 45": "45' Dry High Cube",
-        "REEFER 20": "20' Reefer Standard",
-        "REEFER 40": "40' Reefer Standard",
-        "REEFER 40H": "40' Reefer High Cube",
     }
 
     def __init__(self):

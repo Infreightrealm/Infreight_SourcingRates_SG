@@ -4,7 +4,7 @@ Pydantic schemas for API request/response validation.
 from __future__ import annotations
 from typing import Optional
 from datetime import date
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 
 
@@ -81,7 +81,8 @@ class RateSearchRequest(BaseModel):
     origin: str = Field(default="Singapore", description="Origin port/location")
     destination: str = Field(default="Hamburg, Germany", description="Destination port/location")
     service_term: str = Field(default="CY/CY")
-    container_type: str = Field(default="DRY 40H", description="e.g. DRY 20, DRY 40, DRY 40H, REEFER 20, REEFER 40, REEFER 40H")
+    container_type: str = Field(default="DRY 40H", description="e.g. DRY 20, DRY 40, DRY 40H")
+    container_types: list[str] = Field(default=["DRY 40H"], description="List of container types to search")
     container_quantity: int = Field(default=1, ge=1)
     weight_per_container_kg: float = Field(default=20000, gt=0)
     commodity: str = Field(default="Furniture")
@@ -89,6 +90,26 @@ class RateSearchRequest(BaseModel):
     search_window_days: int = Field(default=14, ge=1, le=90)
     user_name: Optional[str] = Field(default=None, description="The name of the user making the request")
     use_mock: Optional[bool] = Field(default=None, description="Override mock/live mode for this search. None = use server default.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_container_types(cls, data):
+        if isinstance(data, dict):
+            c_types = data.get("container_types")
+            c_type = data.get("container_type")
+            if c_types is not None:
+                if isinstance(c_types, str):
+                    data["container_types"] = [c.strip() for c in c_types.split(",") if c.strip()]
+                elif isinstance(c_types, list):
+                    data["container_types"] = [c for c in c_types if c]
+                if not data.get("container_type") and data["container_types"]:
+                    data["container_type"] = data["container_types"][0]
+            elif c_type is not None:
+                data["container_types"] = [c_type]
+            else:
+                data["container_types"] = ["DRY 40H"]
+                data["container_type"] = "DRY 40H"
+        return data
 
 
 # ────────────────────────────────────────────
@@ -142,6 +163,7 @@ class RateSearchResultResponse(BaseModel):
     origin: Optional[str] = None
     destination: Optional[str] = None
     container_type: Optional[str] = None
+    container_types: Optional[list[str]] = None
     container_quantity: Optional[int] = None
     commodity: Optional[str] = None
     created_at: Optional[str] = None

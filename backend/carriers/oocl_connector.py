@@ -249,12 +249,7 @@ class OOCLConnector(BaseCarrierConnector):
             if not dest_success:
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
                 
-            if "REEFER" in request.container_type.upper():
-                try:
-                    await self.page.locator('label:has-text("Reefer"), input[value="Reefer"]').first.click()
-                except Exception:
-                    pass
-                    
+
             try:
                 await self.page.keyboard.press("Tab")
                 await self.page.wait_for_timeout(500)

@@ -54,8 +54,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
   const exportToExcel = async () => {
     if (sortedRows.length === 0) return;
 
-    // Get selected container type and currency
-    const containerType = data.container_type || "20GP";
+    // Get selected container types list
+    const containerTypesList = data.container_types || (data.container_type ? [data.container_type] : ["DRY 40H"]);
     const baseCurrency = quoteRows[0]?.quote?.currency || "USD";
 
     // Format container column header (e.g. DRY 40H -> 40HQ (USD))
@@ -64,13 +64,15 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       if (type === "DRY 20") standardName = "20GP";
       else if (type === "DRY 40") standardName = "40GP";
       else if (type === "DRY 40H") standardName = "40HQ";
-      else if (type === "REEFER 20") standardName = "20RF";
-      else if (type === "REEFER 40") standardName = "40RF";
-      else if (type === "REEFER 40H") standardName = "40RH";
       return `${standardName} (${currency})`;
     };
 
-    const containerHeader = getContainerHeader(containerType, baseCurrency);
+    const rateColumns = containerTypesList.map(type => ({
+      type,
+      header: getContainerHeader(type, baseCurrency),
+      key: `rate_${type.replace(/\s+/g, "_")}`,
+      width: 18
+    }));
 
     // Helpers to extract free time values
     const getFreeTimeValue = (q: QuoteSchema, carrierName: string) => {
@@ -99,7 +101,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       { header: "POL", key: "pol", width: 12 },
       { header: "POD", key: "pod", width: 25 },
       { header: "Carrier", key: "carrier", width: 16 },
-      { header: containerHeader, key: "rate", width: 18 },
+      ...rateColumns,
       { header: "T/T", key: "tt", width: 10 },
       { header: "Free time", key: "freetime", width: 12 },
       { header: "ETD POL", key: "validity", width: 16 },
@@ -108,49 +110,89 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       { header: "Remark", key: "remark", width: 35 }
     ];
 
-    // Add rows
-    sortedRows.forEach((r, idx) => {
-      const carrierName = CARRIERS.find(c => c.code === r.carrier)?.name || r.carrier;
-      
-      if (r.quote) {
-        const q = r.quote;
-        const freeTimeVal = getFreeTimeValue(q, r.carrier) ?? "-";
-        const remarkVal = q.vessel || "-";
-        const rateVal = q.final_freight_value === 0.0 ? (r.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out") : q.final_freight_value;
-        
-        sheet.addRow({
-          pol: idx === 0 ? (data.origin || "") : "",
-          pod: idx === 0 ? (data.destination || "") : "",
-          carrier: carrierName,
-          rate: rateVal,
-          tt: q.transit_time_days || "-",
-          freetime: freeTimeVal,
-          validity: q.etd || "-",
-          eta: q.eta || "-",
-          routing: q.routing || "Direct",
-          remark: remarkVal
+    // Group and add rows side-by-side
+    const groupedExcelRows: any[] = [];
+    
+    for (const cr of data.results) {
+      const carrierInfo = CARRIERS.find(c => c.code === cr.carrier);
+      const carrierName = carrierInfo?.name || cr.carrier;
+      const status = (cr.carrier === "MSC" && cr.status === "TIMEOUT") ? "NO_QUOTES_AVAILABLE" : cr.status;
+
+      if (cr.quotes.length === 0) {
+        const rates: Record<string, string> = {};
+        containerTypesList.forEach(ct => {
+          rates[`rate_${ct.replace(/\s+/g, "_")}`] = cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out";
         });
-      } else {
-        // Missing quotes (Sold out or error)
-        sheet.addRow({
-          pol: idx === 0 ? (data.origin || "") : "",
-          pod: idx === 0 ? (data.destination || "") : "",
+        groupedExcelRows.push({
+          pol: data.origin || "",
+          pod: data.destination || "",
           carrier: carrierName,
-          rate: r.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out",
+          ...rates,
           tt: "-",
           freetime: "-",
           validity: "-",
           eta: "-",
           routing: "-",
-          remark: r.error || (r.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not available" : "No quotes returned")
+          remark: cr.error_message || (cr.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not available" : "No quotes returned")
         });
+      } else {
+        const scheduleGroups: Record<string, QuoteSchema[]> = {};
+        for (const q of cr.quotes) {
+          const key = `${q.etd || ""}|${q.eta || ""}|${(q.vessel || "").trim().toLowerCase()}|${(q.routing || "").trim().toLowerCase()}`;
+          if (!scheduleGroups[key]) {
+            scheduleGroups[key] = [];
+          }
+          scheduleGroups[key].push(q);
+        }
+
+        for (const key of Object.keys(scheduleGroups)) {
+          const groupQuotes = scheduleGroups[key];
+          const rates: Record<string, string | number> = {};
+          
+          containerTypesList.forEach(ct => {
+            rates[`rate_${ct.replace(/\s+/g, "_")}`] = cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out";
+          });
+
+          groupQuotes.forEach(q => {
+            if (q.container_type) {
+              rates[`rate_${q.container_type.replace(/\s+/g, "_")}`] = q.final_freight_value === 0.0 
+                ? (cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out") 
+                : q.final_freight_value;
+            }
+          });
+
+          const firstQuote = groupQuotes[0];
+          const freeTimeVal = getFreeTimeValue(firstQuote, cr.carrier) ?? "-";
+
+          groupedExcelRows.push({
+            pol: data.origin || "",
+            pod: data.destination || "",
+            carrier: carrierName,
+            ...rates,
+            tt: firstQuote.transit_time_days || "-",
+            freetime: freeTimeVal,
+            validity: firstQuote.etd || "-",
+            eta: firstQuote.eta || "-",
+            routing: firstQuote.routing || "Direct",
+            remark: firstQuote.vessel || "-"
+          });
+        }
       }
+    }
+
+    // Add grouped rows to sheet
+    groupedExcelRows.forEach((row, idx) => {
+      sheet.addRow({
+        pol: idx === 0 ? row.pol : "",
+        pod: idx === 0 ? row.pod : "",
+        carrier: row.carrier,
+        ...row,
+      });
     });
 
-    // Merge POL and POD columns
-    if (sortedRows.length > 0) {
-      sheet.mergeCells(2, 1, 1 + sortedRows.length, 1); // Merge A2 to A(1+N)
-      sheet.mergeCells(2, 2, 1 + sortedRows.length, 2); // Merge B2 to B(1+N)
+    if (groupedExcelRows.length > 0) {
+      sheet.mergeCells(2, 1, 1 + groupedExcelRows.length, 1);
+      sheet.mergeCells(2, 2, 1 + groupedExcelRows.length, 2);
     }
 
     const getThinBorder = () => ({
@@ -174,10 +216,12 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       cell.border = getThinBorder();
     });
 
+    const numRateCols = rateColumns.length;
+
     // Style body cells
-    for (let r = 2; r <= 1 + sortedRows.length; r++) {
-      // POL (Col A)
-      const cellA = sheet.getCell(`A${r}`);
+    for (let r = 2; r <= 1 + groupedExcelRows.length; r++) {
+      // POL (Col 1)
+      const cellA = sheet.getCell(r, 1);
       cellA.fill = {
         type: 'pattern',
         pattern: 'solid',
@@ -187,8 +231,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       cellA.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellA.border = getThinBorder();
 
-      // POD (Col B)
-      const cellB = sheet.getCell(`B${r}`);
+      // POD (Col 2)
+      const cellB = sheet.getCell(r, 2);
       cellB.fill = {
         type: 'pattern',
         pattern: 'solid',
@@ -198,64 +242,65 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       cellB.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellB.border = getThinBorder();
 
-      // Carrier (Col C)
-      const cellC = sheet.getCell(`C${r}`);
+      // Carrier (Col 3)
+      const cellC = sheet.getCell(r, 3);
       cellC.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } }; // Soft navy blue
       cellC.alignment = { horizontal: 'center', vertical: 'middle' };
       cellC.border = getThinBorder();
 
-      // Selected Container (Col D)
-      const cellD = sheet.getCell(`D${r}`);
-      if (cellD.value === "Sold out" || cellD.value === "Offline rates") {
-        cellD.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'C00000' } }; // Bold red
-        cellD.alignment = { horizontal: 'center', vertical: 'middle' };
-        cellD.border = getThinBorder();
-      } else {
-        cellD.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
-        cellD.alignment = { horizontal: 'center', vertical: 'middle' };
-        cellD.border = getThinBorder();
-        cellD.numFmt = '#,##0'; // format as integer
+      // Selected Container rates (Col 4 to 3 + numRateCols)
+      for (let c = 0; c < numRateCols; c++) {
+        const cellRate = sheet.getCell(r, 4 + c);
+        if (cellRate.value === "Sold out" || cellRate.value === "Offline rates") {
+          cellRate.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'C00000' } }; // Bold red
+          cellRate.alignment = { horizontal: 'center', vertical: 'middle' };
+        } else {
+          cellRate.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+          cellRate.alignment = { horizontal: 'center', vertical: 'middle' };
+          cellRate.numFmt = '#,##0'; // format as integer
+        }
+        cellRate.border = getThinBorder();
       }
 
-      // T/T (Col E)
-      const cellE = sheet.getCell(`E${r}`);
-      cellE.font = { name: 'Arial', size: 11, bold: true, color: { argb: '385723' } }; // Forest green
-      cellE.alignment = { horizontal: 'center', vertical: 'middle' };
-      cellE.border = getThinBorder();
+      // T/T
+      const cellTT = sheet.getCell(r, 4 + numRateCols);
+      cellTT.font = { name: 'Arial', size: 11, bold: true, color: { argb: '385723' } }; // Forest green
+      cellTT.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellTT.border = getThinBorder();
 
-      // Free time (Col F)
-      const cellF = sheet.getCell(`F${r}`);
-      cellF.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
-      cellF.alignment = { horizontal: 'center', vertical: 'middle' };
-      cellF.border = getThinBorder();
+      // Free time
+      const cellFreetime = sheet.getCell(r, 5 + numRateCols);
+      cellFreetime.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellFreetime.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellFreetime.border = getThinBorder();
 
-      // Validity (Col G)
-      const cellG = sheet.getCell(`G${r}`);
-      cellG.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
-      cellG.alignment = { horizontal: 'center', vertical: 'middle' };
-      cellG.border = getThinBorder();
+      // Validity
+      const cellValidity = sheet.getCell(r, 6 + numRateCols);
+      cellValidity.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellValidity.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellValidity.border = getThinBorder();
 
-      // ETA (Col H)
-      const cellH = sheet.getCell(`H${r}`);
-      cellH.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
-      cellH.alignment = { horizontal: 'center', vertical: 'middle' };
-      cellH.border = getThinBorder();
+      // ETA
+      const cellETA = sheet.getCell(r, 7 + numRateCols);
+      cellETA.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellETA.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellETA.border = getThinBorder();
 
-      // Routing (Col I)
-      const cellI = sheet.getCell(`I${r}`);
-      cellI.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
-      cellI.alignment = { horizontal: 'center', vertical: 'middle' };
-      cellI.border = getThinBorder();
+      // Routing
+      const cellRouting = sheet.getCell(r, 8 + numRateCols);
+      cellRouting.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellRouting.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellRouting.border = getThinBorder();
 
-      // Remark (Col J)
-      const cellJ = sheet.getCell(`J${r}`);
-      cellJ.font = { name: 'Arial', size: 10, bold: false, color: { argb: '000000' } };
-      cellJ.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-      cellJ.border = getThinBorder();
+      // Remark
+      const cellRemark = sheet.getCell(r, 9 + numRateCols);
+      cellRemark.font = { name: 'Arial', size: 10, bold: false, color: { argb: '000000' } };
+      cellRemark.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cellRemark.border = getThinBorder();
     }
 
     // Set row height for body rows
-    for (let r = 2; r <= 1 + sortedRows.length; r++) {
+    for (let r = 2; r <= 1 + groupedExcelRows.length; r++) {
       sheet.getRow(r).height = 28;
     }
 
@@ -286,9 +331,13 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             </h2>
             <div className="flex items-center gap-2 mt-1">
               <StatusBadge status={data.status} size="md" />
-              {data.container_type && (
-                <span className="text-xs text-slate-500 dark:text-white/40">{data.container_type} × {data.container_quantity}</span>
-              )}
+              <div className="flex gap-1.5 flex-wrap">
+                {(data.container_types || (data.container_type ? [data.container_type] : [])).map((ct) => (
+                  <span key={ct} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white/70">
+                    {ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct} × {data.container_quantity}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -341,6 +390,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                 <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#1a1f2e] backdrop-blur-md">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Carrier</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Container</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETD POL</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETA POD</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Transit</th>
@@ -371,6 +421,12 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
                     {row.quote ? (
                       <>
+                        {/* Container */}
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 dark:bg-white/10 dark:text-white/80">
+                            {row.quote.container_type === "DRY 20" ? "20GP" : row.quote.container_type === "DRY 40" ? "40GP" : row.quote.container_type === "DRY 40H" ? "40HQ" : row.quote.container_type || "—"}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.etd || "—"}</td>
                         <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.eta || "—"}</td>
                         <td className="px-4 py-3 text-center text-slate-600 dark:text-white/70">{row.quote.transit_time_days ? `${row.quote.transit_time_days}d` : "—"}</td>
@@ -427,7 +483,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         </td>
                       </>
                     ) : (
-                      <td colSpan={10} className="px-4 py-3 text-slate-500 dark:text-white/40 text-xs text-center italic">
+                      <td colSpan={11} className="px-4 py-3 text-slate-500 dark:text-white/40 text-xs text-center italic">
                         {row.error || (row.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not yet implemented" : "No quotes returned")}
                       </td>
                     )}

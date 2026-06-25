@@ -15,7 +15,7 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
   const [origin, setOrigin] = useState("Singapore");
   const [destination, setDestination] = useState("Hamburg");
   const [serviceTerm, setServiceTerm] = useState("CY/CY");
-  const [containerType, setContainerType] = useState("DRY 40H");
+  const [containerTypes, setContainerTypes] = useState<string[]>(["DRY 40H"]);
   const [containerQty, setContainerQty] = useState(1);
   const [weight, setWeight] = useState(20000);
   const [commodity, setCommodity] = useState("Furniture");
@@ -25,6 +25,10 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (carriers.length === 0) return;
+    if (containerTypes.length === 0) {
+      toast.error("At least one container type must be selected");
+      return;
+    }
 
     if (destination.toLowerCase().includes("batam")) {
       toast.warning("Warning: Batam is generally not accepted as a direct ocean destination by carriers. The search may return no results.", {
@@ -37,7 +41,7 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
       origin,
       destination,
       service_term: serviceTerm,
-      container_type: containerType,
+      container_types: containerTypes,
       container_quantity: containerQty,
       weight_per_container_kg: weight,
       commodity,
@@ -55,8 +59,8 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
       {/* Carrier Selection */}
       <CarrierMultiSelect selected={carriers} onChange={setCarriers} />
 
-      {/* Route Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in-up stagger-1">
+      {/* Route & Commodity Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in-up stagger-1">
         <PortAutocomplete
           label="Origin"
           value={origin}
@@ -71,6 +75,17 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
           placeholder="e.g. Hamburg"
           required
         />
+        <div>
+          <label className={labelClass}>Commodity</label>
+          <input
+            type="text"
+            value={commodity}
+            onChange={(e) => setCommodity(e.target.value)}
+            className={inputClass}
+            placeholder="e.g. Furniture"
+            required
+          />
+        </div>
       </div>
 
       {destination.toLowerCase().includes("batam") && (
@@ -84,7 +99,7 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
       )}
 
       {/* Container Details */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fade-in-up stagger-2">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 animate-fade-in-up stagger-2">
         <div>
           <label className={labelClass}>Service Term</label>
           <select value={serviceTerm} onChange={(e) => setServiceTerm(e.target.value)} className={inputClass}>
@@ -94,13 +109,35 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
             <option value="SD/SD">SD/SD</option>
           </select>
         </div>
-        <div>
-          <label className={labelClass}>Container Type</label>
-          <select value={containerType} onChange={(e) => setContainerType(e.target.value)} className={inputClass}>
-            {CONTAINER_TYPES.map((ct) => (
-              <option key={ct} value={ct}>{ct}</option>
-            ))}
-          </select>
+        <div className="col-span-2">
+          <label className={labelClass}>Container Types</label>
+          <div className="flex flex-wrap gap-4 mt-2.5">
+            {CONTAINER_TYPES.map((ct) => {
+              const isSelected = containerTypes.includes(ct);
+              const displayName = ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct;
+              return (
+                <label key={ct} className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700 dark:text-white/80 select-none">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {
+                      if (isSelected) {
+                        if (containerTypes.length > 1) {
+                          setContainerTypes(containerTypes.filter(t => t !== ct));
+                        } else {
+                          toast.error("At least one container type must be selected");
+                        }
+                      } else {
+                        setContainerTypes([...containerTypes, ct]);
+                      }
+                    }}
+                    className="w-4 h-4 rounded text-blue-600 border-slate-300 dark:border-white/10 focus:ring-blue-500 bg-slate-100 dark:bg-white/5"
+                  />
+                  <span>{displayName}</span>
+                </label>
+              );
+            })}
+          </div>
         </div>
         <div>
           <label className={labelClass}>Quantity</label>
@@ -112,27 +149,7 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
         </div>
       </div>
 
-      {/* Commodity & Date */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in-up stagger-3">
-        <div>
-          <label className={labelClass}>Commodity</label>
-          <input type="text" value={commodity} onChange={(e) => setCommodity(e.target.value)} className={inputClass} placeholder="e.g. Furniture" required />
-        </div>
-        <div>
-          <label className={labelClass}>Departure Date</label>
-          <input
-            type="text"
-            value={departureDate}
-            onChange={(e) => setDepartureDate(e.target.value)}
-            className={inputClass}
-            placeholder="tomorrow or YYYY-MM-DD"
-          />
-        </div>
-        <div>
-          <label className={labelClass}>Search Window (days)</label>
-          <input type="number" value={searchWindow} onChange={(e) => setSearchWindow(parseInt(e.target.value) || 14)} className={inputClass} min={1} max={90} />
-        </div>
-      </div>
+
 
       {/* Submit */}
       <button

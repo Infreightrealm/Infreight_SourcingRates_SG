@@ -63,20 +63,57 @@ async def run_carrier_search(
 
             connector.status_update_callback = update_status_cb
 
-            # Run the full search flow
-            status, quotes = await connector.run_full_search(request)
+            # Run searches sequentially for each container type in request.container_types
+            all_quotes = []
+            final_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
+            
+            c_types = request.container_types or [request.container_type]
+            
+            for c_index, c_type in enumerate(c_types):
+                print(f"[JOB] {carrier_code}: starting cycle {c_index + 1}/{len(c_types)} for container type {c_type}")
+                # Update status in database to show which type we are searching
+                async with get_async_session_maker()() as cb_session:
+                    cb_db_result = (await cb_session.execute(result_query)).scalar_one_or_none()
+                    if cb_db_result:
+                        cb_db_result.status = f"RUNNING ({c_type})"
+                        await cb_session.commit()
+
+                # Create request copy for this container type
+                req_copy = request.model_copy(update={"container_type": c_type})
+                
+                # Run the full search flow
+                status, quotes = await connector.run_full_search(req_copy)
+                
+                # Add the quotes to our list
+                all_quotes.extend(quotes)
+                
+                # Determine final status
+                if status == CarrierResultStatus.AVAILABLE_QUOTES_FOUND or (quotes and len(quotes) > 0):
+                    final_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                elif status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
+                    if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                        final_status = CarrierResultStatus.CONNECTOR_NOT_AVAILABLE
+                elif status == CarrierResultStatus.SERVICE_UNAVAILABLE:
+                    if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                        final_status = CarrierResultStatus.SERVICE_UNAVAILABLE
+                elif status == CarrierResultStatus.FAILED:
+                    if final_status not in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.CONNECTOR_NOT_AVAILABLE):
+                        final_status = CarrierResultStatus.FAILED
+                else:
+                    # Keep existing final_status if it's already successful/partially successful
+                    pass
 
             # Update carrier result status
-            db_result.status = status.value
+            db_result.status = final_status.value
             db_result.completed_at = datetime.utcnow()
 
-            if status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
+            if final_status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
                 db_result.error_message = f"Connector for {carrier_code} is not yet implemented"
-            elif status == CarrierResultStatus.SERVICE_UNAVAILABLE:
+            elif final_status == CarrierResultStatus.SERVICE_UNAVAILABLE:
                 db_result.error_message = f"Carrier service/website for {carrier_code} is currently unavailable (maintenance or downtime)"
 
             # Persist quotes
-            for q in quotes:
+            for q in all_quotes:
                 db_quote = Quote(
                     carrier_result_id=db_result.id,
                     carrier=carrier_code,
