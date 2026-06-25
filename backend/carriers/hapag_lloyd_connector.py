@@ -722,6 +722,26 @@ class HapagLloydConnector(BaseCarrierConnector):
 
         return date_str
 
+    def extract_validity_date(self, text: str) -> Optional[str]:
+        # Pattern 1: Valid 2026-06-25 to 2026-06-30
+        match1 = re.search(r'Valid\s+\d{4}-\d{2}-\d{2}\s+to\s+(\d{4}-\d{2}-\d{2})', text, re.IGNORECASE)
+        if match1:
+            return match1.group(1)
+        
+        # Pattern 2: Valid to: 30 Jun 2026 or Valid to 30 Jun 2026
+        match2 = re.search(r'Valid\s+to:?\s*(\d{1,2}\s+[A-Za-z]{3,10}\s+\d{4})', text, re.IGNORECASE)
+        if match2:
+            return match2.group(1).strip()
+            
+        # Pattern 3: Valid to: 2026-06-30
+        match3 = re.search(r'Valid\s+to:?\s*(\d{4}-\d{2}-\d{2})', text, re.IGNORECASE)
+        if match3:
+            return match3.group(1)
+            
+        return None
+
+
+
 
 
     async def _select_hapag_dropdown_option(self, label: str, locode: str, cached_name: Optional[str] = None) -> bool:
@@ -2430,69 +2450,98 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
             print(f"[HAPAG] Parsed transit time: {tt} days, via: '{via_routing}'")
             
-            # Parse requested container type to check price directly on the card
-            container_type = "DRY 40"
-            if hasattr(self, 'current_request') and self.current_request:
-                container_type = self.current_request.container_type
-
-            # Parse card price directly for fallback and sold-out screening
-            self._last_parsed_price = None
+            # Parse card price directly for fallback and sold-out screening across all 3 container types
+            self._last_parsed_card_prices = {}
             try:
-                card_price_res = await self.page.evaluate(r'''containerType => {
-                    let sizeLabel = "40HC";
-                    if (containerType === "DRY 20") sizeLabel = "20STD";
-                    else if (containerType === "DRY 40") sizeLabel = "40STD";
-                    else if (containerType === "DRY 40H") sizeLabel = "40HC";
+                card_prices = await self.page.evaluate(r'''() => {
+                    const res = {
+                        "DRY 20": null,
+                        "DRY 40": null,
+                        "DRY 40H": null
+                    };
+                    const containerKeys = {
+                        "20STD": "DRY 20",
+                        "20'STD": "DRY 20",
+                        "20GP": "DRY 20",
+                        "20'GP": "DRY 20",
+                        "20'": "DRY 20",
+                        
+                        "40STD": "DRY 40",
+                        "40'STD": "DRY 40",
+                        "40GP": "DRY 40",
+                        "40'GP": "DRY 40",
+                        "40'": "DRY 40",
+                        
+                        "40HC": "DRY 40H",
+                        "40'HC": "DRY 40H",
+                        "40HQ": "DRY 40H",
+                        "40'HQ": "DRY 40H",
+                        "High Cube": "DRY 40H"
+                    };
 
-                    // 1. Scan elements to find row text containing sizeLabel and USD or /Container
                     const rows = Array.from(document.querySelectorAll('div, span, p, tr, td'));
                     for (const row of rows) {
                         if (row.children.length > 8) continue;
                         const txt = (row.textContent || '').trim();
-                        if (txt.includes(sizeLabel) && (txt.includes("USD") || txt.includes("$") || txt.includes("/Container"))) {
-                            const cleanTxt = txt.replace(/\s+/g, ' ');
-                            if (/\bUSD\s*-(?!\d)/i.test(cleanTxt) || /-(?!\d)\s*\/Container/i.test(cleanTxt) || /-(?!\d)\u00a0\/Container/i.test(cleanTxt) || cleanTxt.includes("not available") || cleanTxt.includes("sold out")) {
-                                return "sold_out";
-                            }
-                            const match = cleanTxt.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
-                            if (match) {
-                                const val = parseFloat(match[1].replace(/,/g, ''));
-                                if (!isNaN(val) && val !== 0) {
-                                    return val;
+                        for (const [label, typeKey] of Object.entries(containerKeys)) {
+                            if (txt.includes(label) && (txt.includes("USD") || txt.includes("$") || txt.includes("/Container"))) {
+                                const cleanTxt = txt.replace(/\s+/g, ' ');
+                                if (/\bUSD\s*-(?!\d)/i.test(cleanTxt) || /-(?!\d)\s*\/Container/i.test(cleanTxt) || /-(?!\d)\u00a0\/Container/i.test(cleanTxt) || cleanTxt.includes("not available") || cleanTxt.includes("sold out")) {
+                                    if (res[typeKey] === null) {
+                                        res[typeKey] = "sold_out";
+                                    }
+                                } else {
+                                    const match = cleanTxt.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
+                                    if (match) {
+                                        const val = parseFloat(match[1].replace(/,/g, ''));
+                                        if (!isNaN(val) && val !== 0) {
+                                            if (res[typeKey] === null || res[typeKey] === "sold_out") {
+                                                res[typeKey] = val;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                    
-                    // 2. Fallback: scan lines of page innerText
+
+                    // Fallback to scanning body innerText lines
                     const allText = document.body.innerText || "";
                     const lines = allText.split("\n");
                     for (const line of lines) {
                         const cleanLine = line.replace(/\s+/g, ' ').trim();
-                        if (cleanLine.includes(sizeLabel)) {
-                            if (/\bUSD\s*-(?!\d)/i.test(cleanLine) || /-(?!\d)\s*\/Container/i.test(cleanLine) || /-(?!\d)\u00a0\/Container/i.test(cleanLine) || cleanLine.includes("sold out") || cleanLine.includes("not available")) {
-                                return "sold_out";
-                            }
-                            const match = cleanLine.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
-                            if (match) {
-                                const val = parseFloat(match[1].replace(/,/g, ''));
-                                if (!isNaN(val) && val !== 0) {
-                                    return val;
+                        for (const [label, typeKey] of Object.entries(containerKeys)) {
+                            if (cleanLine.includes(label)) {
+                                if (/\bUSD\s*-(?!\d)/i.test(cleanLine) || /-(?!\d)\s*\/Container/i.test(cleanLine) || /-(?!\d)\u00a0\/Container/i.test(cleanLine) || cleanLine.includes("sold out") || cleanLine.includes("not available")) {
+                                    if (res[typeKey] === null) {
+                                        res[typeKey] = "sold_out";
+                                    }
+                                } else {
+                                    const match = cleanLine.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
+                                    if (match) {
+                                        const val = parseFloat(match[1].replace(/,/g, ''));
+                                        if (!isNaN(val) && val !== 0) {
+                                            if (res[typeKey] === null || res[typeKey] === "sold_out") {
+                                                res[typeKey] = val;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                    return null;
-                }''', container_type)
-
-                print(f"[HAPAG] Card price evaluation result for {container_type}: {card_price_res}")
-                if card_price_res == "sold_out":
-                    print(f"[HAPAG] Card price indicates '{container_type}' is sold out for this departure.")
+                    return res;
+                }''')
+                print(f"[HAPAG] Multi-container card price evaluation results: {card_prices}")
+                if isinstance(card_prices, dict):
+                    self._last_parsed_card_prices = card_prices
+                
+                # Check if all are sold out
+                all_sold_out = all(v == "sold_out" or v is None for v in self._last_parsed_card_prices.values())
+                if all_sold_out:
+                    print(f"[HAPAG] All container types are sold out / unavailable for this departure.")
                     quote_ref["is_sold_out"] = True
                     return False
-                elif isinstance(card_price_res, (int, float)):
-                    self._last_parsed_price = float(card_price_res)
-                    quote_ref["total_price"] = self._last_parsed_price
             except Exception as pe:
                 print(f"[HAPAG] Warning: Card price evaluation failed: {pe}")
 
@@ -2520,8 +2569,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                     pass
                     
             if not pb_btn:
-                if self._last_parsed_price:
-                    print(f"[HAPAG] Price Breakdown button not found, but card rate is available: USD {self._last_parsed_price}. Falling back to card rate.")
+                has_any_price = any(isinstance(v, (int, float)) for v in self._last_parsed_card_prices.values())
+                if has_any_price:
+                    print(f"[HAPAG] Price Breakdown button not found, but card rates are available: {self._last_parsed_card_prices}. Falling back to card rates.")
                     quote_ref["is_sold_out"] = False
                     return True
                 else:
@@ -2579,14 +2629,23 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] open_price_breakdown failed: {e}")
             return False
 
-    async def extract_charge_breakdown(self) -> list[dict]:
-        charges = []
+    async def extract_charge_breakdown(self) -> dict[str, list[dict]]:
+        charges = {"DRY 20": [], "DRY 40": [], "DRY 40H": []}
         try:
-            container_type = "DRY 40"
-            if hasattr(self, 'current_request') and self.current_request:
-                container_type = self.current_request.container_type
-                
-            print(f"[HAPAG] Parsing breakdown table for container size: '{container_type}'...")
+            print("[HAPAG] Extracting validity date from body text...")
+            try:
+                page_text = await self.page.inner_text("body")
+                validity_date = self.extract_validity_date(page_text)
+                if validity_date:
+                    self._last_parsed_validity_till = self._normalize_date_string(validity_date)
+                    print(f"[HAPAG] Extracted validity_till: {self._last_parsed_validity_till}")
+                else:
+                    self._last_parsed_validity_till = None
+            except Exception as e:
+                print(f"[HAPAG] Warning: failed to extract validity date: {e}")
+                self._last_parsed_validity_till = None
+
+            print("[HAPAG] Parsing breakdown table for all container sizes...")
             
             # --- DEBUG DUMP MODAL ROWS (gated behind HAPAG_DEBUG=true) ---
             import os as _os
@@ -2605,11 +2664,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 except Exception as de:
                     print(f"[HAPAG] Debug dump failed: {de}")
             
-            charges = await self.page.evaluate(r'''containerType => {
-                let targetColIndex = 4; // default to 40STD (DRY 40)
-                if (containerType === "DRY 20") targetColIndex = 3;
-                else if (containerType === "DRY 40") targetColIndex = 4;
-                else if (containerType === "DRY 40H") targetColIndex = 5;
+            charges = await self.page.evaluate(r'''() => {
+                let idx_20 = 3;
+                let idx_40 = 4;
+                let idx_40h = 5;
 
                 // Dynamically detect column header position
                 const allRows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
@@ -2629,24 +2687,43 @@ class HapagLloydConnector(BaseCarrierConnector):
                 let headerRow = headerRows[0] || null;
 
                 if (headerRow) {
-                    let searchTerms = [];
-                    if (containerType === "DRY 20") searchTerms = ["20STD", "20'STD", "20GP", "20'GP", "20'"];
-                    else if (containerType === "DRY 40") searchTerms = ["40STD", "40'STD", "40GP", "40'GP", "40'"];
-                    else if (containerType === "DRY 40H") searchTerms = ["40HC", "40'HC", "40HQ", "40'HQ", "High Cube"];
-
+                    const searchTerms20 = ["20STD", "20'STD", "20GP", "20'GP", "20'"];
+                    const searchTerms40 = ["40STD", "40'STD", "40GP", "40'GP", "40'"];
+                    const searchTerms40h = ["40HC", "40'HC", "40HQ", "40'HQ", "High Cube"];
                     for (let idx = 0; idx < headerRow.length; idx++) {
                         const headerText = (headerRow[idx].textContent || '').trim().replace(/\s+/g, '');
-                        if (searchTerms.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
-                            targetColIndex = idx;
-                            break;
+                        if (searchTerms20.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
+                            idx_20 = idx;
+                        } else if (searchTerms40.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
+                            idx_40 = idx;
+                        } else if (searchTerms40h.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
+                            idx_40h = idx;
                         }
                     }
                 }
                 
-                const results = [];
+                const results = {
+                    "DRY 20": [],
+                    "DRY 40": [],
+                    "DRY 40H": []
+                };
                 const rows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
                 let currentSection = "";
                 
+                function parseAmount(valStr) {
+                    if (!valStr || valStr === "-" || valStr === "not applicable" || valStr.toLowerCase() === "included") {
+                        return null;
+                    }
+                    const match = valStr.replace(/,/g, '').match(/[\d\.]+/);
+                    if (match) {
+                        const val = parseFloat(match[0]);
+                        if (!isNaN(val) && val !== 0) {
+                            return val;
+                        }
+                    }
+                    return null;
+                }
+
                 for (const row of rows) {
                     const cells = Array.from(row.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"]'));
                     if (cells.length === 0) continue;
@@ -2690,25 +2767,52 @@ class HapagLloydConnector(BaseCarrierConnector):
                             continue;
                         }
                         
-                        const targetCell = cells[targetColIndex];
-                        if (!targetCell) continue;
-                        
-                        const valueStr = targetCell.textContent ? targetCell.textContent.trim() : "";
-                        if (!valueStr || valueStr === "-" || valueStr === "not applicable" || valueStr.toLowerCase() === "included") {
-                            continue;
-                        }
-                        
-                        const amount = parseFloat(valueStr.replace(/,/g, ''));
-                        if (!isNaN(amount) && amount !== 0) {
-                            let determinedCategory = null;
-                            if (currentSection === "freight_charges") determinedCategory = "BASIC_OCEAN_FREIGHT";
-                            else if (currentSection === "surcharges") determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
-                            else if (currentSection === "export_surcharges") determinedCategory = "ORIGIN_CHARGE_EXCLUDED";
-                            else if (currentSection === "import_surcharges") determinedCategory = "DESTINATION_CHARGE_EXCLUDED";
+                        const valStr_20 = cells[idx_20] ? (cells[idx_20].textContent || "").trim() : "";
+                        const valStr_40 = cells[idx_40] ? (cells[idx_40].textContent || "").trim() : "";
+                        const valStr_40h = cells[idx_40h] ? (cells[idx_40h].textContent || "").trim() : "";
 
-                            results.push({
+                        let amt_20 = parseAmount(valStr_20);
+                        let amt_40 = parseAmount(valStr_40);
+                        let amt_40h = parseAmount(valStr_40h);
+
+                        const isIrrelevant = (unit.toLowerCase() === "bl" || unit.toLowerCase() === "b/l" || 
+                                              valStr_20.toLowerCase().includes("irrelevant") ||
+                                              valStr_40.toLowerCase().includes("irrelevant") ||
+                                              valStr_40h.toLowerCase().includes("irrelevant"));
+                        
+                        const commonAmt = amt_20 || amt_40 || amt_40h;
+                        if (isIrrelevant && commonAmt !== null) {
+                            if (amt_20 === null) amt_20 = commonAmt;
+                            if (amt_40 === null) amt_40 = commonAmt;
+                            if (amt_40h === null) amt_40h = commonAmt;
+                        }
+
+                        let determinedCategory = null;
+                        if (currentSection === "freight_charges") determinedCategory = "BASIC_OCEAN_FREIGHT";
+                        else if (currentSection === "surcharges") determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
+                        else if (currentSection === "export_surcharges") determinedCategory = "ORIGIN_CHARGE_EXCLUDED";
+                        else if (currentSection === "import_surcharges") determinedCategory = "DESTINATION_CHARGE_EXCLUDED";
+
+                        if (amt_20 !== null) {
+                            results["DRY 20"].push({
                                 name: name,
-                                amount: amount,
+                                amount: amt_20,
+                                currency: curr || "USD",
+                                category: determinedCategory
+                            });
+                        }
+                        if (amt_40 !== null) {
+                            results["DRY 40"].push({
+                                name: name,
+                                amount: amt_40,
+                                currency: curr || "USD",
+                                category: determinedCategory
+                            });
+                        }
+                        if (amt_40h !== null) {
+                            results["DRY 40H"].push({
+                                name: name,
+                                amount: amt_40h,
                                 currency: curr || "USD",
                                 category: determinedCategory
                             });
@@ -2716,10 +2820,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                 }
                 return results;
-            }''', container_type)
+            }''')
             
-            charge_names = [c['name'] for c in charges]
-            print(f"[HAPAG] Successfully extracted {len(charges)} charges for {container_type}: {charge_names}")
+            print(f"[HAPAG] Successfully extracted charges for DRY 20 ({len(charges['DRY 20'])} items), DRY 40 ({len(charges['DRY 40'])} items), DRY 40H ({len(charges['DRY 40H'])} items)")
             
         except Exception as e:
             print(f"[HAPAG] Surcharge details extraction error: {e}")
@@ -2772,18 +2875,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
             await self._human_delay(800, 1500)
             
-            if not charges and hasattr(self, '_last_parsed_price') and self._last_parsed_price:
-                print(f"[HAPAG] Modal not opened/found. Returning fallback Ocean Freight charge from card: USD {self._last_parsed_price}")
-                charges = [{
-                    "name": "Ocean Freight",
-                    "amount": self._last_parsed_price,
-                    "currency": "USD",
-                    "category": "BASIC_OCEAN_FREIGHT"
-                }]
-            
         return charges
 
-    async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
+    async def normalize_result(self, raw_quote: dict, raw_charges: list[dict], container_type: str, is_sold_out: bool = False) -> QuoteSchema:
         """
         Normalize raw Hapag-Lloyd quotes into unified QuoteSchema.
         """
@@ -2809,8 +2903,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 basic_ocean_freight = final_value
             
         vessel = raw_quote.get("vessel", "Hapag Vessel")
-        if raw_quote.get("is_sold_out"):
+        if is_sold_out or raw_quote.get("is_sold_out"):
             vessel = f"{vessel} (Sold out)"
+
+        validity_till = getattr(self, "_last_parsed_validity_till", None)
 
         return QuoteSchema(
             etd=raw_quote.get("etd"),
@@ -2819,16 +2915,27 @@ class HapagLloydConnector(BaseCarrierConnector):
             service_name=raw_quote.get("service_name"),
             vessel=vessel,
             currency="USD",
+            container_type=container_type,
             basic_ocean_freight=basic_ocean_freight,
             included_freight_surcharges=included_freight_surcharges,
             excluded_charges=excluded_charges,
             uncertain_charges=uncertain_charges,
             final_freight_value=round(final_value, 2),
             source="carrier_portal",
-            raw_reference=f"HAPAG-{raw_quote.get('index', 0)}"
+            raw_reference=f"HAPAG-{raw_quote.get('index', 0)}",
+            validity_till=validity_till
         )
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        if not hasattr(self, "_cached_quotes"):
+            self._cached_quotes = None
+            self._cached_status = None
+
+        if self._cached_quotes is not None:
+            print(f"[HAPAG] Returning cached quotes for '{request.container_type}' (avoiding redundant browser search).")
+            matching_quotes = [q for q in self._cached_quotes if q.container_type == request.container_type]
+            return self._cached_status, matching_quotes
+
         quotes: list[QuoteSchema] = []
         
         # Load Freetime Config
@@ -2847,6 +2954,8 @@ class HapagLloydConnector(BaseCarrierConnector):
             # Step 1: Login
             login_ok = await self.login()
             if not login_ok:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.LOGIN_FAILED
                 return CarrierResultStatus.LOGIN_FAILED, []
 
             # Step 2: Search Sailing Schedules
@@ -2902,11 +3011,15 @@ class HapagLloydConnector(BaseCarrierConnector):
             # Step 4: Search quotes
             search_status = await self.search_quotes(request)
             if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                self._cached_quotes = []
+                self._cached_status = search_status
                 return search_status, []
 
             # Step 5: Extract quote list
             raw_quotes = await self.extract_quote_list()
             if not raw_quotes:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
             # Step 6: For each schedule, map the corresponding quote price
@@ -2966,9 +3079,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                     country_clean = country.lower().replace(" ", "")
                     expanded_clean = expanded_dest.replace(" ", "")
                     if country_clean in expanded_clean:
-                        if "20" in request.container_type:
+                        c_type = normalized.container_type or request.container_type
+                        if "20" in c_type:
                             normalized.free_time = ft_data.get("20GP")
-                        elif "40" in request.container_type:
+                        elif "40" in c_type:
                             normalized.free_time = ft_data.get("40GP")
                         break
 
@@ -2982,51 +3096,91 @@ class HapagLloydConnector(BaseCarrierConnector):
                         if matching_raw_quote:
                             matched_raw_quote_etds.add(sched_etd)
                             opened = await self.open_price_breakdown(matching_raw_quote)
-                            raw_charges = []
+                            raw_charges_dict = {}
                             if opened:
-                                raw_charges = await self.extract_charge_breakdown()
+                                raw_charges_dict = await self.extract_charge_breakdown()
                                 
-                            normalized = await self.normalize_result(matching_raw_quote, raw_charges)
-                            print(f"[HAPAG] [MATCH] Schedule ETD {sched_etd} matched with quote price.")
+                            for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
+                                is_sold = False
+                                if self._last_parsed_card_prices.get(c_type) == "sold_out":
+                                    is_sold = True
+                                elif matching_raw_quote.get("is_sold_out"):
+                                    is_sold = True
+                                
+                                c_charges = raw_charges_dict.get(c_type, [])
+                                if not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
+                                    c_charges = [{
+                                        "name": "Ocean Freight",
+                                        "amount": self._last_parsed_card_prices[c_type],
+                                        "currency": "USD",
+                                        "category": "BASIC_OCEAN_FREIGHT"
+                                    }]
+
+                                normalized = await self.normalize_result(matching_raw_quote, c_charges, container_type=c_type, is_sold_out=is_sold)
+                                print(f"[HAPAG] [MATCH] Schedule ETD {sched_etd} matched with quote price for {c_type}.")
+
+                                # Step 7: Augment normalized quote with schedule details (vessel, service, eta)
+                                vessel_str = schedule["vessel"]
+                                if schedule["voyage"]:
+                                    vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
+                                
+                                if is_sold or schedule.get("is_sold_out") or matching_raw_quote.get("is_sold_out"):
+                                    vessel_str = f"{vessel_str} (Sold out)"
+                                    
+                                normalized.vessel = vessel_str
+                                normalized.routing = schedule.get("routing", "Direct")
+                                
+                                service_str = schedule["service"]
+                                cutoffs = []
+                                if schedule["doc_cutoff"]:
+                                    cutoffs.append(f"Doc Cut-off: {schedule['doc_cutoff']}")
+                                if schedule["fcl_cutoff"]:
+                                    cutoffs.append(f"FCL Cut-off: {schedule['fcl_cutoff']}")
+                                if cutoffs:
+                                    service_str = f"{service_str} ({', '.join(cutoffs)})"
+                                normalized.service_name = service_str
+                                
+                                # Ensure ETD is correctly formatted even if matched from raw_quote
+                                normalized.etd = standardize_date_string(sched_etd)
+                                
+                                if schedule["eta"]:
+                                    normalized.eta = standardize_date_string(schedule["eta"])
+                                if schedule["transit_time_days"] is not None:
+                                    normalized.transit_time_days = schedule["transit_time_days"]
+                                    
+                                # Apply Freetime
+                                _apply_freetime_to_quote(normalized)
+                                
+                                quotes.append(normalized)
                         else:
-                            print(f"[HAPAG] [NO PRICE MATCH] Schedule ETD {sched_etd} has no matching price quote. Emitting schedule without price.")
-                            normalized = QuoteSchema(etd=standardize_date_string(sched_etd))
-                        
-                        # Step 7: Augment normalized quote with schedule details (vessel, service, eta)
-                        vessel_str = schedule["vessel"]
-                        if schedule["voyage"]:
-                            vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
-                        
-                        if schedule.get("is_sold_out"):
-                            vessel_str = f"{vessel_str} (Sold out)"
-                        elif matching_raw_quote and matching_raw_quote.get("is_sold_out"):
-                            vessel_str = f"{vessel_str} (Sold out)"
-                            
-                        normalized.vessel = vessel_str
-                        normalized.routing = schedule.get("routing", "Direct")
-                        
-                        service_str = schedule["service"]
-                        cutoffs = []
-                        if schedule["doc_cutoff"]:
-                            cutoffs.append(f"Doc Cut-off: {schedule['doc_cutoff']}")
-                        if schedule["fcl_cutoff"]:
-                            cutoffs.append(f"FCL Cut-off: {schedule['fcl_cutoff']}")
-                        if cutoffs:
-                            service_str = f"{service_str} ({', '.join(cutoffs)})"
-                        normalized.service_name = service_str
-                        
-                        # Ensure ETD is correctly formatted even if matched from raw_quote
-                        normalized.etd = standardize_date_string(sched_etd)
-                        
-                        if schedule["eta"]:
-                            normalized.eta = standardize_date_string(schedule["eta"])
-                        if schedule["transit_time_days"] is not None:
-                            normalized.transit_time_days = schedule["transit_time_days"]
-                            
-                        # Apply Freetime
-                        _apply_freetime_to_quote(normalized)
-                        
-                        quotes.append(normalized)
+                            print(f"[HAPAG] [NO PRICE MATCH] Schedule ETD {sched_etd} has no matching price quote. Emitting schedules without price.")
+                            for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
+                                normalized = QuoteSchema(etd=standardize_date_string(sched_etd), container_type=c_type)
+                                vessel_str = schedule["vessel"]
+                                if schedule["voyage"]:
+                                    vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
+                                normalized.vessel = vessel_str
+                                normalized.routing = schedule.get("routing", "Direct")
+                                
+                                service_str = schedule["service"]
+                                cutoffs = []
+                                if schedule["doc_cutoff"]:
+                                    cutoffs.append(f"Doc Cut-off: {schedule['doc_cutoff']}")
+                                if schedule["fcl_cutoff"]:
+                                    cutoffs.append(f"FCL Cut-off: {schedule['fcl_cutoff']}")
+                                if cutoffs:
+                                    service_str = f"{service_str} ({', '.join(cutoffs)})"
+                                normalized.service_name = service_str
+                                
+                                if schedule["eta"]:
+                                    normalized.eta = standardize_date_string(schedule["eta"])
+                                if schedule["transit_time_days"] is not None:
+                                    normalized.transit_time_days = schedule["transit_time_days"]
+                                    
+                                # Apply Freetime
+                                _apply_freetime_to_quote(normalized)
+                                
+                                quotes.append(normalized)
                     except Exception as e:
                         print(f"[HAPAG] Error processing schedule ETD {schedule.get('etd')}: {e}")
                         continue
@@ -3042,24 +3196,40 @@ class HapagLloydConnector(BaseCarrierConnector):
                         
                         print(f"[HAPAG] [UNMATCHED RAW QUOTE] Processing ETD {sched_etd} with default Hapag Vessel /Performa")
                         opened = await self.open_price_breakdown(raw_quote)
-                        raw_charges = []
+                        raw_charges_dict = {}
                         if opened:
-                            raw_charges = await self.extract_charge_breakdown()
+                            raw_charges_dict = await self.extract_charge_breakdown()
                             
-                        normalized = await self.normalize_result(raw_quote, raw_charges)
-                        normalized.etd = standardize_date_string(sched_etd)
-                        normalized.vessel = "Hapag Vessel /Performa"
-                        if raw_quote.get("is_sold_out"):
-                            normalized.vessel += " (Sold out)"
-                        normalized.service_name = "Hapag Service"
-                        normalized.routing = "Direct"
-                        normalized.eta = None
-                        normalized.transit_time_days = None
-                        
-                        # Apply Freetime
-                        _apply_freetime_to_quote(normalized)
-                        
-                        quotes.append(normalized)
+                        for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
+                            is_sold = False
+                            if self._last_parsed_card_prices.get(c_type) == "sold_out":
+                                is_sold = True
+                            elif raw_quote.get("is_sold_out"):
+                                is_sold = True
+                                
+                            c_charges = raw_charges_dict.get(c_type, [])
+                            if not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
+                                c_charges = [{
+                                    "name": "Ocean Freight",
+                                    "amount": self._last_parsed_card_prices[c_type],
+                                    "currency": "USD",
+                                    "category": "BASIC_OCEAN_FREIGHT"
+                                }]
+                            
+                            normalized = await self.normalize_result(raw_quote, c_charges, container_type=c_type, is_sold_out=is_sold)
+                            normalized.etd = standardize_date_string(sched_etd)
+                            normalized.vessel = "Hapag Vessel /Performa"
+                            if is_sold:
+                                normalized.vessel += " (Sold out)"
+                            normalized.service_name = "Hapag Service"
+                            normalized.routing = "Direct"
+                            normalized.eta = None
+                            normalized.transit_time_days = None
+                            
+                            # Apply Freetime
+                            _apply_freetime_to_quote(normalized)
+                            
+                            quotes.append(normalized)
                     except Exception as e:
                         print(f"[HAPAG] Error processing unmatched raw quote ETD {raw_quote.get('etd')}: {e}")
                         continue
@@ -3072,38 +3242,63 @@ class HapagLloydConnector(BaseCarrierConnector):
                             continue
                             
                         opened = await self.open_price_breakdown(raw_quote)
-                        raw_charges = []
+                        raw_charges_dict = {}
                         if opened:
-                            raw_charges = await self.extract_charge_breakdown()
+                            raw_charges_dict = await self.extract_charge_breakdown()
                             
-                        normalized = await self.normalize_result(raw_quote, raw_charges)
-                        normalized.etd = standardize_date_string(sched_etd)
-                        normalized.vessel = "Hapag Vessel /Performa"
-                        if raw_quote.get("is_sold_out"):
-                            normalized.vessel += " (Sold out)"
-                        normalized.service_name = "Hapag Service"
-                        normalized.routing = "Direct"
-                        normalized.eta = None
-                        normalized.transit_time_days = None
-                        
-                        # Apply Freetime
-                        _apply_freetime_to_quote(normalized)
-                        
-                        quotes.append(normalized)
+                        for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
+                            is_sold = False
+                            if self._last_parsed_card_prices.get(c_type) == "sold_out":
+                                is_sold = True
+                            elif raw_quote.get("is_sold_out"):
+                                is_sold = True
+                                
+                            c_charges = raw_charges_dict.get(c_type, [])
+                            if not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
+                                c_charges = [{
+                                    "name": "Ocean Freight",
+                                    "amount": self._last_parsed_card_prices[c_type],
+                                    "currency": "USD",
+                                    "category": "BASIC_OCEAN_FREIGHT"
+                                }]
+                                
+                            normalized = await self.normalize_result(raw_quote, c_charges, container_type=c_type, is_sold_out=is_sold)
+                            normalized.etd = standardize_date_string(sched_etd)
+                            normalized.vessel = "Hapag Vessel /Performa"
+                            if is_sold:
+                                normalized.vessel += " (Sold out)"
+                            normalized.service_name = "Hapag Service"
+                            normalized.routing = "Direct"
+                            normalized.eta = None
+                            normalized.transit_time_days = None
+                            
+                            # Apply Freetime
+                            _apply_freetime_to_quote(normalized)
+                            
+                            quotes.append(normalized)
                     except Exception as e:
                         print(f"[HAPAG] Error processing raw quote ETD {raw_quote.get('etd')}: {e}")
                         continue
 
             if quotes:
-                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
+                self._cached_quotes = quotes
+                self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
             else:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.EXTRACTION_FAILED
                 return CarrierResultStatus.EXTRACTION_FAILED, []
 
         except HapagServiceUnavailableException as e:
             print(f"[HAPAG] Hapag-Lloyd service is currently unavailable: {e}")
+            self._cached_quotes = []
+            self._cached_status = CarrierResultStatus.SERVICE_UNAVAILABLE
             return CarrierResultStatus.SERVICE_UNAVAILABLE, []
         except Exception as e:
             print(f"[HAPAG] Unexpected error in run_full_search: {e}")
+            self._cached_quotes = []
+            self._cached_status = CarrierResultStatus.UNKNOWN_ERROR
             return CarrierResultStatus.UNKNOWN_ERROR, []
         finally:
             await asyncio.shield(self.close())
