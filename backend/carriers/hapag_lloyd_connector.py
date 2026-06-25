@@ -1921,8 +1921,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                         let parent = el.parentElement;
                         for (let i = 0; i < 4; i++) {
                             if (!parent) break;
-                            const pTxt = (parent.innerText || parent.textContent || '').trim().replace(/\\s+/g, ' ');
-                            const match = pTxt.match(/(?:USD|\\$)\\s*([\\d,]+(?:\\.\\d{1,2})?)/i);
+                            const pTxt = (parent.innerText || parent.textContent || '').trim().replace(/\s+/g, ' ');
+                            const match = pTxt.match(/(?:USD|\\$)\\s*(-?[\\d,]+(?:\\.\\d{1,2})?)/i);
                             if (match) {
                                 price = parseFloat(match[1].replace(/,/g, ''));
                                 break;
@@ -2399,13 +2399,13 @@ class HapagLloydConnector(BaseCarrierConnector):
                         const txt = (row.textContent || '').trim();
                         if (txt.includes(sizeLabel) && (txt.includes("USD") || txt.includes("$") || txt.includes("/Container"))) {
                             const cleanTxt = txt.replace(/\s+/g, ' ');
-                            if (cleanTxt.includes("USD -") || cleanTxt.includes("- /Container") || cleanTxt.includes("-\u00a0/Container") || cleanTxt.includes("not available") || cleanTxt.includes("sold out")) {
+                            if (/\bUSD\s*-(?!\d)/i.test(cleanTxt) || /-(?!\d)\s*\/Container/i.test(cleanTxt) || /-(?!\d)\u00a0\/Container/i.test(cleanTxt) || cleanTxt.includes("not available") || cleanTxt.includes("sold out")) {
                                 return "sold_out";
                             }
-                            const match = cleanTxt.match(/(?:USD|\$)\s*([\d,]+(?:\.\d{1,2})?)/i);
+                            const match = cleanTxt.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
                             if (match) {
                                 const val = parseFloat(match[1].replace(/,/g, ''));
-                                if (!isNaN(val) && val > 0) {
+                                if (!isNaN(val) && val !== 0) {
                                     return val;
                                 }
                             }
@@ -2418,13 +2418,13 @@ class HapagLloydConnector(BaseCarrierConnector):
                     for (const line of lines) {
                         const cleanLine = line.replace(/\s+/g, ' ').trim();
                         if (cleanLine.includes(sizeLabel)) {
-                            if (cleanLine.includes("USD -") || cleanLine.includes("- /Container") || cleanLine.includes("-\u00a0/Container") || cleanLine.includes("sold out") || cleanLine.includes("not available")) {
+                            if (/\bUSD\s*-(?!\d)/i.test(cleanLine) || /-(?!\d)\s*\/Container/i.test(cleanLine) || /-(?!\d)\u00a0\/Container/i.test(cleanLine) || cleanLine.includes("sold out") || cleanLine.includes("not available")) {
                                 return "sold_out";
                             }
-                            const match = cleanLine.match(/(?:USD|\$)\s*([\d,]+(?:\.\d{1,2})?)/i);
+                            const match = cleanLine.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
                             if (match) {
                                 const val = parseFloat(match[1].replace(/,/g, ''));
-                                if (!isNaN(val) && val > 0) {
+                                if (!isNaN(val) && val !== 0) {
                                     return val;
                                 }
                             }
@@ -2647,7 +2647,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
                         
                         const amount = parseFloat(valueStr.replace(/,/g, ''));
-                        if (!isNaN(amount) && amount > 0) {
+                        if (!isNaN(amount) && amount !== 0) {
                             let determinedCategory = null;
                             if (currentSection === "freight_charges") determinedCategory = "BASIC_OCEAN_FREIGHT";
                             else if (currentSection === "surcharges") determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
