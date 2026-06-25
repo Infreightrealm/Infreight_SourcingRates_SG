@@ -401,22 +401,23 @@ class MSCConnector(BaseCarrierConnector):
                 # Snapshot page content before clicking to detect update
                 text_before = await self.page.locator("body").inner_text()
                 await window.click()
-                # Wait dynamically for lower section to update (up to 3s)
-                for _ in range(15):
-                    await self.page.wait_for_timeout(200)
+                # Wait dynamically for at least one "show details" button to be visible (up to 5s)
+                for _ in range(25):
                     try:
-                        if await self.page.locator("body").inner_text() != text_before:
+                        if await self.page.locator("text='show details'").locator("visible=true").count() > 0:
                             break
                     except Exception:
-                        break
+                        pass
+                    await self.page.wait_for_timeout(200)
 
-                # Find all visible "show details" buttons under this shipping window
-                show_details_locators = self.page.locator("text='show details':visible")
+                show_details_locators = self.page.locator("text='show details'")
                 detail_btn_count = await show_details_locators.count()
-                self.log(f"Found {detail_btn_count} 'show details' buttons in shipping window {i+1}")
+                self.log(f"Found {detail_btn_count} total 'show details' buttons in DOM")
 
                 for j in range(detail_btn_count):
                     btn = show_details_locators.nth(j)
+                    if not await btn.is_visible():
+                        continue
                     
                     # Walk up to find the card container text to determine the container type
                     card_text = ""
