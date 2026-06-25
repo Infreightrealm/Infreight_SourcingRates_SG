@@ -106,9 +106,11 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       { header: "Free time", key: "freetime", width: 12 },
       { header: "ETD POL", key: "validity", width: 16 },
       { header: "ETA POD", key: "eta", width: 16 },
+      { header: "Validity Till", key: "validity_till", width: 16 },
       { header: "Routing", key: "routing", width: 12 },
       { header: "Remark", key: "remark", width: 35 }
     ];
+
 
     // Group and add rows side-by-side
     const groupedExcelRows: any[] = [];
@@ -132,6 +134,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
           freetime: "-",
           validity: "-",
           eta: "-",
+          validity_till: "-",
           routing: "-",
           remark: cr.error_message || (cr.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not available" : "No quotes returned")
         });
@@ -173,6 +176,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             freetime: freeTimeVal,
             validity: firstQuote.etd || "-",
             eta: firstQuote.eta || "-",
+            validity_till: firstQuote.validity_till || "-",
             routing: firstQuote.routing || "Direct",
             remark: firstQuote.vessel || "-"
           });
@@ -286,17 +290,24 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       cellETA.alignment = { horizontal: 'center', vertical: 'middle' };
       cellETA.border = getThinBorder();
 
+      // Validity Till
+      const cellValidityTill = sheet.getCell(r, 8 + numRateCols);
+      cellValidityTill.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellValidityTill.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellValidityTill.border = getThinBorder();
+
       // Routing
-      const cellRouting = sheet.getCell(r, 8 + numRateCols);
+      const cellRouting = sheet.getCell(r, 9 + numRateCols);
       cellRouting.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
       cellRouting.alignment = { horizontal: 'center', vertical: 'middle' };
       cellRouting.border = getThinBorder();
 
       // Remark
-      const cellRemark = sheet.getCell(r, 9 + numRateCols);
+      const cellRemark = sheet.getCell(r, 10 + numRateCols);
       cellRemark.font = { name: 'Arial', size: 10, bold: false, color: { argb: '000000' } };
       cellRemark.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellRemark.border = getThinBorder();
+
     }
 
     // Set row height for body rows
@@ -393,6 +404,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Container</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETD POL</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETA POD</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Validity Till</th>
+
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Transit</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Free Time</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Service / Vessel</th>
@@ -429,6 +442,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         </td>
                         <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.etd || "—"}</td>
                         <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.eta || "—"}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.validity_till || "—"}</td>
                         <td className="px-4 py-3 text-center text-slate-600 dark:text-white/70">{row.quote.transit_time_days ? `${row.quote.transit_time_days}d` : "—"}</td>
                         <td className="px-4 py-3 text-center">
                           {row.quote.free_time != null ? (
@@ -483,7 +497,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         </td>
                       </>
                     ) : (
-                      <td colSpan={11} className="px-4 py-3 text-slate-500 dark:text-white/40 text-xs text-center italic">
+                      <td colSpan={12} className="px-4 py-3 text-slate-500 dark:text-white/40 text-xs text-center italic">
                         {row.error || (row.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not yet implemented" : "No quotes returned")}
                       </td>
                     )}

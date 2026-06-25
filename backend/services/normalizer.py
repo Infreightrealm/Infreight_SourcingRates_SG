@@ -229,4 +229,6 @@ def normalize_quote(
         final_freight_value=final_value,
         source="mock" if raw_quote.get("source") == "mock" else "carrier_portal",
         raw_reference=raw_quote.get("raw_reference"),
+        validity_till=raw_quote.get("validity_till"),
     )
+

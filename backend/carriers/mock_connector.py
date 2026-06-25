@@ -165,7 +165,37 @@ def _generate_one_mock_quotes(request: RateSearchRequest) -> list[tuple[dict, li
     return quotes
 
 
+def _generate_msc_mock_quotes(request: RateSearchRequest) -> list[tuple[dict, list[dict]]]:
+    """Generate realistic MSC sample quotes with validity_till."""
+    base_date = datetime.now() + timedelta(days=1)
+    expiration_date = (base_date + timedelta(days=5)).strftime("%Y-%m-%d")
+
+    quotes = [
+        (
+            {
+                "etd": (base_date + timedelta(days=3)).strftime("%Y-%m-%d"),
+                "eta": (base_date + timedelta(days=32)).strftime("%Y-%m-%d"),
+                "transit_time_days": 29,
+                "service_name": "Lion Service",
+                "vessel": "MSC OSCAR",
+                "container_type": request.container_type,
+                "container_quantity": request.container_quantity,
+                "currency": "USD",
+                "source": "mock",
+                "raw_reference": "MSC-MOCK-001",
+                "validity_till": expiration_date,
+            },
+            [
+                {"name": "Basic Ocean Freight", "amount": 1650.00, "currency": "USD"},
+                {"name": "MSC Surcharges", "amount": 150.00, "currency": "USD"},
+            ],
+        ),
+    ]
+    return quotes
+
+
 # ────────────────────────────────────────────
+
 # Mock Connector
 # ────────────────────────────────────────────
 
@@ -207,9 +237,12 @@ class MockCarrierConnector(BaseCarrierConnector):
             mock_data = _generate_maersk_mock_quotes(request)
         elif self.carrier_code == "ONE":
             mock_data = _generate_one_mock_quotes(request)
+        elif self.carrier_code == "MSC":
+            mock_data = _generate_msc_mock_quotes(request)
         else:
             # Other carriers in mock mode: return not available
             return CarrierResultStatus.CONNECTOR_NOT_AVAILABLE, []
+
 
         quotes = []
         for raw_quote, raw_charges in mock_data:

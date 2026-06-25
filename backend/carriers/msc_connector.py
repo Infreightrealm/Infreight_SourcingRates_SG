@@ -8,8 +8,31 @@ from carriers.base_connector import BaseCarrierConnector
 from models.schemas import CarrierResultStatus, RateSearchRequest, QuoteSchema
 from services.port_manager import resolve_port_for_carrier
 from services.normalizer import standardize_date_string
+from datetime import datetime
+
+def format_to_iso_date(date_str: str) -> Optional[str]:
+    if not date_str:
+        return None
+    date_str = date_str.strip()
+    
+    # Try parsing common formats to convert to YYYY-MM-DD ISO format
+    for fmt in ("%d %b %Y", "%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+        try:
+            dt = datetime.strptime(date_str, fmt)
+            return dt.date().isoformat()
+        except ValueError:
+            continue
+            
+    try:
+        dt = datetime.fromisoformat(date_str)
+        return dt.date().isoformat()
+    except Exception:
+        pass
+        
+    return date_str
 
 def resolve_msc_port(text: str) -> tuple[str, str]:
+
     """
     Resolves input text (e.g. 'Belfast (GBBEL)' or 'GBBEL') to a tuple of (query_text, locode).
     query_text is what we type in the search input box.
@@ -398,9 +421,26 @@ class MSCConnector(BaseCarrierConnector):
             for i in range(count):
                 window = window_locators.nth(i)
                 self.log(f"Processing shipping window {i+1}/{count}...")
+                
+                window_text = ""
+                try:
+                    window_text = await window.inner_text()
+                except Exception as e:
+                    self.log(f"Warning: could not read shipping window text: {e}")
+
+                window_validity = None
+                if window_text:
+                    exp_match = re.search(r"Quote Expiration:\s*([^\n\r\t]+)", window_text, re.IGNORECASE)
+                    if exp_match:
+                        raw_val = exp_match.group(1).strip()
+                        raw_val = re.split(r'[\n\r\t]', raw_val)[0].strip()
+                        window_validity = format_to_iso_date(raw_val)
+                        self.log(f"Parsed Quote Expiration from window box: {window_validity}")
+
                 # Snapshot page content before clicking to detect update
                 text_before = await self.page.locator("body").inner_text()
                 await window.click()
+
                 # Wait dynamically for at least one "show details" button to be visible (up to 5s)
                 for _ in range(25):
                     try:
@@ -442,9 +482,20 @@ class MSCConnector(BaseCarrierConnector):
                     else:
                         container_type = request.container_type
                         
-                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type}")
+                    card_validity = None
+                    if card_text:
+                        card_exp_match = re.search(r"Quote Expiration:\s*([^\n\r\t]+)", card_text, re.IGNORECASE)
+                        if card_exp_match:
+                            raw_val = card_exp_match.group(1).strip()
+                            raw_val = re.split(r'[\n\r\t]', raw_val)[0].strip()
+                            card_validity = format_to_iso_date(raw_val)
+                            self.log(f"Parsed Quote Expiration from card text: {card_validity}")
+
+                    validity_till = card_validity or window_validity
+                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type} - validity: {validity_till}")
 
                     # Open details popup
+
                     await btn.scroll_into_view_if_needed()
                     await btn.click()
                     
@@ -676,7 +727,8 @@ class MSCConnector(BaseCarrierConnector):
                             basic_ocean_freight=bof_value,
                             final_freight_value=total_freight,
                             included_freight_surcharges=[ChargeSchema(**c) for c in charges if c.get("category") == "included"],
-                            excluded_charges=[ChargeSchema(**c) for c in charges if c.get("category") == "excluded"]
+                            excluded_charges=[ChargeSchema(**c) for c in charges if c.get("category") == "excluded"],
+                            validity_till=validity_till
                         )
                         quotes.append(quote)
 

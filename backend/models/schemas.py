@@ -143,6 +143,8 @@ class QuoteSchema(BaseModel):
     final_freight_value: float = 0.0
     source: str = "carrier_portal"
     raw_reference: Optional[str] = None
+    validity_till: Optional[str] = None
+
 
 
 class CarrierResultSchema(BaseModel):

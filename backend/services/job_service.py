@@ -133,7 +133,9 @@ async def run_carrier_search(
                     basic_ocean_freight=q.basic_ocean_freight,
                     discount=q.discount,
                     final_freight_value=q.final_freight_value,
+                    validity_till=q.validity_till,
                     raw_data_json={
+
                         "source": q.source, 
                         "ref": q.raw_reference,
                         "routing": q.routing,

@@ -153,7 +153,9 @@ async def get_rate_search(
                 excluded_charges=excluded,
                 uncertain_charges=uncertain,
                 final_freight_value=q.final_freight_value or 0,
+                validity_till=q.validity_till,
                 routing=q.raw_data_json.get("routing") if q.raw_data_json else "Direct",
+
                 free_time=q.raw_data_json.get("free_time") if q.raw_data_json else None,
                 source=q.raw_data_json.get("source", "carrier_portal") if q.raw_data_json else "carrier_portal",
                 raw_reference=q.raw_data_json.get("ref") if q.raw_data_json else None,

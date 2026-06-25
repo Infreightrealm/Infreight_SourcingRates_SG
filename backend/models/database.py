@@ -69,6 +69,18 @@ async def init_db():
     engine = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Self-healing migration for existing databases: check if validity_till column exists
+        from sqlalchemy import inspect, text
+        def check_and_add_column(sync_conn):
+            inspector = inspect(sync_conn)
+            if 'quotes' in inspector.get_table_names():
+                columns = [c['name'] for c in inspector.get_columns('quotes')]
+                if 'validity_till' not in columns:
+                    sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN validity_till VARCHAR(50)"))
+                    
+        await conn.run_sync(check_and_add_column)
+
 
 
 async def get_session() -> AsyncSession:

@@ -26,8 +26,10 @@ class Quote(Base):
     basic_ocean_freight = Column(Float, nullable=True, default=0.0)
     discount = Column(Float, nullable=True, default=0.0)
     final_freight_value = Column(Float, nullable=True, default=0.0)
+    validity_till = Column(String(50), nullable=True)
     raw_data_json = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
     # Relationships
     carrier_result = relationship("CarrierSearchResult", back_populates="quotes")

@@ -29,7 +29,9 @@ export interface QuoteSchema {
   final_freight_value: number;
   source: string;
   raw_reference?: string;
+  validity_till?: string;
 }
+
 
 export interface CarrierResultSchema {
   carrier: string;
