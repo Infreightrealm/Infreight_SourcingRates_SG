@@ -713,6 +713,15 @@ class GreenXConnector(BaseCarrierConnector):
             # 2. Price Details
             print(f"[GreenX] Opening Price Details for card {quote_ref['index']}...")
             if await self._click_detail_tab(card, "Price Details"):
+                # Wait dynamically for the price details table to load (up to 5s)
+                for _ in range(25):
+                    price_text = await card.inner_text()
+                    if "Prepaid Charges" in price_text or "Charge Items" in price_text:
+                        break
+                    await self.page.wait_for_timeout(200)
+                
+                # Give it an extra moment to ensure the actual rows are rendered
+                await self.page.wait_for_timeout(300)
                 price_text = await card.inner_text()
                 charges = []
                 
