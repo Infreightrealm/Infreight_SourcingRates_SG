@@ -460,20 +460,11 @@ class GreenXConnector(BaseCarrierConnector):
             ]
             await self._fill_autocomplete_port(dest_selectors, dest_locode, "Destination")
 
-            # 3. Fill container quantity boxes: 20' SD, 40' SD, 40' SH
-            qty_20_sd = 0
-            qty_40_sd = 0
-            qty_40_sh = 0
-
-            req_type = request.container_type.upper().strip()
-            if "20" in req_type:
-                qty_20_sd = 1
-            elif "40H" in req_type or "HC" in req_type or "SH" in req_type:
-                qty_40_sh = 1
-            elif "40" in req_type:
-                qty_40_sd = 1
-            else:
-                qty_20_sd = 1
+            # 3. Fill container quantity boxes: 20' SD, 40' SD, 40' SH to 1 for all 3
+            # so we can fetch all container size rates in a single page load.
+            qty_20_sd = 1
+            qty_40_sd = 1
+            qty_40_sh = 1
 
             await self._fill_quantity("20' SD", qty_20_sd)
             await self._fill_quantity("40' SD", qty_40_sd)
@@ -725,21 +716,23 @@ class GreenXConnector(BaseCarrierConnector):
                 price_text = await card.inner_text()
                 charges = []
                 
-                # Regex for matching line item charge name and its price
-                pattern = r"(.+?)\s+(?:20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube|Per\s*B/L|20'\s*SD|40'\s*SD|40'\s*SH)\s+x\s*\d+\s+USD\s*([\d,]+\.\d{2})"
+                # Regex for matching line item charge name, its container type, and its price
+                pattern = r"(.+?)\s+(20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube|Per\s*B/L|20'\s*SD|40'\s*SD|40'\s*SH)\s+x\s*\d+\s+USD\s*([\d,]+\.\d{2})"
                 matches = re.findall(pattern, price_text)
                 
-                for name_raw, amount_str in matches:
+                for name_raw, type_raw, amount_str in matches:
                     name = name_raw.strip()
                     name = re.sub(r'^\s*\d+\s+', '', name) # Strip numbers
+                    ct_type = type_raw.strip()
                     amount = float(amount_str.replace(",", ""))
                     charges.append({
                         "name": name,
+                        "container_type": ct_type,
                         "amount": amount,
                         "currency": "USD"
                     })
                     if os.getenv("GREENX_DEBUG", "").lower() == "true":
-                        print(f"[GreenX] Parsed charge row: {name} = USD {amount}")
+                        print(f"[GreenX] Parsed charge row: {name} ({ct_type}) = USD {amount}")
                 
                 quote_ref["charges"] = charges
                 self.current_charges = charges
@@ -771,88 +764,208 @@ class GreenXConnector(BaseCarrierConnector):
     async def extract_charge_breakdown(self) -> list[dict]:
         return self.current_charges
 
-    async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
-        basic_ocean_freight = 0.0
-        included_freight_surcharges = []
-        excluded_charges = []
-        
-        from models.schemas import ChargeSchema
-        
-        # Specified surcharges to include in final value
-        INCLUDED_SURCHARGES = {
-            "EU INNOVATION SURCHARGE (EUIS)",
-            "IMO SOX COMPLIANCE CHARGE (ISOCC)",
-            "LOW SULPHUR SURCHARGE (LSS)",
-            "EU ENTRY SUMMARY DECLARATION CHARGE (ENS)",
-            "E BOOKING FEE VIA GREENX (EBKF)"
+    def _split_raw_quote_by_container_types(self, raw_quote: dict, raw_charges: list[dict]) -> list[QuoteSchema]:
+        """
+        Splits a single raw multi-container quote card into multiple QuoteSchema objects,
+        one for each standard container type that has pricing.
+        """
+        mapping = {
+            "20' Standard Dry": "DRY 20",
+            "20' SD": "DRY 20",
+            "40' Standard Dry": "DRY 40",
+            "40' SD": "DRY 40",
+            "40' High Cube": "DRY 40H",
+            "40' SH": "DRY 40H"
         }
-        
+
+        # 1. Separate container-specific charges from flat (Per B/L) charges
+        container_charges = {
+            "DRY 20": [],
+            "DRY 40": [],
+            "DRY 40H": []
+        }
+        flat_charges = []
+
         for charge in raw_charges:
-            name = charge["name"].strip()
-            name_upper = name.upper()
-            amount = charge["amount"]
-            currency = charge["currency"]
-            
-            # Determine category
-            category = "ORIGIN_CHARGE_EXCLUDED"
-            if name_upper == "BASIC OCEAN FREIGHT":
-                category = "BASIC_OCEAN_FREIGHT"
-            elif name_upper in INCLUDED_SURCHARGES:
-                category = "FREIGHT_SURCHARGE_INCLUDED"
-                
-            c_schema = ChargeSchema(
-                name=name,
-                amount=amount,
-                currency=currency,
-                category=category
-            )
-            
-            if name_upper == "BASIC OCEAN FREIGHT":
-                basic_ocean_freight = amount
-            elif name_upper in INCLUDED_SURCHARGES:
-                included_freight_surcharges.append(c_schema)
+            ct_raw = charge.get("container_type", "")
+            mapped_ct = mapping.get(ct_raw)
+            if mapped_ct:
+                container_charges[mapped_ct].append(charge)
             else:
-                excluded_charges.append(c_schema)
-                
-        # Fallback to total_price if no breakdown was found
-        if basic_ocean_freight == 0.0 and not included_freight_surcharges and raw_quote.get("total_price"):
-            basic_ocean_freight = raw_quote["total_price"]
+                flat_charges.append(charge)
+
+        # 2. For each container type that has at least one charge (specifically, Basic Ocean Freight)
+        split_quotes = []
+        for std_ct, c_charges in container_charges.items():
+            # Check if there is Basic Ocean Freight for this type
+            bof_charge = next((c for c in c_charges if c["name"].upper() == "BASIC OCEAN FREIGHT"), None)
+            if not bof_charge:
+                continue  # This container size is not available/N/A
+
+            # Build raw_charges list for this container type:
+            # Combine the container-specific charges and flat (Per B/L) charges
+            split_raw_charges = []
+            for c in c_charges:
+                split_raw_charges.append({
+                    "name": c["name"],
+                    "amount": c["amount"],
+                    "currency": c["currency"],
+                    "category": "BASIC_OCEAN_FREIGHT" if c["name"].upper() == "BASIC OCEAN FREIGHT" else "ORIGIN_CHARGE_EXCLUDED"
+                })
+            for f in flat_charges:
+                name_upper = f["name"].upper()
+                INCLUDED_SURCHARGES = {
+                    "EU INNOVATION SURCHARGE (EUIS)",
+                    "IMO SOX COMPLIANCE CHARGE (ISOCC)",
+                    "LOW SULPHUR SURCHARGE (LSS)",
+                    "EU ENTRY SUMMARY DECLARATION CHARGE (ENS)",
+                    "E BOOKING FEE VIA GREENX (EBKF)"
+                }
+                category = "FREIGHT_SURCHARGE_INCLUDED" if name_upper in INCLUDED_SURCHARGES else "ORIGIN_CHARGE_EXCLUDED"
+                split_raw_charges.append({
+                    "name": f["name"],
+                    "amount": f["amount"],
+                    "currency": f["currency"],
+                    "category": category
+                })
+
+            # Create a localized raw_quote dict with the correct container type
+            local_raw_quote = raw_quote.copy()
+            local_raw_quote["container_type"] = std_ct
+
+            # Use normalize_result (or local normalization) to create QuoteSchema
+            from models.schemas import ChargeSchema
+            from services.normalizer import standardize_date_string
             
-        final_value = basic_ocean_freight + sum(c.amount for c in included_freight_surcharges)
-        
-        vessel = raw_quote.get("vessel_voyage") or raw_quote.get("vessel")
-        if raw_quote.get("detailed_vessel"):
-            # Clean up voyage number if present in vessel_voyage
-            voyage_num = ""
-            if vessel:
-                v_parts = vessel.split()
-                if v_parts:
-                    voyage_num = v_parts[-1]
-            vessel = f"{raw_quote['detailed_vessel']}"
-            if voyage_num:
-                vessel = f"{vessel} (Voy: {voyage_num})"
+            basic_ocean_freight = bof_charge["amount"]
+            included_surcharges = []
+            excluded_charges = []
             
-        return QuoteSchema(
-            etd=raw_quote.get("etd_standardized"),
-            eta=raw_quote.get("eta_standardized"),
-            transit_time_days=raw_quote.get("transit_time_days"),
-            routing=raw_quote.get("routing", "Direct"),
-            free_time=raw_quote.get("free_time"),
-            service_name=raw_quote.get("service_name"),
-            vessel=vessel,
-            currency=raw_quote.get("currency", "USD"),
-            basic_ocean_freight=basic_ocean_freight,
-            included_freight_surcharges=included_freight_surcharges,
-            excluded_charges=excluded_charges,
-            final_freight_value=round(final_value, 2),
-            source="carrier_portal",
-            raw_reference=raw_quote.get("raw_reference")
-        )
+            for src in split_raw_charges:
+                cs = ChargeSchema(
+                    name=src["name"],
+                    amount=src["amount"],
+                    currency=src["currency"],
+                    category=src["category"]
+                )
+                if src["name"].upper() == "BASIC OCEAN FREIGHT":
+                    pass  # Already handled
+                elif src["category"] == "FREIGHT_SURCHARGE_INCLUDED":
+                    included_surcharges.append(cs)
+                else:
+                    excluded_charges.append(cs)
+
+            final_value = basic_ocean_freight + sum(c.amount for c in included_surcharges)
+
+            vessel = local_raw_quote.get("vessel_voyage") or local_raw_quote.get("vessel")
+            if local_raw_quote.get("detailed_vessel"):
+                voyage_num = ""
+                if vessel:
+                    v_parts = vessel.split()
+                    if v_parts:
+                        voyage_num = v_parts[-1]
+                vessel = f"{local_raw_quote['detailed_vessel']}"
+                if voyage_num:
+                    vessel = f"{vessel} (Voy: {voyage_num})"
+
+            # For the unique reference, append container type to avoid duplicate DB keys
+            raw_ref = local_raw_quote.get("raw_reference", "GREENX")
+            unique_ref = f"{raw_ref}-{std_ct.replace(' ', '_')}"
+
+            quote_schema = QuoteSchema(
+                etd=local_raw_quote.get("etd_standardized"),
+                eta=local_raw_quote.get("eta_standardized"),
+                transit_time_days=local_raw_quote.get("transit_time_days"),
+                routing=local_raw_quote.get("routing", "Direct"),
+                free_time=local_raw_quote.get("free_time"),
+                service_name=local_raw_quote.get("service_name"),
+                vessel=vessel,
+                currency=local_raw_quote.get("currency", "USD"),
+                container_type=std_ct,
+                basic_ocean_freight=basic_ocean_freight,
+                included_freight_surcharges=included_surcharges,
+                excluded_charges=excluded_charges,
+                final_freight_value=round(final_value, 2),
+                source="carrier_portal",
+                raw_reference=unique_ref
+            )
+            split_quotes.append(quote_schema)
+
+        return split_quotes
+
+    async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        """
+        Overrides base search runner to query all 3 sizes at once and cache the resulting quotes
+        across sequential container type cycles to save time.
+        """
+        if not hasattr(self, "_cached_quotes"):
+            self._cached_quotes = None
+            self._cached_status = None
+
+        if self._cached_quotes is not None:
+            print(f"[GreenX] Returning cached quotes for '{request.container_type}' (avoiding redundant browser search).")
+            matching_quotes = [q for q in self._cached_quotes if q.container_type == request.container_type]
+            return self._cached_status, matching_quotes
+
+        quotes: list[QuoteSchema] = []
+        try:
+            # Step 1: Login
+            login_ok = await self.login()
+            if not login_ok:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.LOGIN_FAILED
+                return CarrierResultStatus.LOGIN_FAILED, []
+
+            # Step 2: Search quotes (always searches 20' SD, 40' SD, and 40' SH with quantity 1)
+            search_status = await self.search_quotes(request)
+            if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                self._cached_quotes = []
+                self._cached_status = search_status
+                return search_status, []
+
+            # Step 3: Extract quote list
+            raw_quotes = await self.extract_quote_list()
+            if not raw_quotes:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+            # Step 4: For each quote, get breakdown, extract, and split
+            for raw_quote in raw_quotes:
+                try:
+                    opened = await self.open_price_breakdown(raw_quote)
+                    raw_charges = []
+                    if opened:
+                        raw_charges = await self.extract_charge_breakdown()
+                        
+                    split_quotes = self._split_raw_quote_by_container_types(raw_quote, raw_charges)
+                    quotes.extend(split_quotes)
+                except Exception as e:
+                    print(f"[GreenX] Error extracting quote: {e}")
+                    continue
+
+            self._cached_quotes = quotes
+            self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.EXTRACTION_FAILED
+            
+            # Filter and return quotes matching current request container type
+            matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+            return self._cached_status, matching_quotes
+
+        except Exception as e:
+            print(f"[GreenX] Unexpected error in run_full_search: {e}")
+            return CarrierResultStatus.UNKNOWN_ERROR, []
+
+    async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
+        # Keep fallback method signature just in case
+        return QuoteSchema()
 
     async def close(self):
         await super().close()
         try:
             if self.playwright:
+                await self.page.close()
+                await self.context.close()
+                await self.browser.close()
                 await self.playwright.stop()
         except:
             pass
