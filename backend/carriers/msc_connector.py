@@ -74,29 +74,14 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
         if results:
             extracted_locode = results[0]['code'].upper()
             
-    # 3. Determine query_text (port name)
-    query_text = ""
-    if extracted_locode:
-        from services.port_manager import PortManager, CARRIER_PORT_OVERRIDES
-        # Check overrides
-        overrides = CARRIER_PORT_OVERRIDES.get("msc", {})
-        if extracted_locode in overrides:
-            query_text = overrides[extracted_locode]
-        else:
-            port_data = PortManager().get_port_by_code(extracted_locode)
-            if port_data:
-                # Clean name: remove parentheses
-                name = port_data.get("name", "")
-                query_text = re.sub(r'\s*\([^)]*\)', '', name).strip()
-                
-    if not query_text:
-        # Fallback to cleaning the input text
-        query_text = re.sub(r'\s*\([^)]*\)', '', text).strip()
+    # 3. Determine query_text (use port code directly if found, fallback to cleaned text)
+    query_text = extracted_locode if extracted_locode else re.sub(r'\s*\([^)]*\)', '', text).strip()
         
     if not extracted_locode:
         extracted_locode = ""
         
     return query_text, extracted_locode
+
 
 class MSCConnector(BaseCarrierConnector):
     """
