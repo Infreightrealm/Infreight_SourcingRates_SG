@@ -664,7 +664,7 @@ class GreenXConnector(BaseCarrierConnector):
             print(f"[GreenX] Error extracting quote list: {e}")
             return []
 
-    async def _click_detail_tab(self, card, tab_text: str) -> bool:
+    async def _click_detail_tab(self, card, tab_text: str, verify_text: str = None) -> bool:
         try:
             btn = card.locator(f'button:has-text("{tab_text}"), a:has-text("{tab_text}"), :text("{tab_text}")').first
             try:
@@ -673,30 +673,52 @@ class GreenXConnector(BaseCarrierConnector):
                 pass
             
             await btn.scroll_into_view_if_needed()
-            # Snapshot text before click to detect content change
-            text_before = await card.inner_text()
             
-            # Click with JS fallback
-            try:
-                await btn.click(timeout=3000)
-            except Exception as ce:
-                print(f"[GreenX] Standard click on {tab_text} failed: {ce}. Retrying via JS click...")
+            # Try to click up to 3 times if verify_text is provided and not seen
+            for attempt in range(3):
+                text_before = await card.inner_text()
+                
+                # Click with JS fallback
                 try:
-                    await btn.evaluate("el => el.click()")
-                except Exception as je:
-                    print(f"[GreenX] JS click on {tab_text} failed: {je}")
-                    return False
+                    await btn.click(timeout=3000)
+                except Exception as ce:
+                    print(f"[GreenX] Standard click on {tab_text} failed: {ce}. Retrying via JS click...")
+                    try:
+                        await btn.evaluate("el => el.click()")
+                    except Exception as je:
+                        print(f"[GreenX] JS click on {tab_text} failed: {je}")
+                        if attempt == 2:
+                            return False
+                
+                # If verify_text is provided, wait until it appears in the card
+                if verify_text:
+                    success = False
+                    for _ in range(15):
+                        await self.page.wait_for_timeout(200)
+                        try:
+                            current_text = await card.inner_text()
+                            if verify_text in current_text:
+                                success = True
+                                break
+                        except Exception:
+                            break
+                    if success:
+                        return True
+                    print(f"[GreenX] Warning: verify_text '{verify_text}' not found after clicking {tab_text} (attempt {attempt + 1}/3). Retrying click...")
+                    await self.page.wait_for_timeout(500)
+                else:
+                    # Generic wait for any text change
+                    for _ in range(15):
+                        await self.page.wait_for_timeout(200)
+                        try:
+                            text_after = await card.inner_text()
+                            if text_after != text_before:
+                                return True
+                        except Exception:
+                            break
+                    return True
             
-            # Wait dynamically for the card content to update (up to 3s)
-            for _ in range(15):
-                await self.page.wait_for_timeout(200)
-                try:
-                    text_after = await card.inner_text()
-                    if text_after != text_before:
-                        break
-                except Exception:
-                    break
-            return True
+            return False
         except Exception as e:
             print(f"[GreenX] Error clicking {tab_text} tab: {e}")
             return False
@@ -707,7 +729,7 @@ class GreenXConnector(BaseCarrierConnector):
             
             # 1. Route Details
             print(f"[GreenX] Opening Route Details for card {quote_ref['index']}...")
-            if await self._click_detail_tab(card, "Route Details"):
+            if await self._click_detail_tab(card, "Route Details", verify_text="POL"):
                 route_text = await card.inner_text()
                 # Find voyages (3 digits followed by direction letter, e.g. 037W)
                 voyage_matches = re.findall(r'\b\d{3}[A-Z]\b', route_text)
@@ -728,16 +750,7 @@ class GreenXConnector(BaseCarrierConnector):
 
             # 2. Price Details
             print(f"[GreenX] Opening Price Details for card {quote_ref['index']}...")
-            if await self._click_detail_tab(card, "Price Details"):
-                # Wait dynamically for the price details table to load (up to 5s)
-                for _ in range(25):
-                    price_text = await card.inner_text()
-                    if "Prepaid Charges" in price_text or "Charge Items" in price_text:
-                        break
-                    await self.page.wait_for_timeout(200)
-                
-                # Give it an extra moment to ensure the actual rows are rendered
-                await self.page.wait_for_timeout(300)
+            if await self._click_detail_tab(card, "Price Details", verify_text="Prepaid Charges"):
                 price_text = await card.inner_text()
                 charges = []
                 
@@ -764,14 +777,7 @@ class GreenXConnector(BaseCarrierConnector):
 
             # 3. Free Time
             print(f"[GreenX] Opening Free Time details for card {quote_ref['index']}...")
-            if await self._click_detail_tab(card, "Free Time"):
-                # Wait dynamically for "Tariff Free Time at Destination" to load (up to 4s)
-                for _ in range(20):
-                    free_time_text = await card.inner_text()
-                    if "Tariff Free Time at Destination" in free_time_text:
-                        break
-                    await self.page.wait_for_timeout(200)
-                
+            if await self._click_detail_tab(card, "Free Time", verify_text="Tariff Free Time"):
                 free_time_text = await card.inner_text()
                 if "Tariff Free Time at Destination" in free_time_text:
                     dest_part = free_time_text.split("Tariff Free Time at Destination")[1]
