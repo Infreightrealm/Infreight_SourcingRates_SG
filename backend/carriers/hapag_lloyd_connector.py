@@ -878,37 +878,51 @@ class HapagLloydConnector(BaseCarrierConnector):
             ]
 
             start_field = None
-            for sel in start_selectors:
-                try:
-                    loc = self.page.locator(sel).first
-                    if await loc.is_visible(timeout=1000):
-                        start_field = loc
-                        print(f"[HAPAG] Schedule Start input found: {sel}")
-                        break
-                except:
-                    pass
+            print("[HAPAG] Schedule: Waiting for Start Location input field to become visible...")
+            for i in range(20):
+                for sel in start_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=300):
+                            start_field = loc
+                            print(f"[HAPAG] Schedule Start input found using selector: {sel}")
+                            break
+                    except:
+                        pass
+                if start_field:
+                    break
+                await self.page.wait_for_timeout(500)
 
             if not start_field:
+                print("[HAPAG] Warning: Start Location input field not found after wait. Falling back...")
                 start_field = self.page.locator('input').first
 
             # Type and select
             start_success = False
             for attempt in range(1, 4):
-                await start_field.scroll_into_view_if_needed()
-                await start_field.click()
-                await self._human_delay(300, 600)
-                await start_field.press("Control+A")
-                await start_field.press("Backspace")
-                await start_field.fill("")
-                await self._human_delay(200, 400)
-                await start_field.type(origin_locode, delay=50)
-                await self._human_delay(1500, 2500)
+                print(f"[HAPAG] Attempt {attempt} to fill Start Location on Schedule: '{origin_locode}'")
+                try:
+                    try:
+                        await start_field.scroll_into_view_if_needed()
+                    except Exception as scroll_err:
+                        print(f"[HAPAG] Warning: scroll_into_view failed for Start Location input: {scroll_err}")
+                    await start_field.click()
+                    await self._human_delay(300, 600)
+                    await start_field.press("Control+A")
+                    await start_field.press("Backspace")
+                    await start_field.fill("")
+                    await self._human_delay(200, 400)
+                    await start_field.type(origin_locode, delay=50)
+                    await self._human_delay(1500, 2500)
 
-                if await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached):
-                    start_success = True
-                    break
-                else:
-                    print(f"[HAPAG] Attempt {attempt} failed to select Start Location dropdown on Schedule.")
+                    if await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached):
+                        start_success = True
+                        break
+                    else:
+                        print(f"[HAPAG] Attempt {attempt} failed to select Start Location dropdown on Schedule.")
+                except Exception as fill_err:
+                    print(f"[HAPAG] Attempt {attempt} failed to fill Start Location on Schedule: {fill_err}")
+                    await self._human_delay(1000, 2000)
 
             if not start_success:
                 raise Exception("Failed to select Start Location on Schedule page.")
@@ -932,20 +946,26 @@ class HapagLloydConnector(BaseCarrierConnector):
             ]
 
             end_field = None
-            for sel in end_selectors:
-                try:
-                    if sel == 'input[type="text"]':
-                        loc = self.page.locator(sel).nth(1)
-                    else:
-                        loc = self.page.locator(sel).first
-                    if await loc.is_visible(timeout=1000):
-                        end_field = loc
-                        print(f"[HAPAG] Schedule End input found: {sel}")
-                        break
-                except:
-                    pass
+            print("[HAPAG] Schedule: Waiting for End Location input field to become visible...")
+            for i in range(20):
+                for sel in end_selectors:
+                    try:
+                        if sel == 'input[type="text"]':
+                            loc = self.page.locator(sel).nth(1)
+                        else:
+                            loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=300):
+                            end_field = loc
+                            print(f"[HAPAG] Schedule End input found using selector: {sel}")
+                            break
+                    except:
+                        pass
+                if end_field:
+                    break
+                await self.page.wait_for_timeout(500)
 
             if not end_field:
+                print("[HAPAG] Warning: End Location input field not found after wait. Falling back...")
                 visible_inputs = self.page.locator('input:visible')
                 if await visible_inputs.count() > 1:
                     end_field = visible_inputs.nth(1)
@@ -956,21 +976,29 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             end_success = False
             for attempt in range(1, 4):
-                await end_field.scroll_into_view_if_needed()
-                await end_field.click()
-                await self._human_delay(300, 600)
-                await end_field.press("Control+A")
-                await end_field.press("Backspace")
-                await end_field.fill("")
-                await self._human_delay(200, 400)
-                await end_field.type(dest_locode, delay=50)
-                await self._human_delay(1500, 2500)
+                print(f"[HAPAG] Attempt {attempt} to fill End Location on Schedule: '{dest_locode}'")
+                try:
+                    try:
+                        await end_field.scroll_into_view_if_needed()
+                    except Exception as scroll_err:
+                        print(f"[HAPAG] Warning: scroll_into_view failed for End Location input: {scroll_err}")
+                    await end_field.click()
+                    await self._human_delay(300, 600)
+                    await end_field.press("Control+A")
+                    await end_field.press("Backspace")
+                    await end_field.fill("")
+                    await self._human_delay(200, 400)
+                    await end_field.type(dest_locode, delay=50)
+                    await self._human_delay(1500, 2500)
 
-                if await self._select_hapag_dropdown_option("End Location", dest_locode, dest_cached):
-                    end_success = True
-                    break
-                else:
-                    print(f"[HAPAG] Attempt {attempt} failed to select End Location dropdown on Schedule.")
+                    if await self._select_hapag_dropdown_option("End Location", dest_locode, dest_cached):
+                        end_success = True
+                        break
+                    else:
+                        print(f"[HAPAG] Attempt {attempt} failed to select End Location dropdown on Schedule.")
+                except Exception as fill_err:
+                    print(f"[HAPAG] Attempt {attempt} failed to fill End Location on Schedule: {fill_err}")
+                    await self._human_delay(1000, 2000)
 
             if not end_success:
                 raise Exception("Failed to select End Location on Schedule page.")
@@ -1060,12 +1088,18 @@ class HapagLloydConnector(BaseCarrierConnector):
                             pass
 
                 if container_box:
-                    await container_box.scroll_into_view_if_needed()
+                    try:
+                        await container_box.scroll_into_view_if_needed()
+                    except Exception as scroll_err:
+                        print(f"[HAPAG] Warning: scroll_into_view failed for schedule container box: {scroll_err}")
                     try:
                         await container_box.click(timeout=3000)
                     except Exception as click_err:
                         print(f"[HAPAG] Playwright click on schedule container box failed: {click_err}. Trying JS click...")
-                        await container_box.evaluate("el => el.click()")
+                        try:
+                            await container_box.evaluate("el => el.click()")
+                        except Exception as js_click_err:
+                            print(f"[HAPAG] JS click on schedule container box failed: {js_click_err}")
                     await self._human_delay(1000, 1800)
 
                     # Select matching option
@@ -1077,11 +1111,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                     ).first
                     if await option.is_visible(timeout=5000):
                         try:
-                            await option.scroll_into_view_if_needed()
+                            try:
+                                await option.scroll_into_view_if_needed()
+                            except Exception as scroll_err:
+                                print(f"[HAPAG] Warning: scroll_into_view failed for container option: {scroll_err}")
                             await option.click(timeout=3000)
                         except Exception as option_err:
                             print(f"[HAPAG] Playwright click on option failed: {option_err}. Trying JS click...")
-                            await option.evaluate("el => el.click()")
+                            try:
+                                await option.evaluate("el => el.click()")
+                            except Exception as js_err:
+                                print(f"[HAPAG] JS click on option failed: {js_err}")
                         container_selected = True
                         print(f"[HAPAG] Schedule: Container type selected: {hapag_container}")
                     else:
@@ -1091,11 +1131,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                         if await option2.is_visible(timeout=2000):
                             txt = (await option2.inner_text()).strip()
                             try:
-                                await option2.scroll_into_view_if_needed()
+                                try:
+                                    await option2.scroll_into_view_if_needed()
+                                except Exception as scroll_err:
+                                    print(f"[HAPAG] Warning: scroll_into_view failed for container option2: {scroll_err}")
                                 await option2.click(timeout=3000)
                             except Exception as option_err:
                                 print(f"[HAPAG] Playwright click on option2 failed: {option_err}. Trying JS click...")
-                                await option2.evaluate("el => el.click()")
+                                try:
+                                    await option2.evaluate("el => el.click()")
+                                except Exception as js_err:
+                                    print(f"[HAPAG] JS click on option2 failed: {js_err}")
                             container_selected = True
                             print(f"[HAPAG] Schedule: Container selected (partial match): {txt}")
                         else:
@@ -1133,7 +1179,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 if not orig_val or not dest_val:
                     print("[HAPAG] Warning: Form input fields are empty prior to schedule search (Turnstile redirect likely cleared them). Re-filling...")
                     if not orig_val and start_field:
-                        await start_field.scroll_into_view_if_needed()
+                        try:
+                            await start_field.scroll_into_view_if_needed()
+                        except Exception as scroll_err:
+                            print(f"[HAPAG] Warning: scroll_into_view failed for Start Location input during re-fill: {scroll_err}")
                         await start_field.click()
                         await start_field.press("Control+A")
                         await start_field.press("Backspace")
@@ -1143,7 +1192,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                         await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached)
                         
                     if not dest_val and end_field:
-                        await end_field.scroll_into_view_if_needed()
+                        try:
+                            await end_field.scroll_into_view_if_needed()
+                        except Exception as scroll_err:
+                            print(f"[HAPAG] Warning: scroll_into_view failed for End Location input during re-fill: {scroll_err}")
                         await end_field.click()
                         await end_field.press("Control+A")
                         await end_field.press("Backspace")
