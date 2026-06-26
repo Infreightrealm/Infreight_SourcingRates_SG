@@ -180,16 +180,22 @@ class HapagLloydConnector(BaseCarrierConnector):
                     break
 
         executable_path = None
-        if is_prod:
-            executable_path = "/usr/bin/google-chrome-stable"
-            if not os.path.exists(executable_path):
-                executable_path = None
-                print("[HAPAG] [WARN] google-chrome-stable not found. Falling back to bundled Chromium.")
-            else:
-                print(f"[HAPAG] Using real Chrome: {executable_path}")
-        elif chrome_exe:
-            executable_path = chrome_exe
-            print(f"[HAPAG] Using local real Chrome: {chrome_exe}")
+        # To bypass Cloudflare Turnstile looping, Hapag-Lloyd requires Patchright's custom stealth-compiled
+        # Chromium binary (which has webdriver and CDP automation signatures patched).
+        # We only use the standard Google Chrome binary if HAPAG_USE_REAL_CHROME is explicitly set to true.
+        if os.getenv("HAPAG_USE_REAL_CHROME", "").lower() == "true":
+            if is_prod:
+                executable_path = "/usr/bin/google-chrome-stable"
+                if not os.path.exists(executable_path):
+                    executable_path = None
+                    print("[HAPAG] [WARN] google-chrome-stable not found. Falling back to bundled Chromium.")
+                else:
+                    print(f"[HAPAG] Using real Chrome: {executable_path}")
+            elif chrome_exe:
+                executable_path = chrome_exe
+                print(f"[HAPAG] Using local real Chrome: {chrome_exe}")
+        else:
+            print("[HAPAG] Using Patchright bundled stealth Chromium engine to bypass Turnstile verification.")
 
         # Thread-safe virtual display environment injection
         browser_env = os.environ.copy()
@@ -3426,9 +3432,9 @@ class HapagLloydConnector(BaseCarrierConnector):
         except:
             pass
             
-        if self.temp_profile_dir and self.master_profile_dir and self.is_login_successful:
+        if self.temp_profile_dir and self.master_profile_dir:
             try:
-                print("[HAPAG] Syncing temp profile back to master...")
+                print(f"[HAPAG] Syncing temp profile back to master (login_successful={self.is_login_successful})...")
                 shutil.copytree(self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True)
                 print("[HAPAG] Master profile updated successfully.")
                 
