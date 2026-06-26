@@ -210,6 +210,34 @@ class HapagLloydConnector(BaseCarrierConnector):
 
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         
+        # Inject CSS to automatically hide onboarding tutorial overlays
+        try:
+            await self.page.add_init_script('''() => {
+                const inject = () => {
+                    if (document.head) {
+                        const style = document.createElement('style');
+                        style.id = "hide-onboarding-style";
+                        style.textContent = `
+                            .hal-onboarding__content, 
+                            [class*="onboarding" i],
+                            [id*="onboarding" i],
+                            .productfruits-overlay,
+                            .productfruits__onboarding { 
+                                display: none !important; 
+                                visibility: hidden !important; 
+                                pointer-events: none !important;
+                            }
+                        `;
+                        document.head.appendChild(style);
+                    }
+                };
+                inject();
+                document.addEventListener("DOMContentLoaded", inject);
+            }''')
+            print("[HAPAG] Injected CSS script to automatically hide onboarding modals.")
+        except Exception as e:
+            print(f"[HAPAG] Warning: Failed to inject onboarding style script: {e}")
+        
         # Custom timeouts
         self.page.set_default_timeout(45000)
         self.page.set_default_navigation_timeout(60000)
@@ -396,6 +424,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
             except:
                 pass
+            
+            # Check for CAPTCHA immediately on homepage load
+            await self._wait_for_captcha_resolution()
+            
             await self._check_service_unavailable()
             await self._human_delay(1500, 2500)
 

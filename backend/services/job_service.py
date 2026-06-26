@@ -236,7 +236,11 @@ async def update_search_status(search_id: UUID):
 
         statuses = [r.status for r in results]
 
-        all_done = all(s not in ("QUEUED", "RUNNING") for s in statuses)
+        running_statuses = {"QUEUED", "RUNNING", "WAITING_FOR_HUMAN_VERIFICATION", "MANUAL_ACTION_REQUIRED"}
+        all_done = all(
+            s not in running_statuses and not (s.startswith("RUNNING") if s else False)
+            for s in statuses
+        )
         if not all_done:
             search.status = SearchStatus.RUNNING.value
         else:
