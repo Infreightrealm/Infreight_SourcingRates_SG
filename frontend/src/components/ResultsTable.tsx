@@ -497,8 +497,16 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         </td>
                       </>
                     ) : (
-                      <td colSpan={12} className="px-4 py-3 text-slate-500 dark:text-white/40 text-xs text-center italic">
-                        {row.error || (row.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not yet implemented" : "No quotes returned")}
+                      <td colSpan={12} className="px-4 py-3 text-xs text-center">
+                        {row.status === "WAITING_FOR_HUMAN_VERIFICATION" ? (
+                          <span className="text-amber-600 dark:text-amber-400 font-semibold animate-pulse">
+                            ⚠️ Cloudflare Security Check / CAPTCHA: Solve in VNC tab to resume crawler
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 dark:text-white/40 italic">
+                            {row.error || (row.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not yet implemented" : "No quotes returned")}
+                          </span>
+                        )}
                       </td>
                     )}
                   </tr>

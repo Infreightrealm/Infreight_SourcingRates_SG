@@ -31,10 +31,10 @@ export default function StatusBadge({ status, size = "sm" }: StatusBadgeProps) {
       className={`inline-flex items-center gap-1.5 rounded-full font-medium animate-scale-in ${isRunning ? "animate-gradient-shift" : ""} ${info.bg} ${info.color} ${sizeClass}`}
       style={isRunning ? { background: "linear-gradient(270deg, #3b82f6, #8b5cf6, #3b82f6)", backgroundSize: "200% 200%", color: "white" } : undefined}
     >
-      {(isRunning || status === "QUEUED") && (
+      {(isRunning || status === "QUEUED" || status === "WAITING_FOR_HUMAN_VERIFICATION") && (
         <span className="relative flex h-2 w-2">
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isRunning ? "bg-blue-400" : "bg-gray-400"}`} />
-          <span className={`relative inline-flex rounded-full h-2 w-2 ${isRunning ? "bg-blue-500" : "bg-gray-500"}`} />
+          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isRunning ? "bg-blue-400" : status === "WAITING_FOR_HUMAN_VERIFICATION" ? "bg-amber-400" : "bg-gray-400"}`} />
+          <span className={`relative inline-flex rounded-full h-2 w-2 ${isRunning ? "bg-blue-500" : status === "WAITING_FOR_HUMAN_VERIFICATION" ? "bg-amber-500" : "bg-gray-500"}`} />
         </span>
       )}
       {status === "AVAILABLE_QUOTES_FOUND" && (

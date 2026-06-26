@@ -110,13 +110,14 @@ class BaseCarrierConnector(ABC):
             # 1. Check page title and URL for common challenge patterns
             url = self.page.url.lower()
             title = (await self.page.title()).lower()
-            if any(k in url or k in title for k in ["challenge", "turnstile", "captcha", "recaptcha", "hcaptcha", "arkose", "funcaptcha"]):
+            if any(k in url or k in title for k in ["challenge", "turnstile", "captcha", "recaptcha", "hcaptcha", "arkose", "funcaptcha", "just a moment", "security check", "managed challenge"]):
                 is_challenge = True
 
             # 2. Check for Cloudflare/Akamai/Arkose challenge markers
             if not is_challenge:
                 cf_selectors = [
                     'iframe[src*="cloudflare" i]',
+                    'iframe[src*="challenges" i]',
                     'iframe[src*="recaptcha" i]',
                     'iframe[src*="hcaptcha" i]',
                     'iframe[src*="arkose" i]',
@@ -178,7 +179,10 @@ class BaseCarrierConnector(ABC):
                     "select the shadow",
                     "solve the puzzle",
                     "complete the security check",
-                    "press and hold"
+                    "press and hold",
+                    "security check",
+                    "managed challenge",
+                    "just a moment..."
                 ]
                 if any(phrase in body_text for phrase in challenge_phrases):
                     is_challenge = True
