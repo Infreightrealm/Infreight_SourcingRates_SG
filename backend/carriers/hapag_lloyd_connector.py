@@ -180,22 +180,16 @@ class HapagLloydConnector(BaseCarrierConnector):
                     break
 
         executable_path = None
-        # To bypass Cloudflare Turnstile looping, Hapag-Lloyd requires Patchright's custom stealth-compiled
-        # Chromium binary (which has webdriver and CDP automation signatures patched).
-        # We only use the standard Google Chrome binary if HAPAG_USE_REAL_CHROME is explicitly set to true.
-        if os.getenv("HAPAG_USE_REAL_CHROME", "").lower() == "true":
-            if is_prod:
-                executable_path = "/usr/bin/google-chrome-stable"
-                if not os.path.exists(executable_path):
-                    executable_path = None
-                    print("[HAPAG] [WARN] google-chrome-stable not found. Falling back to bundled Chromium.")
-                else:
-                    print(f"[HAPAG] Using real Chrome: {executable_path}")
-            elif chrome_exe:
-                executable_path = chrome_exe
-                print(f"[HAPAG] Using local real Chrome: {chrome_exe}")
-        else:
-            print("[HAPAG] Using Patchright bundled stealth Chromium engine to bypass Turnstile verification.")
+        if is_prod:
+            executable_path = "/usr/bin/google-chrome-stable"
+            if not os.path.exists(executable_path):
+                executable_path = None
+                print("[HAPAG] [WARN] google-chrome-stable not found. Falling back to bundled Chromium.")
+            else:
+                print(f"[HAPAG] Using real Chrome: {executable_path}")
+        elif chrome_exe:
+            executable_path = chrome_exe
+            print(f"[HAPAG] Using local real Chrome: {chrome_exe}")
 
         # Thread-safe virtual display environment injection
         browser_env = os.environ.copy()
@@ -216,33 +210,9 @@ class HapagLloydConnector(BaseCarrierConnector):
 
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         
-        # Inject CSS to automatically hide onboarding tutorial overlays
-        try:
-            await self.page.add_init_script('''() => {
-                const inject = () => {
-                    if (document.head) {
-                        const style = document.createElement('style');
-                        style.id = "hide-onboarding-style";
-                        style.textContent = `
-                            .hal-onboarding__content, 
-                            [class*="onboarding" i],
-                            [id*="onboarding" i],
-                            .productfruits-overlay,
-                            .productfruits__onboarding { 
-                                display: none !important; 
-                                visibility: hidden !important; 
-                                pointer-events: none !important;
-                            }
-                        `;
-                        document.head.appendChild(style);
-                    }
-                };
-                inject();
-                document.addEventListener("DOMContentLoaded", inject);
-            }''')
-            print("[HAPAG] Injected CSS script to automatically hide onboarding modals.")
-        except Exception as e:
-            print(f"[HAPAG] Warning: Failed to inject onboarding style script: {e}")
+        # We will inject the onboarding style overlay after navigation and modal dismissal passes
+        # rather than pre-navigation add_init_script (which causes net::ERR_NAME_NOT_RESOLVED under Patchright on Windows).
+        pass
         
         # Custom timeouts
         self.page.set_default_timeout(45000)
@@ -305,11 +275,29 @@ class HapagLloydConnector(BaseCarrierConnector):
             await self.status_update_callback(CarrierResultStatus.RUNNING)
         return False
 
+    async def _inject_onboarding_styles(self):
+        try:
+            if self.page and not (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                await self.page.add_style_tag(content="""
+                    .hal-onboarding__content, 
+                    [class*="onboarding" i],
+                    [id*="onboarding" i],
+                    .productfruits-overlay,
+                    .productfruits__onboarding { 
+                        display: none !important; 
+                        visibility: hidden !important; 
+                        pointer-events: none !important;
+                    }
+                """)
+        except Exception as e:
+            print(f"[HAPAG] Warning: Failed to inject onboarding style tag: {e}")
+
     async def _dismiss_hapag_modals(self):
         """
         Dismisses any obscuring modal popups (including multi-step tutorial dialogs).
         """
         await self._check_service_unavailable()
+        await self._inject_onboarding_styles()
         print("[HAPAG] Dismissing any obscuring modal popups or onboarding wizards...")
         try:
             dismissed_any = False
@@ -3432,9 +3420,9 @@ class HapagLloydConnector(BaseCarrierConnector):
         except:
             pass
             
-        if self.temp_profile_dir and self.master_profile_dir:
+        if self.temp_profile_dir and self.master_profile_dir and self.is_login_successful:
             try:
-                print(f"[HAPAG] Syncing temp profile back to master (login_successful={self.is_login_successful})...")
+                print("[HAPAG] Syncing temp profile back to master...")
                 shutil.copytree(self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True)
                 print("[HAPAG] Master profile updated successfully.")
                 
