@@ -46,6 +46,7 @@ class HapagLloydConnector(BaseCarrierConnector):
         self.master_profile_dir = None
         self.temp_profile_dir = None
         self.is_login_successful = False
+        self._onboarding_dismissed = False
 
     async def _check_service_unavailable(self):
         """Checks if Hapag-Lloyd API Gateway has returned 'This service is currently unavailable'."""
@@ -298,6 +299,16 @@ class HapagLloydConnector(BaseCarrierConnector):
         """
         await self._check_service_unavailable()
         await self._inject_onboarding_styles()
+        
+        # If onboarding has already been dismissed this session, just do a single quick check
+        # for other generic modals, rather than running the full 5-step onboarding loop.
+        if self._onboarding_dismissed:
+            try:
+                await self._run_modal_dismissal_pass()
+            except:
+                pass
+            return False
+
         print("[HAPAG] Dismissing any obscuring modal popups or onboarding wizards...")
         try:
             dismissed_any = False
@@ -308,6 +319,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print(f"[HAPAG] Tutorial step {step} popup dismissed successfully.")
                 dismissed_any = True
                 await self.page.wait_for_timeout(800)  # brief wait for transition to next step/dialog
+            
+            # Mark onboarding as handled for the rest of this session
+            self._onboarding_dismissed = True
             return dismissed_any
         except Exception as e:
             print(f"[HAPAG] Error in modal dismissal loop: {e}")
@@ -330,16 +344,16 @@ class HapagLloydConnector(BaseCarrierConnector):
                 '.el-dialog__headerbtn',
                 '.el-dialog__close'
             ]
-            for sel in close_selectors:
-                try:
-                    close_btn = self.page.locator(sel).first
-                    if await close_btn.is_visible(timeout=200):
-                        print(f"[HAPAG] Modal close button detected: {sel}. Clicking to dismiss...")
-                        await close_btn.scroll_into_view_if_needed()
-                        await close_btn.click()
-                        return True
-                except:
-                    pass
+            combined_close = ", ".join(close_selectors)
+            try:
+                close_btn = self.page.locator(combined_close).first
+                if await close_btn.is_visible(timeout=150):
+                    print("[HAPAG] Modal close button detected. Clicking to dismiss...")
+                    await close_btn.scroll_into_view_if_needed()
+                    await close_btn.click()
+                    return True
+            except:
+                pass
 
             # 1.5. Onboarding specific dismissal
             onboarding_selectors = [
@@ -351,15 +365,15 @@ class HapagLloydConnector(BaseCarrierConnector):
                 '.q-dialog button:has-text("Skip")',
                 'div[id^="q-portal--dialog"] button:has-text("Skip")'
             ]
-            for sel in onboarding_selectors:
-                try:
-                    btn = self.page.locator(sel).first
-                    if await btn.is_visible(timeout=200):
-                        print(f"[HAPAG] Onboarding button/close detected: {sel}. Clicking...")
-                        await btn.click()
-                        return True
-                except:
-                    pass
+            combined_onboarding = ", ".join(onboarding_selectors)
+            try:
+                btn = self.page.locator(combined_onboarding).first
+                if await btn.is_visible(timeout=150):
+                    print("[HAPAG] Onboarding button/close detected. Clicking...")
+                    await btn.click()
+                    return True
+            except:
+                pass
             
             # 2. Run advanced JavaScript evaluation to close custom overlay popups (e.g. currency onboarding)
             js_close_result = await self.page.evaluate('''() => {
