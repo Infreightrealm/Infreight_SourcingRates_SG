@@ -102,8 +102,8 @@ class BaseCarrierConnector(ABC):
         Detects if a CAPTCHA, Turnstile, hCaptcha, reCAPTCHA, or 2FA screen
         is currently visible on the active page.
         """
-        if not self.page:
-            return False
+        if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+            raise Exception("Playwright page is closed or crashed.")
         try:
             is_challenge = False
             

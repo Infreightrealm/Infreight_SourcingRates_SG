@@ -50,7 +50,7 @@ class HapagLloydConnector(BaseCarrierConnector):
     async def _check_service_unavailable(self):
         """Checks if Hapag-Lloyd API Gateway has returned 'This service is currently unavailable'."""
         try:
-            if not self.page:
+            if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
                 return
 
             # Check modal visibility quickly
@@ -59,9 +59,13 @@ class HapagLloydConnector(BaseCarrierConnector):
                 print("[HAPAG] Hapag-Lloyd API Gateway error detected: 'This service is currently unavailable'.")
                 raise HapagServiceUnavailableException("Hapag-Lloyd service is currently unavailable.")
             
-            # Check content
-            content = await self.page.content()
-            if "This service is currently unavailable" in content or "Global transaction ID" in content:
+            # Check body text quickly (much safer/faster than page.content())
+            try:
+                body_text = await self.page.locator("body").inner_text(timeout=500)
+            except Exception:
+                body_text = ""
+                
+            if "This service is currently unavailable" in body_text or "Global transaction ID" in body_text:
                 print("[HAPAG] Hapag-Lloyd API Gateway text detected in content: 'This service is currently unavailable'.")
                 raise HapagServiceUnavailableException("Hapag-Lloyd service is currently unavailable.")
         except HapagServiceUnavailableException:
@@ -212,6 +216,60 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def _human_delay(self, min_ms=500, max_ms=1500):
         await self.page.wait_for_timeout(random.randint(min_ms, max_ms))
+
+    async def _wait_for_captcha_resolution(self, timeout_sec=240) -> bool:
+        """
+        Helper that pauses execution if a CAPTCHA challenge is detected,
+        and waits up to timeout_sec for the user to resolve it in VNC.
+        """
+        if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+            raise Exception("Playwright page is closed or crashed.")
+
+        try:
+            if not await self.check_captcha_challenge():
+                return False
+        except Exception as e:
+            if "closed" in str(e).lower() or "crashed" in str(e).lower() or "target" in str(e).lower():
+                raise
+            return False
+
+        print("[HAPAG] [ACTION REQUIRED] CAPTCHA / bot challenge page detected! Pausing crawler. Please look at the VNC tab to solve it.")
+        
+        # Trigger WAITING_FOR_HUMAN_VERIFICATION status in DB
+        self.captcha_detected = True
+        if self.status_update_callback:
+            await self.status_update_callback(CarrierResultStatus.WAITING_FOR_HUMAN_VERIFICATION)
+
+        start_time = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start_time < timeout_sec:
+            if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                raise Exception("Playwright page is closed or crashed during CAPTCHA resolution.")
+
+            elapsed = int(asyncio.get_event_loop().time() - start_time)
+            if elapsed > 0 and elapsed % 5 == 0:
+                print(f"[HAPAG] Still waiting for CAPTCHA resolution in VNC window... ({elapsed}s elapsed)")
+
+            await asyncio.sleep(1.0)
+
+            try:
+                challenge_active = await self.check_captcha_challenge()
+            except Exception as e:
+                if "closed" in str(e).lower() or "crashed" in str(e).lower() or "target" in str(e).lower():
+                    raise
+                challenge_active = False
+
+            if not challenge_active:
+                print("[HAPAG] CAPTCHA challenge cleared! Resuming crawler...")
+                self.captcha_detected = False
+                if self.status_update_callback:
+                    await self.status_update_callback(CarrierResultStatus.RUNNING)
+                return True
+
+        print("[HAPAG] Timed out waiting for CAPTCHA resolution.")
+        self.captcha_detected = False
+        if self.status_update_callback:
+            await self.status_update_callback(CarrierResultStatus.RUNNING)
+        return False
 
     async def _dismiss_hapag_modals(self):
         """
@@ -461,11 +519,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         print(f"[HAPAG] Still waiting for page to settle... (elapsed {elapsed}s). Solve Cloudflare in VNC if prompted.")
 
                 # Check for active challenge/captcha
-                if await self.check_captcha_challenge():
-                    if not self.captcha_detected:
-                        self.captcha_detected = True
-                        print("[HAPAG] [ACTION REQUIRED] Bot challenge, CAPTCHA, or Turnstile page detected! Please look at the opened VNC window to solve it.")
-                
+                await self._wait_for_captcha_resolution()
                 await asyncio.sleep(1)
 
             if not settled:
@@ -625,11 +679,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                             print(f"[HAPAG] Still waiting for Quick Quote page to load... (elapsed {elapsed}s). Solve 2FA / Verification code in VNC if prompted.")
                         
                     # Check for active challenge/captcha
-                    if await self.check_captcha_challenge():
-                        if not self.captcha_detected:
-                            self.captcha_detected = True
-                            print("[HAPAG] [ACTION REQUIRED] Bot challenge, CAPTCHA, or Turnstile page detected! Please look at the opened VNC window to solve it.")
-                            
+                    await self._wait_for_captcha_resolution()
                     await asyncio.sleep(1)
                 
                 if not form_loaded:
@@ -1823,6 +1873,11 @@ class HapagLloydConnector(BaseCarrierConnector):
             os.makedirs("scratch", exist_ok=True)
             
             while asyncio.get_event_loop().time() - start_wait < max_wait_seconds:
+                if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                    raise Exception("Playwright page is closed or crashed while waiting for search results.")
+                
+                await self._wait_for_captcha_resolution()
+
                 elapsed = int(asyncio.get_event_loop().time() - start_wait)
                 
                 # Periodically take a screenshot and log status
@@ -2176,6 +2231,10 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def open_price_breakdown(self, quote_ref: dict) -> bool:
         try:
+            if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                raise Exception("Playwright page is closed or crashed at start of open_price_breakdown.")
+            await self._wait_for_captcha_resolution()
+
             raw_date = quote_ref.get("raw_date", quote_ref.get("etd", ""))
             seq_idx  = quote_ref.get("seq_idx", 0)
             print(f"[HAPAG] Navigating to departure date '{raw_date}' (seq {seq_idx})...")
@@ -2304,6 +2363,12 @@ class HapagLloydConnector(BaseCarrierConnector):
             # Step 1: navigate left or right until target date is visible in the grid
             # ------------------------------------------------------------------
             for nav_attempt in range(30):    # safety: at most 30 arrow clicks
+                if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                    raise Exception("Playwright page is closed or crashed during date navigation.")
+                
+                await self._dismiss_hapag_modals()
+                await self._wait_for_captcha_resolution()
+
                 visible: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
                 if raw_date in visible:
                     print(f"[HAPAG] Target date '{raw_date}' is now visible in grid.")
@@ -2387,13 +2452,20 @@ class HapagLloydConnector(BaseCarrierConnector):
             
             if not clicked:
                 print(f"[HAPAG] Could not click column '{raw_date}'.")
-
                 return False
+                
+            if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                raise Exception("Playwright page is closed or crashed after clicking date column.")
+            await self._wait_for_captcha_resolution()
                 
             # Wait for any loading indicator to disappear (up to 15 seconds)
             print("[HAPAG] Waiting for details loading spinner to hide...")
             try:
                 for check in range(30):
+                    if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                        raise Exception("Playwright page is closed or crashed while waiting for details spinner.")
+                    await self._wait_for_captcha_resolution()
+                    
                     loading_selectors = [
                         'text="Offer is loading" i',
                         '.q-loading',
@@ -2568,21 +2640,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                 except:
                     pass
                     
-            if not pb_btn:
-                has_any_price = any(isinstance(v, (int, float)) for v in self._last_parsed_card_prices.values())
-                if has_any_price:
-                    print(f"[HAPAG] Price Breakdown button not found, but card rates are available: {self._last_parsed_card_prices}. Falling back to card rates.")
-                    quote_ref["is_sold_out"] = False
-                    return True
-                else:
-                    print(f"[HAPAG] Price Breakdown button not found and no card rate available. Skipping sold out/unavailable departure.")
-                    quote_ref["is_sold_out"] = True
-                    return False
-                
+            if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                raise Exception("Playwright page is closed or crashed before clicking Price Breakdown.")
+            await self._wait_for_captcha_resolution()
+
             # Click Price Breakdown -- use JS click as fallback if intercepted by overlay
             print("[HAPAG] Clicking 'Price Breakdown' button...")
             try:
-                await pb_btn.scroll_into_view_if_needed()
+                await pb_btn.scroll_into_view_if_needed(timeout=5000)
                 await pb_btn.click(timeout=8000)
             except Exception as click_err:
                 print(f"[HAPAG] Playwright click blocked ({click_err}). Falling back to JS click...")
@@ -2603,6 +2668,10 @@ class HapagLloydConnector(BaseCarrierConnector):
             modal_opened = False
             for sel in modal_selectors:
                 try:
+                    if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                        raise Exception("Playwright page is closed or crashed while waiting for Price Breakdown modal.")
+                    await self._wait_for_captcha_resolution()
+
                     if await self.page.locator(sel).first.is_visible(timeout=5000):
                         modal_opened = True
                         print(f"[HAPAG] Price Breakdown modal opened successfully using: {sel}")
@@ -2632,6 +2701,10 @@ class HapagLloydConnector(BaseCarrierConnector):
     async def extract_charge_breakdown(self) -> dict[str, list[dict]]:
         charges = {"DRY 20": [], "DRY 40": [], "DRY 40H": []}
         try:
+            if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                raise Exception("Playwright page is closed or crashed at start of extract_charge_breakdown.")
+            await self._wait_for_captcha_resolution()
+
             print("[HAPAG] Extracting validity date from body text...")
             try:
                 page_text = await self.page.inner_text("body")
