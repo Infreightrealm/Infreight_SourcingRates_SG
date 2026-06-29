@@ -105,6 +105,29 @@ class BaseCarrierConnector(ABC):
         if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
             raise Exception("Playwright page is closed or crashed.")
         try:
+            # If standard login fields (email/username and password inputs) are visible,
+            # we are on the login form and should not treat the page as blocked by a CAPTCHA challenge.
+            try:
+                email_selectors = ['input#signInName', 'input#email', 'input[type="email"]', 'input[name*="username" i]']
+                pass_selectors = ['input#password', 'input[type="password"]', 'input[name*="password" i]']
+                
+                has_email = False
+                for sel in email_selectors:
+                    if await self.page.locator(sel).first.is_visible(timeout=50):
+                        has_email = True
+                        break
+                
+                has_pass = False
+                for sel in pass_selectors:
+                    if await self.page.locator(sel).first.is_visible(timeout=50):
+                        has_pass = True
+                        break
+                        
+                if has_email and has_pass:
+                    return False
+            except:
+                pass
+
             is_challenge = False
             
             # 1. Check page title and URL for common challenge patterns
