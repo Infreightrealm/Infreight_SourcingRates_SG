@@ -527,7 +527,18 @@ class ONEConnector(BaseCarrierConnector):
             await self.page.goto(self.QUOTE_URL, wait_until="domcontentloaded", timeout=30000)
             print(f"[ONE] Spot rate page loaded: {self.page.url}")
             await self.page.wait_for_timeout(2500)  # Wait for JS to fully render form
+            
+            # Guard: Check if we got redirected back to login (session expiry / SSO reauth)
+            current_url = self.page.url
+            if "login" in current_url.lower() or "sign-in" in current_url.lower() or "auth" in current_url.lower():
+                print(f"[ONE] Redirected to login page after navigating to spot rate URL: {current_url}")
+                print("[ONE] Session may have expired - returning LOGIN_FAILED")
+                return CarrierResultStatus.LOGIN_FAILED
+            print(f"[ONE] Confirmed on spot rate page (not login): {current_url}")
+            
             await self._clear_overlays()
+
+
 
             target_date = self._resolve_departure_date(request.departure_date)
             target_date_text = target_date.isoformat()
@@ -1123,52 +1134,83 @@ class ONEConnector(BaseCarrierConnector):
 
             # Submit the search — wait for button to be truly enabled
             try:
-                submit_sel = 'button:has-text("GetQuote"), button:has-text("Get Quote"), button:has-text("Search Rates"), button:has-text("View Quote"), button:has-text("view Quote"), button[type="submit"], [role="button"]:has-text("GetQuote"), [role="button"]:has-text("Get Quote")'
+                # Use specific text selectors — avoid generic button[type="submit"] which can match login/other forms
+                submit_sel = (
+                    'button:has-text("GetQuote"), '
+                    'button:has-text("Get Quote"), '
+                    'button:has-text("Search Rates"), '
+                    '[role="button"]:has-text("GetQuote"), '
+                    '[role="button"]:has-text("Get Quote")'
+                )
                 submit_btn = self.page.locator(submit_sel).first
-                await submit_btn.wait_for(state="visible", timeout=10000)
+                await submit_btn.wait_for(state="visible", timeout=15000)
+
+                # Log what button we found
+                try:
+                    found_text = (await submit_btn.inner_text()).strip()
+                    print(f"[ONE] Found submit button: '{found_text}'")
+                except Exception:
+                    pass
                 
                 # Poll for enabled state (some buttons use 'disabled' attribute, others use classes like Mui-disabled)
-                for _ in range(100):
+                for _ in range(150):  # Up to 15 seconds
                     is_disabled = await submit_btn.get_attribute("disabled")
                     btn_class = await submit_btn.get_attribute("class") or ""
                     if is_disabled is None and "disabled" not in btn_class.lower() and "mui-disabled" not in btn_class.lower():
                         break
                     await self.page.wait_for_timeout(100)
+                else:
+                    print("[ONE] Submit button still disabled after 15s, attempting force click anyway")
                 
-                await submit_btn.hover()
-                await self.page.wait_for_timeout(200)
+                await submit_btn.scroll_into_view_if_needed()
+                await self.page.wait_for_timeout(300)
                 try:
-                    await submit_btn.click(timeout=3000)
+                    await submit_btn.click(timeout=5000)
                     print("[ONE] Search submitted (normal click)")
                 except Exception:
                     print("[ONE] Normal click failed/blocked, trying force click...")
-                    await submit_btn.click(force=True)
-                    print("[ONE] Search submitted (force click)")
+                    try:
+                        await submit_btn.click(force=True)
+                        print("[ONE] Search submitted (force click)")
+                    except Exception:
+                        print("[ONE] Force click failed, trying JS click as last resort...")
+                        await self.page.evaluate("el => el.click()", await submit_btn.element_handle())
+                        print("[ONE] Search submitted (JS click)")
             except Exception as e:
                 print(f"[ONE] Submit click failed: {e}")
 
             print("[ONE] Waiting for search results or no results message...")
             try:
                 cards = self.page.locator('div[class*="NewQuoteSummary_body-card"]').first
-                await cards.wait_for(state="visible", timeout=25000)
+                await cards.wait_for(state="visible", timeout=60000)  # ONE can be slow with multi-container loads
                 print("[ONE] Quote cards detected on search results page.")
             except Exception as e:
+                # Check if page bounced back to login during/after submit
+                post_submit_url = self.page.url
+                if "login" in post_submit_url.lower() or "sign-in" in post_submit_url.lower():
+                    print(f"[ONE] Bounced to login page after submit: {post_submit_url}")
+                    return CarrierResultStatus.LOGIN_FAILED
                 print(f"[ONE] Quote cards did not appear within timeout: {e}")
+                print(f"[ONE] Current URL after submit: {post_submit_url}")
 
-            await self.page.wait_for_timeout(3000)
+            await self.page.wait_for_timeout(2000)
             print(f"[ONE] Search page ready: {self.page.url}")
 
             cards_count = await self.page.locator('div[class*="NewQuoteSummary_body-card"]').count()
             if cards_count > 0:
+                print(f"[ONE] Found {cards_count} quote card(s) on results page.")
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
             else:
                 body_text = (await self.page.locator("body").inner_text()).lower()
+                # Log first 500 chars for debugging
+                print(f"[ONE] No quote cards found. Page body snippet: {body_text[:500]}")
                 if "no quote" in body_text or "no rate" in body_text or "not found" in body_text or "no routing" in body_text:
                     print("[ONE] No coverage / no quotes found text detected in page body.")
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE
         except Exception as e:
             print(f"[ONE] Search failed: {e}")
             return CarrierResultStatus.TIMEOUT if "timeout" in str(e).lower() else CarrierResultStatus.UNKNOWN_ERROR
+
 
     async def extract_quote_list(self) -> list[dict]:
         try:
