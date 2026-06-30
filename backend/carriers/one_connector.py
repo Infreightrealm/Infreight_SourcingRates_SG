@@ -1121,21 +1121,26 @@ class ONEConnector(BaseCarrierConnector):
 
             # Submit the search — wait for button to be truly enabled
             try:
-                submit_btn = self.page.locator('button:has-text("GetQuote"), button:has-text("Get Quote"), button:has-text("Search Rates"), button:has-text("View Quote"), button:has-text("view Quote"), button[type="submit"]').first
-                await submit_btn.wait_for(state="visible", timeout=5000)
+                submit_btn = self.page.get_by_role("button", name=re.compile(r"Get\s*Quote", re.IGNORECASE)).first
+                await submit_btn.wait_for(state="visible", timeout=10000)
                 
-                # Poll for enabled state (some buttons use 'disabled' attribute, others use classes)
-                for _ in range(50):
+                # Poll for enabled state (some buttons use 'disabled' attribute, others use classes like Mui-disabled)
+                for _ in range(100):
                     is_disabled = await submit_btn.get_attribute("disabled")
-                    if is_disabled is None:
-                        # Also check common "disabled" classes
-                        btn_class = await submit_btn.get_attribute("class") or ""
-                        if "disabled" not in btn_class.lower():
-                            break
+                    btn_class = await submit_btn.get_attribute("class") or ""
+                    if is_disabled is None and "disabled" not in btn_class.lower():
+                        break
                     await self.page.wait_for_timeout(100)
                 
-                await submit_btn.click(force=True, timeout=5000)
-                print("[ONE] Search submitted (force click)")
+                await submit_btn.hover()
+                await self.page.wait_for_timeout(200)
+                try:
+                    await submit_btn.click(timeout=3000)
+                    print("[ONE] Search submitted (normal click)")
+                except Exception:
+                    print("[ONE] Normal click failed/blocked, trying force click...")
+                    await submit_btn.click(force=True)
+                    print("[ONE] Search submitted (force click)")
             except Exception as e:
                 print(f"[ONE] Submit click failed: {e}")
 
