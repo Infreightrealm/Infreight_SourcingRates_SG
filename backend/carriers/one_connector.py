@@ -474,7 +474,16 @@ class ONEConnector(BaseCarrierConnector):
             # Step 2: Search
             search_status = await self.search_quotes(request)
             if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                # Capture debug screenshot to /tmp for inspection
+                try:
+                    import os, time
+                    scr_path = f"/tmp/one_search_fail_{int(time.time())}.png"
+                    await self.page.screenshot(path=scr_path)
+                    print(f"[ONE] Debug screenshot saved: {scr_path} (URL: {self.page.url})")
+                except Exception as scr_e:
+                    print(f"[ONE] Could not take debug screenshot: {scr_e}")
                 return search_status, []
+
 
             # Step 3: Extract quote list
             raw_quotes = await self.extract_quote_list()
