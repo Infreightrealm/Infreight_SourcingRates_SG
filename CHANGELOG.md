@@ -5,7 +5,7 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
-## [2026-06-30] — ONE Multi-Container Search & Sold-Out Filtering
+## [2026-06-30] — ONE Multi-Container & Sold-Out, GreenX Surcharge Intake, Maersk Diagnosis
 
 ### ONE — All-Container-Type Search Returning 0 Quotes
 - **Bug:** A combined 20GP / 40GP / 40HQ (`DRY 20` / `DRY 40` / `DRY 40H`) search logged in, found 12 quote cards, and parsed 65 charge lines per card, yet the frontend showed **no quotes** for any container type (and the Excel export had no data). Logs showed `[ONE] Returning 0 quote(s)` for all three types.
@@ -18,6 +18,17 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 - **Root Cause:** `extract_quote_list` detected the sold-out state but only **relabeled** the card (appended "(Sold out)" to the vessel, set the status to "Sold Out", zeroed the price) and still appended it to the quote list. It also treated a missing/"---" vessel as sold-out, which risked dropping otherwise-valid cards.
 - **Fix:** Made sold-out a **skip rule**: if a card contains "Notify Me" or a "Sold Out" status, it is excluded from the results entirely (`continue`) and never processed into a quote. Bookable cards (which display an "Accept" button) are unaffected. Narrowed the detection to the reliable "Notify Me" / "Sold Out" / status signals so a parse miss on the vessel field no longer drops a valid sailing.
 - **Files:** `backend/carriers/one_connector.py` (`extract_quote_list`)
+
+### GreenX — Only Basic Ocean Freight & LSS Folded Into Final Value
+- **Bug:** GreenX quotes only added **Basic Ocean Freight** and **LOW SULPHUR SURCHARGE (LSS)** into the final freight value. Other mandatory surcharges — **EU INNOVATION SURCHARGE (EUIS)** and **IMO SOX COMPLIANCE CHARGE (ISOCC)** — were dropped, and the per-B/L **EU ENTRY SUMMARY DECLARATION CHARGE (ENS)** / **E BOOKING FEE VIA GREENX (EBKF)** were not reliably included.
+- **Root Cause:** In `_split_raw_quote_by_container_types`, the surcharge whitelist (`INCLUDED_SURCHARGES`) was applied **only to flat / per-B/L charges**. Container-specific charges were hardcoded to `ORIGIN_CHARGE_EXCLUDED` unless the name was exactly "BASIC OCEAN FREIGHT". GreenX bills EUIS/ISOCC (and often LSS) **per container**, so they fell into the container bucket and were always excluded — only the per-B/L LSS line survived.
+- **Fix:** Applied the whitelist to **both** container-specific and per-B/L charges via a single `_categorize(name, currency)` helper that also enforces a **USD-only** rule: a charge is folded into the final value only when its (whitespace-normalized) name is in the whitelist **and** its currency is USD. Per-B/L charges (ENS, EBKF) continue to be added in full to every container size (a $10 ENS adds $10 to each). Verified: each of DRY 20 / DRY 40 / DRY 40H now sums BOF + EUIS + ISOCC + LSS + ENS + EBKF, while a non-USD or non-whitelisted charge is excluded.
+- **Files:** `backend/carriers/greenx_connector.py` (`_split_raw_quote_by_container_types`)
+
+### MAERSK — "Quotes Found" but Empty Excel (Diagnosis)
+- **Symptom:** A Singapore→Hamburg multi-container search showed quotes "found" mid-run but the Excel/result set was empty (`[JOB] MAERSK: NO_QUOTES_AVAILABLE — 0 quote(s)`), even though a valid bookable sailing existed.
+- **Findings:** (1) Every processed card parsed at **0.0 USD** and was treated as sold-out/not-open, so the price-breakdown step was skipped and `raw_charges` was empty. (2) With no per-container charges, `_split_raw_quote_by_container_types` returns `[]`, so the code falls back to a single `normalize_result` quote — but the fallback `raw_quote` has **no `container_type`**, so it is `None`, and the per-container filter (`q.container_type == request.container_type`) discards all of them → 0 quotes. (3) Sold-out/not-open cards still count toward the **10-quote cap**, so the crawl can fill its quota with not-open sailings and stop before reaching the genuinely priced one. The likely upstream trigger is the **price-owner selection** clicking the radio's `label` (not the input), so prices never render. *Fix pending live verification of the price-owner step.*
+- **Files (under investigation):** `backend/carriers/maersk_connector.py`
 
 ---
 

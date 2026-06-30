@@ -825,6 +825,27 @@ class GreenXConnector(BaseCarrierConnector):
             else:
                 flat_charges.append(charge)
 
+        # Whitelist of surcharges to fold into the final freight value. These are
+        # taken whether GreenX bills them per-container (EUIS / ISOCC / LSS) or
+        # per-B/L (ENS / EBKF), and ONLY when billed in USD. Per-B/L charges are
+        # added in full to every container size below (e.g. a $10 ENS adds $10 to
+        # each size's total), matching how GreenX bills them once per booking.
+        INCLUDED_SURCHARGES = {
+            "EU INNOVATION SURCHARGE (EUIS)",
+            "IMO SOX COMPLIANCE CHARGE (ISOCC)",
+            "LOW SULPHUR SURCHARGE (LSS)",
+            "EU ENTRY SUMMARY DECLARATION CHARGE (ENS)",
+            "E BOOKING FEE VIA GREENX (EBKF)",
+        }
+
+        def _categorize(name: str, currency: str) -> str:
+            name_u = " ".join((name or "").upper().split())
+            if name_u == "BASIC OCEAN FREIGHT":
+                return "BASIC_OCEAN_FREIGHT"
+            if name_u in INCLUDED_SURCHARGES and (currency or "").upper() == "USD":
+                return "FREIGHT_SURCHARGE_INCLUDED"
+            return "ORIGIN_CHARGE_EXCLUDED"
+
         # 2. For each container type that has at least one charge (specifically, Basic Ocean Freight)
         split_quotes = []
         for std_ct, c_charges in container_charges.items():
@@ -841,23 +862,14 @@ class GreenXConnector(BaseCarrierConnector):
                     "name": c["name"],
                     "amount": c["amount"],
                     "currency": c["currency"],
-                    "category": "BASIC_OCEAN_FREIGHT" if c["name"].upper() == "BASIC OCEAN FREIGHT" else "ORIGIN_CHARGE_EXCLUDED"
+                    "category": _categorize(c["name"], c.get("currency")),
                 })
             for f in flat_charges:
-                name_upper = f["name"].upper()
-                INCLUDED_SURCHARGES = {
-                    "EU INNOVATION SURCHARGE (EUIS)",
-                    "IMO SOX COMPLIANCE CHARGE (ISOCC)",
-                    "LOW SULPHUR SURCHARGE (LSS)",
-                    "EU ENTRY SUMMARY DECLARATION CHARGE (ENS)",
-                    "E BOOKING FEE VIA GREENX (EBKF)"
-                }
-                category = "FREIGHT_SURCHARGE_INCLUDED" if name_upper in INCLUDED_SURCHARGES else "ORIGIN_CHARGE_EXCLUDED"
                 split_raw_charges.append({
                     "name": f["name"],
                     "amount": f["amount"],
                     "currency": f["currency"],
-                    "category": category
+                    "category": _categorize(f["name"], f.get("currency")),
                 })
 
             # Create a localized raw_quote dict with the correct container type
