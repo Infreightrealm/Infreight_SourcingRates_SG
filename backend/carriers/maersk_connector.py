@@ -88,7 +88,10 @@ class MaerskConnector(BaseCarrierConnector):
         if cache_key in self._cached_quotes:
             print(f"[MAERSK] Returning cached quotes for {cache_key}")
             matching_quotes = [q for q in self._cached_quotes[cache_key] if q.container_type == request.container_type]
-            return self._cached_status, matching_quotes
+            if matching_quotes:
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
+            else:
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
         quotes: list[QuoteSchema] = []
         try:

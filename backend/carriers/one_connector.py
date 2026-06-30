@@ -455,12 +455,14 @@ class ONEConnector(BaseCarrierConnector):
         # Check cache
         if cache_key in self._cached_quotes:
             cached_quotes = self._cached_quotes[cache_key]
-            cached_status = self._cached_status.get(cache_key, CarrierResultStatus.NO_QUOTES_AVAILABLE)
             
             # Filter quotes matching the requested container type
             matched_quotes = [q for q in cached_quotes if q.container_type == request.container_type]
             print(f"[ONE] Cache hit: Returning {len(matched_quotes)} quote(s) for {request.container_type}")
-            return cached_status, matched_quotes
+            if matched_quotes:
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matched_quotes
+            else:
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
         quotes: list[QuoteSchema] = []
         try:
@@ -1121,14 +1123,15 @@ class ONEConnector(BaseCarrierConnector):
 
             # Submit the search — wait for button to be truly enabled
             try:
-                submit_btn = self.page.get_by_role("button", name=re.compile(r"Get\s*Quote", re.IGNORECASE)).first
+                submit_sel = 'button:has-text("GetQuote"), button:has-text("Get Quote"), button:has-text("Search Rates"), button:has-text("View Quote"), button:has-text("view Quote"), button[type="submit"], [role="button"]:has-text("GetQuote"), [role="button"]:has-text("Get Quote")'
+                submit_btn = self.page.locator(submit_sel).first
                 await submit_btn.wait_for(state="visible", timeout=10000)
                 
                 # Poll for enabled state (some buttons use 'disabled' attribute, others use classes like Mui-disabled)
                 for _ in range(100):
                     is_disabled = await submit_btn.get_attribute("disabled")
                     btn_class = await submit_btn.get_attribute("class") or ""
-                    if is_disabled is None and "disabled" not in btn_class.lower():
+                    if is_disabled is None and "disabled" not in btn_class.lower() and "mui-disabled" not in btn_class.lower():
                         break
                     await self.page.wait_for_timeout(100)
                 
@@ -1418,7 +1421,7 @@ class ONEConnector(BaseCarrierConnector):
 
             def is_stop_line(line: str) -> bool:
                 normalized = line.strip().lower()
-                if normalized in {"pol", "pod", "accept", "details", "origin", "destination"}:
+                if normalized in {"accept", "details"}:
                     return True
                 if "service lane" in normalized or "vessel voyage" in normalized:
                     return True
