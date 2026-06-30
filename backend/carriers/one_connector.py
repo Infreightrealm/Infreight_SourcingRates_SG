@@ -1455,7 +1455,9 @@ class ONEConnector(BaseCarrierConnector):
                     print(f"[ONE] Card HTML snippet: {html[:5000]}")
 
             lines = [line.strip() for line in text.splitlines() if line.strip()]
+            import re
             amount_pattern = re.compile(r"(?:^|\s)([A-Z]{3})\s*([\d,]+\.\d{2})$")
+            multi_amount_pattern = re.compile(r"([A-Z]{3})\s*([\d,]+\.\d{2})")
 
             def is_section_heading(line: str) -> bool:
                 normalized = line.strip().lower()
@@ -1480,89 +1482,177 @@ class ONEConnector(BaseCarrierConnector):
                     return True
                 return False
 
+            # -------------------------------------------------------
+            # STEP 1: Detect column header order for container types
+            # ONE's breakdown table has a header row like: DRY 20  DRY 40  DRY 40H
+            # We need to discover the order to assign amounts to the right container.
+            # -------------------------------------------------------
+            COL_PATTERNS = [
+                ("DRY 20",  re.compile(r"\bDRY\s*20\b", re.IGNORECASE)),
+                ("DRY 40H", re.compile(r"\bDRY\s*40\s*H\b|\bDRY\s*40HC\b|\bDRY\s*40HQ\b|\bDRY\s*40HIGH\b", re.IGNORECASE)),
+                ("DRY 40",  re.compile(r"\bDRY\s*40\b(?!\s*H)", re.IGNORECASE)),  # DRY 40 but NOT DRY 40H
+            ]
+            
+            # Scan lines for a header row containing multiple container types
+            column_order = []  # list of canonical container type names in left-to-right order
+            for line in lines[:30]:  # Headers should be near the top
+                found_in_line = []
+                for ctype, pat in COL_PATTERNS:
+                    if pat.search(line):
+                        found_in_line.append((line.upper().index(pat.search(line).group().upper()), ctype))
+                if len(found_in_line) >= 2:
+                    found_in_line.sort(key=lambda x: x[0])  # sort by position in line
+                    column_order = [c for _, c in found_in_line]
+                    if _one_debug:
+                        print(f"[ONE] Detected column order: {column_order}")
+                    break
+
+            # Fallback: if no multi-column header found, try single-column detection
+            if not column_order:
+                for line in lines[:30]:
+                    for ctype, pat in COL_PATTERNS:
+                        if pat.search(line):
+                            if ctype not in column_order:
+                                column_order.append(ctype)
+                if not column_order:
+                    # Last resort: default to all 3 (legacy single-column behavior)
+                    column_order = ["DRY 20", "DRY 40", "DRY 40H"]
+
+            if _one_debug:
+                print(f"[ONE] Final column_order: {column_order}")
+
+            # -------------------------------------------------------
+            # STEP 2: Parse charges, assigning each amount row's values
+            # to the container type column in detected order.
+            # -------------------------------------------------------
             charges = []
+            current_name = ""
+            section_heading = "unknown"
+
             for index, line in enumerate(lines):
                 if is_stop_line(line):
                     if _one_debug:
                         print(f"[ONE] Stopping breakdown parsing at line: '{line}'")
                     break
-                amount_match = amount_pattern.search(line)
-                if not amount_match:
+
+                if is_section_heading(line):
+                    section_heading = line.strip().lower()
                     continue
 
-                currency = amount_match.group(1)
-                amount = float(amount_match.group(2).replace(",", ""))
-
-                remaining_line = line[:amount_match.start()].strip()
-                name = ""
-
-                if remaining_line and not is_container_line(remaining_line) and not is_section_heading(remaining_line):
-                    name = remaining_line
-                else:
-                    # Try to find the charge name by walking backwards
-                    name_index = index - 1
-                    while name_index >= 0:
-                        candidate = lines[name_index]
-                        if not candidate or is_section_heading(candidate) or is_container_line(candidate):
-                            name_index -= 1
-                            continue
-                        if amount_pattern.search(candidate):
-                            name_index -= 1
-                            continue
+                # Check if this line is a container type header line (skip it, we already parsed it)
+                is_ct_header = False
+                for ctype, pat in COL_PATTERNS:
+                    if pat.search(line):
+                        is_ct_header = True
                         break
+                if is_ct_header and not multi_amount_pattern.search(line):
+                    continue  # Pure header line (no amounts)
 
-                    name = lines[name_index] if name_index >= 0 else f"Charge {len(charges) + 1}"
-
-                # Find the section heading for this charge
-                section_heading = "unknown"
-                sec_index = index - 1
-                while sec_index >= 0:
-                    candidate = lines[sec_index]
-                    if is_section_heading(candidate):
-                        section_heading = candidate.strip().lower()
-                        break
-                    sec_index -= 1
-
-                # Classify the charge
-                category, reason = classify_charge(name, amount, section_heading)
+                # Detect ALL amounts on this line
+                all_amounts = multi_amount_pattern.findall(line)
                 
+                if not all_amounts:
+                    # This is a charge name line (no amount)
+                    if not is_section_heading(line) and not is_container_line(line):
+                        candidate = line.strip()
+                        if candidate:
+                            current_name = candidate
+                    continue
+
+                # This line has amounts — strip them to get the charge name from the line itself
+                stripped_line = multi_amount_pattern.sub("", line).strip()
+                if stripped_line and not is_section_heading(stripped_line) and not is_container_line(stripped_line):
+                    current_name = stripped_line
+                
+                name = current_name or f"Charge {len(charges) + 1}"
+                
+                # Classify charge
+                category, reason = classify_charge(name, 0, section_heading)
                 name_clean = " ".join(name.lower().split())
-                # Override for Emergency Surcharge to always be in freight surcharge (included)
                 if "emergency surcharge" in name_clean:
                     category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
-                    reason = "Forced Emergency Surcharge override to freight surcharge"
+                    reason = "Forced Emergency Surcharge override"
                 if "premium cargo service" in name_clean:
                     category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
-                    reason = "Forced Premium Cargo Service override to freight surcharge"
+                    reason = "Forced Premium Cargo Service override"
                 if "emergency fuel originrail" in name_clean:
                     category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
-                    reason = "Forced Emergency Fuel OriginRail override to freight surcharge"
+                    reason = "Forced Emergency Fuel OriginRail override"
                 if "origin landfreightrail" in name_clean:
                     category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
-                    reason = "Forced Origin LandfreightRail override to freight surcharge"
+                    reason = "Forced Origin LandfreightRail override"
 
-                # Extract container basis if present in the line (e.g. "DRY 20", "DRY 40", "DRY 40H")
-                basis = ""
-                container_match = re.search(r'(DRY \d+H?|DRY \d+[A-Z]?|DRY\s*\d+\s*[A-Z]?)', line, re.IGNORECASE)
-                if container_match:
-                    basis = container_match.group(1).upper().strip()
+                if len(all_amounts) == 1:
+                    # Single amount — flat charge, no container type assignment
+                    currency, amt_str = all_amounts[0]
+                    charges.append({
+                        "name": name,
+                        "basis": "",   # flat / applies to all
+                        "amount": float(amt_str.replace(",", "")),
+                        "currency": currency,
+                        "category": category.value,
+                        "reason": reason,
+                    })
+                else:
+                    # Multiple amounts — assign each to a column in detected order
+                    for col_idx, (currency, amt_str) in enumerate(all_amounts):
+                        if col_idx < len(column_order):
+                            basis = column_order[col_idx]
+                        else:
+                            basis = ""  # Unexpected extra column
+                        charges.append({
+                            "name": name,
+                            "basis": basis,
+                            "amount": float(amt_str.replace(",", "")),
+                            "currency": currency,
+                            "category": category.value,
+                            "reason": reason,
+                        })
 
-                charges.append({
-                    "name": name,
-                    "basis": basis,
-                    "amount": amount,
-                    "currency": currency,
-                    "category": category.value,
-                    "reason": reason,
-                })
-
-            print(f"[ONE] Parsed {len(charges)} charge line(s)")
+            print(f"[ONE] Parsed {len(charges)} charge line(s) (columns: {column_order})")
             return charges
         except Exception as e:
             print(f"[ONE] Error extracting charges: {e}")
             return []
 
+
+
+            # Parse routing from the timeline text
+            try:
+                pol_code = self._extract_port_code(self.current_pol).strip().upper()
+                pod_code = self._extract_port_code(self.current_pod).strip().upper()
+                
+                # Find all "PORT NAME (LOCODE)" matches in the expanded card text
+                import re
+                locode_matches = re.findall(r"([A-Za-z0-9\t ,.-]+?)\s*\(([A-Z]{5})\)", text)
+                transit_ports = []
+                seen_locodes = set()
+                for port_name, locode in locode_matches:
+                    locode_upper = locode.strip().upper()
+                    port_name_clean = port_name.strip()
+                    # Skip empty labels, POL, POD, and duplicates
+                    if locode_upper == pol_code or locode_upper == pod_code:
+                        continue
+                    if locode_upper in seen_locodes:
+                        continue
+                    seen_locodes.add(locode_upper)
+                    if port_name_clean:
+                        transit_ports.append(f"{port_name_clean} ({locode_upper})")
+                
+                if transit_ports:
+                    self.current_routing = "Transit via " + ", ".join(transit_ports)
+                    if _one_debug:
+                        print(f"[ONE] Extracted routing: {self.current_routing}")
+                else:
+                    self.current_routing = "Direct"
+                    if _one_debug:
+                        print("[ONE] Extracted routing: Direct")
+            except Exception as re_err:
+                print(f"[ONE] Warning: failed to parse timeline routing: {re_err}")
+
     async def normalize_result(self, raw_quote, raw_charges):
+
+
         quote_schema = normalize_quote(self.carrier_code, raw_quote, raw_charges)
         if hasattr(self, "current_routing") and self.current_routing:
             quote_schema.routing = self.current_routing
