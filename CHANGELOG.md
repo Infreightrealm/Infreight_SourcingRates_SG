@@ -5,6 +5,22 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-06-30] — ONE Multi-Container Search & Sold-Out Filtering
+
+### ONE — All-Container-Type Search Returning 0 Quotes
+- **Bug:** A combined 20GP / 40GP / 40HQ (`DRY 20` / `DRY 40` / `DRY 40H`) search logged in, found 12 quote cards, and parsed 65 charge lines per card, yet the frontend showed **no quotes** for any container type (and the Excel export had no data). Logs showed `[ONE] Returning 0 quote(s)` for all three types.
+- **Root Cause:** A prior rewrite of `extract_charge_breakdown` (commit `1cd3382`) switched to "column-aware horizontal" parsing, assuming ONE prints all three container prices on a single line and assigning the container `basis` by column index. ONE actually renders **one container's amount per line**, each line carrying its own `DRY 20` / `DRY 40` / `DRY 40H` label. Every line therefore had a single amount, so each charge was tagged `basis=""` (flat). `_split_raw_quote_by_container_types` then found no container-specific charges, returned `[]`, and `run_full_search` fell back to a single untyped quote that the `container_type == request.container_type` filter discarded — yielding 0 quotes for every type. The rewrite had also dropped the per-line label extraction, which additionally overwrote charge names with "DRY 20"/etc.
+- **Fix:** Detect each line's own `DRY 20` / `DRY 40` / `DRY 40H` label and use it as the charge `basis` for single-amount lines (ONE's real layout); keep the column-index assignment only for genuine multi-amount lines. Strip the container label out of the recovered charge name so the real name (e.g. "Basic Ocean Freight") is preserved. Verified with a reproduction of ONE's vertical breakdown layout: the split now yields 3 correct per-container quotes (was 0).
+- **Files:** `backend/carriers/one_connector.py` (`extract_charge_breakdown`)
+
+### ONE — Sold-Out ("Notify Me") Sailings Appearing as Quotes
+- **Bug:** A sold-out sailing (Status "Sold Out", shown with a **"Notify Me"** button and no "Accept" button — e.g. FE1 / ONE ARCADIA 078W at USD 17,079.64) was being grabbed and returned as a quote even though it cannot be booked.
+- **Root Cause:** `extract_quote_list` detected the sold-out state but only **relabeled** the card (appended "(Sold out)" to the vessel, set the status to "Sold Out", zeroed the price) and still appended it to the quote list. It also treated a missing/"---" vessel as sold-out, which risked dropping otherwise-valid cards.
+- **Fix:** Made sold-out a **skip rule**: if a card contains "Notify Me" or a "Sold Out" status, it is excluded from the results entirely (`continue`) and never processed into a quote. Bookable cards (which display an "Accept" button) are unaffected. Narrowed the detection to the reliable "Notify Me" / "Sold Out" / status signals so a parse miss on the vessel field no longer drops a valid sailing.
+- **Files:** `backend/carriers/one_connector.py` (`extract_quote_list`)
+
+---
+
 ## [2026-06-12] — OOCL, MSC, ONE Inbound Free Time & Concurrency Queue Control
 
 ### ONE — Inbound Free Time Swap & Scraper Upgrade
