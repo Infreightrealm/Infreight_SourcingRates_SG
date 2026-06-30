@@ -67,6 +67,8 @@ class MaerskConnector(BaseCarrierConnector):
         self.master_profile_dir = None
         self.is_login_successful = False
         self.captcha_detected = False
+        self._cached_quotes = {}
+        self._cached_status = None
 
     # ────────────────────────────────────────
     # DYNAMIC SEARCH ENGINE OVERRIDE
@@ -82,6 +84,12 @@ class MaerskConnector(BaseCarrierConnector):
         5. Expand and repeat (up to 3 times)
         6. Return all normalized quotes
         """
+        cache_key = (request.origin, request.destination, request.departure_date)
+        if cache_key in self._cached_quotes:
+            print(f"[MAERSK] Returning cached quotes for {cache_key}")
+            matching_quotes = [q for q in self._cached_quotes[cache_key] if q.container_type == request.container_type]
+            return self._cached_status, matching_quotes
+
         quotes: list[QuoteSchema] = []
         try:
             # Step 1: Login
@@ -355,12 +363,16 @@ class MaerskConnector(BaseCarrierConnector):
                     except Exception as e:
                         print(f"[MAERSK] Warning: Could not extract routing for card at index {index}: {e}")
 
-                    # Normalize and add
+                    # Normalize and add (supporting multi-container splitting)
                     try:
-                        normalized = await self.normalize_result(raw_quote, raw_charges)
-                        quotes.append(normalized)
+                        split_quotes = await self._split_raw_quote_by_container_types(raw_quote, raw_charges)
+                        if split_quotes:
+                            quotes.extend(split_quotes)
+                        else:
+                            normalized = await self.normalize_result(raw_quote, raw_charges)
+                            quotes.append(normalized)
                     except Exception as e:
-                        print(f"[MAERSK] Warning: Normalization failed for card at index {index}: {e}")
+                        print(f"[MAERSK] Warning: Normalization/Splitting failed for card at index {index}: {e}")
                         
                     processed_keys.add(unique_key)
                     new_cards_processed_in_this_batch += 1
@@ -423,13 +435,18 @@ class MaerskConnector(BaseCarrierConnector):
 
                 quotes.sort(key=get_etd_date)
                 
-                # Enforce limit of exactly the top 10 quotes
-                quotes = quotes[:10]
+                # Enforce limit of exactly the top 10 cards (which splits into up to 30 quotes)
+                quotes = quotes[:30]
                 print(f"[MAERSK] Sorted and sliced final result to {len(quotes)} quote(s).")
                 
-                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
+                self._cached_quotes[cache_key] = quotes
+                self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+                return self._cached_status, matching_quotes
             else:
-                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+                self._cached_quotes[cache_key] = []
+                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
+                return self._cached_status, []
                 
         except Exception as e:
             print(f"[MAERSK] Unexpected error in full search: {e}")
@@ -625,8 +642,17 @@ class MaerskConnector(BaseCarrierConnector):
         """
         try:
             await field.click()
+            await self.page.wait_for_timeout(300)
+            
+            # Select all text and clear via keyboard to handle shadow-DOM components correctly
+            await field.focus()
+            await self.page.keyboard.press("Control+A")
+            await self.page.wait_for_timeout(100)
+            await self.page.keyboard.press("Backspace")
+            await self.page.wait_for_timeout(300)
+            
             await field.fill("")
-            await self.page.wait_for_timeout(500)
+            await self.page.wait_for_timeout(300)
             await field.type(query, delay=100)
             
             await self.page.locator(selector).first.wait_for(state="attached", timeout=10000)
@@ -1711,119 +1737,128 @@ class MaerskConnector(BaseCarrierConnector):
                     except Exception:
                         pass
 
-                    # Click container type dropdown
-                    container_field_selectors = [
-                        'input[placeholder*="Select container type and size" i]',
-                        '[class*="container-type" i] input',
-                        '[class*="size" i] input',
-                        'input[placeholder*="container type" i]'
+                    # Select all 3 dry container sizes: 20 Dry Standard, 40 Dry Standard, 40 Dry High
+                    target_containers = [
+                        ("20 Dry Standard", request.weight_per_container_kg),
+                        ("40 Dry Standard", request.weight_per_container_kg),
+                        ("40 Dry High", request.weight_per_container_kg)
                     ]
-                    
-                    container_field = None
-                    for selector in container_field_selectors:
-                        field = self.page.locator(selector).first
-                        if await field.is_visible():
-                            container_field = field
-                            print(f"[MAERSK] Found Container dropdown input using: {selector}")
-                            break
-                            
-                    if container_field:
-                        # Wait dynamically for the container field to be enabled (up to 5s)
+
+                    # Helper function to fill a container card at index `idx`
+                    async def fill_container_card(idx: int, target_name: str, weight: float):
+                        raw_dropdown_loc = self.page.locator('input[placeholder*="Select container type and size" i], [class*="container-type" i] input, [class*="size" i] input, input[placeholder*="container type" i]')
+                        dropdowns = []
+                        for i in range(await raw_dropdown_loc.count()):
+                            d_field = raw_dropdown_loc.nth(i)
+                            if await d_field.is_visible():
+                                dropdowns.append(d_field)
+                                
+                        if idx >= len(dropdowns):
+                            print(f"[MAERSK] Container row at index {idx} not found in DOM.")
+                            return False
+                        
+                        field = dropdowns[idx]
+                        await field.scroll_into_view_if_needed()
+                        
+                        # Wait dynamically for the container field to be enabled
                         for _ in range(10):
                             try:
-                                is_disabled = await container_field.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
+                                is_disabled = await field.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
                                 if not is_disabled:
                                     break
                             except Exception:
                                 pass
                             await self.page.wait_for_timeout(500)
+                        
+                        # Check if already selected to avoid clicking it
+                        current_val = await field.input_value()
+                        if current_val and target_name.lower() in current_val.lower():
+                            print(f"[MAERSK] Card {idx} already has '{current_val}' selected. Skipping dropdown selection.")
+                        else:
+                            await field.click()
+                            await self.page.wait_for_timeout(1000)
                             
-                        await container_field.scroll_into_view_if_needed()
-                        await container_field.click()
-                        await self.page.wait_for_timeout(1000)
-                        
-                        target_type = self._map_container_type(request.container_type)
-                        print(f"[MAERSK] Selecting container type: {target_type} (from {request.container_type})")
-                        
-                        # Find option and click it
-                        option_selectors = [
-                            f'mc-option:has-text("{target_type}")',
-                            f'ul[role="listbox"] li:has-text("{target_type}")',
-                            f'[class*="option" i]:has-text("{target_type}")',
-                            f'li:has-text("{target_type}")',
-                            f'text="{target_type}"'
-                        ]
-                        
-                        option_clicked = False
-                        for opt_sel in option_selectors:
-                            try:
-                                opt = self.page.locator(opt_sel).first
-                                if await opt.is_visible(timeout=2000):
-                                    await opt.click(force=True)
-                                    print(f"[MAERSK] Clicked container option using: {opt_sel}")
-                                    option_clicked = True
-                                    break
-                            except Exception:
-                                continue
+                            # Find option and click it
+                            option_selectors = [
+                                f'mc-option:has-text("{target_name}")',
+                                f'ul[role="listbox"] li:has-text("{target_name}")',
+                                f'[class*="option" i]:has-text("{target_name}")',
+                                f'li:has-text("{target_name}")',
+                                f'text="{target_name}"'
+                            ]
+                            
+                            option_clicked = False
+                            for opt_sel in option_selectors:
+                                try:
+                                    opt = self.page.locator(opt_sel).first
+                                    if await opt.is_visible(timeout=2000):
+                                        await opt.click(force=True)
+                                        print(f"[MAERSK] Clicked container option for '{target_name}' using: {opt_sel}")
+                                        option_clicked = True
+                                        break
+                                except Exception:
+                                    continue
+                                    
+                            if not option_clicked:
+                                print(f"[MAERSK] Dropdown click failed, attempting direct type or arrow navigation...")
+                                await field.type(target_name)
+                                await self.page.wait_for_timeout(500)
+                                await field.press("Enter")
                                 
-                        if not option_clicked:
-                            print(f"[MAERSK] Dropdown click failed, attempting direct type or arrow navigation...")
-                            await container_field.type(target_type)
-                            await self.page.wait_for_timeout(500)
-                            await container_field.press("Enter")
+                            await self.page.wait_for_timeout(1000)
                             
-                        await self.page.wait_for_timeout(1000)
-                    else:
-                        print("[MAERSK] Warning: Container dropdown field not found.")
-
-                    # Set cargo weight
-                    weight_selectors = [
-                        'input[placeholder*="Enter cargo weight" i]',
-                        'input[placeholder*="cargo weight" i]',
-                        'input[placeholder*="weight" i]',
-                        '[class*="weight" i] input'
-                    ]
-                    
-                    weight_field = None
-                    for selector in weight_selectors:
-                        field = self.page.locator(selector).first
-                        if await field.is_visible():
-                            weight_field = field
-                            print(f"[MAERSK] Found Cargo Weight input field using: {selector}")
-                            break
-                            
-                    if weight_field:
+                        # Set cargo weight
+                        raw_weight_loc = self.page.locator('input[placeholder*="Enter cargo weight" i], input[placeholder*="cargo weight" i], input[placeholder*="weight" i], [class*="weight" i] input')
+                        weights = []
+                        for i in range(await raw_weight_loc.count()):
+                            w_field = raw_weight_loc.nth(i)
+                            if await w_field.is_visible():
+                                weights.append(w_field)
+                                
+                        if idx >= len(weights):
+                            print(f"[MAERSK] Cargo weight input at index {idx} not found in DOM.")
+                            return False
+                        
+                        weight_field = weights[idx]
                         await weight_field.scroll_into_view_if_needed()
                         await weight_field.click()
                         await weight_field.fill("")
-                        weight_val = str(int(request.weight_per_container_kg))
+                        weight_val = str(int(weight))
                         await weight_field.type(weight_val, delay=100)
-                        print(f"[MAERSK] Cargo weight set to: {weight_val} kg")
+                        print(f"[MAERSK] Card {idx}: cargo weight set to: {weight_val} kg")
                         await self.page.wait_for_timeout(500)
-                    else:
-                        print("[MAERSK] Warning: Cargo Weight input field not found.")
+                        return True
 
-                    # Set container quantity
-                    qty_target = request.container_quantity
-                    if qty_target > 1:
-                        print(f"[MAERSK] Setting quantity to {qty_target} containers...")
-                        try:
-                            # Try to find increase/plus button
-                            plus_btn = self.page.locator('button:has-text("+"), [class*="plus" i], [class*="increase" i], text="+"').first
-                            if await plus_btn.is_visible(timeout=2000):
-                                for _ in range(qty_target - 1):
-                                    await plus_btn.click()
-                                    await self.page.wait_for_timeout(300)
-                                print(f"[MAERSK] Increased quantity by clicking + button {qty_target - 1} times.")
+                    for idx, (target_name, weight) in enumerate(target_containers):
+                        if idx > 0:
+                            # Click "Add another type of container"
+                            add_btn_selectors = [
+                                'button:has-text("Add another type of container")',
+                                'button:has-text("Add another type")',
+                                'text="Add another type of container +"',
+                                'text="Add another type of container"'
+                            ]
+                            add_btn = None
+                            for btn_sel in add_btn_selectors:
+                                try:
+                                    loc = self.page.locator(btn_sel).first
+                                    if await loc.is_visible(timeout=1000):
+                                        add_btn = loc
+                                        break
+                                except Exception:
+                                    continue
+                            
+                            if add_btn:
+                                await add_btn.click()
+                                await self.page.wait_for_timeout(1500)
+                                print(f"[MAERSK] Clicked 'Add another type of container' button for index {idx}.")
                             else:
-                                # Try to find numeric input box and fill directly
-                                qty_field = self.page.locator('input[value="1"], [class*="quantity" i] input, [class*="number" i] input').first
-                                if await qty_field.is_visible():
-                                    await qty_field.click()
-                                    await qty_field.fill(str(qty_target))
-                                    print(f"[MAERSK] Set quantity directly inside input field to {qty_target}.")
-                        except Exception as e:
-                            print(f"[MAERSK] Warning: Could not adjust container quantity: {e}")
+                                print(f"[MAERSK] Warning: 'Add another type of container' button not visible for index {idx}.")
+                                break
+                                
+                        success = await fill_container_card(idx, target_name, weight)
+                        if not success:
+                            print(f"[MAERSK] Warning: Failed to fill container card {idx}.")
                     # 3.5 Select Price Owner ("Who is the Price Owner?")
                     await self.page.wait_for_timeout(1000)
                     try:
@@ -2476,6 +2511,70 @@ class MaerskConnector(BaseCarrierConnector):
         try:
             charges = []
             
+            # Step 0: Try parsing using Playwright DOM locator piercing shadow DOMs (highly robust)
+            try:
+                base_loc = card_locator if card_locator else self.page
+                # Locate all table rows in the breakdown panel
+                rows_loc = base_loc.locator('tr, [role="row"]')
+                row_count = await rows_loc.count()
+                print(f"[MAERSK] DOM check: Found {row_count} rows in table/grid.")
+                
+                # We need to track the current section heading (freight, origin, destination)
+                current_section = "freight charges"
+                
+                for r_idx in range(row_count):
+                    row = rows_loc.nth(r_idx)
+                    row_text = (await row.inner_text() or "").strip()
+                    row_text_lower = row_text.lower()
+                    
+                    # Detect section heading changes from row text
+                    if "origin" in row_text_lower:
+                        current_section = "origin charges"
+                    elif "destination" in row_text_lower:
+                        current_section = "destination charges"
+                    elif "freight" in row_text_lower:
+                        current_section = "freight charges"
+                        
+                    # Find all cell elements in this row
+                    cells_loc = row.locator('td, th, [role="cell"], [role="gridcell"]')
+                    cell_count = await cells_loc.count()
+                    
+                    if cell_count >= 6:
+                        cells = []
+                        for c_idx in range(cell_count):
+                            cells.append((await cells_loc.nth(c_idx).inner_text() or "").strip())
+                            
+                        name = cells[0]
+                        basis = cells[1]
+                        qty_str = cells[2]
+                        currency = cells[3]
+                        unit_price_str = cells[4]
+                        total_price_str = cells[5]
+                        
+                        # Validate that this is a valid charge row
+                        if (name and currency and len(currency) == 3 and
+                            not any(h in name.lower() for h in ["charges", "basis", "quantity", "currency", "price"])):
+                            try:
+                                amount = float(total_price_str.replace(",", ""))
+                                category, reason = classify_charge(name, amount, current_section)
+                                charges.append({
+                                    "name": name,
+                                    "basis": basis,
+                                    "amount": amount,
+                                    "currency": currency,
+                                    "category": category.value,
+                                    "reason": reason
+                                })
+                                print(f"[MAERSK] DOM Parsed row: {name} | Basis: {basis} -> {amount} {currency} ({current_section})")
+                            except Exception as parse_e:
+                                print(f"[MAERSK] DOM parsing error: {parse_e}")
+            except Exception as dom_e:
+                print(f"[MAERSK] DOM table parsing failed or timed out: {dom_e}")
+                
+            if charges:
+                print(f"[MAERSK] Successfully extracted {len(charges)} charges using DOM parser.")
+                return charges
+            
             # Recursive helper to flatten the accessibility tree into lines of text
             def flatten_tree(node) -> list[str]:
                 lines_list = []
@@ -2571,6 +2670,7 @@ class MaerskConnector(BaseCarrierConnector):
                             category, reason = classify_charge(name_candidate, amount, current_section)
                             charges.append({
                                 "name": name_candidate,
+                                "basis": basis.strip(),
                                 "amount": amount,
                                 "currency": currency_candidate,
                                 "category": category.value,
@@ -2774,6 +2874,64 @@ class MaerskConnector(BaseCarrierConnector):
 
     async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
         return normalize_quote(self.carrier_code, raw_quote, raw_charges)
+
+    async def _split_raw_quote_by_container_types(self, raw_quote: dict, raw_charges: list[dict]) -> list[QuoteSchema]:
+        """
+        Splits a single raw multi-container quote card into multiple QuoteSchema objects,
+        one for each standard container type that has pricing.
+        """
+        container_charges = {
+            "DRY 20": [],
+            "DRY 40": [],
+            "DRY 40H": []
+        }
+        
+        flat_charges = []
+        
+        from models.schemas import ChargeCategory
+        
+        for charge in raw_charges:
+            basis = charge.get("basis", "").upper()
+            
+            # Map basis to DRY 20, DRY 40, DRY 40H
+            c_type = None
+            if "20" in basis:
+                c_type = "DRY 20"
+            elif "40" in basis:
+                if "HIGH" in basis or "HC" in basis or "HQ" in basis:
+                    c_type = "DRY 40H"
+                else:
+                    c_type = "DRY 40"
+            
+            if c_type:
+                container_charges[c_type].append(charge)
+            else:
+                flat_charges.append(charge)
+                
+        # Now, create a QuoteSchema for each container type that has ocean freight
+        quotes = []
+        
+        for c_type, c_charges in container_charges.items():
+            # Check if we have basic ocean freight or any container-specific charge for this container type
+            basic_freight = sum(c["amount"] for c in c_charges if c["category"] == ChargeCategory.BASIC_OCEAN_FREIGHT.value)
+            
+            # If no charges at all for this container size, skip it
+            if not c_charges and basic_freight == 0:
+                continue
+                
+            # Combine container-specific charges and flat charges
+            all_charges_for_size = c_charges + flat_charges
+            
+            # Create a copy of raw_quote for this container type
+            raw_quote_copy = raw_quote.copy()
+            raw_quote_copy["container_type"] = c_type
+            raw_quote_copy["container_quantity"] = 1
+            
+            # Normalize the charges for this container size
+            normalized = await self.normalize_result(raw_quote_copy, all_charges_for_size)
+            quotes.append(normalized)
+            
+        return quotes
 
     # ────────────────────────────────────────
     # BROWSER TEARDOWN
