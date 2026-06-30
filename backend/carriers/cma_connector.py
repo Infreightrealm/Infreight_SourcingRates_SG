@@ -760,98 +760,82 @@ class CMAConnector(BaseCarrierConnector):
             
             print(f"[CMA] Destination selected: {dest_locode}")
 
-            # --- CONTAINER TYPE & SIZE ---
-            cma_container = self.CONTAINER_TYPE_MAP.get(request.container_type)
-            if not cma_container:
-                print(f"[CMA] Container type {request.container_type} not mapped.")
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
-
-            print(f"[CMA] Selecting container: '{cma_container}' (internal: {request.container_type})")
+            # --- CONTAINER TYPE & SIZE & WEIGHTS ---
+            target_containers = ["20' Dry Standard", "40' Dry Standard", "40' Dry High Cube"]
+            print(f"[CMA] Selecting all 3 dry container sizes: {target_containers}")
             await self.page.wait_for_timeout(2000)
 
-            # CMA displays individual container items like "20' DRY STANDARD", "40' DRY HIGH CUBE"
-            # each with its own "Add" button. We need to find the SPECIFIC item and click its Add.
-            container_selected = False
-            target_upper = cma_container.upper()  # e.g., "40' DRY HIGH CUBE"
-            
-            # Extract key identifiers: size (40), type (DRY/REEFER), variant (STANDARD/HIGH CUBE)
-            # We'll match items that contain ALL these parts
-            target_parts = target_upper.replace("'", "").split()  # ["40", "DRY", "HIGH", "CUBE"]
-
-            # Strategy: Find all items with "Add" text nearby and match the right one
-            # Look for elements that contain our container name and have a sibling/child Add button
-            try:
-                # Get all text blocks in the container section
-                items = self.page.locator('text=/\\d+.*(?:DRY|REEFER|FLAT|OPEN)/i')
-                item_count = await items.count()
-                print(f"[CMA] Found {item_count} container items on page")
+            async def add_cma_container(container_name: str) -> bool:
+                target_upper = container_name.upper()
+                target_parts = target_upper.replace("'", "").split()
                 
-                for i in range(item_count):
-                    item = items.nth(i)
-                    try:
+                # Locate and click Add / +
+                try:
+                    items = self.page.locator('text=/\\d+.*(?:DRY|REEFER|FLAT|OPEN)/i')
+                    item_count = await items.count()
+                    for i in range(item_count):
+                        item = items.nth(i)
                         item_text = (await item.inner_text(timeout=1000)).strip().upper()
-                        # Check if this item matches our target
                         item_clean = item_text.replace("'", "")
                         if all(part in item_clean for part in target_parts):
-                            print(f"[CMA] Found matching container item: '{item_text}'")
-                            # Click the Add button - try parent first, then siblings
                             parent = item.locator('..')
                             add_btn = parent.locator('button:has-text("Add"), button:has-text("+")')
-                            if await add_btn.count() > 0:
+                            if await add_btn.count() > 0 and await add_btn.first.is_visible(timeout=500):
                                 await add_btn.first.click()
-                                container_selected = True
                                 print(f"[CMA] Clicked Add for: '{item_text}'")
-                                break
-                            # Try grandparent
+                                return True
+                            
                             grandparent = parent.locator('..')
                             add_btn = grandparent.locator('button:has-text("Add"), button:has-text("+")')
-                            if await add_btn.count() > 0:
+                            if await add_btn.count() > 0 and await add_btn.first.is_visible(timeout=500):
                                 await add_btn.first.click()
-                                container_selected = True
                                 print(f"[CMA] Clicked Add (grandparent) for: '{item_text}'")
-                                break
-                    except:
-                        continue
-            except Exception as e:
-                print(f"[CMA] Container text scan error: {e}")
+                                return True
+                            
+                            # If no Add button is visible, it means it is already selected!
+                            print(f"[CMA] Container '{container_name}' already added (Add button not visible).")
+                            return True
+                except Exception as e:
+                    print(f"[CMA] Error scanning Add buttons for '{container_name}': {e}")
 
-            # Fallback: use Playwright's has-text with the exact name
-            if not container_selected:
+                # Fallback div match
                 try:
-                    # Find the smallest div containing our container name AND an Add button
-                    item_locator = self.page.locator(f'div:has-text("{cma_container}")').filter(
+                    item_locator = self.page.locator(f'div:has-text("{container_name}")').filter(
                         has=self.page.locator('button:has-text("Add"), button:has-text("+")')
                     )
-                    count = await item_locator.count()
-                    if count > 0:
-                        # Use the last (most specific/smallest) match
-                        target = item_locator.last
-                        await target.locator('button:has-text("Add"), button:has-text("+")').first.click()
-                        container_selected = True
-                        print(f"[CMA] Container selected via fallback div match")
+                    if await item_locator.count() > 0:
+                        btn = item_locator.last.locator('button:has-text("Add"), button:has-text("+")').first
+                        if await btn.is_visible(timeout=500):
+                            await btn.click()
+                            print(f"[CMA] Selected '{container_name}' via fallback div match")
+                            return True
+                        else:
+                            print(f"[CMA] Container '{container_name}' already added (fallback button not visible).")
+                            return True
                 except Exception as e:
-                    print(f"[CMA] Container fallback failed: {e}")
+                    print(f"[CMA] Fallback failed for '{container_name}': {e}")
+                
+                return False
 
-            if not container_selected:
-                print(f"[CMA] Could not find container type '{cma_container}'")
-                await self.page.screenshot(path="cma_container_fail.png")
-                print("[CMA] Saved debug screenshot to cma_container_fail.png")
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
-
-            await self.page.wait_for_timeout(1500)
+            for ct in target_containers:
+                success = await add_cma_container(ct)
+                if not success:
+                    print(f"[CMA] Could not add container type '{ct}'")
+                    await self.page.screenshot(path="cma_container_fail.png")
+                    return CarrierResultStatus.INVALID_SEARCH_INPUT
+                await self.page.wait_for_timeout(1000)
 
             # --- CARGO WEIGHT ---
-            # CMA's weight field is inside the selected container card, below "Max Net Weight" label.
-            # The input has NO placeholder/name/id — the "ex. 10 000 KGM" text is pure CSS.
-            # Minimum weight for CMA is 10000 KGM
             weight_kg = max(int(request.weight_per_container_kg), 10000)
-            print(f"[CMA] Entering cargo weight: {weight_kg} KGM...")
+            for ct in target_containers:
+                print(f"[CMA] Entering cargo weight for {ct}: {weight_kg} KGM...")
+                weight_set = await self._set_cma_cargo_weight(weight_kg, ct)
+                if not weight_set:
+                    print(f"[CMA] Weight field NOT filled for {ct} - saving screenshot.")
+                    await self.page.screenshot(path="cma_weight_fail.png")
+                    return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            weight_set = await self._set_cma_cargo_weight(weight_kg, cma_container)
-            if not weight_set:
-                print("[CMA] Weight field NOT filled - saving screenshot.")
-                await self.page.screenshot(path="cma_weight_fail.png")
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
+            await self.page.wait_for_timeout(1500)
 
             # --- QUANTITY ---
             # Quantity is already 1 by default. The +/- buttons are next to the count.
@@ -1089,29 +1073,91 @@ class CMAConnector(BaseCarrierConnector):
                     await self._hover_and_click(dd_tab)
                     await self._human_delay(1000, 1500)
                     
-                    dd_text = await card.inner_text()
-                    # Isolate the Import section of the D&D tab text
-                    import_idx = dd_text.lower().find("import")
-                    import_text = dd_text[import_idx:] if import_idx != -1 else dd_text
+                    # Scoped JS evaluation to parse the D&D table and sum Demurrage and Detention days for each container size
+                    free_times = await card.evaluate('''card => {
+                        const tables = Array.from(card.querySelectorAll('table'));
+                        let importTable = null;
+                        
+                        const importHeading = Array.from(card.querySelectorAll('*')).find(el => {
+                            const text = el.innerText ? el.innerText.trim().toUpperCase() : '';
+                            return text === 'IMPORT FREE TIME';
+                        });
+                        
+                        if (importHeading) {
+                            // Find the first table that comes after the heading in the DOM
+                            importTable = tables.find(t => {
+                                return !!(importHeading.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING);
+                            });
+                        }
+                        
+                        // Fallback: second table is Import, first is Export
+                        if (!importTable && tables.length >= 2) {
+                            importTable = tables[1];
+                        } else if (!importTable && tables.length === 1) {
+                            importTable = tables[0];
+                        }
+                        
+                        if (!importTable) return null;
+                        
+                        const rows = Array.from(importTable.querySelectorAll('tr'));
+                        if (rows.length === 0) return null;
+                        
+                        const headers = Array.from(rows[0].querySelectorAll('th, td')).map(el => el.innerText.trim().toUpperCase());
+                        const colIndices = { charge: 0, sizeType: 1, duration: 2 };
+                        headers.forEach((h, idx) => {
+                            if (h.includes('CHARGE')) colIndices.charge = idx;
+                            else if ((h.includes('SIZE') || h.includes('TYPE')) && !h.includes('DAYS')) colIndices.sizeType = idx;
+                            else if (h.includes('DURATION') || (h.includes('DAYS') && !h.includes('TYPE')) || h.includes('FREE')) colIndices.duration = idx;
+                        });
+                        
+                        const res = {
+                            'DRY 20': 0,
+                            'DRY 40': 0,
+                            'DRY 40H': 0
+                        };
+                        
+                        for (let r = 1; r < rows.length; r++) {
+                            const cells = Array.from(rows[r].querySelectorAll('td, th')).map(el => el.innerText.trim());
+                            if (cells.length < 3) continue;
+                            
+                            const sizeType = (cells[colIndices.sizeType] || '').toUpperCase();
+                            const duration = parseInt(cells[colIndices.duration] || '0', 10);
+                            if (isNaN(duration) || duration <= 0) continue;
+                            
+                            let containerKey = null;
+                            if (sizeType.includes('20')) {
+                                containerKey = 'DRY 20';
+                            } else if (sizeType.includes('40ST') || (sizeType.includes('40') && !sizeType.includes('HC') && !sizeType.includes('HIGH'))) {
+                                containerKey = 'DRY 40';
+                            } else if (sizeType.includes('40HC') || sizeType.includes('HIGH CUBE') || sizeType.includes('40H')) {
+                                containerKey = 'DRY 40H';
+                            }
+                            
+                            if (containerKey) {
+                                res[containerKey] += duration;
+                            }
+                        }
+                        return res;
+                    }''')
                     
-                    # Try to extract separate demurrage and detention days
-                    dem_match = re.search(r'demurrage.*?(?:free\s*time)?.*?(\d+)\s+(?:Calendar|Day)', import_text, re.IGNORECASE | re.DOTALL)
-                    det_match = re.search(r'detention.*?(?:free\s*time)?.*?(\d+)\s+(?:Calendar|Day)', import_text, re.IGNORECASE | re.DOTALL)
-                    
-                    dem_days = int(dem_match.group(1)) if dem_match else 0
-                    det_days = int(det_match.group(1)) if det_match else 0
-                    
-                    if dem_days > 0 or det_days > 0:
-                        quote_ref["free_time"] = dem_days + det_days
-                        print(f"[CMA] Extracted separate D&D: Demurrage={dem_days}, Detention={det_days}. Total free_time={quote_ref['free_time']} days")
+                    if free_times:
+                        quote_ref["free_times"] = free_times
+                        # Maintain a fallback flat free_time for safety, using DRY 40H as default
+                        quote_ref["free_time"] = free_times.get("DRY 40H") or free_times.get("DRY 40") or free_times.get("DRY 20")
+                        print(f"[CMA] Extracted container-specific D&D free times: {free_times}")
                     else:
-                        # Fallback to general/combined match
+                        print("[CMA] D&D tab table not found/parsed. Attempting regex fallback.")
+                        # Regex fallback for flat string match if table parsing failed
+                        dd_text = await card.inner_text()
                         match = re.search(r'Import free time.*?(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
                         if match:
                             quote_ref["free_time"] = int(match.group(1))
+                            quote_ref["free_times"] = {
+                                "DRY 20": quote_ref["free_time"],
+                                "DRY 40": quote_ref["free_time"],
+                                "DRY 40H": quote_ref["free_time"]
+                            }
                             print(f"[CMA] Extracted Fallback Import Free Time: {quote_ref['free_time']} days")
-                        else:
-                            print("[CMA] D&D tab opened but could not parse free time.")
             except Exception as e:
                 print(f"[CMA] Error extracting free time from D&D: {e}")
 
@@ -1150,15 +1196,120 @@ class CMAConnector(BaseCarrierConnector):
                     self._current_voyage = voyage_match.group(1)
                     print(f"[CMA] Found Voyage Ref via text_content regex: {self._current_voyage}")
             
-            charges = []
-            
-            # Pattern matching key charge groups and their amounts/currencies dynamically
-            # The (?:[\d,\.]+\s+)? safely skips any optional BL costs (like "27") that appear before the currency
-            pattern = r'(Ocean Freight|Charges payable as per freight|Charges payable at import|Charges payable at export|Charges payable at origin|Charges payable at destination)\s+([\d,\.]+)\s+(?:[\d,\.]+\s+)?([A-Z]{3})'
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            
-            for name, amount_str, currency in matches:
-                amount = float(amount_str.replace(",", ""))
+            # Evaluate using JavaScript within the card context to parse the details table
+            charges = await self.current_card.evaluate('''card => {
+                const tables = Array.from(card.querySelectorAll('table'));
+                
+                // Find headers table (Table 0)
+                const headerTable = tables.find(t => {
+                    const text = t.innerText.toUpperCase();
+                    return text.includes('CHARGES DETAILS') || text.includes('20ST');
+                });
+                if (!headerTable) return null;
+                
+                // Find rows table (Table 1)
+                const rowsTable = tables.find(t => {
+                    const text = t.innerText.toUpperCase();
+                    return text.includes('OCEAN FREIGHT') || text.includes('CHARGES PAYABLE');
+                });
+                if (!rowsTable) return null;
+                
+                const headerRows = Array.from(headerTable.querySelectorAll('tr'));
+                if (headerRows.length === 0) return null;
+                
+                const headers = Array.from(headerRows[0].querySelectorAll('th, td')).map(el => el.innerText.trim().toUpperCase());
+                
+                // Locate columns
+                const colIndices = { name: 0, 'DRY 20': -1, 'DRY 40': -1, 'DRY 40H': -1, BL: -1, Currency: -1 };
+                headers.forEach((h, idx) => {
+                    if (h.includes('DETAIL') || h.includes('CHARGE') || h === '') {
+                        colIndices.name = idx;
+                    } else if (h.includes('20')) {
+                        colIndices['DRY 20'] = idx;
+                    } else if (h.includes('40ST') || h === '40ST' || (h.includes('40') && !h.includes('HC') && !h.includes('HIGH'))) {
+                        colIndices['DRY 40'] = idx;
+                    } else if (h.includes('40HC') || h.includes('HIGH CUBE') || h.includes('40H')) {
+                        colIndices['DRY 40H'] = idx;
+                    } else if (h === 'BL' || h.includes('B/L') || h.includes('LUMP')) {
+                        colIndices.BL = idx;
+                    } else if (h === 'CURRENCY' || h === 'CURR') {
+                        colIndices.Currency = idx;
+                    }
+                });
+                
+                // Fallback if index not found
+                if (colIndices['DRY 20'] === -1) colIndices['DRY 20'] = 1;
+                if (colIndices['DRY 40'] === -1) colIndices['DRY 40'] = 2;
+                if (colIndices['DRY 40H'] === -1) colIndices['DRY 40H'] = 3;
+                if (colIndices.BL === -1) colIndices.BL = 4;
+                if (colIndices.Currency === -1) colIndices.Currency = 5;
+                
+                const rows = Array.from(rowsTable.querySelectorAll('tr'));
+                const list = [];
+                for (let r = 0; r < rows.length; r++) {
+                    const cells = Array.from(rows[r].querySelectorAll('td, th')).map(el => el.innerText.trim());
+                    if (cells.length < 2) continue;
+                    
+                    const name = cells[colIndices.name] || '';
+                    if (!name || name.toUpperCase().includes('SUBTOTAL') || name.toUpperCase().includes('TOTAL')) {
+                        continue;
+                    }
+                    
+                    const curr = cells[colIndices.Currency] || 'USD';
+                    
+                    // Extract container-specific charges
+                    ['DRY 20', 'DRY 40', 'DRY 40H'].forEach(ct => {
+                        const valStr = cells[colIndices[ct]];
+                        if (valStr) {
+                            const val = parseFloat(valStr.replace(/,/g, ''));
+                            if (!isNaN(val) && val > 0) {
+                                list.push({
+                                    name: name,
+                                    amount: val,
+                                    currency: curr,
+                                    container_type: ct
+                                });
+                            }
+                        }
+                    });
+                    
+                    // Extract flat BL charges
+                    if (colIndices.BL !== -1) {
+                        const valStr = cells[colIndices.BL];
+                        if (valStr) {
+                            const val = parseFloat(valStr.replace(/,/g, ''));
+                            if (!isNaN(val) && val > 0) {
+                                list.push({
+                                    name: name,
+                                    amount: val,
+                                    currency: curr,
+                                    container_type: null // Flat charge
+                                });
+                            }
+                        }
+                    }
+                }
+                return list;
+            }''')
+
+            if not charges:
+                print("[CMA] Details table not found/parsed via JS. Attempting regex fallback.")
+                charges = []
+                pattern = r'(Ocean Freight|Charges payable as per freight|Charges payable at import|Charges payable at export|Charges payable at origin|Charges payable at destination)\s+([\d,\.]+)\s+(?:[\d,\.]+\s+)?([A-Z]{3})'
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                
+                for name, amount_str, currency in matches:
+                    amount = float(amount_str.replace(",", ""))
+                    charges.append({
+                        "name": name.strip(),
+                        "amount": amount,
+                        "currency": currency.upper(),
+                        "container_type": None
+                    })
+
+            # Classify categories on all extracted charges
+            for charge in charges:
+                name = charge["name"]
                 if "Ocean Freight" in name:
                     category = ChargeCategory.BASIC_OCEAN_FREIGHT
                 elif "as per freight" in name:
@@ -1169,29 +1320,77 @@ class CMAConnector(BaseCarrierConnector):
                     category = ChargeCategory.ORIGIN_CHARGE_EXCLUDED
                 else:
                     category = ChargeCategory.UNCERTAIN_EXCLUDED
-                
-                charges.append({
-                    "name": name.strip(),
-                    "amount": amount,
-                    "currency": currency.upper(),
-                    "category": category.value
-                })
-            
-            if not charges:
-                # Fallback: extract all rows from table
-                rows = self.current_card.locator('tr, [class*="charge-row"]')
-                for i in range(await rows.count()):
-                    row_text = await rows.nth(i).inner_text()
-                    amt_match = re.search(r'(\d[\d,]+)\s*$', row_text.strip())
-                    if amt_match:
-                        # Very crude fallback, better to use regex above
-                        pass
+                charge["category"] = category.value
 
             print(f"[CMA] Extracted {len(charges)} charge lines.")
             return charges
         except Exception as e:
             print(f"[CMA] Error extracting charges: {e}")
             return []
+
+    async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        """
+        Overrides base search runner to query all 3 sizes at once and cache the resulting quotes
+        across sequential container type cycles to save time.
+        """
+        if not hasattr(self, "_cached_quotes"):
+            self._cached_quotes = None
+            self._cached_status = None
+
+        if self._cached_quotes is not None:
+            print(f"[CMA] Returning cached quotes for '{request.container_type}' (avoiding redundant browser search).")
+            matching_quotes = [q for q in self._cached_quotes if q.container_type == request.container_type]
+            return self._cached_status, matching_quotes
+
+        quotes: list[QuoteSchema] = []
+        try:
+            # Step 1: Login
+            login_ok = await self.login()
+            if not login_ok:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.LOGIN_FAILED
+                return CarrierResultStatus.LOGIN_FAILED, []
+
+            # Step 2: Search quotes (always searches 20' Dry, 40' Dry, and 40' Dry High Cube with quantity 1)
+            search_status = await self.search_quotes(request)
+            if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                self._cached_quotes = []
+                self._cached_status = search_status
+                return search_status, []
+
+            # Step 3: Extract quote list
+            raw_quotes = await self.extract_quote_list()
+            if not raw_quotes:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+            # Step 4: For each quote, get breakdown, extract, and split
+            for raw_quote in raw_quotes:
+                try:
+                    opened = await self.open_price_breakdown(raw_quote)
+                    raw_charges = []
+                    if opened:
+                        raw_charges = await self.extract_charge_breakdown()
+                        
+                    split_quotes = await self._split_raw_quote_by_container_types(raw_quote, raw_charges)
+                    quotes.extend(split_quotes)
+                except Exception as e:
+                    print(f"[CMA] Error extracting quote: {e}")
+                    continue
+
+            self._cached_quotes = quotes
+            self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.EXTRACTION_FAILED
+            
+            # Filter and return quotes matching current request container type
+            matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+            return self._cached_status, matching_quotes
+
+        except Exception as e:
+            print(f"[CMA] Unexpected error in run_full_search: {e}")
+            return CarrierResultStatus.UNKNOWN_ERROR, []
+        finally:
+            await asyncio.shield(self.close())
 
     async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
         """
@@ -1246,6 +1445,8 @@ class CMAConnector(BaseCarrierConnector):
             transit_time_days=raw_quote.get("transit_time_days"),
             routing=raw_quote.get("routing", "Direct"),
             free_time=raw_quote.get("free_time"),
+            container_type=raw_quote.get("container_type"),
+            container_quantity=raw_quote.get("container_quantity", 1),
             service_name=raw_quote.get("service_name"),
             vessel=vessel,
             currency=raw_quote.get("currency", "USD"),
@@ -1256,6 +1457,64 @@ class CMAConnector(BaseCarrierConnector):
             source="carrier_portal",
             raw_reference=f"CMA-{raw_quote.get('index', 0)}"
         )
+
+    async def _split_raw_quote_by_container_types(self, raw_quote: dict, raw_charges: list[dict]) -> list[QuoteSchema]:
+        """
+        Splits a single raw multi-container quote card into multiple QuoteSchema objects,
+        one for each standard container type that has pricing.
+        """
+        # Separate container-specific charges from flat (Per B/L) charges
+        container_charges = {
+            "DRY 20": [],
+            "DRY 40": [],
+            "DRY 40H": []
+        }
+        flat_charges = []
+
+        for charge in raw_charges:
+            ct = charge.get("container_type")
+            if ct in container_charges:
+                container_charges[ct].append(charge)
+            else:
+                flat_charges.append(charge)
+
+        split_quotes = []
+        for std_ct, c_charges in container_charges.items():
+            # Check if there is Basic Ocean Freight for this type
+            bof_charge = next((c for c in c_charges if c["category"] == ChargeCategory.BASIC_OCEAN_FREIGHT.value), None)
+            if not bof_charge:
+                continue  # This container size is not available/N/A
+
+            # Build raw_charges list for this container type
+            split_raw_charges = []
+            for c in c_charges:
+                split_raw_charges.append({
+                    "name": c["name"],
+                    "amount": c["amount"],
+                    "currency": c["currency"],
+                    "category": c["category"]
+                })
+            for f in flat_charges:
+                split_raw_charges.append({
+                    "name": f["name"],
+                    "amount": f["amount"],
+                    "currency": f["currency"],
+                    "category": f["category"]
+                })
+
+            # Create local raw_quote dict with the correct container type
+            local_raw_quote = raw_quote.copy()
+            local_raw_quote["container_type"] = std_ct
+
+            # Extract specific free time if present
+            if "free_times" in raw_quote and isinstance(raw_quote["free_times"], dict):
+                local_raw_quote["free_time"] = raw_quote["free_times"].get(std_ct)
+
+            # Normalize using the local method
+            normalized = await self.normalize_result(local_raw_quote, split_raw_charges)
+            split_quotes.append(normalized)
+
+        return split_quotes
 
     async def close(self):
         try:
