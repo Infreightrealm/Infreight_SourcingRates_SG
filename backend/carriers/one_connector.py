@@ -1559,11 +1559,25 @@ class ONEConnector(BaseCarrierConnector):
                             current_name = candidate
                     continue
 
-                # This line has amounts — strip them to get the charge name from the line itself
-                stripped_line = multi_amount_pattern.sub("", line).strip()
+                # ONE renders one container's amount per line, each line carrying its
+                # own DRY 20 / DRY 40 / DRY 40H label. Detect that per-line label so the
+                # container basis can be assigned even when the line has a single amount.
+                line_ctype = None
+                for _ctype, _pat in COL_PATTERNS:
+                    if _pat.search(line):
+                        line_ctype = _ctype
+                        break
+
+                # This line has amounts — strip them AND any container label to recover the
+                # real charge name. If nothing meaningful is left (e.g. "DRY 20  USD ..."),
+                # keep the name carried over from the preceding charge-name line.
+                stripped_line = multi_amount_pattern.sub("", line)
+                for _ctype, _pat in COL_PATTERNS:
+                    stripped_line = _pat.sub("", stripped_line)
+                stripped_line = stripped_line.strip()
                 if stripped_line and not is_section_heading(stripped_line) and not is_container_line(stripped_line):
                     current_name = stripped_line
-                
+
                 name = current_name or f"Charge {len(charges) + 1}"
                 
                 # Classify charge
@@ -1583,23 +1597,24 @@ class ONEConnector(BaseCarrierConnector):
                     reason = "Forced Origin LandfreightRail override"
 
                 if len(all_amounts) == 1:
-                    # Single amount — flat charge, no container type assignment
+                    # Single amount on the line: use this line's own container label
+                    # (ONE's actual layout). Only genuinely label-less lines stay flat.
                     currency, amt_str = all_amounts[0]
                     charges.append({
                         "name": name,
-                        "basis": "",   # flat / applies to all
+                        "basis": line_ctype or "",
                         "amount": float(amt_str.replace(",", "")),
                         "currency": currency,
                         "category": category.value,
                         "reason": reason,
                     })
                 else:
-                    # Multiple amounts — assign each to a column in detected order
+                    # Multiple amounts on one line — assign each to a column in detected order
                     for col_idx, (currency, amt_str) in enumerate(all_amounts):
                         if col_idx < len(column_order):
                             basis = column_order[col_idx]
                         else:
-                            basis = ""  # Unexpected extra column
+                            basis = line_ctype or ""  # Unexpected extra column
                         charges.append({
                             "name": name,
                             "basis": basis,
