@@ -1291,26 +1291,22 @@ class ONEConnector(BaseCarrierConnector):
                     if status_match:
                         status = status_match.group(1).strip()
 
-                # Robust check for Sold Out status
-                is_sold_out = False
-                if status and "sold" in status.lower():
-                    is_sold_out = True
-                if "sold out" in normalized_text.lower() or "soldout" in normalized_text.lower() or "notify me" in normalized_text.lower():
-                    is_sold_out = True
-                if vessel == "---" or not vessel or vessel == "Sold out":
-                    is_sold_out = True
+                # RULE: Sold-out sailings are not bookable and must be excluded entirely.
+                # ONE flags them with a "Notify Me" button (bookable sailings show an
+                # "Accept" button instead) and/or a "Sold Out" status. Detect those
+                # signals and skip the card so it never becomes a quote. (We intentionally
+                # do NOT treat a missing/"---" vessel as sold-out — that can be a parse
+                # miss on an otherwise valid, bookable sailing.)
+                is_sold_out = (
+                    ("notify me" in normalized_text.lower())
+                    or ("sold out" in normalized_text.lower())
+                    or ("soldout" in normalized_text.lower())
+                    or (bool(status) and "sold" in status.lower())
+                )
 
                 if is_sold_out:
-                    if vessel and vessel != "---" and vessel != "Sold out":
-                        vessel = f"{vessel} (Sold out)"
-                    else:
-                        vessel = "Sold out"
-                        
-                    if not service_name or service_name == "---":
-                        service_name = "Sold out"
-                        
-                    status = "Sold Out"
-                    total_price = 0.0
+                    print(f"[ONE] Skipping sold-out card {index + 1} (Notify Me / Sold Out — not bookable).")
+                    continue
 
                 quotes.append({
                     "index": index,
