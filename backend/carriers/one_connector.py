@@ -36,6 +36,8 @@ class ONEConnector(BaseCarrierConnector):
     def __init__(self):
         super().__init__()
         self.playwright = None
+        self._cached_quotes = {}
+        self._cached_status = {}
 
     async def _init_browser(self):
         is_prod = os.name != "nt"
@@ -447,6 +449,75 @@ class ONEConnector(BaseCarrierConnector):
             return clean
         return text
 
+    async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        cache_key = (request.origin, request.destination, request.departure_date)
+        
+        # Check cache
+        if cache_key in self._cached_quotes:
+            cached_quotes = self._cached_quotes[cache_key]
+            cached_status = self._cached_status.get(cache_key, CarrierResultStatus.NO_QUOTES_AVAILABLE)
+            
+            # Filter quotes matching the requested container type
+            matched_quotes = [q for q in cached_quotes if q.container_type == request.container_type]
+            print(f"[ONE] Cache hit: Returning {len(matched_quotes)} quote(s) for {request.container_type}")
+            return cached_status, matched_quotes
+
+        quotes: list[QuoteSchema] = []
+        try:
+            # Step 1: Login
+            login_ok = await self.login()
+            if not login_ok:
+                return CarrierResultStatus.LOGIN_FAILED, []
+
+            # Step 2: Search
+            search_status = await self.search_quotes(request)
+            if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                return search_status, []
+
+            # Step 3: Extract quote list
+            raw_quotes = await self.extract_quote_list()
+            if not raw_quotes:
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+            # Step 4: For each quote, get breakdown and normalize/split
+            all_split_quotes = []
+            for raw_quote in raw_quotes:
+                try:
+                    opened = await self.open_price_breakdown(raw_quote)
+                    raw_charges = []
+                    if opened:
+                        raw_charges = await self.extract_charge_breakdown()
+                        
+                    # Split combined quotes by container types
+                    split_quotes = await self._split_raw_quote_by_container_types(raw_quote, raw_charges)
+                    if split_quotes:
+                        all_split_quotes.extend(split_quotes)
+                    else:
+                        normalized = await self.normalize_result(raw_quote, raw_charges)
+                        all_split_quotes.append(normalized)
+                except Exception as e:
+                    print(f"[ONE] Error extracting quote: {e}")
+                    continue
+
+            # Cache the results
+            self._cached_quotes[cache_key] = all_split_quotes
+            self._cached_status[cache_key] = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+            
+            # Filter quotes matching the requested container type
+            matched_quotes = [q for q in all_split_quotes if q.container_type == request.container_type]
+            print(f"[ONE] Returning {len(matched_quotes)} quote(s) for {request.container_type}")
+            
+            if matched_quotes:
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matched_quotes
+            else:
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+        except Exception as e:
+            print(f"[ONE] Unexpected error: {e}")
+            return CarrierResultStatus.UNKNOWN_ERROR, []
+        finally:
+            await asyncio.shield(self.close())
+
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             print("[ONE] Starting search, navigating to spot rate page...")
@@ -620,75 +691,132 @@ class ONEConnector(BaseCarrierConnector):
                 print("[ONE] Equipment dropdown is now enabled.")
             except Exception:
                 print("[ONE] Timed out waiting for equipment dropdown — proceeding anyway.")
+            target_containers = ["DRY 20", "DRY 40", "DRY 40H"]
 
-            one_container_label = self.CONTAINER_TYPE_MAP.get(request.container_type, request.container_type)
-            print(f"[ONE] Setting Equipment Type: '{request.container_type}' -> ONE label: '{one_container_label}'")
-            try:
-                equipment_field = self.page.get_by_role("combobox", name="Select an Equipment Type").first
-                await equipment_field.click()
-                await self.page.wait_for_timeout(800)
-
-                # Iterate through all visible options and find the best match
-                # (avoids apostrophe/quoting issues with filter(has_text=...))
-                eq_options = self.page.locator('[role="option"]:visible')
-                eq_count = await eq_options.count()
-                print(f"[ONE] Equipment dropdown opened: {eq_count} options visible")
-                eq_selected = False
-
-                def _norm_eq(s):
-                    return s.strip().upper().replace("\u2019", "'").replace("\u2018", "'")
-
-                label_norm = _norm_eq(one_container_label)
-
-                # Pass 1: exact match
-                for i in range(eq_count):
-                    opt = eq_options.nth(i)
-                    opt_text = (await opt.inner_text()).strip()
-                    if _norm_eq(opt_text) == label_norm:
-                        await opt.click()
-                        print(f"[ONE] Equipment selected (exact): '{opt_text}'")
-                        eq_selected = True
-                        break
-
-                # Pass 2: option text starts with our label (e.g. 'DRY 40H' matches 'DRY 40H STD')
-                if not eq_selected:
+            # Helper function to fill a container card at index `idx`
+            async def fill_container_card(idx: int, target_name: str, qty: int, weight: float):
+                # Locate all comboboxes semantically
+                raw_comboboxes = self.page.get_by_role("combobox")
+                dropdowns = []
+                for i in range(await raw_comboboxes.count()):
+                    field = raw_comboboxes.nth(i)
+                    name_attr = await field.get_attribute("name") or ""
+                    placeholder_attr = await field.get_attribute("placeholder") or ""
+                    aria_label = await field.get_attribute("aria-label") or ""
+                    text = (name_attr + " " + placeholder_attr + " " + aria_label).lower()
+                    if "location" in text or "commodity" in text or "search" in text:
+                        continue
+                    dropdowns.append(field)
+                    
+                if idx >= len(dropdowns):
+                    print(f"[ONE] Container row dropdown at index {idx} not found in semantic comboboxes.")
+                    return False
+                    
+                field = dropdowns[idx]
+                await field.scroll_into_view_if_needed()
+                
+                # Check if already selected
+                inner_txt = await field.inner_text() or ""
+                val_txt = await field.input_value() or ""
+                current_val = (inner_txt + " " + val_txt).lower()
+                
+                if target_name.lower() in current_val or target_name.replace(" ", "").lower() in current_val.replace(" ", ""):
+                    print(f"[ONE] Card {idx} already has '{target_name}' selected (current value: '{val_txt or inner_txt}').")
+                else:
+                    await field.click()
+                    await self.page.wait_for_timeout(800)
+                    
+                    # Iterate through all visible options and find the best match
+                    eq_options = self.page.locator('[role="option"]:visible')
+                    eq_count = await eq_options.count()
+                    print(f"[ONE] Card {idx} equipment options: {eq_count} visible")
+                    eq_selected = False
+                    
+                    def _norm_eq(s):
+                        return s.strip().upper().replace("\u2019", "'").replace("\u2018", "'")
+                        
+                    label_norm = _norm_eq(target_name)
+                    
+                    # Pass 1: exact match
                     for i in range(eq_count):
                         opt = eq_options.nth(i)
                         opt_text = (await opt.inner_text()).strip()
-                        opt_norm = _norm_eq(opt_text)
-                        if opt_norm.startswith(label_norm) or label_norm.startswith(opt_norm + " "):
+                        if _norm_eq(opt_text) == label_norm:
                             await opt.click()
-                            print(f"[ONE] Equipment selected (prefix): '{opt_text}'")
+                            print(f"[ONE] Equipment selected (exact): '{opt_text}'")
                             eq_selected = True
                             break
+                            
+                    # Pass 2: prefix match
+                    if not eq_selected:
+                        for i in range(eq_count):
+                            opt = eq_options.nth(i)
+                            opt_text = (await opt.inner_text()).strip()
+                            opt_norm = _norm_eq(opt_text)
+                            if opt_norm.startswith(label_norm) or label_norm.startswith(opt_norm + " "):
+                                await opt.click()
+                                print(f"[ONE] Equipment selected (prefix): '{opt_text}'")
+                                eq_selected = True
+                                break
+                                
+                    if not eq_selected:
+                        print(f"[ONE] Card {idx}: no match for '{target_name}'. Clicking first option.")
+                        if eq_count > 0:
+                            await eq_options.first.click()
+                            eq_selected = True
+                            
+                    await self.page.wait_for_timeout(500)
+                    
+                # Set Quantity
+                quantity_loc = self.page.locator('input[type="number"], input[aria-label*="quantity" i], input[name*="quantity" i], input[id*="quantity" i]')
+                if idx < await quantity_loc.count():
+                    q_field = quantity_loc.nth(idx)
+                    await q_field.scroll_into_view_if_needed()
+                    await q_field.click()
+                    await q_field.fill(str(qty))
+                    await self.page.wait_for_timeout(300)
+                    
+                # Set Weight
+                weight_loc = self.page.locator('input[placeholder="0"], input[aria-label*="weight" i], input[name*="weight" i], input[id*="weight" i]')
+                if idx < await weight_loc.count():
+                    w_field = weight_loc.nth(idx)
+                    await w_field.scroll_into_view_if_needed()
+                    await w_field.click()
+                    await w_field.fill(str(int(weight)))
+                    await w_field.press("Enter")
+                    await self.page.wait_for_timeout(300)
+                    
+                return True
 
-                if not eq_selected:
-                    available = [(await eq_options.nth(i).inner_text()).strip() for i in range(eq_count)]
-                    print(f"[ONE] Equipment: no match for '{one_container_label}'. Available: {available}")
-                    return CarrierResultStatus.INVALID_SEARCH_INPUT
-
-                await self.page.wait_for_timeout(750)
-            except Exception as e:
-                print(f"[ONE] Equipment combobox failed: {e}")
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
-
-            print(f"[ONE] Setting Quantity: {request.container_quantity}")
-            try:
-                quantity_field = self.page.locator('input[type="number"], input[aria-label*="quantity" i], input[name*="quantity" i], input[id*="quantity" i]').first
-                await quantity_field.wait_for(state="visible", timeout=10_000)
-                await quantity_field.fill(str(request.container_quantity))
-            except Exception:
-                print("[ONE] Quantity field not directly editable — continuing")
-
-            print(f"[ONE] Setting Cargo Weight: {int(request.weight_per_container_kg)}")
-            try:
-                weight_field = self.page.locator('input[placeholder="0"], input[aria-label*="weight" i], input[name*="weight" i], input[id*="weight" i]').first
-                await weight_field.wait_for(state="visible", timeout=10_000)
-                await weight_field.fill(str(int(request.weight_per_container_kg)))
-                await weight_field.press("Enter")
-            except Exception as e:
-                print(f"[ONE] Cargo weight field failed: {e}")
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
+            for idx, target_name in enumerate(target_containers):
+                if idx > 0:
+                    # Click "+ Add container"
+                    add_btn = None
+                    for text_query in ["+ Add container", "Add container"]:
+                        try:
+                            loc = self.page.get_by_text(text_query).first
+                            if await loc.is_visible(timeout=1000):
+                                add_btn = loc
+                                break
+                        except Exception:
+                            continue
+                            
+                    if add_btn:
+                        await add_btn.click(force=True)
+                        await self.page.wait_for_timeout(1500)
+                        print(f"[ONE] Clicked '+ Add container' button for index {idx}.")
+                    else:
+                        print(f"[ONE] Warning: '+ Add container' button not visible for index {idx}.")
+                        break
+                        
+                success = await fill_container_card(
+                    idx,
+                    target_name,
+                    1,
+                    request.weight_per_container_kg or 20000
+                )
+                if not success:
+                    print(f"[ONE] Warning: Failed to fill container card {idx}.")
 
             # Wait for any loading dialogs/spinners to disappear before proceeding to commodity selection (excl. persistent widgets like toast/sonner/heap/productfruits)
             try:
@@ -1354,8 +1482,15 @@ class ONEConnector(BaseCarrierConnector):
                     category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
                     reason = "Forced Origin LandfreightRail override to freight surcharge"
 
+                # Extract container basis if present in the line (e.g. "DRY 20", "DRY 40", "DRY 40H")
+                basis = ""
+                container_match = re.search(r'(DRY \d+H?|DRY \d+[A-Z]?|DRY\s*\d+\s*[A-Z]?)', line, re.IGNORECASE)
+                if container_match:
+                    basis = container_match.group(1).upper().strip()
+
                 charges.append({
                     "name": name,
+                    "basis": basis,
                     "amount": amount,
                     "currency": currency,
                     "category": category.value,
@@ -1466,6 +1601,64 @@ class ONEConnector(BaseCarrierConnector):
                 print(f"[ONE] Warning: Failed to apply freetime from cache: {e}")
                 
         return quote_schema
+
+    async def _split_raw_quote_by_container_types(self, raw_quote: dict, raw_charges: list[dict]) -> list[QuoteSchema]:
+        """
+        Splits a single raw multi-container quote card into multiple QuoteSchema objects,
+        one for each standard container type that has pricing.
+        """
+        container_charges = {
+            "DRY 20": [],
+            "DRY 40": [],
+            "DRY 40H": []
+        }
+        
+        flat_charges = []
+        
+        from models.schemas import ChargeCategory
+        
+        for charge in raw_charges:
+            basis = charge.get("basis", "").upper()
+            
+            # Map basis to DRY 20, DRY 40, DRY 40H
+            c_type = None
+            if "20" in basis:
+                c_type = "DRY 20"
+            elif "40" in basis:
+                if "HIGH" in basis or "HC" in basis or "HQ" in basis or "40H" in basis:
+                    c_type = "DRY 40H"
+                else:
+                    c_type = "DRY 40"
+            
+            if c_type:
+                container_charges[c_type].append(charge)
+            else:
+                flat_charges.append(charge)
+                
+        # Now, create a QuoteSchema for each container type that has ocean freight
+        quotes = []
+        
+        for c_type, c_charges in container_charges.items():
+            # Check if we have basic ocean freight or any container-specific charge for this container type
+            basic_freight = sum(c["amount"] for c in c_charges if c["category"] == ChargeCategory.BASIC_OCEAN_FREIGHT.value)
+            
+            # If no charges at all for this container size, skip it
+            if not c_charges and basic_freight == 0:
+                continue
+                
+            # Combine container-specific charges and flat charges
+            all_charges_for_size = c_charges + flat_charges
+            
+            # Create a copy of raw_quote for this container type
+            raw_quote_copy = raw_quote.copy()
+            raw_quote_copy["container_type"] = c_type
+            raw_quote_copy["container_quantity"] = 1
+            
+            # Normalize the charges for this container size
+            normalized = await self.normalize_result(raw_quote_copy, all_charges_for_size)
+            quotes.append(normalized)
+            
+        return quotes
 
     async def close(self):
         try:
