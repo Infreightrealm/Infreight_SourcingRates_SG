@@ -781,17 +781,24 @@ class GreenXConnector(BaseCarrierConnector):
                 free_time_text = await card.inner_text()
                 if "Tariff Free Time at Destination" in free_time_text:
                     dest_part = free_time_text.split("Tariff Free Time at Destination")[1]
-                    # Destination free time is labelled differently per terminal — e.g.
-                    # GATEWAY TERMINALS INDIA (Nhava Sheva) reports "Container Usage",
-                    # others "Container Detention"/"Demurrage"/"Storage". Match the first
-                    # of any of these so the value is not dropped.
-                    det_match = re.search(
-                        r"Container\s+(?:Usage|Detention|Demurrage|Storage)\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days",
+                    # Preference: use "Container Detention" when the terminal lists it.
+                    # If there is no Detention line (e.g. GATEWAY TERMINALS INDIA at Nhava
+                    # Sheva only shows "Container Usage"), fall back to the COMBINED days —
+                    # the sum of the other free-time components shown at destination.
+                    det = re.search(
+                        r"Container\s+Detention\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days",
                         dest_part, re.IGNORECASE)
-                    if det_match:
-                        quote_ref["free_time"] = int(det_match.group(1))
-                        if os.getenv("GREENX_DEBUG", "").lower() == "true":
-                            print(f"[GreenX] Extracted free time detention: {quote_ref['free_time']} days")
+                    if det:
+                        quote_ref["free_time"] = int(det.group(1))
+                    else:
+                        others = re.findall(
+                            r"Container\s+(?:Usage|Demurrage|Storage|Combined)\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days",
+                            dest_part, re.IGNORECASE)
+                        if others:
+                            quote_ref["free_time"] = sum(int(x) for x in others)
+                    if quote_ref.get("free_time") is not None and os.getenv("GREENX_DEBUG", "").lower() == "true":
+                        print(f"[GreenX] Extracted destination free time: {quote_ref['free_time']} days "
+                              f"({'detention' if det else 'combined'})")
             
             return True
         except Exception as e:
