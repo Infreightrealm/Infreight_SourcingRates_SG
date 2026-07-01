@@ -5,7 +5,14 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
-## [2026-06-30] — ONE Multi-Container & Sold-Out, GreenX Surcharge Intake, Maersk Diagnosis
+## [2026-06-30] — ONE Multi-Container & Sold-Out, GreenX Surcharge Intake, Free-Time Fixes, Maersk Diagnosis
+
+### Free Time — GreenX blank, ONE India wrong, Hapag Nhava Sheva unresolved (Singapore → Nhava Sheva)
+- **GreenX — destination free time came back blank.** `open_price_breakdown` only matched `Container Detention` in the "Tariff Free Time at Destination" section, but the Nhava Sheva terminal (GATEWAY TERMINALS INDIA / GTI) labels it **`Container Usage`** (5 days). Widened the regex to match the first of `Usage | Detention | Demurrage | Storage`, so the 5-day value is captured. *File: `backend/carriers/greenx_connector.py`.*
+- **ONE — India free time was 5, should be 7.** `one_freetime.json` values are genuine per-country figures (TW=3, CN=7, KR=10, …), so the `IN: 5` entry was simply wrong. Corrected India to **7** across all origin continents (import free time to India is origin-independent in this dataset). *File: `backend/data/one_freetime.json`.*
+- **Hapag — Nhava Sheva didn't map to the logged `India` entry.** India *is* in `hapag_freetime.json` (4 days), and `INNSA → IN → India` exists in `port_codes.json`/`country_map.json`, but `_apply_freetime_to_quote` only matched by port-name substring — so `"Nhava Sheva (INNSA) [ZIP: …]"` or a bare locode never resolved. Added a locode fallback that picks the first 5-letter token which is a *known* port code (skipping "NHAVA" in favour of "INNSA"), maps it to its country name, and falls back to `resolve_port_for_carrier`. Nhava Sheva now resolves to India (4 days) for all destination forms. *File: `backend/carriers/hapag_lloyd_connector.py`.*
+
+
 
 ### ONE — All-Container-Type Search Returning 0 Quotes
 - **Bug:** A combined 20GP / 40GP / 40HQ (`DRY 20` / `DRY 40` / `DRY 40H`) search logged in, found 12 quote cards, and parsed 65 charge lines per card, yet the frontend showed **no quotes** for any container type (and the Excel export had no data). Logs showed `[ONE] Returning 0 quote(s)` for all three types.

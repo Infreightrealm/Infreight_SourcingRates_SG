@@ -781,7 +781,13 @@ class GreenXConnector(BaseCarrierConnector):
                 free_time_text = await card.inner_text()
                 if "Tariff Free Time at Destination" in free_time_text:
                     dest_part = free_time_text.split("Tariff Free Time at Destination")[1]
-                    det_match = re.search(r"Container\s+Detention\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days", dest_part, re.IGNORECASE)
+                    # Destination free time is labelled differently per terminal — e.g.
+                    # GATEWAY TERMINALS INDIA (Nhava Sheva) reports "Container Usage",
+                    # others "Container Detention"/"Demurrage"/"Storage". Match the first
+                    # of any of these so the value is not dropped.
+                    det_match = re.search(
+                        r"Container\s+(?:Usage|Detention|Demurrage|Storage)\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days",
+                        dest_part, re.IGNORECASE)
                     if det_match:
                         quote_ref["free_time"] = int(det_match.group(1))
                         if os.getenv("GREENX_DEBUG", "").lower() == "true":

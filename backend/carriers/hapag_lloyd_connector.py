@@ -3297,6 +3297,30 @@ class HapagLloydConnector(BaseCarrierConnector):
                                     ccode = pdata.get("country", "")
                                     cname = cmap.get(ccode, "").lower()
                                     expanded_dest += f" {pname} {ccode.lower()} {cname} {'usa' if ccode == 'US' else ''}"
+
+                            # Robust fallback: resolve the destination to a UN/LOCODE and map
+                            # THAT to its country name. Handles destinations given as a bare
+                            # locode ("INNSA") or "Nhava Sheva (INNSA) [ZIP: ...]" where the
+                            # port-name substring match above does not fire.
+                            # Pick the first 5-letter token that is actually a known port
+                            # code (so "NHAVA" in the name is skipped in favour of "INNSA").
+                            dest_code = None
+                            for cand in re.findall(r"[A-Z]{5}", request.destination.upper()):
+                                if cand in pcodes:
+                                    dest_code = cand
+                                    break
+                            if not dest_code:
+                                try:
+                                    resolved = resolve_port_for_carrier(request.destination, "hapag")
+                                    if resolved and len(resolved) == 5 and resolved.upper() in pcodes:
+                                        dest_code = resolved.upper()
+                                except Exception:
+                                    pass
+                            if dest_code:
+                                ccode = pcodes[dest_code].get("country", "")
+                                cname = cmap.get(ccode, "").lower()
+                                if cname:
+                                    expanded_dest += f" {dest_code.lower()} {ccode.lower()} {cname}"
                 except Exception as e:
                     print(f"[HAPAG] Port expansion fallback error: {e}")
 
