@@ -1525,6 +1525,40 @@ class ONEConnector(BaseCarrierConnector):
             current_name = ""
             section_heading = "unknown"
 
+            # ONE renders each container's charge as a structured token:
+            #   "DRY 20 x 1 (USD 2,370.00)"  -> size + quantity + UNIT price
+            # The right-aligned total shown next to it (on the same line OR the following
+            # line) is just quantity*unit repeated. We compute the amount from THIS token
+            # and ignore the redundant total, which prevents the previous triple-counting
+            # (where one container's two amounts leaked into other columns / became a flat
+            # charge added to every container). This also handles the fully-horizontal
+            # layout where all three tokens sit on one line.
+            container_token = re.compile(
+                r"DRY\s*(20|40\s*H|40)\s*x\s*(\d+)\s*\(\s*[A-Z]{3}\s*([\d,]+\.\d{2})\s*\)",
+                re.IGNORECASE,
+            )
+
+            def _canon_ctype(raw: str) -> str:
+                r = raw.upper().replace(" ", "")
+                if r == "20":
+                    return "DRY 20"
+                if r == "40H":
+                    return "DRY 40H"
+                return "DRY 40"
+
+            def _classify(nm: str):
+                cat, rsn = classify_charge(nm, 0, section_heading)
+                nc = " ".join(nm.lower().split())
+                if "emergency surcharge" in nc:
+                    return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Surcharge override"
+                if "premium cargo service" in nc:
+                    return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Premium Cargo Service override"
+                if "emergency fuel originrail" in nc:
+                    return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Fuel OriginRail override"
+                if "origin landfreightrail" in nc:
+                    return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Origin LandfreightRail override"
+                return cat, rsn
+
             for index, line in enumerate(lines):
                 if is_stop_line(line):
                     if _one_debug:
@@ -1535,90 +1569,66 @@ class ONEConnector(BaseCarrierConnector):
                     section_heading = line.strip().lower()
                     continue
 
-                # Check if this line is a container type header line (skip it, we already parsed it)
-                is_ct_header = False
-                for ctype, pat in COL_PATTERNS:
-                    if pat.search(line):
-                        is_ct_header = True
-                        break
-                if is_ct_header and not multi_amount_pattern.search(line):
-                    continue  # Pure header line (no amounts)
+                # 1) Structured per-container tokens (authoritative). amount = qty * unit,
+                #    assigned to the container named in the token. Any trailing total on the
+                #    line is intentionally ignored.
+                token_matches = container_token.findall(line)
+                if token_matches:
+                    name = current_name or f"Charge {len(charges) + 1}"
+                    category, reason = _classify(name)
+                    for size_raw, qty_str, unit_str in token_matches:
+                        qty = int(qty_str) if qty_str.isdigit() else 1
+                        unit = float(unit_str.replace(",", ""))
+                        charges.append({
+                            "name": name,
+                            "basis": _canon_ctype(size_raw),
+                            "amount": round(unit * qty, 2),
+                            "currency": "USD",
+                            "category": category.value,
+                            "reason": reason,
+                        })
+                    continue
 
-                # Detect ALL amounts on this line
                 all_amounts = multi_amount_pattern.findall(line)
-                
                 if not all_amounts:
-                    # This is a charge name line (no amount)
-                    if not is_section_heading(line) and not is_container_line(line):
+                    # Charge-name line (no amount) — remember it for the rows that follow.
+                    if not is_container_line(line):
                         candidate = line.strip()
                         if candidate:
                             current_name = candidate
                     continue
 
-                # ONE renders one container's amount per line, each line carrying its
-                # own DRY 20 / DRY 40 / DRY 40H label. Detect that per-line label so the
-                # container basis can be assigned even when the line has a single amount.
+                # 2) Amounts present but no structured token. Detect a bare container label
+                #    and strip amounts/labels to see if any real charge name remains.
                 line_ctype = None
                 for _ctype, _pat in COL_PATTERNS:
                     if _pat.search(line):
                         line_ctype = _ctype
                         break
-
-                # This line has amounts — strip them AND any container label to recover the
-                # real charge name. If nothing meaningful is left (e.g. "DRY 20  USD ..."),
-                # keep the name carried over from the preceding charge-name line.
-                stripped_line = multi_amount_pattern.sub("", line)
+                stripped = multi_amount_pattern.sub("", line)
                 for _ctype, _pat in COL_PATTERNS:
-                    stripped_line = _pat.sub("", stripped_line)
-                stripped_line = stripped_line.strip()
-                if stripped_line and not is_section_heading(stripped_line) and not is_container_line(stripped_line):
-                    current_name = stripped_line
+                    stripped = _pat.sub("", stripped)
+                stripped = stripped.strip(" \t-–—:|xX0123456789().,")
 
+                # A line that is only a bare right-aligned total (e.g. "USD 2,370.00") with
+                # no container label was already captured by the structured token above —
+                # skip it so it is never double-counted or turned into a flat charge.
+                if not stripped and not line_ctype:
+                    continue
+
+                if stripped and not is_section_heading(stripped) and not is_container_line(stripped):
+                    current_name = stripped
                 name = current_name or f"Charge {len(charges) + 1}"
-                
-                # Classify charge
-                category, reason = classify_charge(name, 0, section_heading)
-                name_clean = " ".join(name.lower().split())
-                if "emergency surcharge" in name_clean:
-                    category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
-                    reason = "Forced Emergency Surcharge override"
-                if "premium cargo service" in name_clean:
-                    category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
-                    reason = "Forced Premium Cargo Service override"
-                if "emergency fuel originrail" in name_clean:
-                    category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
-                    reason = "Forced Emergency Fuel OriginRail override"
-                if "origin landfreightrail" in name_clean:
-                    category = ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
-                    reason = "Forced Origin LandfreightRail override"
-
-                if len(all_amounts) == 1:
-                    # Single amount on the line: use this line's own container label
-                    # (ONE's actual layout). Only genuinely label-less lines stay flat.
-                    currency, amt_str = all_amounts[0]
-                    charges.append({
-                        "name": name,
-                        "basis": line_ctype or "",
-                        "amount": float(amt_str.replace(",", "")),
-                        "currency": currency,
-                        "category": category.value,
-                        "reason": reason,
-                    })
-                else:
-                    # Multiple amounts on one line — assign each to a column in detected order
-                    for col_idx, (currency, amt_str) in enumerate(all_amounts):
-                        if col_idx < len(column_order):
-                            basis = column_order[col_idx]
-                        else:
-                            basis = line_ctype or ""  # Unexpected extra column
-                        charges.append({
-                            "name": name,
-                            "basis": basis,
-                            "amount": float(amt_str.replace(",", "")),
-                            "currency": currency,
-                            "category": category.value,
-                            "reason": reason,
-                        })
+                category, reason = _classify(name)
+                currency, amt_str = all_amounts[-1]  # right-aligned total is the last amount
+                charges.append({
+                    "name": name,
+                    "basis": line_ctype or "",   # "" = genuine flat / per-B/L charge
+                    "amount": float(amt_str.replace(",", "")),
+                    "currency": currency,
+                    "category": category.value,
+                    "reason": reason,
+                })
 
             print(f"[ONE] Parsed {len(charges)} charge line(s) (columns: {column_order})")
             return charges
