@@ -229,6 +229,84 @@ class HapagLloydConnector(BaseCarrierConnector):
     async def _human_delay(self, min_ms=500, max_ms=1500):
         await self.page.wait_for_timeout(random.randint(min_ms, max_ms))
 
+    async def _attempt_captcha_autoclear(self) -> bool:
+        """
+        Best-effort automated CAPTCHA/Turnstile clearing, tried BEFORE escalating
+        to a manual VNC solve. Two steps:
+          1. Give a passive challenge a few seconds to resolve itself — with a clean
+             fingerprint + residential proxy, Turnstile often auto-passes with no click.
+          2. If an interactive Turnstile/checkbox widget is present, click it once
+             with human-like mouse motion.
+        Returns True only if the challenge actually cleared. Never raises for
+        non-fatal issues, so the caller can always fall through to the manual path.
+        Page-closed/crashed errors are re-raised so teardown is handled upstream.
+        """
+        try:
+            # Step 1 — passive auto-resolve window.
+            for _ in range(4):
+                await asyncio.sleep(1.5)
+                if not await self.check_captcha_challenge():
+                    print("[HAPAG] Challenge cleared passively (no interaction needed).")
+                    return True
+
+            # Step 2 — best-effort human-like checkbox click.
+            if await self._click_turnstile_checkbox():
+                print("[HAPAG] Attempted human-like Turnstile click; waiting for verdict...")
+                for _ in range(5):
+                    await asyncio.sleep(1.5)
+                    if not await self.check_captcha_challenge():
+                        print("[HAPAG] Challenge cleared after checkbox click.")
+                        return True
+            return False
+        except Exception as e:
+            if any(k in str(e).lower() for k in ("closed", "crashed", "target")):
+                raise
+            print(f"[HAPAG] Auto-clear attempt error (falling back to manual): {e}")
+            return False
+
+    async def _click_turnstile_checkbox(self) -> bool:
+        """
+        Locate the Cloudflare Turnstile / challenge widget and click its checkbox
+        using a REAL mouse click at the widget's bounding box (trusted input events),
+        which Cloudflare is far more likely to accept than a synthetic .click().
+        Best-effort only — returns True if a click was dispatched, False otherwise.
+        """
+        try:
+            container_selectors = [
+                '#cf-turnstile',
+                '.cf-turnstile',
+                'div[class*="turnstile" i]',
+                'iframe[src*="challenges.cloudflare.com" i]',
+                'iframe[title*="challenge" i]',
+                'iframe[src*="turnstile" i]',
+            ]
+            box = None
+            for sel in container_selectors:
+                try:
+                    el = self.page.locator(sel).first
+                    if await el.count() and await el.is_visible(timeout=800):
+                        box = await el.bounding_box()
+                        if box and box.get("width") and box.get("height"):
+                            break
+                except Exception:
+                    continue
+            if not box:
+                return False
+
+            # The checkbox sits near the left edge, vertically centered.
+            target_x = box["x"] + 28
+            target_y = box["y"] + box["height"] / 2
+
+            # Human-like approach: glide in over a few steps, small pause, then click.
+            await self.page.mouse.move(target_x - 45, target_y - 14, steps=8)
+            await self._human_delay(180, 420)
+            await self.page.mouse.move(target_x, target_y, steps=6)
+            await self._human_delay(120, 300)
+            await self.page.mouse.click(target_x, target_y, delay=random.randint(45, 110))
+            return True
+        except Exception:
+            return False
+
     async def _wait_for_captcha_resolution(self, timeout_sec=240) -> bool:
         """
         Helper that pauses execution if a CAPTCHA challenge is detected,
@@ -244,6 +322,17 @@ class HapagLloydConnector(BaseCarrierConnector):
             if "closed" in str(e).lower() or "crashed" in str(e).lower() or "target" in str(e).lower():
                 raise
             return False
+
+        # Best-effort automated clear (passive auto-resolve + human-like Turnstile
+        # click) before escalating to a manual solve. Falls through to the manual
+        # VNC wait below if it doesn't clear — so this can only help, never hurt.
+        try:
+            if await self._attempt_captcha_autoclear():
+                self.captcha_detected = False
+                return False
+        except Exception as e:
+            if any(k in str(e).lower() for k in ("closed", "crashed", "target")):
+                raise
 
         print("[HAPAG] [ACTION REQUIRED] CAPTCHA / bot challenge page detected! Pausing crawler. Please look at the VNC tab to solve it.")
         
@@ -310,10 +399,19 @@ class HapagLloydConnector(BaseCarrierConnector):
         # If onboarding has already been dismissed this session, just do a single quick check
         # for other generic modals, rather than running the full 5-step onboarding loop.
         if self._onboarding_dismissed:
+            # Debounce: several call sites invoke this back-to-back per sailing. If the
+            # last pass ran very recently AND found nothing, skip the repeat JS work.
+            # If the last pass actually dismissed something, we do NOT skip, so a real
+            # popup is never missed.
+            now = asyncio.get_event_loop().time()
+            if (now - getattr(self, "_last_clean_dismiss_ts", 0.0)) < 2.5:
+                return False
             try:
-                await self._run_modal_dismissal_pass()
-            except:
-                pass
+                found = await self._run_modal_dismissal_pass()
+            except Exception:
+                found = False
+            if not found:
+                self._last_clean_dismiss_ts = now
             return False
 
         print("[HAPAG] Dismissing any obscuring modal popups or onboarding wizards...")
