@@ -781,6 +781,10 @@ class GreenXConnector(BaseCarrierConnector):
                 free_time_text = await card.inner_text()
                 if "Tariff Free Time at Destination" in free_time_text:
                     dest_part = free_time_text.split("Tariff Free Time at Destination")[1]
+                    # We report DESTINATION free time only — never origin. Cut off any
+                    # "Tariff Free Time at Origin" section that might follow so origin
+                    # components (e.g. PSA Singapore's Detention/Demurrage) can't leak in.
+                    dest_part = re.split(r"Tariff Free Time at Origin", dest_part, flags=re.IGNORECASE)[0]
                     # Preference: use "Container Detention" when the terminal lists it.
                     # If there is no Detention line (e.g. GATEWAY TERMINALS INDIA at Nhava
                     # Sheva only shows "Container Usage"), fall back to the COMBINED days —
