@@ -74,7 +74,13 @@ class CMAConnector(BaseCarrierConnector):
         print(f"[CMA] Creating temp isolated profile: {self.temp_profile_dir}")
         if os.path.exists(self.master_profile_dir):
             try:
-                shutil.copytree(self.master_profile_dir, self.temp_profile_dir, dirs_exist_ok=True)
+                # Skip throwaway Chrome caches on clone (Chromium regenerates them);
+                # session identity (Cookies / Local Storage / IndexedDB) is still copied.
+                shutil.copytree(
+                    self.master_profile_dir, self.temp_profile_dir, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns(
+                        "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
+                )
                 lock_files = ["SingletonLock", "lock", "SingletonCookie"]
                 for root_dir, _, filenames in os.walk(self.temp_profile_dir):
                     for filename in filenames:
@@ -1538,7 +1544,12 @@ class CMAConnector(BaseCarrierConnector):
                         except Exception:
                             pass
                     try:
-                        shutil.copytree(self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True)
+                        # Never copy throwaway caches back to master (avoids storage bloat + sync I/O).
+                        shutil.copytree(
+                            self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns(
+                                "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
+                        )
                         # Remove lock files from the saved master copy
                         lock_files = ["SingletonLock", "lock", "SingletonCookie"]
                         for root_dir, _, filenames in os.walk(self.master_profile_dir):

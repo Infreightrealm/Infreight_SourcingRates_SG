@@ -495,7 +495,13 @@ class MaerskConnector(BaseCarrierConnector):
         print(f"[MAERSK] Creating temporary isolated profile directory: {self.temp_profile_dir}")
         if os.path.exists(self.master_profile_dir):
             try:
-                shutil.copytree(self.master_profile_dir, self.temp_profile_dir, dirs_exist_ok=True)
+                # Skip throwaway Chrome caches on clone (Chromium regenerates them);
+                # session identity (Cookies / Local Storage / IndexedDB) is still copied.
+                shutil.copytree(
+                    self.master_profile_dir, self.temp_profile_dir, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns(
+                        "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
+                )
                 # Remove Chromium singleton lock files to avoid launch blocks
                 lock_files = ["SingletonLock", "lock", "SingletonCookie"]
                 for root_dir, _, filenames in os.walk(self.temp_profile_dir):
@@ -2967,7 +2973,12 @@ class MaerskConnector(BaseCarrierConnector):
                             pass
                     # Copy temp directory contents back to master
                     try:
-                        shutil.copytree(self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True)
+                        # Never copy throwaway caches back to master (avoids storage bloat + sync I/O).
+                        shutil.copytree(
+                            self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns(
+                                "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
+                        )
                         # Remove Chromium lock files from the master copy
                         lock_files = ["SingletonLock", "lock", "SingletonCookie"]
                         for root_dir, _, filenames in os.walk(self.master_profile_dir):

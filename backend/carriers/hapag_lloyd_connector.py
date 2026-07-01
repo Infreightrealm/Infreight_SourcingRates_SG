@@ -105,7 +105,14 @@ class HapagLloydConnector(BaseCarrierConnector):
         print(f"[HAPAG] Creating temp isolated profile: {self.temp_profile_dir}")
         if os.path.exists(self.master_profile_dir):
             try:
-                shutil.copytree(self.master_profile_dir, self.temp_profile_dir, dirs_exist_ok=True)
+                # Skip heavy throwaway Chrome caches when cloning — Chromium regenerates
+                # them, so copying only bloats launch I/O and disk. Session identity
+                # (Cookies / Local Storage / IndexedDB) is still copied intact.
+                shutil.copytree(
+                    self.master_profile_dir, self.temp_profile_dir, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns(
+                        "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
+                )
                 lock_files = ["SingletonLock", "lock", "SingletonCookie"]
                 for root_dir, _, filenames in os.walk(self.temp_profile_dir):
                     for filename in filenames:
@@ -3437,10 +3444,17 @@ class HapagLloydConnector(BaseCarrierConnector):
         if self.temp_profile_dir and self.master_profile_dir and self.is_login_successful:
             try:
                 print("[HAPAG] Syncing temp profile back to master...")
-                shutil.copytree(self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True)
+                # Never copy the throwaway caches back to master — this is the main
+                # source of the multi-GB storage bloat and wasted sync I/O.
+                shutil.copytree(
+                    self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns(
+                        "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
+                )
                 print("[HAPAG] Master profile updated successfully.")
-                
-                # Auto-clean heavy cache directories to prevent 5GB storage bloat
+
+                # Safety net: remove any stale cache dirs left in master (e.g. from an
+                # earlier crashed run). New caches are already excluded by the copy above.
                 cache_dirs = ["Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"]
                 for root_dir, dirs, _ in os.walk(self.master_profile_dir):
                     for d in list(dirs):
