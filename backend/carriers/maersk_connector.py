@@ -1175,6 +1175,8 @@ class MaerskConnector(BaseCarrierConnector):
                     
                     # 0. Hardcoded overrides for problematic cities to bypass autocomplete overlaps
                     raw_lower = raw_input.lower()
+                    if "dallas" in raw_lower or "usdal" in raw_lower:
+                        return "Dallas (Texas), United States"
                     if "aden" in raw_lower or "yeade" in raw_lower:
                         return "Aden, Yemen"
                     if "karachi" in raw_lower:

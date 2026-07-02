@@ -49,6 +49,7 @@ CARRIER_PORT_OVERRIDES = {
         "KNPNH": "Phnom Penh, Cambodia",
         "TLDIL": "Dili, Timor Leste",
         "CNXMN": "Xiamen (Fujian), China",
+        "USDAL": "Dallas (Texas), United States",
     },
     "one": {
         "VNHPH": "Hai Phong",
@@ -768,6 +769,12 @@ class PortManager:
         carrier_key = carrier.strip().lower()
 
         text_lower = text.lower().strip()
+        if "dallas" in text_lower or text_lower == "usdal":
+            if carrier_key == "maersk":
+                return "Dallas (Texas), United States"
+            else:
+                return "USDAL"
+
         if "rotterdam" in text_lower or text_lower == "nlrtm":
             if carrier_key in ("maersk", "msc"):
                 return "Rotterdam"
