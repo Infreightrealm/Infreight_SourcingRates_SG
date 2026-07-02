@@ -475,3 +475,29 @@ class OOCLConnector(BaseCarrierConnector):
         raw_quote["etd"] = standardize_date_string(raw_quote.get("etd"))
         raw_quote["eta"] = standardize_date_string(raw_quote.get("eta"))
         return QuoteSchema(**raw_quote)
+
+    async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        """
+        OOCL schedules do not vary by container type, so a multi-container search
+        only needs ONE schedule crawl. Cache the first cycle's result and serve the
+        remaining container-type cycles from it (deep copies stamped with the
+        requested type), instead of re-running the full schedule search per cycle.
+        Only definitive outcomes are cached — transient errors are retried.
+        """
+        if not hasattr(self, "_cached_quotes"):
+            self._cached_quotes = None
+            self._cached_status = None
+
+        if self._cached_quotes is not None:
+            print(f"[OOCL] Returning cached schedule quotes for '{request.container_type}' "
+                  f"(single crawl serves all container cycles).")
+            return self._cached_status, [
+                q.model_copy(deep=True, update={"container_type": request.container_type})
+                for q in self._cached_quotes
+            ]
+
+        status, quotes = await super().run_full_search(request)
+        if status in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.NO_QUOTES_AVAILABLE):
+            self._cached_quotes = quotes
+            self._cached_status = status
+        return status, quotes

@@ -565,7 +565,10 @@ class GreenXConnector(BaseCarrierConnector):
             print("[GreenX] Scrolling to the bottom of the page to load all quotes...")
             prev_count = 0
             for scroll_attempt in range(15):
-                card_buttons = self.page.locator('button:has-text("Route Details"):visible')
+                # Match links as well as buttons — GreenX renders the detail tabs as <a>
+                # links; the button-only selector found 0 cards and reported "No Quotes"
+                # even though results were visibly loaded (search_quotes already accepts both).
+                card_buttons = self.page.locator('button:has-text("Route Details"):visible, a:has-text("Route Details"):visible')
                 count = await card_buttons.count()
                 if os.getenv("GREENX_DEBUG", "").lower() == "true":
                     print(f"[GreenX] Scroll attempt {scroll_attempt}: found {count} visible buttons.")
@@ -588,7 +591,7 @@ class GreenXConnector(BaseCarrierConnector):
                 await self.page.screenshot(path="greenx_after_scroll.png")
                 print("[GreenX] Saved screenshot after scroll to greenx_after_scroll.png")
             
-            route_details_locs = self.page.locator('button:has-text("Route Details"):visible')
+            route_details_locs = self.page.locator('button:has-text("Route Details"):visible, a:has-text("Route Details"):visible')
             count = await route_details_locs.count()
             print(f"[GreenX] Found {count} potential quote cards on the page.")
             

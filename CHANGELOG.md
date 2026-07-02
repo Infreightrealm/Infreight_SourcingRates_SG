@@ -17,6 +17,18 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 - **Already in place (no change needed):** onboarding-dismissal caching (`_onboarding_dismissed` + 2.5s debounce), delta-based calendar navigation in `open_price_breakdown` (arrow-clicks toward `target_idx`, no reset-to-start), and multi-container single-crawl caching in `run_full_search`.
 - **Files:** `backend/carriers/hapag_lloyd_connector.py`
 
+### GreenX — "No Quotes" Reported While Quotes Visibly Loaded in VNC
+- **Bug:** A search ended with GreenX marked "No Quotes" while the VNC clearly showed quote cards loaded on the GreenX results page.
+- **Root Cause:** Selector mismatch between phases. `search_quotes` waits for `button:has-text("Route Details"), a:has-text("Route Details")` (buttons OR links) and passed — but `extract_quote_list` located cards with a **button-only** selector (`button:has-text("Route Details"):visible`). GreenX renders the detail tabs as `<a>` links, so extraction found 0 cards → `NO_QUOTES_AVAILABLE`, leaving the loaded results sitting in the browser.
+- **Fix:** Extraction now uses the same button+link selector as the search phase (both the lazy-load scroll loop and the final card enumeration). `_click_detail_tab` already accepted links, so downstream detail parsing is unaffected.
+- **Files:** `backend/carriers/greenx_connector.py` (`extract_quote_list`)
+
+### OOCL — Schedule Search Repeated Once Per Container Type
+- **Bug:** An all-container search ran the full OOCL schedule crawl three times in a row (once per DRY 20 / DRY 40 / DRY 40H cycle), tripling OOCL's runtime for identical data.
+- **Root Cause:** OOCL relied on the base `run_full_search`, which has no cross-cycle caching — unlike ONE/Maersk/GreenX/Hapag, which all crawl once and serve later cycles from cache. OOCL schedules don't vary by container type, so the repeats were pure waste.
+- **Fix:** Added a `run_full_search` override that caches the first cycle's outcome and serves the remaining cycles from it as deep copies stamped with the requested container type (so each cycle gets correctly-typed, independent quote objects). Only definitive outcomes (quotes found / no quotes) are cached — transient errors still retry. Verified: one underlying crawl now serves all three cycles with correct types per cycle.
+- **Files:** `backend/carriers/oocl_connector.py`
+
 ### Queue Manager — Event-Driven Handoff (no more 2s polling)
 - Replaced the 2-second polling loop in `enqueue_and_wait` with an `asyncio.Condition` bound to the existing lock; `release_lock`, `auto_release_check`, and `force_clear_all` now `notify_all()` so the next queued search starts the instant the slot frees. Measured handoff: **~0ms** (previously up to 2000ms per transition). Cancellation and force-clear semantics verified unchanged.
 - **Files:** `backend/services/queue_manager.py`
