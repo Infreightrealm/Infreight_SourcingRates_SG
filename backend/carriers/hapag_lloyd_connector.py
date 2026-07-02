@@ -860,13 +860,26 @@ class HapagLloydConnector(BaseCarrierConnector):
                     await asyncio.sleep(1)
                 
                 if not form_loaded:
-                    # Try a fallback general wait for any input
-                    try:
-                        await self.page.wait_for_selector('input', timeout=5000)
-                        print("[HAPAG] Found inputs. Assuming form loaded.")
-                        form_loaded = True
-                    except:
-                        pass
+                    # Try a fallback general wait for any input, but make sure it is not the login page
+                    is_login_page = "identity.hapag-lloyd.com" in self.page.url
+                    for sel in login_selectors:
+                        try:
+                            if await self.page.locator(sel).first.is_visible(timeout=200):
+                                is_login_page = True
+                                break
+                        except:
+                            pass
+                            
+                    if is_login_page:
+                        print("[HAPAG] Settle fallback detected login inputs/URL. Quick Quote form NOT loaded.")
+                    else:
+                        try:
+                            await self.page.wait_for_selector('input', timeout=5000)
+                            print("[HAPAG] Found inputs (non-login). Assuming form loaded.")
+                            form_loaded = True
+                        except:
+                            pass
+
 
                 if form_loaded:
                     print("[HAPAG] Quick Quote form successfully verified. Dismissing any initial modals...")
@@ -1092,6 +1105,10 @@ class HapagLloydConnector(BaseCarrierConnector):
         """
         schedules = []
         try:
+            # Check if page is currently on the login portal
+            if "identity.hapag-lloyd.com" in self.page.url or await self.page.locator('input[type="email"], input#email, input#signInName').first.is_visible(timeout=500):
+                raise Exception("Redirected to login portal. Schedule query aborted.")
+
             print("[HAPAG] Navigating to Schedule page...")
             schedule_url = "https://www.hapag-lloyd.com/solutions/schedule/#/"
             await self.page.goto(schedule_url)
@@ -1099,8 +1116,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
             except:
                 pass
+            
+            # Check redirect after navigation
+            if "identity.hapag-lloyd.com" in self.page.url or await self.page.locator('input[type="email"], input#email, input#signInName').first.is_visible(timeout=500):
+                raise Exception("Redirected to login portal after accessing schedule page. Schedule query aborted.")
+
             await self._check_service_unavailable()
             await self._human_delay(1500, 2500)
+
 
             # Dismiss any active modals
             await self._dismiss_hapag_modals()
@@ -1676,6 +1699,11 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
+            # Check if page is currently on the login portal
+            if "identity.hapag-lloyd.com" in self.page.url or await self.page.locator('input[type="email"], input#email, input#signInName').first.is_visible(timeout=500):
+                print("[HAPAG] Redirected to login portal. Aborting Quick Quote search.")
+                return CarrierResultStatus.LOGIN_FAILED
+
             print("[HAPAG] Starting Quick Quote search...")
             self.current_request = request
             
