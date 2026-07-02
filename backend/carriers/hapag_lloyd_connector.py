@@ -2935,9 +2935,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                     print(f"[HAPAG] Debug dump failed: {de}")
             
             charges = await self.page.evaluate(r'''() => {
-                let idx_20 = 3;
-                let idx_40 = 4;
-                let idx_40h = 5;
+                let idx_20 = -1;
+                let idx_40 = -1;
+                let idx_40h = -1;
 
                 // Dynamically detect column header position
                 const allRows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
@@ -2970,6 +2970,13 @@ class HapagLloydConnector(BaseCarrierConnector):
                             idx_40h = idx;
                         }
                     }
+                }
+
+                // Fallback to default indexes only if no container columns were mapped at all
+                if (idx_20 === -1 && idx_40 === -1 && idx_40h === -1) {
+                    idx_20 = 3;
+                    idx_40 = 4;
+                    idx_40h = 5;
                 }
                 
                 const results = {
@@ -3037,24 +3044,24 @@ class HapagLloydConnector(BaseCarrierConnector):
                             continue;
                         }
                         
-                        const valStr_20 = cells[idx_20] ? (cells[idx_20].textContent || "").trim() : "";
-                        const valStr_40 = cells[idx_40] ? (cells[idx_40].textContent || "").trim() : "";
-                        const valStr_40h = cells[idx_40h] ? (cells[idx_40h].textContent || "").trim() : "";
+                        const valStr_20 = (idx_20 !== -1 && cells[idx_20]) ? (cells[idx_20].textContent || "").trim() : "";
+                        const valStr_40 = (idx_40 !== -1 && cells[idx_40]) ? (cells[idx_40].textContent || "").trim() : "";
+                        const valStr_40h = (idx_40h !== -1 && cells[idx_40h]) ? (cells[idx_40h].textContent || "").trim() : "";
 
                         let amt_20 = parseAmount(valStr_20);
                         let amt_40 = parseAmount(valStr_40);
                         let amt_40h = parseAmount(valStr_40h);
 
                         const isIrrelevant = (unit.toLowerCase() === "bl" || unit.toLowerCase() === "b/l" || 
-                                              valStr_20.toLowerCase().includes("irrelevant") ||
-                                              valStr_40.toLowerCase().includes("irrelevant") ||
-                                              valStr_40h.toLowerCase().includes("irrelevant"));
+                                              (idx_20 !== -1 && valStr_20.toLowerCase().includes("irrelevant")) ||
+                                              (idx_40 !== -1 && valStr_40.toLowerCase().includes("irrelevant")) ||
+                                              (idx_40h !== -1 && valStr_40h.toLowerCase().includes("irrelevant")));
                         
                         const commonAmt = amt_20 || amt_40 || amt_40h;
                         if (isIrrelevant && commonAmt !== null) {
-                            if (amt_20 === null) amt_20 = commonAmt;
-                            if (amt_40 === null) amt_40 = commonAmt;
-                            if (amt_40h === null) amt_40h = commonAmt;
+                            if (idx_20 !== -1 && amt_20 === null) amt_20 = commonAmt;
+                            if (idx_40 !== -1 && amt_40 === null) amt_40 = commonAmt;
+                            if (idx_40h !== -1 && amt_40h === null) amt_40h = commonAmt;
                         }
 
                         let determinedCategory = null;
