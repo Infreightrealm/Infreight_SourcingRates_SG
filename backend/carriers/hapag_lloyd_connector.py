@@ -1309,10 +1309,10 @@ class HapagLloydConnector(BaseCarrierConnector):
             except Exception as adv_err:
                 print(f"[HAPAG] Schedule: Advanced search expand error: {adv_err}")
 
-            hapag_container = self.CONTAINER_TYPE_MAP.get(request.container_type)
-            if not hapag_container:
-                print(f"[HAPAG] Container type {request.container_type} not mapped. Using default 40' GP High Cube.")
-                hapag_container = "40' General Purpose High Cube"
+            # Force using "DRY 40H" (40' General Purpose High Cube) to query all departures.
+            # Hapag-Lloyd returns pricing for all 3 container types (20/40/40H) in the same document
+            # regardless of which one was selected, but selecting 40'HC displays the maximum number of departures.
+            hapag_container = "40' General Purpose High Cube"
 
             print(f"[HAPAG] Schedule: Selecting container type: '{hapag_container}'")
             container_selected = False
@@ -1884,10 +1884,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 raise Exception("Failed to select End Location dropdown option after 3 attempts.")
 
             # --- CONTAINER TYPE ---
-            hapag_container = self.CONTAINER_TYPE_MAP.get(request.container_type)
-            if not hapag_container:
-                print(f"[HAPAG] Container type {request.container_type} not mapped. Using default 40' GP High Cube.")
-                hapag_container = "40' General Purpose High Cube"
+            # Force using "DRY 40H" (40' General Purpose High Cube) to query all departures.
+            # Hapag-Lloyd returns pricing for all 3 container types (20/40/40H) in the same document
+            # regardless of which one was selected, but selecting 40'HC displays the maximum number of departures.
+            hapag_container = "40' General Purpose High Cube"
 
             print(f"[HAPAG] Mapped container to choose: '{hapag_container}'")
 
@@ -3181,10 +3181,28 @@ class HapagLloydConnector(BaseCarrierConnector):
         final_value = calculate_final_freight_value(organized["all_classified"])
         
         # Fallback to total price if no charges breakdown was found
-        if final_value == 0.0 and raw_quote.get("total_price"):
-            final_value = raw_quote["total_price"]
-            if basic_ocean_freight == 0.0:
-                basic_ocean_freight = final_value
+        # (Only do this for the container type that was actually searched/displayed in the departures grid,
+        # and only if it is not sold out)
+        if is_sold_out or raw_quote.get("is_sold_out"):
+            final_value = 0.0
+            basic_ocean_freight = 0.0
+        else:
+            is_searched_type = False
+            if hasattr(self, "current_request") and self.current_request:
+                req_c_type = self.current_request.container_type
+                if req_c_type == container_type:
+                    is_searched_type = True
+                elif req_c_type == "DRY 20" and container_type == "DRY 20":
+                    is_searched_type = True
+                elif req_c_type == "DRY 40" and container_type == "DRY 40":
+                    is_searched_type = True
+                elif req_c_type == "DRY 40H" and container_type == "DRY 40H":
+                    is_searched_type = True
+                    
+            if is_searched_type and final_value == 0.0 and raw_quote.get("total_price"):
+                final_value = raw_quote["total_price"]
+                if basic_ocean_freight == 0.0:
+                    basic_ocean_freight = final_value
             
         vessel = raw_quote.get("vessel", "Hapag Vessel")
         if is_sold_out or raw_quote.get("is_sold_out"):
