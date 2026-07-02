@@ -2425,6 +2425,9 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def open_price_breakdown(self, quote_ref: dict) -> bool:
         try:
+            self._last_parsed_card_prices = {}
+            self._last_parsed_validity_till = None
+
             if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
                 raise Exception("Playwright page is closed or crashed at start of open_price_breakdown.")
             await self._wait_for_captcha_resolution()
@@ -3412,7 +3415,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                                     is_sold = True
                                 
                                 c_charges = raw_charges_dict.get(c_type, [])
-                                if not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
+                                if opened and not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
                                     c_charges = [{
                                         "name": "Ocean Freight",
                                         "amount": self._last_parsed_card_prices[c_type],
@@ -3512,7 +3515,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                                 is_sold = True
                                 
                             c_charges = raw_charges_dict.get(c_type, [])
-                            if not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
+                            if opened and not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
                                 c_charges = [{
                                     "name": "Ocean Freight",
                                     "amount": self._last_parsed_card_prices[c_type],
