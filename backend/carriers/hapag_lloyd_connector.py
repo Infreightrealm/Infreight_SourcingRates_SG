@@ -3199,10 +3199,20 @@ class HapagLloydConnector(BaseCarrierConnector):
                 elif req_c_type == "DRY 40H" and container_type == "DRY 40H":
                     is_searched_type = True
                     
-            if is_searched_type and final_value == 0.0 and raw_quote.get("total_price"):
+            # Check if this container size is actually available/priced on the card
+            is_available = True
+            card_price = getattr(self, "_last_parsed_card_prices", {}).get(container_type)
+            if card_price is None or card_price == "sold_out":
+                is_available = False
+                
+            if is_searched_type and is_available and final_value == 0.0 and raw_quote.get("total_price"):
                 final_value = raw_quote["total_price"]
                 if basic_ocean_freight == 0.0:
                     basic_ocean_freight = final_value
+            elif not is_available:
+                # Force final value to 0.0/sold out if the container size is not available on this card
+                final_value = 0.0
+                basic_ocean_freight = 0.0
             
         vessel = raw_quote.get("vessel", "Hapag Vessel")
         if is_sold_out or raw_quote.get("is_sold_out"):
