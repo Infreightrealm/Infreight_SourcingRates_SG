@@ -119,6 +119,7 @@ class MaerskConnector(BaseCarrierConnector):
 
             # Step 3: Progressive Processing & Lazy Loading Loop
             processed_keys = set()
+            skipped_sold_out_count = 0
             max_expansions = 3
             
             for expansion in range(max_expansions + 1):
@@ -274,11 +275,25 @@ class MaerskConnector(BaseCarrierConnector):
                     unique_key = f"{etd}_{eta}_{vessel_name}_{price}"
                     if unique_key in processed_keys:
                         continue
-                        
+
                     if not is_sold_out and price == 0.0:
                         processed_keys.add(unique_key)
                         continue
-                        
+
+                    # RULE: sold-out / not-open sailings are not bookable — skip them
+                    # entirely (same rule as ONE's "Notify Me" cards). Previously they were
+                    # processed into price-less quotes that (a) consumed slots in the
+                    # 10-quote cap, so the crawl could fill its quota with not-open sailings
+                    # and stop before ever reaching a genuinely priced one, and (b) ended up
+                    # with container_type=None and were silently dropped by the final
+                    # per-container filter anyway — pure waste with real cost.
+                    if is_sold_out:
+                        skipped_sold_out_count += 1
+                        processed_keys.add(unique_key)
+                        print(f"[MAERSK] Skipping sold-out/not-open card at index {index} "
+                              f"({etd} -> {eta}, '{vessel_name}') — not bookable.")
+                        continue
+
                     print(f"[MAERSK] Processing quote card at index {index} ({etd} -> {eta}, {price} USD)...")
                     
                     raw_quote = {
@@ -382,8 +397,17 @@ class MaerskConnector(BaseCarrierConnector):
                         if split_quotes:
                             quotes.extend(split_quotes)
                         else:
+                            # Fallback when the per-container split produced nothing (e.g.
+                            # the breakdown didn't render/parse): stamp the requested
+                            # container type so the quote survives the final
+                            # per-container_type filter. Previously it was left None and
+                            # every such quote was silently discarded — a priced card
+                            # yielded zero results.
+                            raw_quote.setdefault("container_type", request.container_type)
                             normalized = await self.normalize_result(raw_quote, raw_charges)
                             quotes.append(normalized)
+                            print(f"[MAERSK] Card at index {index} had no per-container breakdown — "
+                                  f"kept as single '{request.container_type}' quote (card total: {price} USD).")
                     except Exception as e:
                         print(f"[MAERSK] Warning: Normalization/Splitting failed for card at index {index}: {e}")
                         
@@ -430,7 +454,16 @@ class MaerskConnector(BaseCarrierConnector):
                 else:
                     print("[MAERSK] 'Search more sailing options' button not found at the bottom. Done expanding.")
                     break
-            
+
+            # Diagnostic: if every card on the results page was sold-out/not-open and
+            # nothing priced was found, the most likely cause is the price-owner radio
+            # not registering (Maersk then renders schedule-only results without rates).
+            if not quotes and skipped_sold_out_count > 0:
+                print(f"[MAERSK] [DIAGNOSTIC] 0 priced quotes; {skipped_sold_out_count} card(s) were "
+                      f"sold-out/not-open. If ALL cards lacked rates, check the Price Owner "
+                      f"verification log above — an unregistered price-owner selection makes "
+                      f"Maersk render schedule-only results (0.0 USD / 'not open').")
+
             if quotes:
                 # Sort quotes by departure date (ETD) from earlier to later (ascending)
                 def get_etd_date(q):
@@ -953,6 +986,82 @@ class MaerskConnector(BaseCarrierConnector):
         except Exception as e:
             print(f"[MAERSK] Login failed: {e}")
             return False
+
+    async def _verify_price_owner_selected(self) -> str:
+        """
+        Verifies the "I am the price owner" radio is genuinely checked, piercing shadow
+        roots (Maersk MDS web components render the real <input type="radio"> inside a
+        shadow DOM, where a force-clicked label often fails to toggle it). If unchecked,
+        clicks the actual input directly and re-checks.
+
+        Returns one of:
+          "checked"   - already checked, no intervention needed
+          "fixed"     - was unchecked; direct input click toggled it
+          "unchecked" - still unchecked after the direct click (rates likely won't render)
+          "unknown"   - radio input could not be located/inspected
+        """
+        js = """
+            (mode) => {
+                const collect = (root, out) => {
+                    for (const el of root.querySelectorAll('*')) {
+                        out.push(el);
+                        if (el.shadowRoot) collect(el.shadowRoot, out);
+                    }
+                    return out;
+                };
+                const all = collect(document, []);
+                // Find the elements carrying the price-owner wording. Ancestors (body,
+                // form, ...) also contain the phrase via textContent, so sort matches by
+                // text length ascending — the SMALLEST match is the actual label — and
+                // resolve the radio from the most specific match outward. This prevents
+                // grabbing an unrelated radio that merely appears first in the document.
+                const isChecked = (inp) =>
+                    !!(inp.checked || inp.getAttribute('aria-checked') === 'true');
+                const matches = all
+                    .filter(el => ((el.textContent || '').trim().toLowerCase()).includes('i am the price owner'))
+                    .sort((a, b) => (a.textContent || '').length - (b.textContent || '').length);
+                let target = null;
+                for (const el of matches) {
+                    // Prefer a radio inside this element (or its shadow root)
+                    const scope = [];
+                    collect(el, scope);
+                    if (el.shadowRoot) collect(el.shadowRoot, scope);
+                    const inner = scope.find(n => n.tagName === 'INPUT' && n.type === 'radio');
+                    if (inner) { target = inner; break; }
+                    // Then a radio inside the same parent subtree (label + input siblings)
+                    if (el.parentElement) {
+                        const near = [];
+                        collect(el.parentElement, near);
+                        const sib = near.find(n => n.tagName === 'INPUT' && n.type === 'radio');
+                        if (sib) { target = sib; break; }
+                    }
+                }
+                if (!target) return { found: false };
+                if (mode === 'check') {
+                    return { found: true, checked: isChecked(target) };
+                }
+                // mode === 'fix': click the real input, then report the resulting state
+                target.click();
+                return { found: true, checked: isChecked(target) };
+            }
+        """
+        try:
+            state = await self.page.evaluate(js, "check")
+            if not state.get("found"):
+                return "unknown"
+            if state.get("checked"):
+                return "checked"
+            await self.page.wait_for_timeout(300)
+            fixed = await self.page.evaluate(js, "fix")
+            await self.page.wait_for_timeout(500)
+            # Re-read once more after the click settles
+            final = await self.page.evaluate(js, "check")
+            if final.get("found") and final.get("checked"):
+                return "fixed"
+            return "unchecked"
+        except Exception as e:
+            print(f"[MAERSK] Price Owner verification error (non-fatal): {e}")
+            return "unknown"
 
     # ────────────────────────────────────────
     # SEARCH FOR QUOTES (Smart Autofill & Fallback)
@@ -1883,6 +1992,13 @@ class MaerskConnector(BaseCarrierConnector):
                         if not success:
                             print(f"[MAERSK] Warning: Failed to fill container card {idx}.")
                     # 3.5 Select Price Owner ("Who is the Price Owner?")
+                    # A label click alone is NOT trusted here: on Maersk's MDS web-component
+                    # radios a force-click on the label frequently fails to toggle the
+                    # underlying input, in which case Maersk silently returns schedule-only
+                    # results — every card renders 0.0 USD / "vessel not open" and the whole
+                    # search yields no rates. Click the label first (human-like), then VERIFY
+                    # the radio is actually checked, and if not, click the real input via a
+                    # shadow-DOM-piercing JS pass and re-verify.
                     await self.page.wait_for_timeout(1000)
                     try:
                         price_owner_selectors = [
@@ -1892,7 +2008,7 @@ class MaerskConnector(BaseCarrierConnector):
                             'label:has-text("I am the price owner") input',
                             '[class*="price-owner" i] label'
                         ]
-                        
+
                         for selector in price_owner_selectors:
                             btn = self.page.locator(selector).first
                             if await btn.is_visible(timeout=2000):
@@ -1901,6 +2017,18 @@ class MaerskConnector(BaseCarrierConnector):
                                 print(f"[MAERSK] Selected Price Owner using: {selector}")
                                 await self.page.wait_for_timeout(500)
                                 break
+
+                        po_state = await self._verify_price_owner_selected()
+                        if po_state == "checked":
+                            print("[MAERSK] Price Owner radio verified as checked.")
+                        elif po_state == "fixed":
+                            print("[MAERSK] Price Owner radio was NOT toggled by the label click — "
+                                  "recovered by clicking the radio input directly.")
+                        elif po_state == "unchecked":
+                            print("[MAERSK] [WARNING] Price Owner radio could not be checked even after "
+                                  "direct input click — rates may not render (0.0 USD / 'not open').")
+                        else:  # "unknown"
+                            print("[MAERSK] Price Owner radio state could not be inspected; proceeding.")
                     except Exception as e:
                         print(f"[MAERSK] Warning: Could not select Price Owner: {e}")
 
