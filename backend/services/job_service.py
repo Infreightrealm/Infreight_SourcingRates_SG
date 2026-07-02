@@ -279,10 +279,12 @@ async def run_all_carrier_searches(
         slow_carriers = ["HAPAG_LLOYD", "ONE"]
         sorted_carriers = sorted(carriers, key=lambda c: 0 if c.upper() in slow_carriers else 1)
 
-        # Limit concurrent browser instances to prevent resource exhaustion and anti-bot triggers
-        # Defaults to 2 to avoid RAM/CPU thrashing on standard cloud/vps environments
+        # Limit concurrent browser instances to prevent resource exhaustion and anti-bot triggers.
+        # 7 virtual displays exist (supervisord), so the ceiling is display count; the real
+        # constraint is RAM/CPU per Chrome instance. Default 3; tune via CARRIER_MAX_CONCURRENCY
+        # (raise toward 7 only if the host has headroom — watch memory and challenge rates).
         import os
-        max_concurrency = int(os.getenv("CARRIER_MAX_CONCURRENCY", "2"))
+        max_concurrency = int(os.getenv("CARRIER_MAX_CONCURRENCY", "3"))
         semaphore = asyncio.Semaphore(max_concurrency)
 
         async def run_and_update(c):

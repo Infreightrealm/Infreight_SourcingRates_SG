@@ -5,6 +5,28 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-07-02] — Latency Refactor: Hapag Throttles/Inputs, Event-Driven Queue, Scheduler Tuning
+
+### Hapag-Lloyd — Configurable Pacing & Redundant-Wait Removal
+- **Governor factor:** All `_human_delay(min,max)` pacing is now scaled by `HAPAG_GOVERNOR_FACTOR` (default **1.0** = unchanged behavior, clamped 0.2–3.0). Lower it to run faster in trusted/low-latency environments; raise it if challenge rates climb. Defaults were deliberately NOT lowered — the pacing is anti-detection and Hapag is the most challenge-prone carrier.
+- **Interaction throttle:** browser `slow_mo` can be overridden via `HAPAG_INTERACTION_DELAY` (ms). Default remains the randomized 80–150ms anti-detection jitter.
+- **Removed redundant blind waits:** the three long post-action sleeps — after the New Quote sub-menu click (3–5s), after the schedule search submit (4–6s), and after the quote form submit (5–8s) — are each immediately followed by active element-detection loops (180s settle / 45s selector wait / 180s results poll), so they were pure added latency. Reduced to a short 1.5–2.5s settle (also governor-scaled). Saves ~8–14s per search cycle with no loss of robustness.
+- **Direct field population:** container quantity and cargo weight (plain number inputs, no autocomplete) now use a single `fill()` instead of click+Ctrl-A+Backspace+fill+char-by-char typing. Location fields intentionally KEEP char-by-char typing (the autocomplete dropdown requires keystroke events), but their 3-step clears are unified to a single `fill("")`. Login fields untouched (most challenge-sensitive flow).
+- **`HAPAG_QUERY_SCHEDULES` (default `true`):** set to `false` to skip the schedule crawl entirely and fetch only the pricing matrix — minutes faster; quotes fall back to the default vessel naming.
+- **Orphan profile sweep:** on launch, stale `chrome_profile_hapag_tmp_*` dirs older than 6h (crash leftovers) are deleted. Normal-exit cleanup already existed in `close()`.
+- **Already in place (no change needed):** onboarding-dismissal caching (`_onboarding_dismissed` + 2.5s debounce), delta-based calendar navigation in `open_price_breakdown` (arrow-clicks toward `target_idx`, no reset-to-start), and multi-container single-crawl caching in `run_full_search`.
+- **Files:** `backend/carriers/hapag_lloyd_connector.py`
+
+### Queue Manager — Event-Driven Handoff (no more 2s polling)
+- Replaced the 2-second polling loop in `enqueue_and_wait` with an `asyncio.Condition` bound to the existing lock; `release_lock`, `auto_release_check`, and `force_clear_all` now `notify_all()` so the next queued search starts the instant the slot frees. Measured handoff: **~0ms** (previously up to 2000ms per transition). Cancellation and force-clear semantics verified unchanged.
+- **Files:** `backend/services/queue_manager.py`
+
+### Job Scheduler — Concurrency Default
+- `CARRIER_MAX_CONCURRENCY` default raised 2 → **3** (7 Xvfb displays exist; the practical ceiling is host RAM/CPU per Chrome instance). Still env-tunable — raise toward 7 only with host headroom, watching memory and challenge rates. Integrated multi-container querying was already implemented (each connector crawls all sizes once and serves later cycles from cache).
+- **Files:** `backend/services/job_service.py`
+
+---
+
 ## [2026-06-30] — ONE Multi-Container & Sold-Out, GreenX Surcharge Intake, Free-Time Fixes, Maersk Diagnosis
 
 ### Free Time — GreenX blank, ONE India wrong, Hapag Nhava Sheva unresolved (Singapore → Nhava Sheva)

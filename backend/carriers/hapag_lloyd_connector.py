@@ -102,6 +102,21 @@ class HapagLloydConnector(BaseCarrierConnector):
         else:
             self.temp_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), f"chrome_profile_hapag_tmp_{unique_id}")
 
+        # Sweep orphaned temp profiles left behind by crashed runs (close() removes
+        # the current one on normal exit). Only THIS carrier's prefix, and only dirs
+        # old enough (>6h) that no live run can still own them.
+        try:
+            parent_dir = os.path.dirname(self.temp_profile_dir)
+            cutoff = datetime.now().timestamp() - 6 * 3600
+            for entry in os.listdir(parent_dir):
+                if entry.startswith("chrome_profile_hapag_tmp_") and entry != os.path.basename(self.temp_profile_dir):
+                    stale_path = os.path.join(parent_dir, entry)
+                    if os.path.isdir(stale_path) and os.path.getmtime(stale_path) < cutoff:
+                        shutil.rmtree(stale_path, ignore_errors=True)
+                        print(f"[HAPAG] Removed orphaned temp profile: {entry}")
+        except Exception:
+            pass
+
         print(f"[HAPAG] Creating temp isolated profile: {self.temp_profile_dir}")
         if os.path.exists(self.master_profile_dir):
             try:
@@ -208,7 +223,11 @@ class HapagLloydConnector(BaseCarrierConnector):
             user_data_dir=self.temp_profile_dir,
             headless=False,  # Headless mode must be False for VNC rendering
             executable_path=executable_path,
-            slow_mo=random.randint(80, 150),
+            # HAPAG_INTERACTION_DELAY (ms) overrides the global input throttle; the
+            # randomized 80-150ms default is deliberate anti-detection pacing.
+            slow_mo=(int(os.getenv("HAPAG_INTERACTION_DELAY"))
+                     if (os.getenv("HAPAG_INTERACTION_DELAY") or "").isdigit()
+                     else random.randint(80, 150)),
             args=args,
             proxy=proxy_config,
             no_viewport=True,
@@ -227,7 +246,18 @@ class HapagLloydConnector(BaseCarrierConnector):
         self.page.set_default_navigation_timeout(60000)
 
     async def _human_delay(self, min_ms=500, max_ms=1500):
-        await self.page.wait_for_timeout(random.randint(min_ms, max_ms))
+        # HAPAG_GOVERNOR_FACTOR scales ALL human-pacing delays (default 1.0 = current
+        # behavior). <1.0 runs faster in low-latency/trusted environments; raising it
+        # slows pacing if challenge rates climb. Clamped to a sane range.
+        factor = getattr(self, "_governor_factor", None)
+        if factor is None:
+            try:
+                factor = float(os.getenv("HAPAG_GOVERNOR_FACTOR", "1.0"))
+            except (TypeError, ValueError):
+                factor = 1.0
+            factor = max(0.2, min(3.0, factor))
+            self._governor_factor = factor
+        await self.page.wait_for_timeout(random.randint(int(min_ms * factor), max(int(min_ms * factor), int(max_ms * factor))))
 
     async def _attempt_captcha_autoclear(self) -> bool:
         """
@@ -597,7 +627,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                 new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
                 await new_quote_btn.scroll_into_view_if_needed()
                 await new_quote_btn.click(force=True)
-                await self._human_delay(3000, 5000)
+                # Short settle only — the 180s settle loop below actively detects the
+                # login form / Quick Quote page, so a long blind wait here is redundant.
+                await self._human_delay(1500, 2500)
 
             # Wait for either the login form (credentials required) or the Quick Quote page (already logged in) to settle
             print("[HAPAG] Waiting for page to settle (up to 180s) to detect if login is required or already logged in...")
@@ -1123,9 +1155,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         print(f"[HAPAG] Warning: scroll_into_view failed for Start Location input: {scroll_err}")
                     await start_field.click()
                     await self._human_delay(300, 600)
-                    await start_field.press("Control+A")
-                    await start_field.press("Backspace")
-                    await start_field.fill("")
+                    await start_field.fill("")  # fill() clears in one call
                     await self._human_delay(200, 400)
                     await start_field.type(origin_locode, delay=50)
                     await self._human_delay(1500, 2500)
@@ -1199,9 +1229,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         print(f"[HAPAG] Warning: scroll_into_view failed for End Location input: {scroll_err}")
                     await end_field.click()
                     await self._human_delay(300, 600)
-                    await end_field.press("Control+A")
-                    await end_field.press("Backspace")
-                    await end_field.fill("")
+                    await end_field.fill("")  # fill() clears in one call
                     await self._human_delay(200, 400)
                     await end_field.type(dest_locode, delay=50)
                     await self._human_delay(1500, 2500)
@@ -1399,9 +1427,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         except Exception as scroll_err:
                             print(f"[HAPAG] Warning: scroll_into_view failed for Start Location input during re-fill: {scroll_err}")
                         await start_field.click()
-                        await start_field.press("Control+A")
-                        await start_field.press("Backspace")
-                        await start_field.fill("")
+                        await start_field.fill("")  # fill() clears in one call
                         await start_field.type(origin_locode, delay=50)
                         await self._human_delay(1500, 2500)
                         await self._select_hapag_dropdown_option("Start Location", origin_locode, origin_cached)
@@ -1412,9 +1438,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         except Exception as scroll_err:
                             print(f"[HAPAG] Warning: scroll_into_view failed for End Location input during re-fill: {scroll_err}")
                         await end_field.click()
-                        await end_field.press("Control+A")
-                        await end_field.press("Backspace")
-                        await end_field.fill("")
+                        await end_field.fill("")  # fill() clears in one call
                         await end_field.type(dest_locode, delay=50)
                         await self._human_delay(1500, 2500)
                         await self._select_hapag_dropdown_option("End Location", dest_locode, dest_cached)
@@ -1475,7 +1499,9 @@ class HapagLloydConnector(BaseCarrierConnector):
             except:
                 pass
                 
-            await self._human_delay(4000, 6000)
+            # Short settle only — the selector wait below actively detects the results
+            # (up to 45s), so a long blind wait here just adds latency.
+            await self._human_delay(1500, 2500)
 
             # Wait for schedule results
             print("[HAPAG] Waiting for schedule results (up to 45s)...")
@@ -1745,9 +1771,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await start_field.scroll_into_view_if_needed()
                 await start_field.click()
                 await self._human_delay(300, 600)
-                await start_field.press("Control+A")
-                await start_field.press("Backspace")
-                await start_field.fill("")
+                await start_field.fill("")  # fill() clears in one call
                 await self._human_delay(200, 400)
                 await start_field.type(origin_locode, delay=50)
                 await self._human_delay(1500, 2500)
@@ -1816,9 +1840,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await end_field.scroll_into_view_if_needed()
                 await end_field.click()
                 await self._human_delay(300, 600)
-                await end_field.press("Control+A")
-                await end_field.press("Backspace")
-                await end_field.fill("")
+                await end_field.fill("")  # fill() clears in one call
                 await self._human_delay(200, 400)
                 await end_field.type(dest_locode, delay=50)
                 await self._human_delay(1500, 2500)
@@ -1914,11 +1936,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await qty_box.scroll_into_view_if_needed()
                 await qty_box.click()
                 await self._human_delay(200, 400)
-                await qty_box.press("Control+A")
-                await qty_box.press("Backspace")
-                await qty_box.fill("")
-                await qty_box.type(str(request.container_quantity), delay=50)
-                await self._human_delay(500, 1000)
+                # Plain number input, no autocomplete to trigger — fill() clears and
+                # populates in one call (typing char-by-char buys nothing here).
+                await qty_box.fill(str(request.container_quantity))
+                await self._human_delay(300, 600)
             except Exception as qty_err:
                 print(f"[HAPAG] Quantity fill failed: {qty_err}")
 
@@ -1948,11 +1969,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await weight_box.scroll_into_view_if_needed()
                 await weight_box.click()
                 await self._human_delay(200, 400)
-                await weight_box.press("Control+A")
-                await weight_box.press("Backspace")
-                await weight_box.fill("")
-                await weight_box.type(str(weight_val), delay=50)
-                await self._human_delay(500, 1000)
+                # Plain number input — single fill() replaces clear+type sequence.
+                await weight_box.fill(str(weight_val))
+                await self._human_delay(300, 600)
             except Exception as weight_err:
                 print(f"[HAPAG] Weight fill failed: {weight_err}")
 
@@ -2001,7 +2020,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                     await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
                 except:
                     pass
-                await self._human_delay(5000, 8000)
+                # Short settle only — the 180s results-detection loop below actively
+                # polls for quote cards, so a long blind wait here is redundant.
+                await self._human_delay(1500, 2500)
             except Exception as submit_err:
                 print(f"[HAPAG] Submit failed: {submit_err}")
                 await self.page.screenshot(path="hapag_submit_fail.png")
@@ -3184,11 +3205,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                 return CarrierResultStatus.LOGIN_FAILED, []
 
             # Step 2: Search Sailing Schedules
+            # HAPAG_QUERY_SCHEDULES=false skips the schedule crawl entirely (pricing
+            # only, minutes faster). Quotes then use the default vessel fallback the
+            # unmatched-schedule path already provides.
             schedules = []
-            try:
-                schedules = await self.search_sailing_schedules(request)
-            except Exception as se:
-                print(f"[HAPAG] Warning: Schedule crawling failed: {se}")
+            if os.getenv("HAPAG_QUERY_SCHEDULES", "true").strip().lower() in ("false", "0", "no"):
+                print("[HAPAG] HAPAG_QUERY_SCHEDULES=false — skipping schedule crawl (pricing matrix only).")
+            else:
+                try:
+                    schedules = await self.search_sailing_schedules(request)
+                except Exception as se:
+                    print(f"[HAPAG] Warning: Schedule crawling failed: {se}")
 
             # Step 3: Transition to Quote Page (always go via New Quote for a fresh form)
             print("[HAPAG] Transitioning to Quote page via New Quote...")
