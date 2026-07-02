@@ -1099,6 +1099,74 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] Dropdown selection error for {label}: {e}")
             return False
 
+    _LOGIN_PAGE_SELECTORS = [
+        'input#email', 'input#signInName', 'input[type="email"]',
+        'input[name*="username" i]', 'input[name*="email" i]',
+        'input[placeholder*="Email" i]', 'input[placeholder*="E-mail" i]',
+    ]
+
+    async def _is_on_hapag_login_page(self) -> bool:
+        """
+        Detects the Microsoft B2C identity/OAuth login page. Hapag can silently bounce
+        an in-progress crawl back to this page when the session token expires mid-run —
+        it looks nothing like the Schedule/Quote form, so any code hunting for a
+        "Start Location" input on it will find none and must not fall back to guessing.
+        """
+        try:
+            if "identity.hapag-lloyd.com" in (self.page.url or ""):
+                return True
+        except Exception:
+            pass
+        for sel in self._LOGIN_PAGE_SELECTORS:
+            try:
+                if await self.page.locator(sel).first.is_visible(timeout=200):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    async def _ensure_not_stuck_on_login(self, target_url: Optional[str], page_label: str) -> bool:
+        """
+        Guards against the session-expiry-mid-crawl failure mode: the existing redirect
+        checks only run right after navigation, but Hapag can bounce the page to the login
+        portal a few seconds LATER (e.g. during modal dismissal or the Start Location wait
+        loop) — that gap went undetected, so the wait loop would time out and fall back to
+        "first input on page", which on the login screen is the E-mail Address field, typing
+        a port locode into it and stalling the crawl (repro: origin locode typed into
+        "E-mail Address" on the Hapag Microsoft B2C login page). Call this right before any
+        such blind fallback to close that gap.
+
+        Re-authenticates via login(). login() itself always finishes on the confirmed Quick
+        Quote form, so pass target_url=None when the caller IS the quote flow (no further
+        navigation needed); pass the Schedule page URL when the caller needs a page other
+        than the quote form, since login() won't land there on its own.
+
+        Returns True if the page is safe to proceed on (never left, or successfully
+        recovered), False if recovery failed and the caller should abort this crawl step.
+        """
+        if not await self._is_on_hapag_login_page():
+            return True
+        print(f"[HAPAG] [SESSION] Detected unexpected redirect to the login page while on "
+              f"{page_label}. Re-authenticating and retrying...")
+        try:
+            relogin_ok = await self.login()
+        except Exception as e:
+            print(f"[HAPAG] Re-login attempt crashed: {e}")
+            relogin_ok = False
+        if not relogin_ok:
+            print(f"[HAPAG] Re-login failed; cannot recover {page_label}.")
+            return False
+        if target_url:
+            try:
+                await self.page.goto(target_url)
+                await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+            except Exception:
+                pass
+        await self._dismiss_hapag_modals()
+        await self._human_delay(1000, 1800)
+        print(f"[HAPAG] Re-authenticated and returned to {page_label}.")
+        return True
+
     async def search_sailing_schedules(self, request: RateSearchRequest) -> list[dict]:
         """
         Crawls Hapag-Lloyd sailing schedules from the Schedule tab.
@@ -1163,6 +1231,22 @@ class HapagLloydConnector(BaseCarrierConnector):
                     break
                 await self.page.wait_for_timeout(500)
 
+            if not start_field:
+                # Before guessing at a random input, rule out the specific failure mode
+                # that caused this: a session-expiry redirect to the login page landing
+                # here mid-wait, after the earlier post-navigation checks already passed.
+                if not await self._ensure_not_stuck_on_login(schedule_url, "Schedule page"):
+                    raise Exception("Redirected to login portal and re-login failed while "
+                                     "waiting for Start Location on Schedule page.")
+                for sel in start_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            start_field = loc
+                            print(f"[HAPAG] Schedule Start input found after recovery: {sel}")
+                            break
+                    except:
+                        pass
             if not start_field:
                 print("[HAPAG] Warning: Start Location input field not found after wait. Falling back...")
                 start_field = self.page.locator('input').first
@@ -1782,6 +1866,25 @@ class HapagLloydConnector(BaseCarrierConnector):
                     break
                 await asyncio.sleep(1)
             
+            if not start_field:
+                # Before guessing at a random input, rule out the specific failure mode
+                # that caused this: a session-expiry redirect to the login page landing
+                # here mid-wait, after the entry-point check already passed. login() itself
+                # always finishes on the confirmed Quick Quote form, so no extra navigation
+                # is needed on success here (target_url=None).
+                if not await self._ensure_not_stuck_on_login(None, "Quote page"):
+                    raise Exception("Redirected to login portal and re-login failed while "
+                                     "waiting for Start Location on Quote page.")
+                for sel in start_selectors:
+                    try:
+                        loc = self.page.locator(sel).first
+                        if await loc.is_visible(timeout=1000):
+                            start_field = loc
+                            print(f"[HAPAG] Start Location input found after recovery: {sel}")
+                            break
+                    except:
+                        pass
+
             if not start_field:
                 # Absolute fallback: first visible input
                 visible_inputs = self.page.locator('input:visible')
