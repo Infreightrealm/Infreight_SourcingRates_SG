@@ -84,14 +84,11 @@ class MaerskConnector(BaseCarrierConnector):
         5. Expand and repeat (up to 3 times)
         6. Return all normalized quotes
         """
-        cache_key = (request.origin, request.destination, request.departure_date)
+        cache_key = (request.origin, request.destination, request.departure_date, request.container_type)
         if cache_key in self._cached_quotes:
             print(f"[MAERSK] Returning cached quotes for {cache_key}")
-            matching_quotes = [q for q in self._cached_quotes[cache_key] if q.container_type == request.container_type]
-            if matching_quotes:
-                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
-            else:
-                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+            cached_status, cached_quotes = self._cached_quotes[cache_key]
+            return cached_status, cached_quotes
 
         quotes: list[QuoteSchema] = []
         try:
@@ -442,14 +439,11 @@ class MaerskConnector(BaseCarrierConnector):
                 quotes = quotes[:30]
                 print(f"[MAERSK] Sorted and sliced final result to {len(quotes)} quote(s).")
                 
-                self._cached_quotes[cache_key] = quotes
-                self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
-                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
-                return self._cached_status, matching_quotes
+                self._cached_quotes[cache_key] = (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes)
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
             else:
-                self._cached_quotes[cache_key] = []
-                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
-                return self._cached_status, []
+                self._cached_quotes[cache_key] = (CarrierResultStatus.NO_QUOTES_AVAILABLE, [])
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
                 
         except Exception as e:
             print(f"[MAERSK] Unexpected error in full search: {e}")
