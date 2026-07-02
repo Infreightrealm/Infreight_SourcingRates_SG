@@ -84,11 +84,24 @@ class MaerskConnector(BaseCarrierConnector):
         5. Expand and repeat (up to 3 times)
         6. Return all normalized quotes
         """
-        cache_key = (request.origin, request.destination, request.departure_date, request.container_type)
+        # Cache key is the ROUTE (origin/destination/date), NOT container_type. Maersk's
+        # multi-container form adds all 3 sizes (20/40/40H) to a single submission, and one
+        # crawl's price-breakdown cards already contain all 3 columns —
+        # _split_raw_quote_by_container_types() turns one crawl into quotes for every size.
+        # Scoping the cache key by container_type (a past regression) forced a SEPARATE full
+        # crawl per size, tripling runtime/captcha exposure — and because each independent
+        # crawl is an independent roll against Maersk's flaky 0.0-price/"not open" card
+        # rendering, it became common for some sizes to succeed and others to come back
+        # "sold out" within the same multi-container search, even though a single successful
+        # crawl already has real data for every size at once.
+        cache_key = (request.origin, request.destination, request.departure_date)
         if cache_key in self._cached_quotes:
-            print(f"[MAERSK] Returning cached quotes for {cache_key}")
+            print(f"[MAERSK] Returning cached quotes for {cache_key} (container_type={request.container_type})")
             cached_status, cached_quotes = self._cached_quotes[cache_key]
-            return cached_status, cached_quotes
+            matching_quotes = [q for q in cached_quotes if q.container_type == request.container_type]
+            if matching_quotes:
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
+            return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
         quotes: list[QuoteSchema] = []
         try:
@@ -439,8 +452,15 @@ class MaerskConnector(BaseCarrierConnector):
                 quotes = quotes[:30]
                 print(f"[MAERSK] Sorted and sliced final result to {len(quotes)} quote(s).")
                 
+                # Cache the FULL split (all container sizes) under the route-only key so the
+                # remaining job-service cycles for the other sizes are served from this same
+                # crawl instead of triggering their own. Only this cycle's requested size is
+                # returned here.
                 self._cached_quotes[cache_key] = (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes)
-                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
+                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+                if matching_quotes:
+                    return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
             else:
                 self._cached_quotes[cache_key] = (CarrierResultStatus.NO_QUOTES_AVAILABLE, [])
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
