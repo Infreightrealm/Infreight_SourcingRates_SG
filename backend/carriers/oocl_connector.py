@@ -472,6 +472,74 @@ class OOCLConnector(BaseCarrierConnector):
         "40HQ": "DRY 40H", "40RQ": "DRY 40H",
     }
 
+    _TOUR_HEADING = "Welcome to the new FreightSmart"
+
+    async def _fs_click_tour_x_by_position(self, page) -> bool:
+        """
+        Position-based fallback for the onboarding tour popup: instead of guessing its
+        close icon's class/aria-label (which a live run showed our selector guesses did
+        not match — likely a third-party guide widget with unpredictable markup, possibly
+        in a shadow root), locate the popup by its heading text, then click the smallest
+        short-text/icon element sitting in its TOP-RIGHT corner — the conventional
+        position of an X — while explicitly excluding anything containing "Start Tour"
+        or the step-pagination dots. Returns True if a click was dispatched.
+        """
+        js = """
+            (heading) => {
+                const collect = (root, out) => {
+                    for (const el of root.querySelectorAll('*')) {
+                        out.push(el);
+                        if (el.shadowRoot) collect(el.shadowRoot, out);
+                    }
+                    return out;
+                };
+                const all = collect(document, []);
+                const headEl = all.find(el =>
+                    (el.textContent || '').trim() === heading ||
+                    (el.children.length === 0 && (el.textContent || '').includes(heading)));
+                if (!headEl) return { found: false };
+                // Walk up to the smallest ancestor that ALSO contains "Start Tour" —
+                // that bounds the whole popup card.
+                let container = headEl;
+                for (let i = 0; i < 8 && container.parentElement; i++) {
+                    container = container.parentElement;
+                    if ((container.textContent || '').includes('Start Tour')) break;
+                }
+                const rect = container.getBoundingClientRect();
+                if (!rect.width || !rect.height) return { found: false };
+                const candidates = [];
+                collect(container, candidates);
+                let best = null, bestScore = Infinity;
+                for (const el of candidates) {
+                    const text = (el.textContent || '').trim();
+                    if (text.includes('Start Tour')) continue;
+                    if (text.length > 2) continue;  // an X/icon has ~0-1 chars of text
+                    const r = el.getBoundingClientRect();
+                    if (!r.width || !r.height) continue;
+                    const relX = (r.left - rect.left) / rect.width;
+                    const relY = (r.top - rect.top) / rect.height;
+                    if (relX < 0.55 || relY > 0.45) continue;  // must be top-right-ish
+                    const score = (1 - relX) + relY;  // smaller = closer to top-right corner
+                    if (score < bestScore) { bestScore = score; best = el; }
+                }
+                if (!best) return { found: true, clicked: false };
+                const r = best.getBoundingClientRect();
+                return { found: true, clicked: true, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            }
+        """
+        try:
+            result = await page.evaluate(js, self._TOUR_HEADING)
+        except Exception:
+            return False
+        if not result.get("found") or not result.get("clicked"):
+            return False
+        try:
+            await page.mouse.click(result["x"], result["y"])
+            print("[OOCL] [FS] Dismissed tour popup via top-right-corner position heuristic.")
+            return True
+        except Exception:
+            return False
+
     async def _fs_dismiss_modals(self, page):
         """
         Closes FreightSmart popups. Order matters:
@@ -481,17 +549,20 @@ class OOCLConnector(BaseCarrierConnector):
              via its X icon specifically. "Start Tour" is deliberately never matched
              here; clicking it would launch the tour instead of dismissing it.
           3. Generic dialog close buttons (e.g. the post-login "Important Update").
-          4. Escape key as a last resort, for any of the above whose close control
-             isn't a plain <button> our selectors can reach.
+          4. Position-based X heuristic (shadow-DOM aware) — for when the tour's close
+             icon markup doesn't match any of the guessed selectors above.
+          5. Escape key as a final resort.
+        Called repeatedly at several points in _fs_run (not just once) since this widget
+        can render a few seconds after the page otherwise looks settled.
         """
         for _ in range(4):
             closed_any = False
             for sel in ['button:has-text("Accept All")', 'button:has-text("Accept all")',
                         '#onetrust-accept-btn-handler', 'button:has-text("Agree")',
-                        'div:has-text("Welcome to the new FreightSmart") button[aria-label="Close" i]',
-                        'div:has-text("Welcome to the new FreightSmart") [aria-label="close" i]',
-                        'div:has-text("Welcome to the new FreightSmart") button:not(:has-text("Start Tour"))',
-                        'div:has-text("Welcome to the new FreightSmart") [class*="close" i]',
+                        f'div:has-text("{self._TOUR_HEADING}") button[aria-label="Close" i]',
+                        f'div:has-text("{self._TOUR_HEADING}") [aria-label="close" i]',
+                        f'div:has-text("{self._TOUR_HEADING}") button:not(:has-text("Start Tour"))',
+                        f'div:has-text("{self._TOUR_HEADING}") [class*="close" i]',
                         'button:has-text("Close")', 'button:has-text("OK")',
                         '[class*="dialog" i] [class*="close" i]', '[aria-label="Close"]']:
                 try:
@@ -507,22 +578,40 @@ class OOCLConnector(BaseCarrierConnector):
             if closed_any:
                 continue
 
-            # Fallback: the onboarding tour's X may not be a plain <button> our
-            # selectors can reach. If the tour text is still visible, try Escape
-            # (never "Start Tour") before giving up on this pass.
+            # Tour heading still present (shadow-DOM aware check) but no selector above
+            # matched its close icon — try the position heuristic, then Escape.
             try:
-                tour_visible = await page.locator(
-                    'text="Welcome to the new FreightSmart"').first.is_visible(timeout=500)
+                tour_still_present = await page.evaluate(
+                    """(heading) => {
+                        const collect = (root, out) => {
+                            for (const el of root.querySelectorAll('*')) {
+                                out.push(el);
+                                if (el.shadowRoot) collect(el.shadowRoot, out);
+                            }
+                            return out;
+                        };
+                        return collect(document, []).some(el =>
+                            el.children.length === 0 && (el.textContent || '').includes(heading));
+                    }""",
+                    self._TOUR_HEADING,
+                )
             except Exception:
-                tour_visible = False
-            if tour_visible:
-                try:
-                    await page.keyboard.press("Escape")
-                    print("[OOCL] [FS] Dismissed onboarding tour via Escape key.")
-                    await page.wait_for_timeout(600)
-                    continue
-                except Exception:
-                    pass
+                tour_still_present = False
+
+            if not tour_still_present:
+                break
+
+            if await self._fs_click_tour_x_by_position(page):
+                await page.wait_for_timeout(600)
+                continue
+
+            try:
+                await page.keyboard.press("Escape")
+                print("[OOCL] [FS] Dismissed onboarding tour via Escape key.")
+                await page.wait_for_timeout(600)
+                continue
+            except Exception:
+                pass
             break
 
     async def _fs_login(self, page) -> bool:
@@ -829,12 +918,20 @@ class OOCLConnector(BaseCarrierConnector):
                 await page.goto(self.FS_HOME_URL, wait_until="domcontentloaded")
                 await page.wait_for_timeout(2000)
             await self._fs_dismiss_modals(page)
+            # The onboarding tour widget can render a few seconds after the page
+            # otherwise looks settled (live-observed), so give it a further beat and
+            # check again before touching the form — cheap and safe when nothing appears.
+            await page.wait_for_timeout(2500)
+            await self._fs_dismiss_modals(page)
 
             if not await self._fs_fill_port(page, "origin", request.origin):
                 return []
+            await self._fs_dismiss_modals(page)
             if not await self._fs_fill_port(page, "destination", request.destination):
                 return []
+            await self._fs_dismiss_modals(page)
             await self._fs_set_container_quantities(page)
+            await self._fs_dismiss_modals(page)
 
             try:
                 await page.locator('button:has-text("Get Quote")').first.click()
