@@ -473,15 +473,23 @@ class OOCLConnector(BaseCarrierConnector):
     }
 
     async def _fs_dismiss_modals(self, page):
-        """Closes FreightSmart popups (e.g. the 'Important Update' dialog)."""
-        for _ in range(3):
+        """
+        Closes FreightSmart popups. Order matters: the 'Cookie Notice' consent
+        ("Accept All") appears ON the login page and intercepts the Next/Sign In
+        clicks, so consent buttons are tried first, then dialog close buttons
+        (e.g. the post-login 'Important Update' dialog).
+        """
+        for _ in range(4):
             closed_any = False
-            for sel in ['button:has-text("Close")', 'button:has-text("OK")',
+            for sel in ['button:has-text("Accept All")', 'button:has-text("Accept all")',
+                        '#onetrust-accept-btn-handler', 'button:has-text("Agree")',
+                        'button:has-text("Close")', 'button:has-text("OK")',
                         '[class*="dialog" i] [class*="close" i]', '[aria-label="Close"]']:
                 try:
                     btn = page.locator(sel).first
                     if await btn.is_visible(timeout=800):
                         await btn.click()
+                        print(f"[OOCL] [FS] Dismissed popup via: {sel}")
                         await page.wait_for_timeout(600)
                         closed_any = True
                         break
@@ -507,10 +515,13 @@ class OOCLConnector(BaseCarrierConnector):
         await page.goto(self.FS_LOGIN_URL, wait_until="domcontentloaded")
         await page.wait_for_timeout(2500)
 
+        # The Cookie Notice consent overlay renders on top of the login form and
+        # intercepts clicks — clear it before touching anything.
+        await self._fs_dismiss_modals(page)
+
         # Already logged in from a previous navigation in this context?
         if "/app/login" not in (page.url or "") and "exiamfw" not in (page.url or ""):
             print(f"[OOCL] [FS] Already logged in (landed on {page.url}).")
-            await self._fs_dismiss_modals(page)
             return True
 
         # Step 1: email + Next
@@ -528,6 +539,7 @@ class OOCLConnector(BaseCarrierConnector):
             return False
         await email_input.fill(username)
         await page.wait_for_timeout(400)
+        await self._fs_dismiss_modals(page)  # consent overlay can (re)appear late
         try:
             await page.locator('button:has-text("Next")').first.click()
         except Exception as e:
@@ -543,6 +555,7 @@ class OOCLConnector(BaseCarrierConnector):
             return False
         await pwd_input.fill(password)
         await page.wait_for_timeout(400)
+        await self._fs_dismiss_modals(page)  # the Keycloak domain may show its own consent
         try:
             await page.locator('button:has-text("Sign In"), button:has-text("Sign in")').first.click()
         except Exception as e:
