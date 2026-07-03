@@ -457,6 +457,463 @@ class OOCLConnector(BaseCarrierConnector):
             
         return quotes
 
+    # ────────────────────────────────────────
+    # FREIGHTSMART (price quotes: E-Quote / E-Spot)
+    # ────────────────────────────────────────
+
+    FS_LOGIN_URL = "https://freightsmart.oocl.com/app/login?loginType=OOCL"
+    FS_HOME_URL = "https://freightsmart.oocl.com/ui/"
+
+    # FreightSmart container labels -> internal container type codes.
+    # (NOR reefer variants price as their dry size.)
+    FS_CONTAINER_MAP = {
+        "20GP": "DRY 20", "20RF": "DRY 20",
+        "40GP": "DRY 40",
+        "40HQ": "DRY 40H", "40RQ": "DRY 40H",
+    }
+
+    async def _fs_dismiss_modals(self, page):
+        """Closes FreightSmart popups (e.g. the 'Important Update' dialog)."""
+        for _ in range(3):
+            closed_any = False
+            for sel in ['button:has-text("Close")', 'button:has-text("OK")',
+                        '[class*="dialog" i] [class*="close" i]', '[aria-label="Close"]']:
+                try:
+                    btn = page.locator(sel).first
+                    if await btn.is_visible(timeout=800):
+                        await btn.click()
+                        await page.wait_for_timeout(600)
+                        closed_any = True
+                        break
+                except Exception:
+                    continue
+            if not closed_any:
+                break
+
+    async def _fs_login(self, page) -> bool:
+        """
+        Two-step FreightSmart login:
+          1. freightsmart.oocl.com/app/login — email + "Next"
+          2. exiamfw.home.oocl.com (Keycloak) — password + "Sign In"
+        Credentials from OOCL_USERNAME / OOCL_PASSWORD env vars.
+        """
+        username = (os.getenv("OOCL_USERNAME") or "").strip()
+        password = (os.getenv("OOCL_PASSWORD") or "").strip()
+        if not username or not password:
+            print("[OOCL] [FS] OOCL_USERNAME / OOCL_PASSWORD not set — skipping FreightSmart quotes.")
+            return False
+
+        print("[OOCL] [FS] Navigating to FreightSmart login...")
+        await page.goto(self.FS_LOGIN_URL, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2500)
+
+        # Already logged in from a previous navigation in this context?
+        if "/app/login" not in (page.url or "") and "exiamfw" not in (page.url or ""):
+            print(f"[OOCL] [FS] Already logged in (landed on {page.url}).")
+            await self._fs_dismiss_modals(page)
+            return True
+
+        # Step 1: email + Next
+        email_input = None
+        for sel in ['input[placeholder*="Email" i]', 'input[type="email"]', 'input[type="text"]']:
+            try:
+                loc = page.locator(sel).first
+                if await loc.is_visible(timeout=2000):
+                    email_input = loc
+                    break
+            except Exception:
+                continue
+        if not email_input:
+            print("[OOCL] [FS] Email input not found on login page.")
+            return False
+        await email_input.fill(username)
+        await page.wait_for_timeout(400)
+        try:
+            await page.locator('button:has-text("Next")').first.click()
+        except Exception as e:
+            print(f"[OOCL] [FS] Could not click Next: {e}")
+            return False
+
+        # Step 2: password + Sign In (on exiamfw.home.oocl.com)
+        pwd_input = page.locator('input[type="password"]').first
+        try:
+            await pwd_input.wait_for(state="visible", timeout=20000)
+        except Exception:
+            print(f"[OOCL] [FS] Password page did not load (url: {page.url}).")
+            return False
+        await pwd_input.fill(password)
+        await page.wait_for_timeout(400)
+        try:
+            await page.locator('button:has-text("Sign In"), button:has-text("Sign in")').first.click()
+        except Exception as e:
+            print(f"[OOCL] [FS] Could not click Sign In: {e}")
+            return False
+
+        # Wait for redirect back into the FreightSmart app
+        for _ in range(30):
+            await page.wait_for_timeout(1000)
+            url = page.url or ""
+            if "freightsmart.oocl.com" in url and "/app/login" not in url and "exiamfw" not in url:
+                print(f"[OOCL] [FS] Login successful (landed on {url}).")
+                await self._fs_dismiss_modals(page)
+                return True
+        print(f"[OOCL] [FS] Login did not complete within 30s (url: {page.url}).")
+        return False
+
+    async def _fs_fill_port(self, page, which: str, request_value: str) -> bool:
+        """Fills the origin/destination 'Enter Port or Door Point' autocomplete."""
+        name, locode, cc, cn = resolve_oocl_port_info(request_value)
+        idx = 0 if which == "origin" else 1
+        field = page.locator('input[placeholder*="Port or Door" i]').nth(idx)
+        try:
+            await field.wait_for(state="visible", timeout=15000)
+        except Exception:
+            print(f"[OOCL] [FS] {which} port input not found.")
+            return False
+        await field.click()
+        await field.fill("")
+        await field.type(name, delay=90)
+        await page.wait_for_timeout(1500)
+
+        # Suggestions render as list rows, e.g. "Singapore, Singapore" / "Port Klang, Selangor, Malaysia"
+        options = page.locator('[role="option"], li, [class*="option" i], [class*="suggest" i] div')
+        best = None
+        try:
+            count = min(await options.count(), 15)
+            for i in range(count):
+                try:
+                    text = (await options.nth(i).inner_text()).strip()
+                except Exception:
+                    continue
+                if not text or name.lower() not in text.lower():
+                    continue
+                if cn and cn.lower() in text.lower():
+                    best = options.nth(i)
+                    break
+                if best is None:
+                    best = options.nth(i)
+        except Exception:
+            pass
+        if best is None:
+            print(f"[OOCL] [FS] No autocomplete match for {which}='{name}'.")
+            return False
+        await best.click()
+        await page.wait_for_timeout(800)
+        print(f"[OOCL] [FS] Selected {which}: {name} ({locode})")
+        return True
+
+    async def _fs_set_container_quantities(self, page) -> bool:
+        """
+        Opens the 'Container Type and Quantity' picker (General tab: 20GP/20RF(NOR),
+        40GP, 40HQ/40RQ(NOR)) and sets quantity 1 for all three rows, so one search
+        prices every size at once.
+        """
+        try:
+            picker = page.locator('input[placeholder*="Container Type" i]').first
+            await picker.click()
+            await page.wait_for_timeout(1000)
+        except Exception as e:
+            print(f"[OOCL] [FS] Could not open container picker: {e}")
+            return False
+
+        filled = 0
+        # Preferred: target each labelled row's input
+        for label in ["20GP", "40GP", "40HQ"]:
+            try:
+                row_input = page.locator(
+                    f'div:has-text("{label}") >> input').last
+                if await row_input.is_visible(timeout=800):
+                    await row_input.fill("1")
+                    filled += 1
+                    continue
+            except Exception:
+                pass
+        if filled < 3:
+            # Fallback: the picker panel exposes three visible quantity inputs
+            try:
+                qty_inputs = page.locator('input[type="number"]:visible')
+                count = await qty_inputs.count()
+                if count >= 3:
+                    for i in range(count - 3, count):
+                        await qty_inputs.nth(i).fill("1")
+                    filled = 3
+            except Exception as e:
+                print(f"[OOCL] [FS] Quantity fallback failed: {e}")
+        print(f"[OOCL] [FS] Container quantities set ({filled}/3 rows).")
+        # Close the picker so it doesn't block the Get Quote button
+        try:
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(400)
+        except Exception:
+            pass
+        return filled > 0
+
+    @staticmethod
+    def _fs_parse_card(text: str) -> Optional[dict]:
+        """
+        Parses one FreightSmart result card's inner text into a raw row dict.
+        Text-anchored and tolerant of layout differences:
+          kind    — 'E-Spot' if the card mentions E-Spot/Spot product, else 'E-Quote'
+          etd/eta — 'YYYY-MM-DD', 'MM/DD' or 'DD Mon' formats
+          prices  — per container-type USD amounts (20GP/40GP/40HQ/...)
+          vessel/transit/free_time when present
+        Returns None if the card has no usable price at all.
+        """
+        if not text or "USD" not in text.upper():
+            return None
+        t = " ".join(text.split())
+        kind = "E-Spot" if re.search(r"\bE[- ]?Spot\b", t, re.IGNORECASE) else "E-Quote"
+
+        def _parse_date(raw: str) -> Optional[str]:
+            raw = raw.strip()
+            m = re.match(r"(\d{4})-(\d{2})-(\d{2})$", raw)
+            if m:
+                return raw
+            m = re.match(r"(\d{1,2})/(\d{1,2})$", raw)
+            if m:
+                # FreightSmart shows MM/DD (e.g. ETD 07/03); infer year, rolling over
+                today = date.today()
+                month, day = int(m.group(1)), int(m.group(2))
+                year = today.year if (month, day) >= (today.month, today.day) or \
+                    (today.month, today.day)[0] - month < 6 else today.year + 1
+                try:
+                    return date(year, month, day).strftime("%Y-%m-%d")
+                except ValueError:
+                    return None
+            m = re.match(r"(\d{1,2})\s+([A-Za-z]{3})", raw)
+            if m:
+                return parse_oocl_date(raw, date.today().year)
+            return None
+
+        etd = eta = None
+        m = re.search(r"ETD[:\s]*([0-9/\-]+|\d{1,2}\s+[A-Za-z]{3})", t, re.IGNORECASE)
+        if m:
+            etd = _parse_date(m.group(1))
+        m = re.search(r"ETA[:\s]*([0-9/\-]+|\d{1,2}\s+[A-Za-z]{3})", t, re.IGNORECASE)
+        if m:
+            eta = _parse_date(m.group(1))
+
+        transit = None
+        m = re.search(r"(\d+)\s*day", t, re.IGNORECASE)
+        if m:
+            transit = int(m.group(1))
+
+        free_time = None
+        m = re.search(r"(?:detention|free\s*time)\D{0,30}?(\d+)\s*(?:calendar\s*)?days?", t, re.IGNORECASE) or \
+            re.search(r"(\d+)\s*(?:calendar\s*)?days?\D{0,30}?detention", t, re.IGNORECASE)
+        if m:
+            free_time = int(m.group(1))
+
+        vessel = None
+        m = re.search(r"Vessel\s*(?:/|Voyage)?\s*[:\s]\s*([A-Z0-9][A-Z0-9 .\-]{2,40}?)(?=\s{2,}|\s+(?:ETD|ETA|USD|Transit|Service)|$)",
+                      text, re.IGNORECASE)
+        if m:
+            vessel = m.group(1).strip()
+
+        # Per-container prices: "40GP ... USD 1,100.00" or "40GP from USD 160" or bare
+        # column layouts "20GP 800.00 40GP 1,100.00"
+        prices = {}
+        for label, ct in OOCLConnector.FS_CONTAINER_MAP.items():
+            pm = re.search(rf"{label}[^0-9]{{0,24}}([\d,]+(?:\.\d{{1,2}})?)", t)
+            if pm:
+                val = float(pm.group(1).replace(",", ""))
+                if val > 0 and (ct not in prices or val < prices[ct]):
+                    prices[ct] = val
+
+        total_price = None
+        m = re.search(r"USD\s*([\d,]+(?:\.\d{1,2})?)", t)
+        if m:
+            total_price = float(m.group(1).replace(",", ""))
+
+        if not prices and not total_price:
+            return None
+        return {
+            "kind": kind, "etd": etd, "eta": eta, "vessel": vessel,
+            "transit_time_days": transit, "free_time": free_time,
+            "prices": prices, "total_price": total_price, "currency": "USD",
+        }
+
+    async def _fs_extract_rows(self, page) -> List[dict]:
+        """Collects result cards from the FreightSmart quote results page."""
+        os.makedirs("scratch", exist_ok=True)
+        try:
+            await page.screenshot(path="scratch/oocl_fs_results.png", full_page=True)
+            with open("scratch/oocl_fs_results.html", "w", encoding="utf-8") as f:
+                f.write(await page.content())
+            print("[OOCL] [FS] Saved results debug dump to scratch/oocl_fs_results.*")
+        except Exception:
+            pass
+
+        rows: List[dict] = []
+        seen = set()
+        card_selectors = [
+            '[class*="quote-card" i]', '[class*="quoteItem" i]', '[class*="product" i]',
+            '[class*="result" i] [class*="card" i]', '[class*="card" i]',
+        ]
+        for sel in card_selectors:
+            try:
+                cards = page.locator(sel)
+                count = min(await cards.count(), 40)
+            except Exception:
+                continue
+            for i in range(count):
+                try:
+                    text = await cards.nth(i).inner_text()
+                except Exception:
+                    continue
+                parsed = self._fs_parse_card(text)
+                if not parsed:
+                    continue
+                key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
+                       tuple(sorted(parsed["prices"].items())))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(parsed)
+            if rows:
+                break
+        print(f"[OOCL] [FS] Extracted {len(rows)} priced row(s) "
+              f"({sum(1 for r in rows if r['kind'] == 'E-Spot')} E-Spot, "
+              f"{sum(1 for r in rows if r['kind'] == 'E-Quote')} E-Quote).")
+        return rows
+
+    async def _fs_run(self, request: RateSearchRequest) -> List[dict]:
+        """Full FreightSmart phase: login → fill quote form → search → extract rows."""
+        if not self.context:
+            await self._init_browser()
+        page = await self.context.new_page()
+        try:
+            if not await self._fs_login(page):
+                return []
+            if "/ui" not in (page.url or ""):
+                await page.goto(self.FS_HOME_URL, wait_until="domcontentloaded")
+                await page.wait_for_timeout(2000)
+            await self._fs_dismiss_modals(page)
+
+            if not await self._fs_fill_port(page, "origin", request.origin):
+                return []
+            if not await self._fs_fill_port(page, "destination", request.destination):
+                return []
+            await self._fs_set_container_quantities(page)
+
+            try:
+                await page.locator('button:has-text("Get Quote")').first.click()
+                print("[OOCL] [FS] Submitted Get Quote search.")
+            except Exception as e:
+                print(f"[OOCL] [FS] Could not click Get Quote: {e}")
+                return []
+
+            # Wait for the results to render (URL change and/or price content)
+            for _ in range(45):
+                await page.wait_for_timeout(1000)
+                try:
+                    body = await page.locator("body").inner_text()
+                except Exception:
+                    continue
+                if "USD" in body and re.search(r"E[- ]?(Spot|Quote)", body, re.IGNORECASE):
+                    break
+            return await self._fs_extract_rows(page)
+        finally:
+            try:
+                await page.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _fs_pair_and_select(fs_rows: List[dict], schedule_dicts: List[dict],
+                            today: Optional[date] = None, window_days: int = 14) -> List[dict]:
+        """
+        Applies the business rules and pairs FreightSmart prices with crawled schedules:
+          - Only ETDs within `window_days` (2 weeks) are considered.
+          - E-Spot rows: ALL are logged (they carry their own vessel/transit/free time/ETA).
+          - E-Quote rows: per ETD, only the CHEAPEST whole row is kept (row totals are
+            compared; numbers are never mixed across rows).
+          - If a row's ETD matches a crawled schedule ETD, missing sailing details
+            (vessel, ETA, transit, service, routing) are filled from that schedule.
+          - Schedule sailings whose ETD matched a priced row are replaced by the priced
+            quote(s); unmatched sailings pass through unchanged (schedule-only, as today).
+        Pure function — unit-testable without a browser.
+        """
+        today = today or date.today()
+        horizon = today + timedelta(days=window_days)
+
+        def _in_window(etd: Optional[str]) -> bool:
+            if not etd:
+                return True
+            try:
+                d = datetime.strptime(etd, "%Y-%m-%d").date()
+            except ValueError:
+                return True
+            return today <= d <= horizon
+
+        rows = [r for r in fs_rows if _in_window(r.get("etd"))]
+        espots = [r for r in rows if r.get("kind") == "E-Spot"]
+        equotes = [r for r in rows if r.get("kind") != "E-Spot"]
+
+        # Cheapest complete E-Quote row per ETD (compare row totals; keep the row whole)
+        best_equote_per_etd: dict = {}
+        for r in equotes:
+            prices = r.get("prices") or {}
+            row_total = sum(prices.values()) if prices else (r.get("total_price") or 0)
+            if row_total <= 0:
+                continue
+            key = r.get("etd")
+            if key not in best_equote_per_etd or row_total < best_equote_per_etd[key][0]:
+                best_equote_per_etd[key] = (row_total, r)
+        selected = espots + [r for _, r in best_equote_per_etd.values()]
+
+        sched_by_etd: dict = {}
+        for s in schedule_dicts:
+            if s.get("etd") and s["etd"] not in sched_by_etd:
+                sched_by_etd[s["etd"]] = s
+
+        out: List[dict] = []
+        matched_etds = set()
+        for r in selected:
+            sched = sched_by_etd.get(r.get("etd")) or {}
+            if sched:
+                matched_etds.add(r.get("etd"))
+            base = {
+                "etd": r.get("etd"),
+                "eta": r.get("eta") or sched.get("eta"),
+                "transit_time_days": r.get("transit_time_days") or sched.get("transit_time_days"),
+                "vessel": r.get("vessel") or sched.get("vessel") or "OOCL Vessel",
+                "service_name": sched.get("service_name") or r.get("kind"),
+                "routing": sched.get("routing") or "Direct",
+                "free_time": r.get("free_time"),
+                "currency": r.get("currency", "USD"),
+                "source": "carrier_portal",
+                "container_quantity": 1,
+            }
+            prices = r.get("prices") or {}
+            if prices:
+                for ct, price in prices.items():
+                    q = dict(base)
+                    q.update({
+                        "container_type": ct,
+                        "basic_ocean_freight": price,
+                        "final_freight_value": price,
+                        "raw_reference": f"OOCL-FS-{r['kind']}-{r.get('etd') or 'NA'}-{ct.replace(' ', '_')}",
+                    })
+                    out.append(q)
+            elif r.get("total_price"):
+                # Priced row without per-type breakdown — keep it untyped; the caller
+                # stamps the requested container type per cycle.
+                q = dict(base)
+                q.update({
+                    "basic_ocean_freight": r["total_price"],
+                    "final_freight_value": r["total_price"],
+                    "raw_reference": f"OOCL-FS-{r['kind']}-{r.get('etd') or 'NA'}",
+                })
+                out.append(q)
+
+        # Unmatched schedule sailings pass through unchanged (schedule-only rows)
+        for s in schedule_dicts:
+            if s.get("etd") in matched_etds:
+                continue
+            out.append(s)
+        return out
+
     async def close(self):
         if self.context:
             await self.context.close()
@@ -476,28 +933,90 @@ class OOCLConnector(BaseCarrierConnector):
         raw_quote["eta"] = standardize_date_string(raw_quote.get("eta"))
         return QuoteSchema(**raw_quote)
 
+    def _serve_for_cycle(self, request: RateSearchRequest) -> list[QuoteSchema]:
+        """
+        Serves one container-type cycle from the cached merged quote set:
+          - FreightSmart-priced quotes carry a real container_type → return only the
+            ones matching this cycle's requested type.
+          - Schedule-only quotes are untyped (container_type=None) → serve a deep copy
+            stamped with the requested type (previous behavior).
+        """
+        out: list[QuoteSchema] = []
+        for q in self._cached_quotes:
+            if q.container_type == request.container_type:
+                out.append(q.model_copy(deep=True))
+            elif not q.container_type:
+                out.append(q.model_copy(deep=True, update={"container_type": request.container_type}))
+        return out
+
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
         """
-        OOCL schedules do not vary by container type, so a multi-container search
-        only needs ONE schedule crawl. Cache the first cycle's result and serve the
-        remaining container-type cycles from it (deep copies stamped with the
-        requested type), instead of re-running the full schedule search per cycle.
-        Only definitive outcomes are cached — transient errors are retried.
+        One crawl serves all container-type cycles (cached), combining:
+          1. Sailing schedules (existing 2-week CargoSmart crawl), and
+          2. FreightSmart price quotes (E-Quote / E-Spot), paired to schedules by ETD
+             per business rules (all E-Spots; cheapest whole E-Quote row per date).
+        The FreightSmart phase is best-effort: any failure there degrades to the
+        schedules-only behavior this connector always had.
         """
         if not hasattr(self, "_cached_quotes"):
             self._cached_quotes = None
             self._cached_status = None
 
         if self._cached_quotes is not None:
-            print(f"[OOCL] Returning cached schedule quotes for '{request.container_type}' "
+            print(f"[OOCL] Returning cached quotes for '{request.container_type}' "
                   f"(single crawl serves all container cycles).")
-            return self._cached_status, [
-                q.model_copy(deep=True, update={"container_type": request.container_type})
-                for q in self._cached_quotes
-            ]
+            cycle_quotes = self._serve_for_cycle(request)
+            if cycle_quotes:
+                return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, cycle_quotes
+            return self._cached_status, []
 
-        status, quotes = await super().run_full_search(request)
-        if status in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.NO_QUOTES_AVAILABLE):
-            self._cached_quotes = quotes
-            self._cached_status = status
-        return status, quotes
+        try:
+            # Step 1: Sailing schedules (existing behavior)
+            schedule_dicts: list[dict] = []
+            status = await self.search_quotes(request)
+            if status == CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                schedule_dicts = await self.extract_quote_list()
+            else:
+                print(f"[OOCL] Schedule crawl returned {status}; continuing to FreightSmart anyway.")
+
+            # Step 2: FreightSmart price quotes (best-effort)
+            fs_rows: list[dict] = []
+            if os.getenv("OOCL_QUERY_FREIGHTSMART", "true").strip().lower() not in ("false", "0", "no"):
+                try:
+                    fs_rows = await self._fs_run(request)
+                except Exception as fs_err:
+                    print(f"[OOCL] [FS] FreightSmart phase failed (falling back to schedules-only): {fs_err}")
+            else:
+                print("[OOCL] OOCL_QUERY_FREIGHTSMART=false — schedules-only mode.")
+
+            # Step 3: Pair & select per business rules
+            merged_dicts = self._fs_pair_and_select(fs_rows, schedule_dicts)
+
+            quotes: list[QuoteSchema] = []
+            for raw in merged_dicts:
+                try:
+                    quotes.append(await self.normalize_result(dict(raw), []))
+                except Exception as norm_err:
+                    print(f"[OOCL] Warning: could not normalize merged quote: {norm_err}")
+
+            if quotes:
+                self._cached_quotes = quotes
+                self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                cycle_quotes = self._serve_for_cycle(request)
+                if cycle_quotes:
+                    return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, cycle_quotes
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+            # Nothing at all — cache the definitive no-quotes outcome; transient
+            # errors (timeouts etc.) are NOT cached so later cycles can retry.
+            if status in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.NO_QUOTES_AVAILABLE):
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+            return status, []
+
+        except Exception as e:
+            print(f"[OOCL] Unexpected error in full search: {e}")
+            return CarrierResultStatus.UNKNOWN_ERROR, []
+        finally:
+            await asyncio.shield(self.close())

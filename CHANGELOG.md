@@ -7,6 +7,21 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ## [2026-07-02] — Latency Refactor: Hapag Throttles/Inputs, Event-Driven Queue, Scheduler Tuning
 
+### OOCL — FreightSmart Price Quotes (E-Quote / E-Spot) Paired With Sailing Schedules
+- **Feature:** The OOCL connector was schedules-only (2-week CargoSmart crawl, no prices). It now also logs into **OOCL FreightSmart** (`freightsmart.oocl.com`) and pulls price quotes, pairing them with the crawled schedules.
+- **Login:** two-step flow — email + "Next" on `freightsmart.oocl.com/app/login?loginType=OOCL`, then password + "Sign In" on the `exiamfw.home.oocl.com` Keycloak page. Credentials come from the `OOCL_USERNAME` / `OOCL_PASSWORD` environment variables (already configured in Railway; never hardcoded). Post-login popups (e.g. the "Important Update" dialog) are dismissed automatically.
+- **Search:** fills the Get Quote form — origin/destination via the "Enter Port or Door Point" autocomplete (matched by port name + country), and the Container Type & Quantity picker set to 1 × each of 20GP / 40GP / 40HQ so one search prices every size at once. FreightSmart labels map to internal types (`20GP→DRY 20`, `40GP→DRY 40`, `40HQ/40RQ→DRY 40H`).
+- **Business rules (implemented in the pure, unit-tested `_fs_pair_and_select`):**
+  - Only ETDs within the **2-week window** are considered.
+  - **E-Spot** quotes: **all** rows are logged, even multiple on one date — they carry their own vessel, transit time, destination free-time detention, ETD and ETA.
+  - **E-Quote** quotes: per ETD, only the **cheapest whole row** is kept (row totals compared; numbers are never mixed across rows).
+  - If a priced row's ETD matches a crawled schedule ETD, the schedule's sailing details (vessel, ETA, transit, service, routing) fill any gaps; matched schedule-only rows are replaced by the priced quotes, unmatched sailings pass through unchanged.
+- **Caching:** one combined crawl (schedules + FreightSmart) serves all container-type cycles. Typed FS quotes are filtered per cycle; untyped schedule-only rows are stamped with each cycle's requested type (previous behavior preserved).
+- **Resilience:** the whole FreightSmart phase is best-effort — any failure (missing credentials, login/layout changes) logs a warning and degrades to the schedules-only behavior the connector always had. `OOCL_QUERY_FREIGHTSMART=false` disables the phase entirely. A debug dump of the results page (`scratch/oocl_fs_results.png/.html`) is saved on every run to support selector calibration.
+- **Calibration note:** the login and quote-form flows are grounded in live screenshots; the **results-page** extraction is text-anchored and tolerant, but was written without a live results screenshot — the first production run may need selector tuning against the saved debug dump.
+- **Verified:** unit tests cover card parsing (E-Spot with MM/DD dates, per-type prices, free-time detention; E-Quote with ISO dates), cheapest-whole-row selection, all-E-Spots logging, the 2-week window, schedule pairing/replacement/pass-through, QuoteSchema validity of all outputs, and one-crawl-serves-3-cycles caching with correct per-type filtering.
+- **Files:** `backend/carriers/oocl_connector.py`
+
 ### Maersk — 0.0-USD / "Not Open" Card Flakiness (the "Quotes Found but Empty Excel" root causes)
 - **Bug:** Intermittently, a Maersk crawl would find plenty of result cards but return zero (or too few) priced quotes: every processed card logged as `0.0 USD`, treated as sold-out/"not open", and the search ended `NO_QUOTES_AVAILABLE` despite valid bookable sailings existing. Diagnosed earlier (2026-06-30); fix was deferred, and its impact was amplified 3x by the (now reverted) per-container cache regression.
 - **Root Causes & Fixes (three-part):**
