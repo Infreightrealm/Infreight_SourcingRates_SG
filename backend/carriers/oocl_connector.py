@@ -474,15 +474,24 @@ class OOCLConnector(BaseCarrierConnector):
 
     async def _fs_dismiss_modals(self, page):
         """
-        Closes FreightSmart popups. Order matters: the 'Cookie Notice' consent
-        ("Accept All") appears ON the login page and intercepts the Next/Sign In
-        clicks, so consent buttons are tried first, then dialog close buttons
-        (e.g. the post-login 'Important Update' dialog).
+        Closes FreightSmart popups. Order matters:
+          1. Cookie Notice consent ("Accept All") — appears on the login page and
+             intercepts the Next/Sign In clicks.
+          2. The "Welcome to the new FreightSmart" onboarding tour carousel — closed
+             via its X icon specifically. "Start Tour" is deliberately never matched
+             here; clicking it would launch the tour instead of dismissing it.
+          3. Generic dialog close buttons (e.g. the post-login "Important Update").
+          4. Escape key as a last resort, for any of the above whose close control
+             isn't a plain <button> our selectors can reach.
         """
         for _ in range(4):
             closed_any = False
             for sel in ['button:has-text("Accept All")', 'button:has-text("Accept all")',
                         '#onetrust-accept-btn-handler', 'button:has-text("Agree")',
+                        'div:has-text("Welcome to the new FreightSmart") button[aria-label="Close" i]',
+                        'div:has-text("Welcome to the new FreightSmart") [aria-label="close" i]',
+                        'div:has-text("Welcome to the new FreightSmart") button:not(:has-text("Start Tour"))',
+                        'div:has-text("Welcome to the new FreightSmart") [class*="close" i]',
                         'button:has-text("Close")', 'button:has-text("OK")',
                         '[class*="dialog" i] [class*="close" i]', '[aria-label="Close"]']:
                 try:
@@ -495,8 +504,26 @@ class OOCLConnector(BaseCarrierConnector):
                         break
                 except Exception:
                     continue
-            if not closed_any:
-                break
+            if closed_any:
+                continue
+
+            # Fallback: the onboarding tour's X may not be a plain <button> our
+            # selectors can reach. If the tour text is still visible, try Escape
+            # (never "Start Tour") before giving up on this pass.
+            try:
+                tour_visible = await page.locator(
+                    'text="Welcome to the new FreightSmart"').first.is_visible(timeout=500)
+            except Exception:
+                tour_visible = False
+            if tour_visible:
+                try:
+                    await page.keyboard.press("Escape")
+                    print("[OOCL] [FS] Dismissed onboarding tour via Escape key.")
+                    await page.wait_for_timeout(600)
+                    continue
+                except Exception:
+                    pass
+            break
 
     async def _fs_login(self, page) -> bool:
         """
