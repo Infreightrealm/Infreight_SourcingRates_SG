@@ -5,6 +5,35 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-07-03] — OOCL FreightSmart Autoclear, Hapag Price Leak & Redirect fixes, Maersk Cache Scoping, Dallas Overrides
+
+### OOCL — FreightSmart Popup Dismissals & Input Lock Serialization
+- **Bug:** Autocomplete typing on the FreightSmart portal frequently got corrupted or truncated (e.g. `"SINGAPORE"` -> `"SINGA"`) by background popup watcher checks that stole browser focus.
+- **Fix:** Introduced an `asyncio.Lock` shared between the background popup watcher and the main page typing flow. The lock serializes automated dismissal clicks/Escape keys against active input typing, preventing typing corruption while maintaining background popup clearance.
+- **Cookie Notice Overlay:** Added dynamic clearance of the "Accept All" cookie banner blocking the login panel clicks (`6bc3102`).
+- **Onboarding Tour Popup:** Dismiss the "Welcome to the new FreightSmart" onboarding popup. Implemented a position-based click heuristic that targets the "X" button dynamically regardless of ID changes or shadow-DOM wrapping (`a4de4da`, `0b14a09`).
+
+### Hapag-Lloyd — Price Leaks, Column Matching, and Redirect Recovery
+- **Price Leak Bug:** Sold-out or unavailable departures inherited stale prices from previous successfully-parsed departures in the search cycle (`38d18e1`).
+- **Fix:** Added a state reset for `self._last_parsed_card_prices` and `self._last_parsed_validity_till` at the beginning of `open_price_breakdown()`, and restricted baseline grid fallbacks to run only if the details panel was successfully opened.
+- **Missing Columns Bug:** For departures where a specific container size was not offered (like 20GP in `2 Jul` / `14 Jul`), the price breakdown table did not have a column for it. The parser fallback incorrectly populated the 20GP column with the 40HC grid price (`627b056`).
+- **Fix:** Initialized column mapping indices to `-1` and skipped parsing if not found in headers. Added an availability guard in `normalize_result` to explicitly zero out (`0.0`) the price of any container size that is not offered on the card (rendering as `Sold out`).
+- **Container Type Forcing:** Forced the search form query container type to `40' General Purpose High Cube` (`DRY 40H`) for both quotes and schedules to always pull the maximum list of departures, with other sizes extracted from the single combined breakdown document (`48d4ab4`).
+- **Mid-crawl Redirect Stall:** The session could silently bounce back to the login portal when the token expired mid-crawl, causing port locodes to be typed into the email field (`4128eb0`).
+- **Fix:** Added a safety check `_ensure_not_stuck_on_login` before typing in location fields to detect redirect state and recover/re-authenticate.
+
+### Maersk — Caching Scope & Selector Tuning
+- **Multi-Container Cache Bug:** Multi-container searches skipped browser automation for subsequent sizes and returned `Sold out` for two out of three types because caching was scoped by route only, but was incorrectly changed to be per-container-type (`565e660`).
+- **Fix:** Reverted to routing-only caching (`2e09cf7`) and verified that the single route-scoped crawl parses and filters quotes correctly across all types without triggering redundant browser actions.
+- **Flakiness fixes:** 
+  1. Price-owner radio selection was never verified — added direct verification check `_verify_price_owner_selected` to verify shadow-DOM input state.
+  2. Sold-out cards were consuming the 10-quote cap — now skipped up front.
+  3. Fallback quotes (breakdown parse failure) left `container_type=None` and were silently discarded by the final filter — now stamped with the requested type.
+  *(Commit `139ab14`)*
+
+### Ports — Hardcoded Dallas Override
+- **Fix:** Added port translation for Dallas to `"Dallas (Texas), United States"` for Maersk, and `"USDAL"` for ONE and all other UNCODE-based carriers (`e1d4bb9`).
+
 ## [2026-07-02] — Latency Refactor: Hapag Throttles/Inputs, Event-Driven Queue, Scheduler Tuning
 
 ### OOCL — FreightSmart Price Quotes (E-Quote / E-Spot) Paired With Sailing Schedules
