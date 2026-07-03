@@ -474,6 +474,54 @@ class OOCLConnector(BaseCarrierConnector):
 
     _TOUR_HEADING = "Welcome to the new FreightSmart"
 
+    async def _fs_tour_present(self, page) -> bool:
+        """Shadow-DOM-aware check for whether the onboarding tour heading is on screen."""
+        try:
+            return await page.evaluate(
+                """(heading) => {
+                    const collect = (root, out) => {
+                        for (const el of root.querySelectorAll('*')) {
+                            out.push(el);
+                            if (el.shadowRoot) collect(el.shadowRoot, out);
+                        }
+                        return out;
+                    };
+                    return collect(document, []).some(el =>
+                        el.children.length === 0 && (el.textContent || '').includes(heading));
+                }""",
+                self._TOUR_HEADING,
+            )
+        except Exception:
+            return False
+
+    async def _fs_popup_watcher_loop(self, page, stop_event: asyncio.Event,
+                                     lock: Optional[asyncio.Lock] = None):
+        """
+        Runs CONCURRENTLY with the rest of the FreightSmart form-filling flow and
+        dismisses the onboarding tour the instant it appears — live-observed to render
+        mid-way through typing into the origin field, which a watcher that only checks
+        between discrete steps is too late to catch (typing had already progressed by
+        the time the fixed per-step checks would next run). Polls on a short interval
+        so it reacts within a few hundred ms regardless of what the main coroutine is
+        doing, since Playwright actions yield control to the event loop on every await.
+
+        Detection (_fs_tour_present, read-only JS) always runs freely. Dismissal
+        (real clicks/Escape) is serialized via `lock` against the main flow's typing —
+        without that, an earlier version of this watcher stole focus mid-.type() and
+        truncated the typed port name (live-observed + reproduced in testing).
+        """
+        while not stop_event.is_set():
+            try:
+                if await self._fs_tour_present(page):
+                    print("[OOCL] [FS] Watcher: tour popup appeared mid-flow — dismissing...")
+                    await self._fs_dismiss_modals(page, lock=lock)
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=0.4)
+            except asyncio.TimeoutError:
+                pass
+
     async def _fs_click_tour_x_by_position(self, page) -> bool:
         """
         Position-based fallback for the onboarding tour popup: instead of guessing its
@@ -540,7 +588,7 @@ class OOCLConnector(BaseCarrierConnector):
         except Exception:
             return False
 
-    async def _fs_dismiss_modals(self, page):
+    async def _fs_dismiss_modals(self, page, lock: Optional[asyncio.Lock] = None):
         """
         Closes FreightSmart popups. Order matters:
           1. Cookie Notice consent ("Accept All") — appears on the login page and
@@ -554,9 +602,13 @@ class OOCLConnector(BaseCarrierConnector):
           5. Escape key as a final resort.
         Called repeatedly at several points in _fs_run (not just once) since this widget
         can render a few seconds after the page otherwise looks settled.
+
+        When called from the background watcher, pass the same `lock` used to guard
+        the main flow's critical typing/clicking — this serializes the ACT of dismissal
+        against those actions (never runs a click/Escape mid-.type()) without blocking
+        the read-only detection in _fs_tour_present, which needs no lock.
         """
-        for _ in range(4):
-            closed_any = False
+        async def _dismiss_once() -> bool:
             for sel in ['button:has-text("Accept All")', 'button:has-text("Accept all")',
                         '#onetrust-accept-btn-handler', 'button:has-text("Agree")',
                         f'div:has-text("{self._TOUR_HEADING}") button[aria-label="Close" i]',
@@ -571,48 +623,32 @@ class OOCLConnector(BaseCarrierConnector):
                         await btn.click()
                         print(f"[OOCL] [FS] Dismissed popup via: {sel}")
                         await page.wait_for_timeout(600)
-                        closed_any = True
-                        break
+                        return True
                 except Exception:
                     continue
-            if closed_any:
-                continue
 
-            # Tour heading still present (shadow-DOM aware check) but no selector above
-            # matched its close icon — try the position heuristic, then Escape.
-            try:
-                tour_still_present = await page.evaluate(
-                    """(heading) => {
-                        const collect = (root, out) => {
-                            for (const el of root.querySelectorAll('*')) {
-                                out.push(el);
-                                if (el.shadowRoot) collect(el.shadowRoot, out);
-                            }
-                            return out;
-                        };
-                        return collect(document, []).some(el =>
-                            el.children.length === 0 && (el.textContent || '').includes(heading));
-                    }""",
-                    self._TOUR_HEADING,
-                )
-            except Exception:
-                tour_still_present = False
-
-            if not tour_still_present:
-                break
-
+            # No selector above matched — try the position heuristic, then Escape.
+            if not await self._fs_tour_present(page):
+                return False
             if await self._fs_click_tour_x_by_position(page):
                 await page.wait_for_timeout(600)
-                continue
-
+                return True
             try:
                 await page.keyboard.press("Escape")
                 print("[OOCL] [FS] Dismissed onboarding tour via Escape key.")
                 await page.wait_for_timeout(600)
-                continue
+                return True
             except Exception:
-                pass
-            break
+                return False
+
+        for _ in range(4):
+            if lock is not None:
+                async with lock:
+                    closed_any = await _dismiss_once()
+            else:
+                closed_any = await _dismiss_once()
+            if not closed_any:
+                break
 
     async def _fs_login(self, page) -> bool:
         """
@@ -689,8 +725,18 @@ class OOCLConnector(BaseCarrierConnector):
         print(f"[OOCL] [FS] Login did not complete within 30s (url: {page.url}).")
         return False
 
-    async def _fs_fill_port(self, page, which: str, request_value: str) -> bool:
-        """Fills the origin/destination 'Enter Port or Door Point' autocomplete."""
+    async def _fs_fill_port(self, page, which: str, request_value: str,
+                            lock: Optional[asyncio.Lock] = None) -> bool:
+        """
+        Fills the origin/destination 'Enter Port or Door Point' autocomplete.
+        The click+fill+type sequence is serialized against `lock` (shared with the
+        background popup watcher): live-observed, the onboarding tour appearing
+        mid-type let the watcher's dismissal action (a click/Escape) steal focus
+        from the field, truncating the typed text. Holding the lock only for this
+        sequence — not the whole function — blocks the watcher from acting during
+        typing while still letting it clear a popup that shows up right after, before
+        the dropdown-option search/click that follows.
+        """
         name, locode, cc, cn = resolve_oocl_port_info(request_value)
         idx = 0 if which == "origin" else 1
         field = page.locator('input[placeholder*="Port or Door" i]').nth(idx)
@@ -699,9 +745,17 @@ class OOCLConnector(BaseCarrierConnector):
         except Exception:
             print(f"[OOCL] [FS] {which} port input not found.")
             return False
-        await field.click()
-        await field.fill("")
-        await field.type(name, delay=90)
+
+        async def _type_name():
+            await field.click()
+            await field.fill("")
+            await field.type(name, delay=90)
+
+        if lock is not None:
+            async with lock:
+                await _type_name()
+        else:
+            await _type_name()
         await page.wait_for_timeout(1500)
 
         # Suggestions render as list rows, e.g. "Singapore, Singapore" / "Port Klang, Selangor, Malaysia"
@@ -731,50 +785,60 @@ class OOCLConnector(BaseCarrierConnector):
         print(f"[OOCL] [FS] Selected {which}: {name} ({locode})")
         return True
 
-    async def _fs_set_container_quantities(self, page) -> bool:
+    async def _fs_set_container_quantities(self, page, lock: Optional[asyncio.Lock] = None) -> bool:
         """
         Opens the 'Container Type and Quantity' picker (General tab: 20GP/20RF(NOR),
         40GP, 40HQ/40RQ(NOR)) and sets quantity 1 for all three rows, so one search
-        prices every size at once.
+        prices every size at once. Serialized against `lock` (see _fs_fill_port) so
+        the watcher's own Escape-key fallback can't fire while this picker is open
+        and also relying on Escape to close itself.
         """
-        try:
-            picker = page.locator('input[placeholder*="Container Type" i]').first
-            await picker.click()
-            await page.wait_for_timeout(1000)
-        except Exception as e:
-            print(f"[OOCL] [FS] Could not open container picker: {e}")
-            return False
-
-        filled = 0
-        # Preferred: target each labelled row's input
-        for label in ["20GP", "40GP", "40HQ"]:
+        async def _do_fill():
             try:
-                row_input = page.locator(
-                    f'div:has-text("{label}") >> input').last
-                if await row_input.is_visible(timeout=800):
-                    await row_input.fill("1")
-                    filled += 1
-                    continue
+                picker = page.locator('input[placeholder*="Container Type" i]').first
+                await picker.click()
+                await page.wait_for_timeout(1000)
+            except Exception as e:
+                print(f"[OOCL] [FS] Could not open container picker: {e}")
+                return 0
+
+            filled = 0
+            # Preferred: target each labelled row's input
+            for label in ["20GP", "40GP", "40HQ"]:
+                try:
+                    row_input = page.locator(
+                        f'div:has-text("{label}") >> input').last
+                    if await row_input.is_visible(timeout=800):
+                        await row_input.fill("1")
+                        filled += 1
+                        continue
+                except Exception:
+                    pass
+            if filled < 3:
+                # Fallback: the picker panel exposes three visible quantity inputs
+                try:
+                    qty_inputs = page.locator('input[type="number"]:visible')
+                    count = await qty_inputs.count()
+                    if count >= 3:
+                        for i in range(count - 3, count):
+                            await qty_inputs.nth(i).fill("1")
+                        filled = 3
+                except Exception as e:
+                    print(f"[OOCL] [FS] Quantity fallback failed: {e}")
+            print(f"[OOCL] [FS] Container quantities set ({filled}/3 rows).")
+            # Close the picker so it doesn't block the Get Quote button
+            try:
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(400)
             except Exception:
                 pass
-        if filled < 3:
-            # Fallback: the picker panel exposes three visible quantity inputs
-            try:
-                qty_inputs = page.locator('input[type="number"]:visible')
-                count = await qty_inputs.count()
-                if count >= 3:
-                    for i in range(count - 3, count):
-                        await qty_inputs.nth(i).fill("1")
-                    filled = 3
-            except Exception as e:
-                print(f"[OOCL] [FS] Quantity fallback failed: {e}")
-        print(f"[OOCL] [FS] Container quantities set ({filled}/3 rows).")
-        # Close the picker so it doesn't block the Get Quote button
-        try:
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(400)
-        except Exception:
-            pass
+            return filled
+
+        if lock is not None:
+            async with lock:
+                filled = await _do_fill()
+        else:
+            filled = await _do_fill()
         return filled > 0
 
     @staticmethod
@@ -911,6 +975,8 @@ class OOCLConnector(BaseCarrierConnector):
         if not self.context:
             await self._init_browser()
         page = await self.context.new_page()
+        watcher_task = None
+        stop_event = None
         try:
             if not await self._fs_login(page):
                 return []
@@ -918,23 +984,38 @@ class OOCLConnector(BaseCarrierConnector):
                 await page.goto(self.FS_HOME_URL, wait_until="domcontentloaded")
                 await page.wait_for_timeout(2000)
             await self._fs_dismiss_modals(page)
-            # The onboarding tour widget can render a few seconds after the page
-            # otherwise looks settled (live-observed), so give it a further beat and
-            # check again before touching the form — cheap and safe when nothing appears.
-            await page.wait_for_timeout(2500)
-            await self._fs_dismiss_modals(page)
 
-            if not await self._fs_fill_port(page, "origin", request.origin):
+            # Background watcher: live-observed, the onboarding tour can render
+            # mid-way through typing into the origin field — a race that any sequence
+            # of fixed between-step checks is too slow to reliably catch (typing had
+            # already progressed before the next checkpoint would run). This watcher
+            # runs CONCURRENTLY for the whole form-filling phase and dismisses the tour
+            # within ~400ms of it appearing, no matter what the main flow is doing.
+            #
+            # `ui_lock` serializes the watcher's dismissal actions against the main
+            # flow's critical click/fill/type sequences (passed into _fs_fill_port /
+            # _fs_set_container_quantities below) — an earlier version without this
+            # let the watcher's click/Escape steal focus mid-.type(), truncating the
+            # typed port name (reproduced in testing: "SINGAPORE" -> "SINGA").
+            stop_event = asyncio.Event()
+            ui_lock = asyncio.Lock()
+            watcher_task = asyncio.create_task(
+                self._fs_popup_watcher_loop(page, stop_event, lock=ui_lock))
+
+            if not await self._fs_fill_port(page, "origin", request.origin, lock=ui_lock):
                 return []
-            await self._fs_dismiss_modals(page)
-            if not await self._fs_fill_port(page, "destination", request.destination):
+            if not await self._fs_fill_port(page, "destination", request.destination, lock=ui_lock):
                 return []
-            await self._fs_dismiss_modals(page)
-            await self._fs_set_container_quantities(page)
-            await self._fs_dismiss_modals(page)
+            await self._fs_set_container_quantities(page, lock=ui_lock)
+
+            stop_event.set()
+            await watcher_task
+            watcher_task = None
+            await self._fs_dismiss_modals(page)  # final sweep for the gap right after stopping
 
             try:
-                await page.locator('button:has-text("Get Quote")').first.click()
+                async with ui_lock:
+                    await page.locator('button:has-text("Get Quote")').first.click()
                 print("[OOCL] [FS] Submitted Get Quote search.")
             except Exception as e:
                 print(f"[OOCL] [FS] Could not click Get Quote: {e}")
@@ -951,6 +1032,12 @@ class OOCLConnector(BaseCarrierConnector):
                     break
             return await self._fs_extract_rows(page)
         finally:
+            if watcher_task is not None:
+                stop_event.set()
+                try:
+                    await watcher_task
+                except Exception:
+                    pass
             try:
                 await page.close()
             except Exception:
