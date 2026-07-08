@@ -1,4 +1,4 @@
-﻿"""
+"""
 OOCL Live Connector â€” Playwright automation for Sailing Schedules.
 """
 import os
@@ -32,6 +32,17 @@ def parse_oocl_date(date_str: str, year: int) -> Optional[str]:
     except Exception as e:
         print(f"[OOCL] Error parsing date {date_str}: {e}")
     return None
+
+
+def clean_vessel_name(v: str) -> str:
+    if not v:
+        return ""
+    # Remove service prefixes like LL2, CPX, LL6, LL7, THX, etc. (2-4 uppercase letters/numbers)
+    v = re.sub(r"^[A-Z0-9]{2,4}\s+", "", v)
+    # Remove voyage suffixes (like 007 W, 192 E, 015 W, etc. - digits followed by compass direction or letters)
+    v = re.sub(r"\s+\d+[A-Z]?\s*$", "", v)
+    v = re.sub(r"\s+\d+\s+[A-Z]\s*$", "", v)
+    return v.strip().lower()
 
 def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
     """
@@ -887,15 +898,15 @@ class OOCLConnector(BaseCarrierConnector):
         """
         Parses one FreightSmart result card's inner text into a raw row dict.
         Text-anchored and tolerant of layout differences:
-          kind    â€” 'E-Spot' if the card mentions E-Spot/Spot/Smart Uno/Smart Combo product, else 'E-Quote'
-          etd/eta â€” 'YYYY-MM-DD', 'MM/DD' or 'DD Mon' formats
-          prices  â€” per container-type USD amounts (20GP/40GP/40HQ/...)
+          kind    — 'E-Spot' if the card mentions E-Spot/Spot/Smart Uno/Smart Combo product, else 'E-Quote'
+          etd/eta — 'YYYY-MM-DD', 'MM/DD' or 'DD Mon' formats
+          prices  — per container-type USD amounts (20GP/40GP/40HQ/...)
           vessel/transit/free_time when present
-        Returns None if the card has no usable price at all.
+        Returns None if the card has no usable price at all and is not sold out.
         """
-        if not text or "USD" not in text.upper():
+        if not text:
             return None
-            
+
         # Pre-process text to separate concatenated words/labels on BOTH sides
         t = text
         for label in ["20GP", "40GP", "40HQ", "20RF", "40RQ"]:
@@ -908,6 +919,10 @@ class OOCLConnector(BaseCarrierConnector):
         kind = "E-Spot" if (re.search(r"\bE[- ]?Spot\b", t, re.IGNORECASE) or 
                             "smart uno" in t.lower() or 
                             "smart combo" in t.lower()) else "E-Quote"
+
+        is_sold_out = "sold out" in text.lower() or "***" in text
+        if not is_sold_out and "USD" not in text.upper():
+            return None
 
         def _parse_date(raw: str) -> Optional[str]:
             raw = raw.strip()
@@ -989,7 +1004,7 @@ class OOCLConnector(BaseCarrierConnector):
         # Per-container prices
         prices = {}
         for label, ct in OOCLConnector.FS_CONTAINER_MAP.items():
-            pm = re.search(rf"{label}[^0-9]{{0,24}}([\d,]+(?:\.\d{{1,2}})?)", t)
+            pm = re.search(rf"{label}\s*USD\s*([\d,]+(?:\.\d{{1,2}})?)", t, re.IGNORECASE)
             if pm:
                 val = float(pm.group(1).replace(",", ""))
                 if val > 0 and (ct not in prices or val < prices[ct]):
@@ -1000,13 +1015,14 @@ class OOCLConnector(BaseCarrierConnector):
         if m:
             total_price = float(m.group(1).replace(",", ""))
 
-        if not prices and not total_price:
+        if not prices and not total_price and not is_sold_out:
             return None
         return {
             "kind": kind, "etd": etd, "eta": eta, "vessel": vessel,
             "transit_time_days": transit, "free_time": free_time,
             "prices": prices, "total_price": total_price, "currency": "USD",
             "validity_start": validity_start, "validity_end": validity_end,
+            "is_sold_out": is_sold_out,
         }
 
     async def _fs_extract_rows(self, page) -> List[dict]:
@@ -1019,6 +1035,10 @@ class OOCLConnector(BaseCarrierConnector):
             print("[OOCL] [FS] Saved results debug dump to scratch/oocl_fs_results.*")
         except Exception:
             pass
+
+        # Initialize espot vessels tracking set
+        if not hasattr(self, "espot_vessels") or self.espot_vessels is None:
+            self.espot_vessels = set()
 
         # Retrieve active calendar date from the page
         active_date = None
@@ -1073,6 +1093,11 @@ class OOCLConnector(BaseCarrierConnector):
             etd = first_parsed.get("etd")
             eta = first_parsed.get("eta")
             transit = first_parsed.get("transit_time_days")
+
+            if is_espot and vessel:
+                cleaned_v = clean_vessel_name(vessel)
+                if cleaned_v:
+                    self.espot_vessels.add(cleaned_v)
             
             # 2. Parse all product-cards inside this container (which represent the sub-rows)
             sub_cards = container.locator('.product-card')
@@ -1096,7 +1121,15 @@ class OOCLConnector(BaseCarrierConnector):
                     parsed["transit_time_days"] = transit
                 if is_espot:
                     parsed["kind"] = "E-Spot"
+                    if parsed.get("vessel"):
+                        cleaned_v = clean_vessel_name(parsed["vessel"])
+                        if cleaned_v:
+                            self.espot_vessels.add(cleaned_v)
                     
+                # Drop if sold out or has no price
+                if parsed.get("is_sold_out") or (not parsed.get("prices") and not parsed.get("total_price")):
+                    continue
+
                 # Deduplicate
                 key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
                        tuple(sorted(parsed["prices"].items())), parsed.get("free_time"))
@@ -1126,6 +1159,16 @@ class OOCLConnector(BaseCarrierConnector):
                     parsed = self._fs_parse_card(text, active_date=active_date)
                     if not parsed:
                         continue
+                    
+                    if parsed.get("kind") == "E-Spot" and parsed.get("vessel"):
+                        cleaned_v = clean_vessel_name(parsed["vessel"])
+                        if cleaned_v:
+                            self.espot_vessels.add(cleaned_v)
+
+                    # Drop if sold out or has no price
+                    if parsed.get("is_sold_out") or (not parsed.get("prices") and not parsed.get("total_price")):
+                        continue
+
                     key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
                            tuple(sorted(parsed["prices"].items())))
                     if key in seen:
@@ -1488,18 +1531,21 @@ class OOCLConnector(BaseCarrierConnector):
 
     @staticmethod
     def _fs_pair_and_select(fs_rows: List[dict], schedule_dicts: List[dict],
-                            today: Optional[date] = None, window_days: int = 14) -> List[dict]:
+                            today: Optional[date] = None, window_days: int = 14,
+                            espot_vessels: Optional[set] = None) -> List[dict]:
         """
         Applies the business rules and pairs FreightSmart prices with crawled schedules:
           - Only ETDs within `window_days` (2 weeks) are considered.
-          - E-Spot rows: ALL are logged (they carry their own vessel/transit/free time/ETA).
+          - E-Spot rows: per ETD, only the CHEAPEST whole row is kept (they carry their
+            own vessel/transit/free time/ETA). E-Spot does NOT pair with schedule details.
           - E-Quote rows: per ETD, only the CHEAPEST whole row is kept (row totals are
             compared; numbers are never mixed across rows).
-          - If a row's ETD matches a crawled schedule ETD, missing sailing details
+          - If an E-Quote row's ETD matches a crawled schedule ETD, missing sailing details
             (vessel, ETA, transit, service, routing) are filled from that schedule.
-          - Schedule sailings whose ETD matched a priced row are replaced by the priced
-            quote(s); unmatched sailings pass through unchanged (schedule-only, as today).
-        Pure function â€” unit-testable without a browser.
+            However, if the schedule's vessel is an E-Spot vessel (present in espot_vessels),
+            we prevent the pairing and use the "OOCL Vessel/Performa" fallback.
+          - Unmatched sailing schedules (those without any matching price quote) are dropped completely.
+        Pure function — unit-testable without a browser.
         """
         today = today or date.today()
         horizon = today + timedelta(days=window_days)
@@ -1517,6 +1563,17 @@ class OOCLConnector(BaseCarrierConnector):
         espots = [r for r in rows if r.get("kind") == "E-Spot"]
         equotes = [r for r in rows if r.get("kind") != "E-Spot"]
 
+        # Cheapest complete E-Spot row per ETD (compare row totals; keep the row whole)
+        best_espot_per_etd: dict = {}
+        for r in espots:
+            prices = r.get("prices") or {}
+            row_total = sum(prices.values()) if prices else (r.get("total_price") or 0)
+            if row_total <= 0:
+                continue
+            key = r.get("etd")
+            if key not in best_espot_per_etd or row_total < best_espot_per_etd[key][0]:
+                best_espot_per_etd[key] = (row_total, r)
+
         # Cheapest complete E-Quote row per ETD (compare row totals; keep the row whole)
         best_equote_per_etd: dict = {}
         for r in equotes:
@@ -1527,7 +1584,8 @@ class OOCLConnector(BaseCarrierConnector):
             key = r.get("etd")
             if key not in best_equote_per_etd or row_total < best_equote_per_etd[key][0]:
                 best_equote_per_etd[key] = (row_total, r)
-        selected = espots + [r for _, r in best_equote_per_etd.values()]
+
+        selected = [r for _, r in best_espot_per_etd.values()] + [r for _, r in best_equote_per_etd.values()]
 
         sched_by_etd: dict = {}
         for s in schedule_dicts:
@@ -1537,9 +1595,19 @@ class OOCLConnector(BaseCarrierConnector):
         out: List[dict] = []
         matched_etds = set()
         for r in selected:
-            sched = sched_by_etd.get(r.get("etd")) or {}
-            if sched:
-                matched_etds.add(r.get("etd"))
+            is_equote = r.get("kind") != "E-Spot"
+            sched = {}
+            if is_equote and r.get("etd"):
+                candidate_sched = sched_by_etd.get(r.get("etd")) or {}
+                if candidate_sched:
+                    sched_vessel = candidate_sched.get("vessel") or ""
+                    cleaned_sched_vessel = clean_vessel_name(sched_vessel)
+                    if espot_vessels and cleaned_sched_vessel in espot_vessels:
+                        sched = {}
+                    else:
+                        sched = candidate_sched
+                        matched_etds.add(r.get("etd"))
+
             base = {
                 "etd": r.get("etd"),
                 "eta": r.get("eta") or sched.get("eta"),
@@ -1565,7 +1633,7 @@ class OOCLConnector(BaseCarrierConnector):
                     })
                     out.append(q)
             elif r.get("total_price"):
-                # Priced row without per-type breakdown â€” keep it untyped; the caller
+                # Priced row without per-type breakdown — keep it untyped; the caller
                 # stamps the requested container type per cycle.
                 q = dict(base)
                 q.update({
@@ -1575,11 +1643,6 @@ class OOCLConnector(BaseCarrierConnector):
                 })
                 out.append(q)
 
-        # Unmatched schedule sailings pass through unchanged (schedule-only rows)
-        for s in schedule_dicts:
-            if s.get("etd") in matched_etds:
-                continue
-            out.append(s)
         return out
 
     async def close(self):
@@ -1658,7 +1721,9 @@ class OOCLConnector(BaseCarrierConnector):
                 print("[OOCL] OOCL_QUERY_FREIGHTSMART=false â€” schedules-only mode.")
 
             # Step 3: Pair & select per business rules
-            merged_dicts = self._fs_pair_and_select(fs_rows, schedule_dicts)
+            merged_dicts = self._fs_pair_and_select(
+                fs_rows, schedule_dicts, espot_vessels=getattr(self, "espot_vessels", None)
+            )
 
             quotes: list[QuoteSchema] = []
             for raw in merged_dicts:
