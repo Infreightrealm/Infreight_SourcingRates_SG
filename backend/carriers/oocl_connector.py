@@ -1,5 +1,5 @@
-"""
-OOCL Live Connector — Playwright automation for Sailing Schedules.
+﻿"""
+OOCL Live Connector â€” Playwright automation for Sailing Schedules.
 """
 import os
 import re
@@ -457,9 +457,9 @@ class OOCLConnector(BaseCarrierConnector):
             
         return quotes
 
-    # ────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # FREIGHTSMART (price quotes: E-Quote / E-Spot)
-    # ────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     FS_LOGIN_URL = "https://freightsmart.oocl.com/app/login?loginType=OOCL"
     FS_HOME_URL = "https://freightsmart.oocl.com/ui/"
@@ -472,13 +472,16 @@ class OOCLConnector(BaseCarrierConnector):
         "40HQ": "DRY 40H", "40RQ": "DRY 40H",
     }
 
-    _TOUR_HEADING = "Welcome to the new FreightSmart"
+    _TOUR_HEADINGS = [
+        "Welcome to the new FreightSmart",
+        "All Search Results in One View"
+    ]
 
     async def _fs_tour_present(self, page) -> bool:
         """Shadow-DOM-aware check for whether the onboarding tour heading is on screen."""
         try:
             return await page.evaluate(
-                """(heading) => {
+                """(headings) => {
                     const collect = (root, out) => {
                         for (const el of root.querySelectorAll('*')) {
                             out.push(el);
@@ -487,9 +490,9 @@ class OOCLConnector(BaseCarrierConnector):
                         return out;
                     };
                     return collect(document, []).some(el =>
-                        el.children.length === 0 && (el.textContent || '').includes(heading));
+                        el.children.length === 0 && headings.some(h => (el.textContent || '').includes(h)));
                 }""",
-                self._TOUR_HEADING,
+                self._TOUR_HEADINGS,
             )
         except Exception:
             return False
@@ -498,7 +501,7 @@ class OOCLConnector(BaseCarrierConnector):
                                      lock: Optional[asyncio.Lock] = None):
         """
         Runs CONCURRENTLY with the rest of the FreightSmart form-filling flow and
-        dismisses the onboarding tour the instant it appears — live-observed to render
+        dismisses the onboarding tour the instant it appears â€” live-observed to render
         mid-way through typing into the origin field, which a watcher that only checks
         between discrete steps is too late to catch (typing had already progressed by
         the time the fixed per-step checks would next run). Polls on a short interval
@@ -506,17 +509,19 @@ class OOCLConnector(BaseCarrierConnector):
         doing, since Playwright actions yield control to the event loop on every await.
 
         Detection (_fs_tour_present, read-only JS) always runs freely. Dismissal
-        (real clicks/Escape) is serialized via `lock` against the main flow's typing —
+        (real clicks/Escape) is serialized via `lock` against the main flow's typing â€”
         without that, an earlier version of this watcher stole focus mid-.type() and
         truncated the typed port name (live-observed + reproduced in testing).
         """
         while not stop_event.is_set():
             try:
-                if await self._fs_tour_present(page):
-                    print("[OOCL] [FS] Watcher: tour popup appeared mid-flow — dismissing...")
+                tour_present = await self._fs_tour_present(page)
+                generic_modal_present = await page.locator('.ant-modal-wrap, [class*="modal" i], [class*="dialog" i]').first.is_visible()
+                if tour_present or generic_modal_present:
+                    print(f"[OOCL] [FS] Watcher: popup/modal detected (tour={tour_present}, generic={generic_modal_present}) â€” dismissing...")
                     await self._fs_dismiss_modals(page, lock=lock)
-            except Exception:
-                pass
+            except Exception as loop_err:
+                print(f"[OOCL] [FS] Watcher loop error: {loop_err}")
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=0.4)
             except asyncio.TimeoutError:
@@ -526,10 +531,10 @@ class OOCLConnector(BaseCarrierConnector):
         """
         Position-based fallback for the onboarding tour popup: instead of guessing its
         close icon's class/aria-label (which a live run showed our selector guesses did
-        not match — likely a third-party guide widget with unpredictable markup, possibly
+        not match â€” likely a third-party guide widget with unpredictable markup, possibly
         in a shadow root), locate the popup by its heading text, then click the smallest
-        short-text/icon element sitting in its TOP-RIGHT corner — the conventional
-        position of an X — while explicitly excluding anything containing "Start Tour"
+        short-text/icon element sitting in its TOP-RIGHT corner â€” the conventional
+        position of an X â€” while explicitly excluding anything containing "Start Tour"
         or the step-pagination dots. Returns True if a click was dispatched.
         """
         js = """
@@ -546,7 +551,7 @@ class OOCLConnector(BaseCarrierConnector):
                     (el.textContent || '').trim() === heading ||
                     (el.children.length === 0 && (el.textContent || '').includes(heading)));
                 if (!headEl) return { found: false };
-                // Walk up to the smallest ancestor that ALSO contains "Start Tour" —
+                // Walk up to the smallest ancestor that ALSO contains "Start Tour" â€”
                 // that bounds the whole popup card.
                 let container = headEl;
                 for (let i = 0; i < 8 && container.parentElement; i++) {
@@ -575,51 +580,59 @@ class OOCLConnector(BaseCarrierConnector):
                 return { found: true, clicked: true, x: r.left + r.width / 2, y: r.top + r.height / 2 };
             }
         """
-        try:
-            result = await page.evaluate(js, self._TOUR_HEADING)
-        except Exception:
-            return False
-        if not result.get("found") or not result.get("clicked"):
-            return False
-        try:
-            await page.mouse.click(result["x"], result["y"])
-            print("[OOCL] [FS] Dismissed tour popup via top-right-corner position heuristic.")
-            return True
-        except Exception:
-            return False
+        for heading in self._TOUR_HEADINGS:
+            try:
+                result = await page.evaluate(js, heading)
+                if result.get("found") and result.get("clicked"):
+                    x, y = result["x"], result["y"]
+                    await page.mouse.click(x, y)
+                    print(f"[OOCL] [FS] Dismissed tour popup '{heading}' via position heuristic at ({x}, {y})")
+                    return True
+            except Exception:
+                continue
+        return False
 
     async def _fs_dismiss_modals(self, page, lock: Optional[asyncio.Lock] = None):
         """
         Closes FreightSmart popups. Order matters:
-          1. Cookie Notice consent ("Accept All") — appears on the login page and
+          1. Cookie Notice consent ("Accept All") â€” appears on the login page and
              intercepts the Next/Sign In clicks.
-          2. The "Welcome to the new FreightSmart" onboarding tour carousel — closed
+          2. The "Welcome to the new FreightSmart" onboarding tour carousel â€” closed
              via its X icon specifically. "Start Tour" is deliberately never matched
              here; clicking it would launch the tour instead of dismissing it.
           3. Generic dialog close buttons (e.g. the post-login "Important Update").
-          4. Position-based X heuristic (shadow-DOM aware) — for when the tour's close
+          4. Position-based X heuristic (shadow-DOM aware) â€” for when the tour's close
              icon markup doesn't match any of the guessed selectors above.
           5. Escape key as a final resort.
         Called repeatedly at several points in _fs_run (not just once) since this widget
         can render a few seconds after the page otherwise looks settled.
 
         When called from the background watcher, pass the same `lock` used to guard
-        the main flow's critical typing/clicking — this serializes the ACT of dismissal
+        the main flow's critical typing/clicking â€” this serializes the ACT of dismissal
         against those actions (never runs a click/Escape mid-.type()) without blocking
         the read-only detection in _fs_tour_present, which needs no lock.
         """
         async def _dismiss_once() -> bool:
-            for sel in ['button:has-text("Accept All")', 'button:has-text("Accept all")',
-                        '#onetrust-accept-btn-handler', 'button:has-text("Agree")',
-                        f'div:has-text("{self._TOUR_HEADING}") button[aria-label="Close" i]',
-                        f'div:has-text("{self._TOUR_HEADING}") [aria-label="close" i]',
-                        f'div:has-text("{self._TOUR_HEADING}") button:not(:has-text("Start Tour"))',
-                        f'div:has-text("{self._TOUR_HEADING}") [class*="close" i]',
-                        'button:has-text("Close")', 'button:has-text("OK")',
-                        '[class*="dialog" i] [class*="close" i]', '[aria-label="Close"]']:
+            selectors = [
+                'button:has-text("Accept All")', 'button:has-text("Accept all")',
+                '#onetrust-accept-btn-handler', 'button:has-text("Agree")',
+            ]
+            for heading in self._TOUR_HEADINGS:
+                selectors.extend([
+                    f'div:has-text("{heading}") button[aria-label="Close" i]',
+                    f'div:has-text("{heading}") [aria-label="close" i]',
+                    f'div:has-text("{heading}") button:not(:has-text("Start Tour"))',
+                    f'div:has-text("{heading}") [class*="close" i]',
+                ])
+            selectors.extend([
+                '.ant-modal-close', '.ant-modal-close-x', '.ant-modal-wrap button.ant-modal-close',
+                'button:has-text("Close")', 'button:has-text("OK")',
+                '[class*="dialog" i] [class*="close" i]', '[aria-label="Close" i]', '[aria-label="close" i]'
+            ])
+            for sel in selectors:
                 try:
                     btn = page.locator(sel).first
-                    if await btn.is_visible(timeout=800):
+                    if await btn.is_visible():
                         await btn.click()
                         print(f"[OOCL] [FS] Dismissed popup via: {sel}")
                         await page.wait_for_timeout(600)
@@ -627,19 +640,24 @@ class OOCLConnector(BaseCarrierConnector):
                 except Exception:
                     continue
 
-            # No selector above matched — try the position heuristic, then Escape.
+            # General modal escape fallback
+            try:
+                modal_present = await page.locator('.ant-modal-wrap, [class*="modal" i], [class*="dialog" i]').first.is_visible()
+                if modal_present:
+                    await page.keyboard.press("Escape")
+                    print("[OOCL] [FS] Dismissed popup via general Escape key.")
+                    await page.wait_for_timeout(600)
+                    return True
+            except Exception:
+                pass
+
+            # Try the position heuristic for the onboarding tour specifically
             if not await self._fs_tour_present(page):
                 return False
             if await self._fs_click_tour_x_by_position(page):
                 await page.wait_for_timeout(600)
                 return True
-            try:
-                await page.keyboard.press("Escape")
-                print("[OOCL] [FS] Dismissed onboarding tour via Escape key.")
-                await page.wait_for_timeout(600)
-                return True
-            except Exception:
-                return False
+            return False
 
         for _ in range(4):
             if lock is not None:
@@ -653,14 +671,14 @@ class OOCLConnector(BaseCarrierConnector):
     async def _fs_login(self, page) -> bool:
         """
         Two-step FreightSmart login:
-          1. freightsmart.oocl.com/app/login — email + "Next"
-          2. exiamfw.home.oocl.com (Keycloak) — password + "Sign In"
+          1. freightsmart.oocl.com/app/login â€” email + "Next"
+          2. exiamfw.home.oocl.com (Keycloak) â€” password + "Sign In"
         Credentials from OOCL_USERNAME / OOCL_PASSWORD env vars.
         """
         username = (os.getenv("OOCL_USERNAME") or "").strip()
         password = (os.getenv("OOCL_PASSWORD") or "").strip()
         if not username or not password:
-            print("[OOCL] [FS] OOCL_USERNAME / OOCL_PASSWORD not set — skipping FreightSmart quotes.")
+            print("[OOCL] [FS] OOCL_USERNAME / OOCL_PASSWORD not set â€” skipping FreightSmart quotes.")
             return False
 
         print("[OOCL] [FS] Navigating to FreightSmart login...")
@@ -668,7 +686,7 @@ class OOCLConnector(BaseCarrierConnector):
         await page.wait_for_timeout(2500)
 
         # The Cookie Notice consent overlay renders on top of the login form and
-        # intercepts clicks — clear it before touching anything.
+        # intercepts clicks â€” clear it before touching anything.
         await self._fs_dismiss_modals(page)
 
         # Already logged in from a previous navigation in this context?
@@ -733,7 +751,7 @@ class OOCLConnector(BaseCarrierConnector):
         background popup watcher): live-observed, the onboarding tour appearing
         mid-type let the watcher's dismissal action (a click/Escape) steal focus
         from the field, truncating the typed text. Holding the lock only for this
-        sequence — not the whole function — blocks the watcher from acting during
+        sequence â€” not the whole function â€” blocks the watcher from acting during
         typing while still letting it clear a popup that shows up right after, before
         the dropdown-option search/click that follows.
         """
@@ -746,44 +764,65 @@ class OOCLConnector(BaseCarrierConnector):
             print(f"[OOCL] [FS] {which} port input not found.")
             return False
 
-        async def _type_name():
-            await field.click()
+        # Try up to 3 times to type and select suggestion
+        for attempt in range(1, 4):
+            print(f"[OOCL] [FS] Filling {which} port (attempt {attempt}/3)...")
+            
+            # Dismiss any popups beforehand
+            await self._fs_dismiss_modals(page, lock=lock)
+            
+            try:
+                await field.click(timeout=3000)
+            except Exception as click_err:
+                print(f"[OOCL] [FS] Click {which} input blocked, dismissing modals: {click_err}")
+                await self._fs_dismiss_modals(page, lock=lock)
+                await field.click(timeout=3000)
+
             await field.fill("")
-            await field.type(name, delay=90)
 
-        if lock is not None:
-            async with lock:
-                await _type_name()
-        else:
-            await _type_name()
-        await page.wait_for_timeout(1500)
+            if lock is not None:
+                async with lock:
+                    await field.type(name, delay=100)
+            else:
+                await field.type(name, delay=100)
+            
+            await page.wait_for_timeout(1500)
+            
+            # Dismiss popups that might have appeared during or right after typing
+            await self._fs_dismiss_modals(page, lock=lock)
 
-        # Suggestions render as list rows, e.g. "Singapore, Singapore" / "Port Klang, Selangor, Malaysia"
-        options = page.locator('[role="option"], li, [class*="option" i], [class*="suggest" i] div')
-        best = None
-        try:
-            count = min(await options.count(), 15)
-            for i in range(count):
+            # Suggestions render as list rows
+            options = page.locator('.ant-popover:not(.ant-popover-hidden) .location-item, .ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')
+            best = None
+            try:
+                count = min(await options.count(), 20)
+                for i in range(count):
+                    try:
+                        text = (await options.nth(i).inner_text()).strip()
+                    except Exception:
+                        continue
+                    if not text or name.lower() not in text.lower():
+                        continue
+                    if cn and cn.lower() in text.lower():
+                        best = options.nth(i)
+                        break
+                    if best is None:
+                        best = options.nth(i)
+            except Exception:
+                pass
+
+            if best is not None:
                 try:
-                    text = (await options.nth(i).inner_text()).strip()
-                except Exception:
-                    continue
-                if not text or name.lower() not in text.lower():
-                    continue
-                if cn and cn.lower() in text.lower():
-                    best = options.nth(i)
-                    break
-                if best is None:
-                    best = options.nth(i)
-        except Exception:
-            pass
-        if best is None:
-            print(f"[OOCL] [FS] No autocomplete match for {which}='{name}'.")
-            return False
-        await best.click()
-        await page.wait_for_timeout(800)
-        print(f"[OOCL] [FS] Selected {which}: {name} ({locode})")
-        return True
+                    await best.click()
+                    await page.wait_for_timeout(800)
+                    print(f"[OOCL] [FS] Selected {which}: {name} ({locode})")
+                    return True
+                except Exception as click_err:
+                    print(f"[OOCL] [FS] Failed to click option on attempt {attempt}: {click_err}")
+            
+            print(f"[OOCL] [FS] No autocomplete match or visible suggestions for {which}='{name}' on attempt {attempt}.")
+
+        return False
 
     async def _fs_set_container_quantities(self, page, lock: Optional[asyncio.Lock] = None) -> bool:
         """
@@ -795,7 +834,7 @@ class OOCLConnector(BaseCarrierConnector):
         """
         async def _do_fill():
             try:
-                picker = page.locator('input[placeholder*="Container Type" i]').first
+                picker = page.locator('.cargo-input-wrap .input-container').first
                 await picker.click()
                 await page.wait_for_timeout(1000)
             except Exception as e:
@@ -803,28 +842,30 @@ class OOCLConnector(BaseCarrierConnector):
                 return 0
 
             filled = 0
-            # Preferred: target each labelled row's input
-            for label in ["20GP", "40GP", "40HQ"]:
-                try:
-                    row_input = page.locator(
-                        f'div:has-text("{label}") >> input').last
-                    if await row_input.is_visible(timeout=800):
-                        await row_input.fill("1")
-                        filled += 1
-                        continue
-                except Exception:
-                    pass
+            # Direct/Preferred: target by the class inside the container popover
+            try:
+                inputs = page.locator('.ant-popover:not(.ant-popover-hidden) input.ant-input-number-input')
+                await inputs.first.wait_for(state="visible", timeout=5000)
+                count = await inputs.count()
+                if count >= 3:
+                    for i in range(3):
+                        await inputs.nth(i).fill("1")
+                    filled = 3
+            except Exception as fill_err:
+                print(f"[OOCL] [FS] Direct popover input fill failed: {fill_err}")
+
             if filled < 3:
-                # Fallback: the picker panel exposes three visible quantity inputs
-                try:
-                    qty_inputs = page.locator('input[type="number"]:visible')
-                    count = await qty_inputs.count()
-                    if count >= 3:
-                        for i in range(count - 3, count):
-                            await qty_inputs.nth(i).fill("1")
-                        filled = 3
-                except Exception as e:
-                    print(f"[OOCL] [FS] Quantity fallback failed: {e}")
+                # Preferred: target each labelled row's input
+                for label in ["20GP", "40GP", "40HQ"]:
+                    try:
+                        row_input = page.locator(
+                            f'div:has-text("{label}") >> input').last
+                        if await row_input.is_visible():
+                            await row_input.fill("1")
+                            filled += 1
+                            continue
+                    except Exception:
+                        pass
             print(f"[OOCL] [FS] Container quantities set ({filled}/3 rows).")
             # Close the picker so it doesn't block the Get Quote button
             try:
@@ -842,20 +883,31 @@ class OOCLConnector(BaseCarrierConnector):
         return filled > 0
 
     @staticmethod
-    def _fs_parse_card(text: str) -> Optional[dict]:
+    def _fs_parse_card(text: str, active_date: Optional[str] = None) -> Optional[dict]:
         """
         Parses one FreightSmart result card's inner text into a raw row dict.
         Text-anchored and tolerant of layout differences:
-          kind    — 'E-Spot' if the card mentions E-Spot/Spot product, else 'E-Quote'
-          etd/eta — 'YYYY-MM-DD', 'MM/DD' or 'DD Mon' formats
-          prices  — per container-type USD amounts (20GP/40GP/40HQ/...)
+          kind    â€” 'E-Spot' if the card mentions E-Spot/Spot/Smart Uno/Smart Combo product, else 'E-Quote'
+          etd/eta â€” 'YYYY-MM-DD', 'MM/DD' or 'DD Mon' formats
+          prices  â€” per container-type USD amounts (20GP/40GP/40HQ/...)
           vessel/transit/free_time when present
         Returns None if the card has no usable price at all.
         """
         if not text or "USD" not in text.upper():
             return None
-        t = " ".join(text.split())
-        kind = "E-Spot" if re.search(r"\bE[- ]?Spot\b", t, re.IGNORECASE) else "E-Quote"
+            
+        # Pre-process text to separate concatenated words/labels on BOTH sides
+        t = text
+        for label in ["20GP", "40GP", "40HQ", "20RF", "40RQ"]:
+            t = re.sub(rf"({label})", r" \1 ", t, flags=re.IGNORECASE)
+        for keyword in ["Origin", "Destination", "Smart Uno", "Smart Combo", "Transit Time", "Vessel", "ETD", "ETA", "CY", "Cut-off"]:
+            t = re.sub(rf"({keyword})", r" \1 ", t, flags=re.IGNORECASE)
+            
+        t = " ".join(t.split())
+        
+        kind = "E-Spot" if (re.search(r"\bE[- ]?Spot\b", t, re.IGNORECASE) or 
+                            "smart uno" in t.lower() or 
+                            "smart combo" in t.lower()) else "E-Quote"
 
         def _parse_date(raw: str) -> Optional[str]:
             raw = raw.strip()
@@ -879,32 +931,62 @@ class OOCLConnector(BaseCarrierConnector):
             return None
 
         etd = eta = None
-        m = re.search(r"ETD[:\s]*([0-9/\-]+|\d{1,2}\s+[A-Za-z]{3})", t, re.IGNORECASE)
+        # FTD - FTA date range
+        m = re.search(r"(\d{1,2}\s+[A-Za-z]{3})\s*-\s*(\d{1,2}\s+[A-Za-z]{3})", t, re.IGNORECASE)
         if m:
             etd = _parse_date(m.group(1))
-        m = re.search(r"ETA[:\s]*([0-9/\-]+|\d{1,2}\s+[A-Za-z]{3})", t, re.IGNORECASE)
-        if m:
-            eta = _parse_date(m.group(1))
+            eta = _parse_date(m.group(2))
+            
+        if not etd or not eta:
+            m = re.search(r"ETD[:\s]*([0-9/\-]+|\d{1,2}\s+[A-Za-z]{3})", t, re.IGNORECASE)
+            if m:
+                etd = _parse_date(m.group(1))
+            m = re.search(r"ETA[:\s]*([0-9/\-]+|\d{1,2}\s+[A-Za-z]{3})", t, re.IGNORECASE)
+            if m:
+                eta = _parse_date(m.group(2) if len(m.groups()) > 1 else m.group(1))
+
+        if not etd:
+            etd = active_date
+
+        # Parse Rate Valid range
+        validity_start = validity_end = None
+        vm = re.search(r"Rate\s+Valid\s*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s*-\s*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})", t, re.IGNORECASE)
+        if vm:
+            try:
+                validity_start = datetime.strptime(vm.group(1), "%d %b %Y").date().strftime("%Y-%m-%d")
+                validity_end = datetime.strptime(vm.group(2), "%d %b %Y").date().strftime("%Y-%m-%d")
+            except ValueError:
+                pass
 
         transit = None
         m = re.search(r"(\d+)\s*day", t, re.IGNORECASE)
         if m:
             transit = int(m.group(1))
 
+        # Free time
         free_time = None
-        m = re.search(r"(?:detention|free\s*time)\D{0,30}?(\d+)\s*(?:calendar\s*)?days?", t, re.IGNORECASE) or \
-            re.search(r"(\d+)\s*(?:calendar\s*)?days?\D{0,30}?detention", t, re.IGNORECASE)
+        # Match Destination COMBO 14 CD or Destination DD2in1 11 CD
+        m = re.search(r"Destination\s+(?:[A-Z0-9a-z-]+\s+){0,3}(\d+)\s*(?:CD|WD|calendar\s*days?|days?)", t, re.IGNORECASE)
         if m:
             free_time = int(m.group(1))
+        else:
+            m = re.search(r"(?:detention|free\s*time)\D{0,30}?(\d+)\s*(?:calendar\s*)?days?", t, re.IGNORECASE) or \
+                re.search(r"(\d+)\s*(?:calendar\s*)?days?\D{0,30}?detention", t, re.IGNORECASE)
+            if m:
+                free_time = int(m.group(1))
 
         vessel = None
-        m = re.search(r"Vessel\s*(?:/|Voyage)?\s*[:\s]\s*([A-Z0-9][A-Z0-9 .\-]{2,40}?)(?=\s{2,}|\s+(?:ETD|ETA|USD|Transit|Service)|$)",
-                      text, re.IGNORECASE)
+        # Start of card text before CY/Cut-off/ETD
+        m = re.search(r"^([A-Z0-9][A-Z0-9 .\-]{2,45}?)(?=\s+(?:CY|Cut-off|ETD|ETA|Transit|USD|Service))", t, re.IGNORECASE)
         if m:
             vessel = m.group(1).strip()
+        else:
+            m = re.search(r"Vessel\s*(?:/|Voyage)?\s*[:\s]\s*([A-Z0-9][A-Z0-9 .\-]{2,40}?)(?=\s{2,}|\s+(?:ETD|ETA|USD|Transit|Service)|$)",
+                          text, re.IGNORECASE)
+            if m:
+                vessel = m.group(1).strip()
 
-        # Per-container prices: "40GP ... USD 1,100.00" or "40GP from USD 160" or bare
-        # column layouts "20GP 800.00 40GP 1,100.00"
+        # Per-container prices
         prices = {}
         for label, ct in OOCLConnector.FS_CONTAINER_MAP.items():
             pm = re.search(rf"{label}[^0-9]{{0,24}}([\d,]+(?:\.\d{{1,2}})?)", t)
@@ -924,6 +1006,7 @@ class OOCLConnector(BaseCarrierConnector):
             "kind": kind, "etd": etd, "eta": eta, "vessel": vessel,
             "transit_time_days": transit, "free_time": free_time,
             "prices": prices, "total_price": total_price, "currency": "USD",
+            "validity_start": validity_start, "validity_end": validity_end,
         }
 
     async def _fs_extract_rows(self, page) -> List[dict]:
@@ -937,41 +1020,391 @@ class OOCLConnector(BaseCarrierConnector):
         except Exception:
             pass
 
+        # Retrieve active calendar date from the page
+        active_date = None
+        try:
+            active_date_el = page.locator(".date-item.active .date-text, [class*=\"date-item\" i][class*=\"active\" i] [class*=\"date-text\" i]").first
+            if await active_date_el.is_visible():
+                active_date = (await active_date_el.inner_text()).strip()
+                print(f"[OOCL] [FS] Active calendar date detected: {active_date}")
+        except Exception as e:
+            print(f"[OOCL] [FS] Could not retrieve active calendar date: {e}")
+
+        # First, click any "More Smart Combo Offers" or show-more buttons to expand all options
+        try:
+            more_buttons = page.locator('button:has-text("More Smart Combo"), .show-more-container button, [class*="show-more" i] button')
+            count = await more_buttons.count()
+            for i in range(count):
+                btn = more_buttons.nth(i)
+                if await btn.is_visible():
+                    await btn.click()
+                    await page.wait_for_timeout(500)
+        except Exception as e:
+            print(f"[OOCL] [FS] Warning: could not click show-more buttons: {e}")
+
+        # Let's query the outer container card wrappers
+        containers = page.locator('.product-card-container')
+        container_count = await containers.count()
+        
         rows: List[dict] = []
         seen = set()
-        card_selectors = [
-            '[class*="quote-card" i]', '[class*="quoteItem" i]', '[class*="product" i]',
-            '[class*="result" i] [class*="card" i]', '[class*="card" i]',
-        ]
-        for sel in card_selectors:
-            try:
-                cards = page.locator(sel)
-                count = min(await cards.count(), 40)
-            except Exception:
+
+        for c_idx in range(container_count):
+            container = containers.nth(c_idx)
+            
+            # Check if this container is an E-Spot container
+            container_text = await container.inner_text()
+            is_espot = ("smart uno" in container_text.lower() or 
+                        "smart combo" in container_text.lower() or 
+                        "e-spot" in container_text.lower())
+            
+            # 1. Parse the main/first card in this container to extract header info
+            first_card = container.locator('.product-card').first
+            if not await first_card.is_visible():
                 continue
-            for i in range(count):
-                try:
-                    text = await cards.nth(i).inner_text()
-                except Exception:
-                    continue
-                parsed = self._fs_parse_card(text)
+                
+            first_text = await first_card.inner_text()
+            first_parsed = self._fs_parse_card(first_text, active_date=active_date)
+            if not first_parsed:
+                continue
+                
+            # Header fields to inherit
+            vessel = first_parsed.get("vessel")
+            etd = first_parsed.get("etd")
+            eta = first_parsed.get("eta")
+            transit = first_parsed.get("transit_time_days")
+            
+            # 2. Parse all product-cards inside this container (which represent the sub-rows)
+            sub_cards = container.locator('.product-card')
+            sub_count = await sub_cards.count()
+            
+            for s_idx in range(sub_count):
+                card = sub_cards.nth(s_idx)
+                card_text = await card.inner_text()
+                parsed = self._fs_parse_card(card_text, active_date=active_date)
                 if not parsed:
                     continue
+                    
+                # Inherit header info if missing
+                if not parsed.get("vessel"):
+                    parsed["vessel"] = vessel
+                if not parsed.get("etd"):
+                    parsed["etd"] = etd
+                if not parsed.get("eta"):
+                    parsed["eta"] = eta
+                if not parsed.get("transit_time_days"):
+                    parsed["transit_time_days"] = transit
+                if is_espot:
+                    parsed["kind"] = "E-Spot"
+                    
+                # Deduplicate
                 key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
-                       tuple(sorted(parsed["prices"].items())))
+                       tuple(sorted(parsed["prices"].items())), parsed.get("free_time"))
                 if key in seen:
                     continue
                 seen.add(key)
                 rows.append(parsed)
-            if rows:
-                break
+
+        # Fallback to old behavior if no containers found
+        if not rows:
+            print("[OOCL] [FS] No product-card-container elements found. Falling back to flat selectors.")
+            card_selectors = [
+                '[class*="quote-card" i]', '[class*="quoteItem" i]', '[class*="product" i]',
+                '[class*="result" i] [class*="card" i]', '[class*="card" i]',
+            ]
+            for sel in card_selectors:
+                try:
+                    cards = page.locator(sel)
+                    count = min(await cards.count(), 40)
+                except Exception:
+                    continue
+                for i in range(count):
+                    try:
+                        text = await cards.nth(i).inner_text()
+                    except Exception:
+                        continue
+                    parsed = self._fs_parse_card(text, active_date=active_date)
+                    if not parsed:
+                        continue
+                    key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
+                           tuple(sorted(parsed["prices"].items())))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rows.append(parsed)
+                if rows:
+                    break
+
         print(f"[OOCL] [FS] Extracted {len(rows)} priced row(s) "
               f"({sum(1 for r in rows if r['kind'] == 'E-Spot')} E-Spot, "
               f"{sum(1 for r in rows if r['kind'] == 'E-Quote')} E-Quote).")
         return rows
 
+
+    async def _fs_iterate_calendar_dates(self, page) -> List[dict]:
+        """
+        Iterates through the FreightSmart results date calendar to collect E-Quote and E-Spot
+        rows for every date within the next 14 days that has available pricing.
+
+        Strategy:
+        1. Click the '>' nav button on the date strip to open the full 2-month calendar popup.
+        2. Read the visible month headers (e.g. "2026 Jul", "2026 Aug") to determine which
+           months are displayed.
+        3. Scan all `custom-date-cell` elements, compute each cell's full date from its day
+           number + the month context, and filter to todayâ†’today+14.
+        4. For each in-window date with a non-'--' price, click its cell directly inside the
+           popup (which closes the calendar and updates the result cards below).
+        5. Extract rows; then re-open the calendar for the next date.
+        6. Fallback: if the calendar cannot be opened or cells can't be read, fall back to
+           scanning the visible date strip.
+        """
+        today = date.today()
+        horizon = today + timedelta(days=14)
+
+        MONTH_ABBR = {
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+        }
+
+        async def _open_calendar() -> bool:
+            """Click the forward nav button on the date strip to open the calendar popup."""
+            try:
+                # The '>' button that opens the full 2-month calendar
+                nav_btn = page.locator(
+                    ".date-navigation button.nav-button:last-child, "
+                    ".calendar-container button.nav-button:last-child"
+                ).last
+                if await nav_btn.is_visible(timeout=3000):
+                    await nav_btn.click()
+                    await page.wait_for_timeout(1000)
+                    # Confirm the calendar popup appeared
+                    if await page.locator(".custom-date-cell").first.is_visible(timeout=3000):
+                        return True
+            except Exception as e:
+                print(f"[OOCL] [FS] _open_calendar failed: {e}")
+            return False
+
+        async def _read_calendar_dates() -> List[tuple]:
+            """
+            Returns list of (date_str, cell_locator_index) for dates in the 14-day window
+            that have a non-'--' price.  The index lets us re-locate the cell later.
+            """
+            results = []
+            try:
+                # Extract month/year pairs via JavaScript from the calendar header text
+                # The calendar shows two month panels side-by-side (e.g. "2026 Jul" "2026 Aug")
+                month_year_pairs: List[tuple] = []
+                header_texts: List[str] = await page.evaluate("""
+                    () => {
+                        const all = document.querySelectorAll('[class*="calendar-header"], [class*="month-header"], [class*="panel-header"], [class*="calendar-title"]');
+                        return Array.from(all).map(el => el.innerText.trim()).filter(t => t.length > 0);
+                    }
+                """)
+                for ht in header_texts:
+                    m = re.search(r"(\d{4})\s+([A-Za-z]{3,9})", ht) or \
+                        re.search(r"([A-Za-z]{3,9})\s+(\d{4})", ht)
+                    if m:
+                        g = m.groups()
+                        year_str = g[0] if g[0].isdigit() else g[1]
+                        mon_str = g[1] if g[0].isdigit() else g[0]
+                        mon_num = MONTH_ABBR.get(mon_str.lower()[:3])
+                        if mon_num and (int(year_str), mon_num) not in month_year_pairs:
+                            month_year_pairs.append((int(year_str), mon_num))
+
+                if not month_year_pairs:
+                    # Fallback: infer from today (Jul + Aug if not Dec)
+                    month_year_pairs = [(today.year, today.month)]
+                    if today.month == 12:
+                        month_year_pairs.append((today.year + 1, 1))
+                    else:
+                        month_year_pairs.append((today.year, today.month + 1))
+
+                print(f"[OOCL] [FS] Calendar months detected: {month_year_pairs}")
+
+                # Read all custom-date-cell elements
+                cells = page.locator(".custom-date-cell")
+                cell_count = await cells.count()
+                # Split cells roughly evenly across the two months
+                cells_per_month = cell_count // max(len(month_year_pairs), 1)
+
+                for i in range(cell_count):
+                    cell = cells.nth(i)
+                    try:
+                        text = (await cell.inner_text()).strip()
+                    except Exception:
+                        continue
+                    lines = [l.strip() for l in text.splitlines() if l.strip()]
+                    if not lines:
+                        continue
+                    day_str = lines[0]
+                    if not day_str.isdigit():
+                        continue
+                    day = int(day_str)
+
+                    # Determine which month this cell belongs to
+                    month_idx = min(i // max(cells_per_month, 1), len(month_year_pairs) - 1)
+                    year, month = month_year_pairs[month_idx]
+
+                    try:
+                        cell_date = date(year, month, day)
+                    except ValueError:
+                        continue
+
+                    if not (today <= cell_date <= horizon):
+                        continue
+
+                    # Check for a non-'--' price
+                    price_lines = lines[1:]
+                    has_price = any(
+                        p and p not in ("-", "--") and "sold" not in p.lower()
+                        for p in price_lines
+                    )
+                    if not has_price:
+                        continue
+
+                    results.append((cell_date.strftime("%Y-%m-%d"), i))
+                    print(f"[OOCL] [FS] Calendar: date {cell_date} has price (cell #{i}): {price_lines}")
+
+            except Exception as e:
+                print(f"[OOCL] [FS] _read_calendar_dates error: {e}")
+            return results
+
+        async def _click_date_strip_item(target_date_str: str) -> bool:
+            """Click a date in the visible date strip (used as fallback after calendar issues)."""
+            try:
+                strip_items = page.locator(".date-item")
+                strip_count = await strip_items.count()
+                for i in range(strip_count):
+                    item = strip_items.nth(i)
+                    try:
+                        dt = (await item.locator(".date-text").inner_text()).strip()
+                    except Exception:
+                        continue
+                    if dt == target_date_str:
+                        await item.click()
+                        await page.wait_for_timeout(1500)
+                        await self._fs_dismiss_modals(page)
+                        return True
+            except Exception:
+                pass
+            return False
+
+        # â”€â”€ Main flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+        all_rows: List[dict] = []
+        seen_keys: set = set()
+        available_dates: List[tuple] = []  # list of (date_str, cell_index)
+
+        # Step 1: Open calendar and discover available dates
+        if await _open_calendar():
+            available_dates = await _read_calendar_dates()
+            # Close the calendar before proceeding
+            try:
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(1000)
+            except Exception:
+                pass
+
+        # Step 2: If calendar parsing failed, fall back to date strip discovery
+        if not available_dates:
+            print("[OOCL] [FS] Calendar date discovery failed. Falling back to date strip scan.")
+            try:
+                strip_items = page.locator(".date-item")
+                sc = await strip_items.count()
+                for i in range(sc):
+                    item = strip_items.nth(i)
+                    try:
+                        dt_text = (await item.locator(".date-text").inner_text()).strip()
+                        if not dt_text:
+                            continue
+                        item_date = datetime.strptime(dt_text, "%Y-%m-%d").date()
+                    except Exception:
+                        continue
+                    if not (today <= item_date <= horizon):
+                        continue
+                    price_els = item.locator(".price-text")
+                    pc = await price_els.count()
+                    has_price = False
+                    for pi in range(pc):
+                        pt = (await price_els.nth(pi).inner_text()).strip()
+                        if pt and pt not in ("-", "--") and "sold" not in pt.lower():
+                            has_price = True
+                            break
+                    if has_price:
+                        available_dates.append((dt_text, -1))  # -1 = no cell index
+            except Exception as e:
+                print(f"[OOCL] [FS] Date strip scan failed: {e}")
+
+        date_strings = sorted(set(d for d, _ in available_dates))
+        print(f"[OOCL] [FS] Dates with availability in next 14 days: {date_strings}")
+
+        if not date_strings:
+            print("[OOCL] [FS] No dated availability found â€” extracting current active date only.")
+            return await self._fs_extract_rows(page)
+
+        # Step 3: For each available date, click it and extract rows
+        for target_date_str in date_strings:
+            print(f"[OOCL] [FS] Processing date: {target_date_str}")
+            clicked = False
+
+            # Strategy A: open calendar, find the cell by index, click it directly
+            cell_index = next((ci for ds, ci in available_dates if ds == target_date_str), -1)
+            if cell_index >= 0:
+                if await _open_calendar():
+                    try:
+                        cells = page.locator(".custom-date-cell")
+                        cell = cells.nth(cell_index)
+                        if await cell.is_visible(timeout=3000):
+                            await cell.click()
+                            await page.wait_for_timeout(1500)
+                            await self._fs_dismiss_modals(page)
+                            clicked = True
+                            print(f"[OOCL] [FS] Clicked calendar cell #{cell_index} for {target_date_str}.")
+                    except Exception as e:
+                        print(f"[OOCL] [FS] Calendar cell click failed for {target_date_str}: {e}")
+                        try:
+                            await page.keyboard.press("Escape")
+                            await page.wait_for_timeout(800)
+                        except Exception:
+                            pass
+
+            # Strategy B: click the date strip item
+            if not clicked:
+                clicked = await _click_date_strip_item(target_date_str)
+                if clicked:
+                    print(f"[OOCL] [FS] Clicked date strip for {target_date_str}.")
+
+            if not clicked:
+                print(f"[OOCL] [FS] Could not click date {target_date_str} â€” skipping.")
+                continue
+
+            # Extract rows for this date
+            date_rows = await self._fs_extract_rows(page)
+            for r in date_rows:
+                r_copy = dict(r)
+                if r_copy.get("kind") != "E-Spot":
+                    r_copy["etd"] = target_date_str  # stamp E-Quote with the clicked date
+                key = (
+                    r_copy.get("kind"),
+                    r_copy.get("etd"),
+                    r_copy.get("free_time"),
+                    tuple(sorted(r_copy.get("prices", {}).items())),
+                )
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                all_rows.append(r_copy)
+
+        print(
+            f"[OOCL] [FS] Calendar iteration complete â€” "
+            f"{len(all_rows)} total rows "
+            f"({sum(1 for r in all_rows if r.get('kind') == 'E-Spot')} E-Spot, "
+            f"{sum(1 for r in all_rows if r.get('kind') == 'E-Quote')} E-Quote) "
+            f"across {len(date_strings)} date(s)."
+        )
+        return all_rows
     async def _fs_run(self, request: RateSearchRequest) -> List[dict]:
-        """Full FreightSmart phase: login → fill quote form → search → extract rows."""
+        """Full FreightSmart phase: login â†’ fill quote form â†’ search â†’ extract rows."""
         if not self.context:
             await self._init_browser()
         page = await self.context.new_page()
@@ -986,7 +1419,7 @@ class OOCLConnector(BaseCarrierConnector):
             await self._fs_dismiss_modals(page)
 
             # Background watcher: live-observed, the onboarding tour can render
-            # mid-way through typing into the origin field — a race that any sequence
+            # mid-way into typing into the origin field â€” a race that any sequence
             # of fixed between-step checks is too slow to reliably catch (typing had
             # already progressed before the next checkpoint would run). This watcher
             # runs CONCURRENTLY for the whole form-filling phase and dismisses the tour
@@ -994,7 +1427,7 @@ class OOCLConnector(BaseCarrierConnector):
             #
             # `ui_lock` serializes the watcher's dismissal actions against the main
             # flow's critical click/fill/type sequences (passed into _fs_fill_port /
-            # _fs_set_container_quantities below) — an earlier version without this
+            # _fs_set_container_quantities below) â€” an earlier version without this
             # let the watcher's click/Escape steal focus mid-.type(), truncating the
             # typed port name (reproduced in testing: "SINGAPORE" -> "SINGA").
             stop_event = asyncio.Event()
@@ -1008,11 +1441,6 @@ class OOCLConnector(BaseCarrierConnector):
                 return []
             await self._fs_set_container_quantities(page, lock=ui_lock)
 
-            stop_event.set()
-            await watcher_task
-            watcher_task = None
-            await self._fs_dismiss_modals(page)  # final sweep for the gap right after stopping
-
             try:
                 async with ui_lock:
                     await page.locator('button:has-text("Get Quote")').first.click()
@@ -1021,16 +1449,31 @@ class OOCLConnector(BaseCarrierConnector):
                 print(f"[OOCL] [FS] Could not click Get Quote: {e}")
                 return []
 
-            # Wait for the results to render (URL change and/or price content)
-            for _ in range(45):
-                await page.wait_for_timeout(1000)
+            # Wait for results page to render (either cards or a "no results" state)
+            for i in range(45):
                 try:
+                    # Check if at least one product card container is visible
+                    if await page.locator('.product-card-container, [class*="product-card" i]').first.is_visible():
+                        print(f"[OOCL] [FS] Results cards rendered after {i+1} seconds.")
+                        break
+                    # Check if the "no results" placeholder is visible
                     body = await page.locator("body").inner_text()
+                    if "no results" in body.lower() or "sorry" in body.lower():
+                        print(f"[OOCL] [FS] No results message detected after {i+1} seconds.")
+                        break
                 except Exception:
-                    continue
-                if "USD" in body and re.search(r"E[- ]?(Spot|Quote)", body, re.IGNORECASE):
-                    break
-            return await self._fs_extract_rows(page)
+                    pass
+                await page.wait_for_timeout(1000)
+
+            # Stop the watcher now that results page has loaded and popups are dismissed
+            stop_event.set()
+            if watcher_task is not None:
+                await watcher_task
+                watcher_task = None
+            await self._fs_dismiss_modals(page)  # final sweep for the gap right after stopping
+
+            # Iterate through the 14-day calendar to collect all dated rows
+            return await self._fs_iterate_calendar_dates(page)
         finally:
             if watcher_task is not None:
                 stop_event.set()
@@ -1056,7 +1499,7 @@ class OOCLConnector(BaseCarrierConnector):
             (vessel, ETA, transit, service, routing) are filled from that schedule.
           - Schedule sailings whose ETD matched a priced row are replaced by the priced
             quote(s); unmatched sailings pass through unchanged (schedule-only, as today).
-        Pure function — unit-testable without a browser.
+        Pure function â€” unit-testable without a browser.
         """
         today = today or date.today()
         horizon = today + timedelta(days=window_days)
@@ -1101,13 +1544,14 @@ class OOCLConnector(BaseCarrierConnector):
                 "etd": r.get("etd"),
                 "eta": r.get("eta") or sched.get("eta"),
                 "transit_time_days": r.get("transit_time_days") or sched.get("transit_time_days"),
-                "vessel": r.get("vessel") or sched.get("vessel") or "OOCL Vessel",
+                "vessel": r.get("vessel") or sched.get("vessel") or "OOCL Vessel/Performa",
                 "service_name": sched.get("service_name") or r.get("kind"),
                 "routing": sched.get("routing") or "Direct",
                 "free_time": r.get("free_time"),
                 "currency": r.get("currency", "USD"),
                 "source": "carrier_portal",
                 "container_quantity": 1,
+                "validity_till": r.get("validity_end"),
             }
             prices = r.get("prices") or {}
             if prices:
@@ -1121,7 +1565,7 @@ class OOCLConnector(BaseCarrierConnector):
                     })
                     out.append(q)
             elif r.get("total_price"):
-                # Priced row without per-type breakdown — keep it untyped; the caller
+                # Priced row without per-type breakdown â€” keep it untyped; the caller
                 # stamps the requested container type per cycle.
                 q = dict(base)
                 q.update({
@@ -1160,9 +1604,9 @@ class OOCLConnector(BaseCarrierConnector):
     def _serve_for_cycle(self, request: RateSearchRequest) -> list[QuoteSchema]:
         """
         Serves one container-type cycle from the cached merged quote set:
-          - FreightSmart-priced quotes carry a real container_type → return only the
+          - FreightSmart-priced quotes carry a real container_type â†’ return only the
             ones matching this cycle's requested type.
-          - Schedule-only quotes are untyped (container_type=None) → serve a deep copy
+          - Schedule-only quotes are untyped (container_type=None) â†’ serve a deep copy
             stamped with the requested type (previous behavior).
         """
         out: list[QuoteSchema] = []
@@ -1211,7 +1655,7 @@ class OOCLConnector(BaseCarrierConnector):
                 except Exception as fs_err:
                     print(f"[OOCL] [FS] FreightSmart phase failed (falling back to schedules-only): {fs_err}")
             else:
-                print("[OOCL] OOCL_QUERY_FREIGHTSMART=false — schedules-only mode.")
+                print("[OOCL] OOCL_QUERY_FREIGHTSMART=false â€” schedules-only mode.")
 
             # Step 3: Pair & select per business rules
             merged_dicts = self._fs_pair_and_select(fs_rows, schedule_dicts)
@@ -1231,7 +1675,7 @@ class OOCLConnector(BaseCarrierConnector):
                     return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, cycle_quotes
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
-            # Nothing at all — cache the definitive no-quotes outcome; transient
+            # Nothing at all â€” cache the definitive no-quotes outcome; transient
             # errors (timeouts etc.) are NOT cached so later cycles can retry.
             if status in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.NO_QUOTES_AVAILABLE):
                 self._cached_quotes = []
