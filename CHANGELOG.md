@@ -5,6 +5,18 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-07-08] — OOCL E-Quote Calendar Navigation, cheapest E-Spot selection, and E-Quote/E-Spot isolation refinements
+
+### OOCL — FreightSmart Calendar Navigation & Price Refinements
+- **Full-Month Calendar Iteration:** Implemented full month calendar loop navigation. The bot opens the calendar popup, scans all dates in the 14-day window that have available pricing, and clicks each date sequentially to extract active quotes.
+- **Cheapest E-Spot Selection:** Restructured E-Spot quote logic to select only the single cheapest E-Spot row per ETD (resolving duplicate/most-expensive price selections).
+- **E-Quote & E-Spot Isolation:** 
+  - Prevented E-Spots from inheriting details from crawled schedules.
+  - Tracked and dropped sold-out or unpriced E-Spot cards (starred `***` or `Sold Out`).
+  - Prevented E-Quotes from pairing with E-Spot vessels (even sold-out ones like `OOCL JAKARTA`), ensuring E-Quotes correctly fallback to `"OOCL Vessel/Performa"` as expected.
+- **Unmatched Schedules Removal:** Dropped unmatched schedule sailings completely from output to prevent unpriced "Offline rates" rows in Excel exports.
+- **Free-Time Extraction:** Updated regular expressions to match destination free-time strings like `Destination COMBO <number> CD` and `Destination DD2in1 <number> CD`.
+
 ## [2026-07-03] — OOCL FreightSmart Autoclear, Hapag Price Leak & Redirect fixes, Maersk Cache Scoping, Dallas Overrides
 
 ### OOCL — FreightSmart Popup Dismissals & Input Lock Serialization
