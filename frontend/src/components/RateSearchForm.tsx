@@ -100,16 +100,7 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
 
       {/* Container Details */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 animate-fade-in-up stagger-2">
-        <div>
-          <label className={labelClass}>Service Term</label>
-          <select value={serviceTerm} onChange={(e) => setServiceTerm(e.target.value)} className={inputClass}>
-            <option value="CY/CY">CY/CY</option>
-            <option value="CY/SD">CY/SD</option>
-            <option value="SD/CY">SD/CY</option>
-            <option value="SD/SD">SD/SD</option>
-          </select>
-        </div>
-        <div className="col-span-2">
+        <div className="col-span-2 md:col-span-3">
           <label className={labelClass}>Container Types</label>
           <div className="flex flex-wrap gap-4 mt-2.5">
             {CONTAINER_TYPES.map((ct) => {
