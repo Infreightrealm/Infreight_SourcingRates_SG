@@ -2316,7 +2316,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}$/i,
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2},\\s+\\d{4}$/i
                 ];
-                const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
+                const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                     const raw = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
                     if (!raw || raw.length > 30) return false;
                     if (!patterns.some(pat => pat.test(raw))) return false;
@@ -2369,7 +2369,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             # ------------------------------------------------------------------
             JS_IS_END_OF_QUOTES = '''() => {
                 const needle = 'no further departures currently available for quoting';
-                const allEls = Array.from(document.querySelectorAll('*'));
+                const allEls = Array.from(document.querySelectorAll('div, p, span, [class*="tooltip" i]'));
                 return allEls.some(el => {
                     if (el.children.length > 0) return false;
                     const txt = (el.textContent || '').trim().toLowerCase();
@@ -2587,7 +2587,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}$/i,
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2},\\s+\\d{4}$/i
                 ];
-                const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
+                const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                     const txt = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
@@ -2752,7 +2752,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                 ];
-                const dateEls = Array.from(document.querySelectorAll('*')).filter(el => {
+                const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                     const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
