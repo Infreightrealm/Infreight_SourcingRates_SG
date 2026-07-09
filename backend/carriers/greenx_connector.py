@@ -641,6 +641,34 @@ class GreenXConnector(BaseCarrierConnector):
                 etd_standardized = self.standardize_date_smart(etd_date)
                 eta_standardized = self.standardize_date_smart(eta_date)
 
+                # Check 4-week window cap
+                try:
+                    from datetime import date as _date, timedelta as _td
+                    def resolve_start_date(dep_val):
+                        today_d = _date.today()
+                        if not dep_val: return today_d
+                        val = dep_val.strip().lower()
+                        if val in ("today", "now"): return today_d
+                        if val == "tomorrow": return today_d + _td(days=1)
+                        try:
+                            return _date.fromisoformat(dep_val[:10])
+                        except:
+                            return today_d
+                    
+                    dep_date_val = self.current_request.departure_date if hasattr(self, "current_request") and self.current_request else None
+                    start_date = resolve_start_date(dep_date_val)
+                    req_window = self.current_request.search_window_days if hasattr(self, "current_request") and self.current_request else 14
+                    window_days = min(req_window or 14, 28)
+                    max_horizon = start_date + _td(days=window_days)
+                    
+                    if etd_standardized:
+                        parsed_d = _date.fromisoformat(etd_standardized)
+                        if parsed_d > max_horizon:
+                            print(f"[GreenX] Skipping card {i}: ETD {etd_standardized} is beyond 4 weeks horizon.")
+                            continue
+                except Exception as cap_err:
+                    pass
+
                 quote_ref = {
                     "index": i,
                     "etd_date_raw": etd_date,

@@ -30,6 +30,35 @@ async def lifespan(app: FastAPI):
     print("[*] Starting Infreight Rate Automation API...")
     await init_db()
     print("[OK] Database tables created/verified")
+    
+    # Self-healing clean up of stuck statuses on server startup
+    try:
+        from models.database import get_async_session_maker
+        from sqlalchemy import update, or_
+        from models.rate_search import RateSearch, CarrierSearchResult
+        async with get_async_session_maker()() as session:
+            # Update all RUNNING/QUEUED carrier results to FAILED
+            await session.execute(
+                update(CarrierSearchResult)
+                .where(
+                    or_(
+                        CarrierSearchResult.status.in_(["QUEUED", "RUNNING"]),
+                        CarrierSearchResult.status.like("RUNNING%")
+                    )
+                )
+                .values(status="FAILED", error_message="Server restarted during search")
+            )
+            # Update all QUEUED/RUNNING rate searches to FAILED
+            await session.execute(
+                update(RateSearch)
+                .where(RateSearch.status.in_(["QUEUED", "RUNNING"]))
+                .values(status="FAILED")
+            )
+            await session.commit()
+            print("[OK] Cleared stale QUEUED/RUNNING statuses from database.")
+    except Exception as e:
+        print(f"[WARN] Failed to clear stale statuses: {e}")
+
     mock_mode = os.getenv("USE_MOCK_CARRIERS", "true").lower() in ("true", "1", "yes")
     print(f"[MODE] Mock mode: {'ENABLED' if mock_mode else 'DISABLED - using live connectors'}")
     yield

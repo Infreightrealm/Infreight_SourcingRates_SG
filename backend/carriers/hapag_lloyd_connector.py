@@ -2444,16 +2444,47 @@ class HapagLloydConnector(BaseCarrierConnector):
                 return 'not_found';
             }'''
 
+            # Enforce 4-week window cap on pagination
+            from datetime import date as _date, timedelta as _td
+            def resolve_start_date(dep_val):
+                today_d = _date.today()
+                if not dep_val: return today_d
+                val = dep_val.strip().lower()
+                if val in ("today", "now"): return today_d
+                if val == "tomorrow": return today_d + _td(days=1)
+                try:
+                    return _date.fromisoformat(dep_val[:10])
+                except:
+                    return today_d
+
+            dep_date_val = self.current_request.departure_date if hasattr(self, "current_request") and self.current_request else None
+            start_date = resolve_start_date(dep_date_val)
+            # Default to request window, cap at 28 days (4 weeks max)
+            req_window = self.current_request.search_window_days if hasattr(self, "current_request") and self.current_request else 14
+            window_days = min(req_window or 14, 28)
+            max_horizon = start_date + _td(days=window_days)
+
             while page_num < max_pages:
                 page_num += 1
                 await self._human_delay(600, 900)
 
                 # Read unique dates and prices currently visible in the grid
                 visible_data: list[dict] = await self.page.evaluate(JS_GET_VISIBLE_DATES_AND_PRICES)
+                reached_max_horizon = False
                 new_count = 0
                 for item in visible_data:
                     d = item["raw_date"]
                     p = item["price"]
+
+                    # Check if date exceeds the max horizon
+                    try:
+                        normalized_d = self._normalize_date_string(d)
+                        parsed_d = datetime.strptime(normalized_d, "%Y-%m-%d").date()
+                        if parsed_d > max_horizon:
+                            reached_max_horizon = True
+                    except Exception:
+                        pass
+
                     if p is not None:
                         date_to_price[d] = p
                     if d not in seen_set:
@@ -2462,6 +2493,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                         new_count += 1
 
                 print(f"[HAPAG] Page {page_num}: {len(visible_data)} columns visible, {new_count} new -> total {len(all_dates_seen)} unique dates so far")
+
+                if reached_max_horizon:
+                    print(f"[HAPAG] Reached max search horizon ({max_horizon}) at page {page_num}. Stopping pagination.")
+                    break
 
                 # Try to click the right-arrow to advance to the next column window
                 # NOTE: we check the end sentinel only AFTER a click yields 0 new dates,
