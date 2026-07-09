@@ -3531,199 +3531,108 @@ class HapagLloydConnector(BaseCarrierConnector):
                             normalized.free_time = ft_data.get("40GP")
                         break
 
-            if schedules:
-                for schedule in schedules:
-                    try:
-                        sched_etd = schedule["etd"]
-                        # Find matching raw quote from the Quote page
-                        matching_raw_quote = next((q for q in raw_quotes if q["etd"] == sched_etd), None)
-                        
-                        if matching_raw_quote:
-                            matched_raw_quote_etds.add(sched_etd)
-                            opened = await self.open_price_breakdown(matching_raw_quote)
-                            raw_charges_dict = {}
-                            if opened:
-                                raw_charges_dict = await self.extract_charge_breakdown()
-                                
-                            for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
-                                is_sold = False
-                                if self._last_parsed_card_prices.get(c_type) == "sold_out":
-                                    is_sold = True
-                                elif matching_raw_quote.get("is_sold_out"):
-                                    is_sold = True
-                                
-                                c_charges = raw_charges_dict.get(c_type, [])
-                                if opened and not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
-                                    c_charges = [{
-                                        "name": "Ocean Freight",
-                                        "amount": self._last_parsed_card_prices[c_type],
-                                        "currency": "USD",
-                                        "category": "BASIC_OCEAN_FREIGHT"
-                                    }]
+            # Step 6: Filter raw_quotes to the 2-week window (today to today + 14 days)
+            from datetime import date as _date, timedelta
+            today = _date.today()
+            horizon = today + timedelta(days=14)
 
-                                normalized = await self.normalize_result(matching_raw_quote, c_charges, container_type=c_type, is_sold_out=is_sold)
-                                print(f"[HAPAG] [MATCH] Schedule ETD {sched_etd} matched with quote price for {c_type}.")
+            in_window_quotes = []
+            for q in raw_quotes:
+                q_etd = q.get("etd")
+                if not q_etd:
+                    continue
+                try:
+                    q_date = datetime.strptime(q_etd, "%Y-%m-%d").date()
+                    if today <= q_date <= horizon:
+                        in_window_quotes.append(q)
+                except ValueError:
+                    pass
 
-                                # Step 7: Augment normalized quote with schedule details (vessel, service, eta)
-                                vessel_str = schedule["vessel"]
-                                if schedule["voyage"]:
-                                    vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
-                                
-                                if is_sold or schedule.get("is_sold_out") or matching_raw_quote.get("is_sold_out"):
-                                    vessel_str = f"{vessel_str} (Sold out)"
-                                    
-                                normalized.vessel = vessel_str
-                                normalized.routing = schedule.get("routing", "Direct")
-                                
-                                service_str = schedule["service"]
-                                cutoffs = []
-                                if schedule["doc_cutoff"]:
-                                    cutoffs.append(f"Doc Cut-off: {schedule['doc_cutoff']}")
-                                if schedule["fcl_cutoff"]:
-                                    cutoffs.append(f"FCL Cut-off: {schedule['fcl_cutoff']}")
-                                if cutoffs:
-                                    service_str = f"{service_str} ({', '.join(cutoffs)})"
-                                normalized.service_name = service_str
-                                
-                                # Ensure ETD is correctly formatted even if matched from raw_quote
-                                normalized.etd = standardize_date_string(sched_etd)
-                                
-                                if schedule["eta"]:
-                                    normalized.eta = standardize_date_string(schedule["eta"])
-                                if schedule["transit_time_days"] is not None:
-                                    normalized.transit_time_days = schedule["transit_time_days"]
-                                    
-                                # Apply Freetime
-                                _apply_freetime_to_quote(normalized)
-                                
-                                quotes.append(normalized)
+            print(f"[HAPAG] Found {len(in_window_quotes)} quote(s) within the 14-day window ({today} to {horizon}).")
+
+            # Map schedules by ETD for easy lookup
+            sched_by_etd = {}
+            for s in schedules:
+                if s.get("etd") and s["etd"] not in sched_by_etd:
+                    sched_by_etd[s["etd"]] = s
+
+            quotes = []
+            for raw_quote in in_window_quotes:
+                try:
+                    sched_etd = raw_quote["etd"]
+                    # Open price breakdown to fetch container-specific prices
+                    opened = await self.open_price_breakdown(raw_quote)
+                    raw_charges_dict = {}
+                    if opened:
+                        raw_charges_dict = await self.extract_charge_breakdown()
+
+                    # Find matching schedule
+                    schedule = sched_by_etd.get(sched_etd)
+
+                    for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
+                        is_sold = False
+                        if self._last_parsed_card_prices.get(c_type) == "sold_out":
+                            is_sold = True
+                        elif raw_quote.get("is_sold_out"):
+                            is_sold = True
+
+                        # Drop if sold out (no more sold out rows)
+                        if is_sold:
+                            print(f"[HAPAG] Dropping sold-out option for {c_type} on ETD {sched_etd}.")
+                            continue
+
+                        c_charges = raw_charges_dict.get(c_type, [])
+                        if opened and not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
+                            c_charges = [{
+                                "name": "Ocean Freight",
+                                "amount": self._last_parsed_card_prices[c_type],
+                                "currency": "USD",
+                                "category": "BASIC_OCEAN_FREIGHT"
+                            }]
+
+                        if not c_charges:
+                            # If no price/charge is extracted, drop it
+                            print(f"[HAPAG] Dropping unpriced option for {c_type} on ETD {sched_etd}.")
+                            continue
+
+                        normalized = await self.normalize_result(raw_quote, c_charges, container_type=c_type, is_sold_out=False)
+
+                        if schedule:
+                            vessel_str = schedule["vessel"]
+                            if schedule["voyage"]:
+                                vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
+                            normalized.vessel = vessel_str
+                            normalized.routing = schedule.get("routing", "Direct")
+                            
+                            service_str = schedule["service"]
+                            cutoffs = []
+                            if schedule["doc_cutoff"]:
+                                cutoffs.append(f"Doc Cut-off: {schedule['doc_cutoff']}")
+                            if schedule["fcl_cutoff"]:
+                                cutoffs.append(f"FCL Cut-off: {schedule['fcl_cutoff']}")
+                            if cutoffs:
+                                service_str = f"{service_str} ({', '.join(cutoffs)})"
+                            normalized.service_name = service_str
+                            
+                            if schedule["eta"]:
+                                normalized.eta = standardize_date_string(schedule["eta"])
+                            if schedule["transit_time_days"] is not None:
+                                normalized.transit_time_days = schedule["transit_time_days"]
                         else:
-                            print(f"[HAPAG] [NO PRICE MATCH] Schedule ETD {sched_etd} has no matching price quote. Emitting schedules without price.")
-                            for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
-                                normalized = QuoteSchema(etd=standardize_date_string(sched_etd), container_type=c_type)
-                                vessel_str = schedule["vessel"]
-                                if schedule["voyage"]:
-                                    vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
-                                normalized.vessel = vessel_str
-                                normalized.routing = schedule.get("routing", "Direct")
-                                
-                                service_str = schedule["service"]
-                                cutoffs = []
-                                if schedule["doc_cutoff"]:
-                                    cutoffs.append(f"Doc Cut-off: {schedule['doc_cutoff']}")
-                                if schedule["fcl_cutoff"]:
-                                    cutoffs.append(f"FCL Cut-off: {schedule['fcl_cutoff']}")
-                                if cutoffs:
-                                    service_str = f"{service_str} ({', '.join(cutoffs)})"
-                                normalized.service_name = service_str
-                                
-                                if schedule["eta"]:
-                                    normalized.eta = standardize_date_string(schedule["eta"])
-                                if schedule["transit_time_days"] is not None:
-                                    normalized.transit_time_days = schedule["transit_time_days"]
-                                    
-                                # Apply Freetime
-                                _apply_freetime_to_quote(normalized)
-                                
-                                quotes.append(normalized)
-                    except Exception as e:
-                        print(f"[HAPAG] Error processing schedule ETD {schedule.get('etd')}: {e}")
-                        continue
+                            # Fallback if no matching schedule exists (OOCL style)
+                            normalized.vessel = "Hapag Vessel /Performa"
+                            normalized.service_name = "Hapag Service"
+                            normalized.routing = "Direct"
+                            normalized.eta = None
+                            normalized.transit_time_days = None
 
-                # Add unmatched raw quotes (quotes with no linked schedule)
-                for raw_quote in raw_quotes:
-                    try:
-                        sched_etd = raw_quote["etd"]
-                        if sched_etd in matched_raw_quote_etds:
-                            continue
-                        if sched_etd < today_str:
-                            continue
-                        
-                        print(f"[HAPAG] [UNMATCHED RAW QUOTE] Processing ETD {sched_etd} with default Hapag Vessel /Performa")
-                        opened = await self.open_price_breakdown(raw_quote)
-                        raw_charges_dict = {}
-                        if opened:
-                            raw_charges_dict = await self.extract_charge_breakdown()
-                            
-                        for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
-                            is_sold = False
-                            if self._last_parsed_card_prices.get(c_type) == "sold_out":
-                                is_sold = True
-                            elif raw_quote.get("is_sold_out"):
-                                is_sold = True
-                                
-                            c_charges = raw_charges_dict.get(c_type, [])
-                            if opened and not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
-                                c_charges = [{
-                                    "name": "Ocean Freight",
-                                    "amount": self._last_parsed_card_prices[c_type],
-                                    "currency": "USD",
-                                    "category": "BASIC_OCEAN_FREIGHT"
-                                }]
-                            
-                            normalized = await self.normalize_result(raw_quote, c_charges, container_type=c_type, is_sold_out=is_sold)
-                            normalized.etd = standardize_date_string(sched_etd)
-                            normalized.vessel = "Hapag Vessel /Performa"
-                            if is_sold:
-                                normalized.vessel += " (Sold out)"
-                            normalized.service_name = "Hapag Service"
-                            normalized.routing = "Direct"
-                            normalized.eta = None
-                            normalized.transit_time_days = None
-                            
-                            # Apply Freetime
-                            _apply_freetime_to_quote(normalized)
-                            
-                            quotes.append(normalized)
-                    except Exception as e:
-                        print(f"[HAPAG] Error processing unmatched raw quote ETD {raw_quote.get('etd')}: {e}")
-                        continue
-            else:
-                print("[HAPAG] Schedules list is empty. Falling back to iterating over raw quotes directly.")
-                for raw_quote in raw_quotes:
-                    try:
-                        sched_etd = raw_quote["etd"]
-                        if sched_etd < today_str:
-                            continue
-                            
-                        opened = await self.open_price_breakdown(raw_quote)
-                        raw_charges_dict = {}
-                        if opened:
-                            raw_charges_dict = await self.extract_charge_breakdown()
-                            
-                        for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
-                            is_sold = False
-                            if self._last_parsed_card_prices.get(c_type) == "sold_out":
-                                is_sold = True
-                            elif raw_quote.get("is_sold_out"):
-                                is_sold = True
-                                
-                            c_charges = raw_charges_dict.get(c_type, [])
-                            if not c_charges and self._last_parsed_card_prices.get(c_type) and isinstance(self._last_parsed_card_prices[c_type], (int, float)):
-                                c_charges = [{
-                                    "name": "Ocean Freight",
-                                    "amount": self._last_parsed_card_prices[c_type],
-                                    "currency": "USD",
-                                    "category": "BASIC_OCEAN_FREIGHT"
-                                }]
-                                
-                            normalized = await self.normalize_result(raw_quote, c_charges, container_type=c_type, is_sold_out=is_sold)
-                            normalized.etd = standardize_date_string(sched_etd)
-                            normalized.vessel = "Hapag Vessel /Performa"
-                            if is_sold:
-                                normalized.vessel += " (Sold out)"
-                            normalized.service_name = "Hapag Service"
-                            normalized.routing = "Direct"
-                            normalized.eta = None
-                            normalized.transit_time_days = None
-                            
-                            # Apply Freetime
-                            _apply_freetime_to_quote(normalized)
-                            
-                            quotes.append(normalized)
-                    except Exception as e:
-                        print(f"[HAPAG] Error processing raw quote ETD {raw_quote.get('etd')}: {e}")
-                        continue
+                        # Apply Freetime
+                        _apply_freetime_to_quote(normalized)
+                        quotes.append(normalized)
+
+                except Exception as e:
+                    print(f"[HAPAG] Error processing quote ETD {raw_quote.get('etd')}: {e}")
+                    continue
 
             if quotes:
                 self._cached_quotes = quotes

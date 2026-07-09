@@ -5,6 +5,14 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-07-09] — Hapag-Lloyd Quick Quotes pairing and selection simplification
+
+### Hapag-Lloyd — Quick Quotes Simplification & Clean Pairing
+- **Dropped Unmatched Schedules:** Removed unmatched schedule departures from final output to prevent unpriced "Offline rates" rows in exports.
+- **Dropped Sold-Out & Unpriced Options:** Discarded all departures and container-type configurations marked as sold out or missing pricing.
+- **2-Week Window Restriction:** Restrained processing to only look at departures within the next 14 days.
+- **Unified single loop refactoring:** Removed over 150 lines of duplicate code by refactoring the three old separate loops (schedules matching, unmatched quotes fallback, schedules-empty fallback) into a single unified loop over in-window quotes.
+
 ## [2026-07-08] — OOCL E-Quote Calendar Navigation, cheapest E-Spot selection, and E-Quote/E-Spot isolation refinements
 
 ### OOCL — FreightSmart Calendar Navigation & Price Refinements
