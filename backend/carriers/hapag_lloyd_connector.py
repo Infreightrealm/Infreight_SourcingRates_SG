@@ -3596,7 +3596,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 except ValueError:
                     pass
 
-            print(f"[HAPAG] Found {len(in_window_quotes)} quote(s) within the 14-day window ({today} to {horizon}).")
+            print(f"[HAPAG] Found {len(in_window_quotes)} quote(s) within the window ({start_date} to {horizon}).")
 
             # Map schedules by ETD for easy lookup
             sched_by_etd = {}
