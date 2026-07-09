@@ -3531,10 +3531,23 @@ class HapagLloydConnector(BaseCarrierConnector):
                             normalized.free_time = ft_data.get("40GP")
                         break
 
-            # Step 6: Filter raw_quotes to the 2-week window (today to today + 14 days)
+            # Step 6: Filter raw_quotes to the 4-week window from booking start date
             from datetime import date as _date, timedelta
-            today = _date.today()
-            horizon = today + timedelta(days=14)
+            def resolve_start_date(dep_val):
+                today_d = _date.today()
+                if not dep_val: return today_d
+                val = dep_val.strip().lower()
+                if val in ("today", "now"): return today_d
+                if val == "tomorrow": return today_d + timedelta(days=1)
+                try:
+                    return _date.fromisoformat(dep_val[:10])
+                except:
+                    return today_d
+
+            start_date = resolve_start_date(request.departure_date)
+            # Default to request window, cap at 28 days (4 weeks max)
+            window_days = min(request.search_window_days or 14, 28)
+            horizon = start_date + timedelta(days=window_days)
 
             in_window_quotes = []
             for q in raw_quotes:
@@ -3543,7 +3556,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     continue
                 try:
                     q_date = datetime.strptime(q_etd, "%Y-%m-%d").date()
-                    if today <= q_date <= horizon:
+                    if start_date <= q_date <= horizon:
                         in_window_quotes.append(q)
                 except ValueError:
                     pass

@@ -87,7 +87,7 @@ class RateSearchRequest(BaseModel):
     weight_per_container_kg: float = Field(default=20000, gt=0)
     commodity: str = Field(default="Furniture")
     departure_date: str = Field(default="tomorrow", description="ISO date or 'tomorrow'")
-    search_window_days: int = Field(default=14, ge=1, le=90)
+    search_window_days: int = Field(default=14, ge=1, le=28)
     user_name: Optional[str] = Field(default=None, description="The name of the user making the request")
     use_mock: Optional[bool] = Field(default=None, description="Override mock/live mode for this search. None = use server default.")
 
@@ -95,6 +95,14 @@ class RateSearchRequest(BaseModel):
     @classmethod
     def populate_container_types(cls, data):
         if isinstance(data, dict):
+            # Clamp search window to 28 days (4 weeks) max
+            sw_days = data.get("search_window_days")
+            if sw_days is not None:
+                try:
+                    data["search_window_days"] = min(int(sw_days), 28)
+                except:
+                    pass
+
             c_types = data.get("container_types")
             c_type = data.get("container_type")
             if c_types is not None:

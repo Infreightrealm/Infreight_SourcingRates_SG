@@ -490,6 +490,26 @@ class ONEConnector(BaseCarrierConnector):
             if not raw_quotes:
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
+            # Cap search window at 4 weeks max from booking departure date
+            start_date = self._resolve_departure_date(request.departure_date)
+            max_horizon = start_date + timedelta(days=28)
+            
+            in_window_raw_quotes = []
+            for rq in raw_quotes:
+                rq_etd_str = rq.get("etd")
+                if rq_etd_str:
+                    try:
+                        rq_etd = date.fromisoformat(rq_etd_str[:10])
+                        if rq_etd <= max_horizon:
+                            in_window_raw_quotes.append(rq)
+                        else:
+                            print(f"[ONE] Skipping card beyond 4 weeks horizon: {rq_etd_str}")
+                    except ValueError:
+                        in_window_raw_quotes.append(rq)
+                else:
+                    in_window_raw_quotes.append(rq)
+            raw_quotes = in_window_raw_quotes
+
             # Step 4: For each quote, get breakdown and normalize/split
             all_split_quotes = []
             for raw_quote in raw_quotes:

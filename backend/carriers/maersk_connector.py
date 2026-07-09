@@ -121,6 +121,7 @@ class MaerskConnector(BaseCarrierConnector):
             processed_keys = set()
             skipped_sold_out_count = 0
             max_expansions = 3
+            reached_horizon = False
             
             for expansion in range(max_expansions + 1):
                 # A. Quick check for "There are no sailings for your search" pink banner
@@ -248,6 +249,42 @@ class MaerskConnector(BaseCarrierConnector):
                         eta = dates_fallback[1]
                     elif not eta and etd:
                         eta = etd
+
+                    # Check 4-week window limit
+                    try:
+                        from datetime import date as _date, timedelta as _td
+                        etd_clean = etd.strip()
+                        etd_parsed = None
+                        if re.match(r"^\d{4}-\d{2}-\d{2}$", etd_clean):
+                            etd_parsed = _date.fromisoformat(etd_clean)
+                        else:
+                            m_date = re.search(r"(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})", etd_clean)
+                            if m_date:
+                                d_str, m_str, y_str = m_date.groups()
+                                MONTH_ABBR = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+                                mon_num = MONTH_ABBR.get(m_str.lower()[:3], 1)
+                                etd_parsed = _date(int(y_str), mon_num, int(d_str))
+                        
+                        if etd_parsed:
+                            def resolve_start_date(dep_val):
+                                today = _date.today()
+                                if not dep_val: return today
+                                val = dep_val.strip().lower()
+                                if val in ("today", "now"): return today
+                                if val == "tomorrow": return today + _td(days=1)
+                                try:
+                                    return _date.fromisoformat(dep_val[:10])
+                                except:
+                                    return today
+                            
+                            start_date = resolve_start_date(request.departure_date)
+                            max_horizon = start_date + _td(days=28)
+                            if etd_parsed > max_horizon:
+                                print(f"[MAERSK] Stopping search: reached departure date {etd} beyond 4 weeks horizon.")
+                                reached_horizon = True
+                                break
+                    except Exception as e:
+                        pass
                         
                     # 4. Extract free time detention & demurrage details
                     free_time = None
@@ -413,6 +450,11 @@ class MaerskConnector(BaseCarrierConnector):
                         
                     processed_keys.add(unique_key)
                     new_cards_processed_in_this_batch += 1
+                
+                # Check if we reached the 4-week horizon during processing
+                if reached_horizon:
+                    print("[MAERSK] Stopping expansions: 4-week search horizon exceeded.")
+                    break
                 
                 # C. If we are on the last expansion step, break
                 if expansion == max_expansions:
