@@ -17,6 +17,23 @@ MONTH_MAP = {
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
 }
 
+def get_booking_start_date(departure_date_str: str) -> date:
+    today = date.today()
+    if not departure_date_str:
+        return today
+    val = departure_date_str.strip().lower()
+    if val in ("today", "now"):
+        return today
+    if val == "tomorrow":
+        return today + timedelta(days=1)
+    try:
+        return date.fromisoformat(departure_date_str)
+    except ValueError:
+        try:
+            return datetime.strptime(departure_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return today
+
 def parse_oocl_date(date_str: str, year: int) -> Optional[str]:
     if not date_str:
         return None
@@ -1184,25 +1201,29 @@ class OOCLConnector(BaseCarrierConnector):
         return rows
 
 
-    async def _fs_iterate_calendar_dates(self, page) -> List[dict]:
+    async def _fs_iterate_calendar_dates(self, page, request: Optional[RateSearchRequest] = None) -> List[dict]:
         """
         Iterates through the FreightSmart results date calendar to collect E-Quote and E-Spot
-        rows for every date within the next 14 days that has available pricing.
+        rows for every date within the next 4 weeks max that has available pricing.
 
         Strategy:
         1. Click the '>' nav button on the date strip to open the full 2-month calendar popup.
         2. Read the visible month headers (e.g. "2026 Jul", "2026 Aug") to determine which
            months are displayed.
         3. Scan all `custom-date-cell` elements, compute each cell's full date from its day
-           number + the month context, and filter to todayâ†’today+14.
+           number + the month context, and filter to start_date -> horizon.
         4. For each in-window date with a non-'--' price, click its cell directly inside the
            popup (which closes the calendar and updates the result cards below).
         5. Extract rows; then re-open the calendar for the next date.
         6. Fallback: if the calendar cannot be opened or cells can't be read, fall back to
            scanning the visible date strip.
         """
-        today = date.today()
-        horizon = today + timedelta(days=14)
+        start_date = date.today()
+        window_days = 28
+        if request:
+            start_date = get_booking_start_date(request.departure_date)
+            window_days = min(request.search_window_days or 14, 28)
+        horizon = start_date + timedelta(days=window_days)
 
         MONTH_ABBR = {
             "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
@@ -1293,7 +1314,7 @@ class OOCLConnector(BaseCarrierConnector):
                     except ValueError:
                         continue
 
-                    if not (today <= cell_date <= horizon):
+                    if not (start_date <= cell_date <= horizon):
                         continue
 
                     # Check for a non-'--' price
@@ -1516,7 +1537,7 @@ class OOCLConnector(BaseCarrierConnector):
             await self._fs_dismiss_modals(page)  # final sweep for the gap right after stopping
 
             # Iterate through the 14-day calendar to collect all dated rows
-            return await self._fs_iterate_calendar_dates(page)
+            return await self._fs_iterate_calendar_dates(page, request=request)
         finally:
             if watcher_task is not None:
                 stop_event.set()
@@ -1721,8 +1742,11 @@ class OOCLConnector(BaseCarrierConnector):
                 print("[OOCL] OOCL_QUERY_FREIGHTSMART=false â€” schedules-only mode.")
 
             # Step 3: Pair & select per business rules
+            window_days = min(request.search_window_days or 14, 28)
             merged_dicts = self._fs_pair_and_select(
-                fs_rows, schedule_dicts, espot_vessels=getattr(self, "espot_vessels", None)
+                fs_rows, schedule_dicts,
+                window_days=window_days,
+                espot_vessels=getattr(self, "espot_vessels", None)
             )
 
             quotes: list[QuoteSchema] = []
