@@ -3706,15 +3706,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             await asyncio.shield(self.close())
 
     async def close(self):
-        try:
-            if self.page:
-                await self.page.close()
-            if self.context:
-                await self.context.close()
-            if self.playwright:
-                await self.playwright.stop()
-        except:
-            pass
+        await super().close()
             
         if self.temp_profile_dir and self.master_profile_dir and self.is_login_successful:
             try:

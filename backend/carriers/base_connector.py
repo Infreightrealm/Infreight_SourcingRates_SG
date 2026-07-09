@@ -222,15 +222,41 @@ class BaseCarrierConnector(ABC):
         return False
 
     async def close(self):
-        """Clean up browser resources."""
+        """Clean up browser resources robustly, ensuring failures or hangs never block execution."""
         try:
             if self.page:
-                await self.page.close()
+                try:
+                    await asyncio.wait_for(self.page.close(), timeout=2.0)
+                except Exception:
+                    pass
+        except:
+            pass
+
+        try:
             if self.context:
-                await self.context.close()
+                try:
+                    await asyncio.wait_for(self.context.close(), timeout=2.0)
+                except Exception:
+                    pass
+        except:
+            pass
+
+        try:
             if self.browser:
-                await self.browser.close()
-        except Exception:
+                try:
+                    await asyncio.wait_for(self.browser.close(), timeout=2.0)
+                except Exception:
+                    pass
+        except:
+            pass
+
+        try:
+            if hasattr(self, "playwright") and self.playwright:
+                try:
+                    await asyncio.wait_for(self.playwright.stop(), timeout=3.0)
+                except Exception:
+                    pass
+        except:
             pass
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:

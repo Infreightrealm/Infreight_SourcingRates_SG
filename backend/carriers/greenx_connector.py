@@ -1052,11 +1052,3 @@ class GreenXConnector(BaseCarrierConnector):
 
     async def close(self):
         await super().close()
-        try:
-            if self.playwright:
-                await self.page.close()
-                await self.context.close()
-                await self.browser.close()
-                await self.playwright.stop()
-        except:
-            pass

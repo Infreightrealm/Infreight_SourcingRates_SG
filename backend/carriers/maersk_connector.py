@@ -3133,17 +3133,7 @@ class MaerskConnector(BaseCarrierConnector):
     # ────────────────────────────────────────
 
     async def close(self):
-        try:
-            if self.page:
-                await self.page.close()
-            if self.context:
-                await self.context.close()
-            if self.browser:
-                await self.browser.close()
-            if self.playwright:
-                await self.playwright.stop()
-        except Exception:
-            pass
+        await super().close()
 
         # Concurrency cleanup: Copy successful login data back to master profile and remove temporary profile directory
         try:

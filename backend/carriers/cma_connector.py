@@ -1523,13 +1523,7 @@ class CMAConnector(BaseCarrierConnector):
         return split_quotes
 
     async def close(self):
-        try:
-            if self.page: await self.page.close()
-            if self.context: await self.context.close()
-            if self.browser: await self.browser.close()
-            if self.playwright: await self.playwright.stop()
-        except Exception:
-            pass
+        await super().close()
 
         # Sync temp profile back to master (saves login cookies for next run),
         # then clean up the temp directory — identical pattern to Maersk.

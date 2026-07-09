@@ -1667,12 +1667,7 @@ class OOCLConnector(BaseCarrierConnector):
         return out
 
     async def close(self):
-        if self.context:
-            await self.context.close()
-        if self.browser:
-            await self.browser.close()
-        if self.playwright:
-            await self.playwright.stop()
+        await super().close()
 
     async def open_price_breakdown(self, quote_ref: dict) -> bool:
         return True
