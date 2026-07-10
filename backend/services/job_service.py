@@ -307,11 +307,15 @@ async def run_all_carrier_searches(
         
         async def do_cleanup():
             async with get_async_session_maker()() as session:
+                from sqlalchemy import or_
                 # Mark all carrier results that are still QUEUED or RUNNING as FAILED
                 results = (await session.execute(
                     select(CarrierSearchResult).where(
                         CarrierSearchResult.search_id == search_id,
-                        CarrierSearchResult.status.in_(["QUEUED", "RUNNING"])
+                        or_(
+                            CarrierSearchResult.status.in_(["QUEUED", "RUNNING"]),
+                            CarrierSearchResult.status.like("RUNNING%")
+                        )
                     )
                 )).scalars().all()
                 for r in results:

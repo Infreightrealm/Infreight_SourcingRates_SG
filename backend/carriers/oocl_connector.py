@@ -1218,7 +1218,8 @@ class OOCLConnector(BaseCarrierConnector):
         6. Fallback: if the calendar cannot be opened or cells can't be read, fall back to
            scanning the visible date strip.
         """
-        start_date = date.today()
+        today = date.today()
+        start_date = today
         window_days = 28
         if request:
             start_date = get_booking_start_date(request.departure_date)
