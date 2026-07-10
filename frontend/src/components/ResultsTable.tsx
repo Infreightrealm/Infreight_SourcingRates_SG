@@ -6,6 +6,56 @@ import StatusBadge from "./StatusBadge";
 import QuoteBreakdownDrawer from "./QuoteBreakdownDrawer";
 import { Download, Inbox } from "lucide-react";
 
+function formatDate(dateVal: string | null | undefined): string {
+  if (!dateVal || dateVal === "—" || dateVal === "-") return "—";
+  const dateStr = dateVal.trim();
+  if (!dateStr) return "—";
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  // Check for ISO format: YYYY-MM-DD
+  const matchISO = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/);
+  if (matchISO) {
+    const year = parseInt(matchISO[1], 10);
+    const month = parseInt(matchISO[2], 10);
+    const day = parseInt(matchISO[3], 10);
+    if (month >= 1 && month <= 12) {
+      return `${day} ${months[month - 1]} ${year}`;
+    }
+  }
+
+  // Check for DD-Mon-YYYY or DD Mon YYYY
+  const matchAbbr = dateStr.match(/^(\d{1,2})[ \-/\\]([A-Za-z]{3})[ \-/\\](\d{4})$/);
+  if (matchAbbr) {
+    const day = parseInt(matchAbbr[1], 10);
+    const monthStr = matchAbbr[2];
+    const year = matchAbbr[3];
+    const formattedMonth = monthStr.charAt(0).toUpperCase() + monthStr.slice(1).toLowerCase();
+    return `${day} ${formattedMonth} ${year}`;
+  }
+
+  // Generic Date parsing fallback
+  const matchSlash = dateStr.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
+  if (matchSlash) {
+    const year = parseInt(matchSlash[1], 10);
+    const month = parseInt(matchSlash[2], 10);
+    const day = parseInt(matchSlash[3], 10);
+    if (month >= 1 && month <= 12) {
+      return `${day} ${months[month - 1]} ${year}`;
+    }
+  }
+
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) {
+    if (!dateStr.includes("T") && !dateStr.includes(" ")) {
+      return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    }
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  }
+
+  return dateStr;
+}
+
 interface ResultsTableProps {
   data: RateSearchResultResponse | null;
 }
@@ -13,6 +63,7 @@ interface ResultsTableProps {
 export default function ResultsTable({ data }: ResultsTableProps) {
   const [selectedQuote, setSelectedQuote] = useState<{ quote: QuoteSchema; carrier: string } | null>(null);
   const [sortBy, setSortBy] = useState<"freight" | "etd" | "transit">("freight");
+  const [containerFilter, setContainerFilter] = useState<string>("ALL");
 
   if (!data) return null;
 
@@ -38,7 +89,28 @@ export default function ResultsTable({ data }: ResultsTableProps) {
   const quoteRows = allRows.filter((r) => r.quote);
   const nonQuoteRows = allRows.filter((r) => !r.quote);
 
-  quoteRows.sort((a, b) => {
+  const uniqueContainerTypes = Array.from(
+    new Set(
+      quoteRows
+        .map((r) => r.quote?.container_type)
+        .filter((ct): ct is string => !!ct)
+    )
+  );
+
+  const getContainerDisplayName = (type: string) => {
+    if (type === "DRY 20") return "20GP";
+    if (type === "DRY 40") return "40GP";
+    if (type === "DRY 40H") return "40HQ";
+    return type;
+  };
+
+  const filteredQuoteRows = quoteRows.filter((r) => {
+    if (!r.quote) return false;
+    if (containerFilter === "ALL") return true;
+    return r.quote.container_type === containerFilter;
+  });
+
+  filteredQuoteRows.sort((a, b) => {
     if (!a.quote || !b.quote) return 0;
     if (sortBy === "freight") return a.quote.final_freight_value - b.quote.final_freight_value;
     if (sortBy === "etd") return (a.quote.etd || "").localeCompare(b.quote.etd || "");
@@ -46,7 +118,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     return 0;
   });
 
-  const sortedRows = [...quoteRows, ...nonQuoteRows];
+  const sortedRows = [...filteredQuoteRows, ...nonQuoteRows];
 
   const surchargeTotal = (q: QuoteSchema) =>
     q.included_freight_surcharges.reduce((s, c) => s + c.amount, 0);
@@ -174,9 +246,9 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             ...rates,
             tt: firstQuote.transit_time_days || "-",
             freetime: freeTimeVal,
-            validity: firstQuote.etd || "-",
-            eta: firstQuote.eta || "-",
-            validity_till: firstQuote.validity_till || "-",
+            validity: formatDate(firstQuote.etd),
+            eta: formatDate(firstQuote.eta),
+            validity_till: formatDate(firstQuote.validity_till),
             routing: firstQuote.routing || "Direct",
             remark: firstQuote.vessel || "-"
           });
@@ -354,6 +426,36 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
           {/* Controls */}
           <div className="flex flex-wrap items-center gap-3">
+            {/* Container Type Filter */}
+            {uniqueContainerTypes.length > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 dark:text-white/40">Container:</span>
+                <button
+                  onClick={() => setContainerFilter("ALL")}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium btn-interactive transition-all ${
+                    containerFilter === "ALL"
+                      ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
+                  }`}
+                >
+                  All
+                </button>
+                {uniqueContainerTypes.map((ct) => (
+                  <button
+                    key={ct}
+                    onClick={() => setContainerFilter(ct)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium btn-interactive transition-all ${
+                      containerFilter === ct
+                        ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
+                    }`}
+                  >
+                    {getContainerDisplayName(ct)}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500 dark:text-white/40">Sort by:</span>
               {(["freight", "etd", "transit"] as const).map((key) => (
@@ -399,21 +501,21 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             <table className="w-full text-sm relative">
               <thead className="sticky top-0 z-10">
                 <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#1a1f2e] backdrop-blur-md">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Carrier</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Container</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETD POL</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">ETA POD</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Validity Till</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Carrier</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Container</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">ETD POL</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">ETA POD</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Validity Till</th>
 
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Transit</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Free Time</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Service / Vessel</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">BOF</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Discount</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Surcharges</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Final Value</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider">Actions</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Transit</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Free Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Service / Vessel</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">BOF</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Discount</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Surcharges</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Final Value</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -440,10 +542,10 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                             {row.quote.container_type === "DRY 20" ? "20GP" : row.quote.container_type === "DRY 40" ? "40GP" : row.quote.container_type === "DRY 40H" ? "40HQ" : row.quote.container_type || "—"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.etd || "—"}</td>
-                        <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.eta || "—"}</td>
-                        <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs">{row.quote.validity_till || "—"}</td>
-                        <td className="px-4 py-3 text-center text-slate-600 dark:text-white/70">{row.quote.transit_time_days ? `${row.quote.transit_time_days}d` : "—"}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs whitespace-nowrap">{formatDate(row.quote.etd)}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs whitespace-nowrap">{formatDate(row.quote.eta)}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-white/70 font-mono text-xs whitespace-nowrap">{formatDate(row.quote.validity_till)}</td>
+                        <td className="px-4 py-3 text-center text-slate-600 dark:text-white/70 whitespace-nowrap">{row.quote.transit_time_days ? `${row.quote.transit_time_days}d` : "—"}</td>
                         <td className="px-4 py-3 text-center">
                           {row.quote.free_time != null ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
