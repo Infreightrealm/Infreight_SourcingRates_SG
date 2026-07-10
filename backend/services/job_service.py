@@ -44,6 +44,7 @@ async def run_carrier_search(
         db_result.started_at = datetime.utcnow()
         await session.commit()
 
+        connector = None
         try:
             # Get the connector (mock or live based on env)
             connector = get_connector(carrier_code)
@@ -135,7 +136,6 @@ async def run_carrier_search(
                     final_freight_value=q.final_freight_value,
                     validity_till=q.validity_till,
                     raw_data_json={
-
                         "source": q.source, 
                         "ref": q.raw_reference,
                         "routing": q.routing,
@@ -205,7 +205,7 @@ async def run_carrier_search(
                     ))
 
             await session.commit()
-            print(f"[JOB] {carrier_code}: {status.value} — {len(quotes)} quote(s)")
+            print(f"[JOB] {carrier_code}: {final_status.value} — {len(all_quotes)} quote(s)")
 
         except BaseException as e:
             if isinstance(e, asyncio.CancelledError):
@@ -219,6 +219,13 @@ async def run_carrier_search(
             if isinstance(e, asyncio.CancelledError):
                 raise
             print(f"[JOB] {carrier_code} error: {e}")
+        finally:
+            if connector:
+                try:
+                    await connector.close()
+                    print(f"[JOB] Successfully closed connector browser for {carrier_code}")
+                except Exception as ce:
+                    print(f"[JOB] Error closing connector browser for {carrier_code}: {ce}")
 
 
 async def update_search_status(search_id: UUID):

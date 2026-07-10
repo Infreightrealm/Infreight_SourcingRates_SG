@@ -8,10 +8,14 @@ export const API_URL = (rawApiUrl && !rawApiUrl.startsWith("http://") && !rawApi
   ? `https://${rawApiUrl}`
   : rawApiUrl;
 
+const defaultHeaders = {
+  "ngrok-skip-browser-warning": "true"
+};
+
 export async function createRateSearch(request: RateSearchRequest): Promise<RateSearchCreateResponse> {
   const res = await fetch(`${API_URL}/api/rate-search`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...defaultHeaders },
     body: JSON.stringify(request),
   });
   if (!res.ok) {
@@ -22,7 +26,9 @@ export async function createRateSearch(request: RateSearchRequest): Promise<Rate
 }
 
 export async function getRateSearchResults(searchId: string): Promise<RateSearchResultResponse> {
-  const res = await fetch(`${API_URL}/api/rate-search/${searchId}`);
+  const res = await fetch(`${API_URL}/api/rate-search/${searchId}`, {
+    headers: defaultHeaders
+  });
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
@@ -59,13 +65,17 @@ export async function pollRateSearch(
 }
 
 export async function healthCheck(): Promise<{ status: string; mock_mode: boolean }> {
-  const res = await fetch(`${API_URL}/health`);
+  const res = await fetch(`${API_URL}/health`, {
+    headers: defaultHeaders
+  });
   return res.json();
 }
 
 export async function getPortSuggestions(query: string, limit = 5): Promise<any[]> {
   if (!query || query.length < 2) return [];
-  const res = await fetch(`${API_URL}/api/ports/suggest?q=${encodeURIComponent(query)}&limit=${limit}`);
+  const res = await fetch(`${API_URL}/api/ports/suggest?q=${encodeURIComponent(query)}&limit=${limit}`, {
+    headers: defaultHeaders
+  });
   if (!res.ok) return [];
   return res.json();
 }
@@ -73,19 +83,22 @@ export async function getPortSuggestions(query: string, limit = 5): Promise<any[
 export async function forceStopSearches(): Promise<{status: string, message: string}> {
   const res = await fetch(`${API_URL}/api/force-stop`, {
     method: "POST",
+    headers: defaultHeaders
   });
   if (!res.ok) throw new Error("Failed to force stop searches");
   return res.json();
 }
 
 export async function getCountriesMap(): Promise<Record<string, string>> {
-  const res = await fetch(`${API_URL}/api/ports/countries`);
+  const res = await fetch(`${API_URL}/api/ports/countries`, {
+    headers: defaultHeaders
+  });
   if (!res.ok) return {};
   return res.json();
 }
 
 export async function getPortsConfig(adminPassword?: string): Promise<{ popular_ports: string[]; boosted_countries: string[] }> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...defaultHeaders };
   if (adminPassword) {
     headers["x-admin-password"] = adminPassword;
   }
@@ -100,7 +113,7 @@ export async function savePortsConfig(
   config: { popular_ports: string[]; boosted_countries: string[] },
   adminPassword?: string
 ): Promise<{ status: string }> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...defaultHeaders };
   if (adminPassword) {
     headers["x-admin-password"] = adminPassword;
   }
