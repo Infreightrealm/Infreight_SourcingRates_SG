@@ -74,6 +74,10 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
     if "rotterdam" in text_lower or text_lower == "nlrtm":
         return "Rotterdam", "NLRTM", "NL", "Netherlands"
         
+    # Ho Chi Minh override: OOCL FreightSmart only accepts "Ho Chi Minh"
+    if "ho chi minh" in text_lower or text_lower == "vnsgn":
+        return "Ho Chi Minh", "VNSGN", "VN", "Viet Nam"
+        
     # Extract LOCODE
     locode = None
     paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
