@@ -7,7 +7,7 @@ from sqlalchemy import select
 from models.database import get_async_session_maker
 from models.rate_search import RateSearch, CarrierSearchResult
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
 SYSTEM_INSTRUCTION = """You are the Infreight Logistics Rate Search Assistant, an internal AI helper for the Infreight Ocean Carrier Rate Automation system.
 
