@@ -829,6 +829,10 @@ class OOCLConnector(BaseCarrierConnector):
 
             # Suggestions render as list rows
             options = page.locator('.ant-popover:not(.ant-popover-hidden) .location-item, .ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')
+            if await options.count() == 0:
+                # Fallback: Find leaf-level elements containing the anchor emoji inside the open popover
+                options = page.locator('.ant-popover:not(.ant-popover-hidden) li, .ant-popover:not(.ant-popover-hidden) div').filter(has_text="⚓")
+                
             best = None
             try:
                 count = min(await options.count(), 20)
