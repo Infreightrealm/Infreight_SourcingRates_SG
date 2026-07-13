@@ -839,9 +839,22 @@ class OOCLConnector(BaseCarrierConnector):
                         continue
                     if not text or name.lower() not in text.lower():
                         continue
-                    if cn and cn.lower() in text.lower():
+                    
+                    # 1. Best match: exact LOCODE matches (e.g. DEHAM or VNSGN in text)
+                    if locode and locode.lower() in text.lower():
                         best = options.nth(i)
                         break
+                        
+                    # 2. Strong match: Country Code matches (e.g. ", VN" or ", DE")
+                    if cc and (f", {cc.lower()}" in text.lower() or f" {cc.lower()}" in text.lower()):
+                        best = options.nth(i)
+                        break
+                        
+                    # 3. Fallback match: Country Name matches (with Viet Nam/Vietnam exception)
+                    if cn and (cn.lower() in text.lower() or (cn.lower() == "viet nam" and "vietnam" in text.lower())):
+                        best = options.nth(i)
+                        break
+                        
                     if best is None:
                         best = options.nth(i)
             except Exception:
