@@ -868,6 +868,22 @@ class OOCLConnector(BaseCarrierConnector):
                     return True
                 except Exception as click_err:
                     print(f"[OOCL] [FS] Failed to click option on attempt {attempt}: {click_err}")
+            else:
+                # Diagnostics: capture screenshot and print visible dropdown contents
+                import os
+                try:
+                    os.makedirs("scratch", exist_ok=True)
+                    await page.screenshot(path="scratch/oocl_fs_fill_port_fail.png")
+                    print(f"[OOCL] [FS] [DIAGNOSTIC] Screenshot saved to scratch/oocl_fs_fill_port_fail.png")
+                    
+                    # Print all text found inside dropdown overlays
+                    dropdowns = page.locator('.ant-select-dropdown, .ant-popover, ul[role="listbox"]')
+                    dd_count = await dropdowns.count()
+                    for d_idx in range(dd_count):
+                        dd_text = await dropdowns.nth(d_idx).inner_text()
+                        print(f"[OOCL] [FS] [DIAGNOSTIC] Dropdown overlay {d_idx} text: \n{dd_text}")
+                except Exception as diag_err:
+                    print(f"[OOCL] [FS] [DIAGNOSTIC] Failed to collect diagnostics: {diag_err}")
             
             print(f"[OOCL] [FS] No autocomplete match or visible suggestions for {which}='{name}' on attempt {attempt}.")
 
