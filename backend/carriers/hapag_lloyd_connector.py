@@ -1199,10 +1199,16 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- START LOCATION (ORIGIN) ---
             if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
                 origin_locode = "NLRTM"
+            elif request.origin and ("xingang" in request.origin.lower() or request.origin.strip().upper() in ("CNXIP", "CNTXG")):
+                origin_locode = "CNTXG"
             else:
                 origin_locode = resolve_port_for_carrier(request.origin, "hapag")
+                if origin_locode == "CNXIP":
+                    origin_locode = "CNTXG"
                 if not origin_locode or len(origin_locode) != 5:
                     origin_locode = request.origin[:5].upper()
+                    if origin_locode == "CNXIP":
+                        origin_locode = "CNTXG"
 
             origin_cached = get_cached_carrier_port("hapag", origin_locode)
             print(f"[HAPAG] Schedule: Filling Start Location: '{origin_locode}' (cached: '{origin_cached}')")
@@ -1284,10 +1290,16 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- END LOCATION (DESTINATION) ---
             if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
                 dest_locode = "NLRTM"
+            elif request.destination and ("xingang" in request.destination.lower() or request.destination.strip().upper() in ("CNXIP", "CNTXG")):
+                dest_locode = "CNTXG"
             else:
                 dest_locode = resolve_port_for_carrier(request.destination, "hapag")
+                if dest_locode == "CNXIP":
+                    dest_locode = "CNTXG"
                 if not dest_locode or len(dest_locode) != 5:
                     dest_locode = request.destination[:5].upper()
+                    if dest_locode == "CNXIP":
+                        dest_locode = "CNTXG"
 
             dest_cached = get_cached_carrier_port("hapag", dest_locode)
             print(f"[HAPAG] Schedule: Filling End Location: '{dest_locode}' (cached: '{dest_cached}')")
@@ -1835,10 +1847,16 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- START LOCATION (ORIGIN) ---
             if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
                 origin_locode = "NLRTM"
+            elif request.origin and ("xingang" in request.origin.lower() or request.origin.strip().upper() in ("CNXIP", "CNTXG")):
+                origin_locode = "CNTXG"
             else:
                 origin_locode = resolve_port_for_carrier(request.origin, "hapag")
+                if origin_locode == "CNXIP":
+                    origin_locode = "CNTXG"
                 if not origin_locode or len(origin_locode) != 5:
                     origin_locode = request.origin[:5].upper()
+                    if origin_locode == "CNXIP":
+                        origin_locode = "CNTXG"
 
             origin_cached = get_cached_carrier_port("hapag", origin_locode)
             print(f"[HAPAG] Filling Start Location: '{origin_locode}' (cached: '{origin_cached}')")
@@ -1923,10 +1941,16 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- END LOCATION (DESTINATION) ---
             if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
                 dest_locode = "NLRTM"
+            elif request.destination and ("xingang" in request.destination.lower() or request.destination.strip().upper() in ("CNXIP", "CNTXG")):
+                dest_locode = "CNTXG"
             else:
                 dest_locode = resolve_port_for_carrier(request.destination, "hapag")
+                if dest_locode == "CNXIP":
+                    dest_locode = "CNTXG"
                 if not dest_locode or len(dest_locode) != 5:
                     dest_locode = request.destination[:5].upper()
+                    if dest_locode == "CNXIP":
+                        dest_locode = "CNTXG"
 
             dest_cached = get_cached_carrier_port("hapag", dest_locode)
             print(f"[HAPAG] Filling End Location: '{dest_locode}' (cached: '{dest_cached}')")
