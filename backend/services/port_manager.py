@@ -443,6 +443,9 @@ class PortManager:
             with open(data_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 self._ports = data.get("ports", {})
+                # Remove duplicate Xiamen code CNXAM so it doesn't appear in searches or conflict with CNXMN
+                if "CNXAM" in self._ports:
+                    del self._ports["CNXAM"]
                 self._aliases = data.get("aliases", {})
         except Exception as e:
             print(f"Error loading port data: {e}")
