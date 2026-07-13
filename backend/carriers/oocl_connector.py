@@ -845,8 +845,8 @@ class OOCLConnector(BaseCarrierConnector):
                         best = options.nth(i)
                         break
                         
-                    # 2. Strong match: Country Code matches (e.g. ", VN" or ", DE")
-                    if cc and (f", {cc.lower()}" in text.lower() or f" {cc.lower()}" in text.lower()):
+                    # 2. Strong match: Country Code matches (e.g. ", VN" or "DE" with boundaries)
+                    if cc and re.search(rf"\b{cc.lower()}\b", text.lower()):
                         best = options.nth(i)
                         break
                         
