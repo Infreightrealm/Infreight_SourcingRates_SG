@@ -830,18 +830,18 @@ class OOCLConnector(BaseCarrierConnector):
             # Suggestions render as list rows
             options = page.locator('.ant-popover:not(.ant-popover-hidden) .location-item, .ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')
             if await options.count() == 0:
-                # Fallback: Find leaf-level elements containing the anchor emoji inside the open popover
-                options = page.locator('.ant-popover:not(.ant-popover-hidden) li, .ant-popover:not(.ant-popover-hidden) div').filter(has_text="⚓")
+                # Fallback: Find list items or divs inside the open popover (no anchor text dependency)
+                options = page.locator('.ant-popover:not(.ant-popover-hidden) li, .ant-popover:not(.ant-popover-hidden) div, .ant-popover:not(.ant-popover-hidden) [role="option"]')
                 
             best = None
             try:
-                count = min(await options.count(), 20)
+                count = min(await options.count(), 80)
                 for i in range(count):
                     try:
                         text = (await options.nth(i).inner_text()).strip()
                     except Exception:
                         continue
-                    if not text or name.lower() not in text.lower():
+                    if not text or len(text) > 150 or name.lower() not in text.lower():
                         continue
                     
                     # 1. Best match: exact LOCODE matches (e.g. DEHAM or VNSGN in text)
