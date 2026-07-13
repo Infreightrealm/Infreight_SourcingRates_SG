@@ -703,15 +703,23 @@ class CMAConnector(BaseCarrierConnector):
             # --- ORIGIN ---
             if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
                 origin_locode = "NLRTM"
+            elif request.origin and ("xingang" in request.origin.lower() or request.origin.strip().upper() in ("CNXIP", "CNTXG")):
+                origin_locode = "CNTXG"
             else:
                 origin_locode = resolve_port_for_carrier(request.origin, "cma")
+                if origin_locode == "CNXIP":
+                    origin_locode = "CNTXG"
                 if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
                     origin_locode = self._extract_port_code(request.origin)
+                    if origin_locode == "CNXIP":
+                        origin_locode = "CNTXG"
                     if len(origin_locode) != 5 or not origin_locode.isupper():
                         from services.port_manager import search_port
                         ports = search_port(request.origin)
                         if ports:
                             origin_locode = ports[0]['code']
+                            if origin_locode == "CNXIP":
+                                origin_locode = "CNTXG"
 
             # Always type the LOCODE (e.g. SGSIN) — CMA accepts port codes and shows matching suggestions.
             origin_cached = get_cached_carrier_port("cma", origin_locode) if origin_locode else None
@@ -732,15 +740,23 @@ class CMAConnector(BaseCarrierConnector):
             # --- DESTINATION ---
             if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
                 dest_locode = "NLRTM"
+            elif request.destination and ("xingang" in request.destination.lower() or request.destination.strip().upper() in ("CNXIP", "CNTXG")):
+                dest_locode = "CNTXG"
             else:
                 dest_locode = resolve_port_for_carrier(request.destination, "cma")
+                if dest_locode == "CNXIP":
+                    dest_locode = "CNTXG"
                 if not dest_locode or len(dest_locode) != 5 or not dest_locode.isupper():
                     dest_locode = self._extract_port_code(request.destination)
+                    if dest_locode == "CNXIP":
+                        dest_locode = "CNTXG"
                     if len(dest_locode) != 5 or not dest_locode.isupper():
                         from services.port_manager import search_port
                         ports = search_port(request.destination)
                         if ports:
                             dest_locode = ports[0]['code']
+                            if dest_locode == "CNXIP":
+                                dest_locode = "CNTXG"
 
             # Check cache
             dest_cached = get_cached_carrier_port("cma", dest_locode) if dest_locode else None
