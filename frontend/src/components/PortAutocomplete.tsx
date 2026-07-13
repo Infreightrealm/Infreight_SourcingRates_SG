@@ -50,8 +50,8 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
   }, []);
 
   const handleSelect = (port: any) => {
-    // Format: "Port Name (CODE), Country"
-    const displayValue = `${port.name} (${port.code})`;
+    // Format: Only the clean name (e.g. 'Singapore') to avoid strict LOCODE in input fields
+    const displayValue = port.name;
     onChange(displayValue);
     setShowDropdown(false);
   };
