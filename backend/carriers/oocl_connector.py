@@ -111,11 +111,15 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
         if port_data:
             name = port_data.get("name", "")
             location_name = re.sub(r'\s*\([^)]*\)', '', name).strip()
+            if "," in location_name:
+                location_name = location_name.split(",")[0].strip()
             country_code = port_data.get("country", "").upper()
             country_name = COUNTRY_CODE_TO_NAME.get(country_code, "")
             
     if not location_name:
         location_name = re.sub(r'\s*\([^)]*\)', '', text).strip()
+        if "," in location_name:
+            location_name = location_name.split(",")[0].strip()
         
     if not locode:
         locode = ""
