@@ -596,6 +596,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     'button:has-text("Accept All")',
                     'button:has-text("Accept")',
                     'button:has-text("Agree")',
+                    'button:has-text("Confirm My Choices")',
                     '.cookie-accept-button'
                 ]
                 for selector in accept_selectors:
@@ -603,6 +604,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                     if await btn.is_visible(timeout=1000):
                         print(f"[HAPAG] Accepting cookies: Clicking {selector}")
                         await btn.click()
+                        try:
+                            # Wait for the cookie overlay to hide
+                            await btn.wait_for(state="hidden", timeout=5000)
+                        except:
+                            pass
                         await self._human_delay(800, 1500)
                         break
             except Exception:
