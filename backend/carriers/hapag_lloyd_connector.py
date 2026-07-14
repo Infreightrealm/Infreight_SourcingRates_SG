@@ -491,9 +491,19 @@ class HapagLloydConnector(BaseCarrierConnector):
                 dismissed = await self._run_modal_dismissal_pass()
                 if not dismissed:
                     break
-                print(f"[HAPAG] Tutorial step {step} popup dismissed successfully.")
+                print(f"[HAPAG] Tutorial step {step} popup dismissed successfully. Action: {dismissed}")
                 dismissed_any = True
-                await self.page.wait_for_timeout(800)  # brief wait for transition to next step/dialog
+                
+                # If we clicked the cookie consent banner, wait longer for it to completely fade out and hide
+                if isinstance(dismissed, str) and "Confirm My Choices" in dismissed:
+                    print("[HAPAG] Cookie consent clicked. Waiting for overlay to hide...")
+                    try:
+                        await self.page.locator('text=Confirm My Choices').first.wait_for(state="hidden", timeout=5000)
+                    except:
+                        pass
+                    await self._human_delay(1500, 2500)
+                else:
+                    await self.page.wait_for_timeout(800)  # brief wait for transition to next step/dialog
             
             # Mark onboarding as handled for the rest of this session
             self._onboarding_dismissed = True
@@ -587,7 +597,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             
             if js_close_result:
                 print(f"[HAPAG] JavaScript popup manager: {js_close_result}")
-                return True
+                return js_close_result
                 
             return False
         except Exception as e:
