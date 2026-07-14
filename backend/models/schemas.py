@@ -90,6 +90,7 @@ class RateSearchRequest(BaseModel):
     search_window_days: int = Field(default=14, ge=1, le=28)
     user_name: Optional[str] = Field(default=None, description="The name of the user making the request")
     use_mock: Optional[bool] = Field(default=None, description="Override mock/live mode for this search. None = use server default.")
+    hapag_region: Optional[str] = Field(default="ROW", description="Hapag-Lloyd account region: 'US_CA', 'EU', or 'ROW'")
 
     @model_validator(mode="before")
     @classmethod

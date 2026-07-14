@@ -21,6 +21,7 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
   const [commodity, setCommodity] = useState("Furniture");
   const [departureDate, setDepartureDate] = useState("tomorrow");
   const [searchWindow, setSearchWindow] = useState(14);
+  const [hapagRegion, setHapagRegion] = useState<'US_CA' | 'EU' | 'ROW'>("ROW");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +48,7 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
       commodity,
       departure_date: departureDate,
       search_window_days: searchWindow,
+      hapag_region: carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL") ? hapagRegion : undefined,
     });
   };
 
@@ -58,6 +60,38 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
     <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in-up">
       {/* Carrier Selection */}
       <CarrierMultiSelect selected={carriers} onChange={setCarriers} />
+
+      {/* Hapag-Lloyd Regional Account Toggle */}
+      {(carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL")) && (
+        <div className="p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl animate-fade-in-up shadow-sm">
+          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-2">
+            Hapag-Lloyd Contract Account Region
+          </label>
+          <div className="flex gap-2 p-1 bg-slate-200/50 dark:bg-black/20 rounded-lg max-w-md">
+            {[
+              { id: "US_CA", label: "US / Canada" },
+              { id: "EU", label: "Europe" },
+              { id: "ROW", label: "Rest of World" }
+            ].map((reg) => {
+              const active = hapagRegion === reg.id;
+              return (
+                <button
+                  key={reg.id}
+                  type="button"
+                  onClick={() => setHapagRegion(reg.id as any)}
+                  className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all duration-200 select-none ${
+                    active 
+                      ? "bg-blue-600 text-white shadow-sm" 
+                      : "text-slate-600 dark:text-white/60 hover:text-slate-900 dark:hover:text-white hover:bg-slate-300/30 dark:hover:bg-white/5"
+                  }`}
+                >
+                  {reg.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Route & Commodity Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in-up stagger-1">

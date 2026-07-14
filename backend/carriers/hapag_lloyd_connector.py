@@ -707,8 +707,28 @@ class HapagLloydConnector(BaseCarrierConnector):
                 # Need to log in
                 print("[HAPAG] Credentials required. Automating login form...")
                 
-                email = os.getenv("HAPAG_LLOYD_USERNAME")
-                password = os.getenv("HAPAG_LLOYD_PASSWORD")
+                # Select correct credentials based on regional setting
+                region = "ROW"
+                if hasattr(self, "current_request") and self.current_request:
+                    region = getattr(self.current_request, "hapag_region", "ROW") or "ROW"
+                
+                region = region.upper().strip()
+                print(f"[HAPAG] Using regional account: {region}")
+                
+                if region == "US_CA":
+                    email = os.getenv("HAPAG_LLOYD_USERNAME_US_CA")
+                    password = os.getenv("HAPAG_LLOYD_PASSWORD_US_CA")
+                elif region == "EU":
+                    email = os.getenv("HAPAG_LLOYD_USERNAME_EU")
+                    password = os.getenv("HAPAG_LLOYD_PASSWORD_EU")
+                else: # ROW
+                    email = os.getenv("HAPAG_LLOYD_USERNAME_ROW")
+                    password = os.getenv("HAPAG_LLOYD_PASSWORD_ROW")
+
+                # Fallback to standard credentials if regional ones are not configured
+                if not email or not password:
+                    email = os.getenv("HAPAG_LLOYD_USERNAME")
+                    password = os.getenv("HAPAG_LLOYD_PASSWORD")
                 
                 if not email or not password:
                     print("[HAPAG] [ERROR] HAPAG_LLOYD_USERNAME or HAPAG_LLOYD_PASSWORD environment variables are not set. Cannot perform login.")
@@ -3401,6 +3421,7 @@ class HapagLloydConnector(BaseCarrierConnector):
         )
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        self.current_request = request
         if not hasattr(self, "_cached_quotes"):
             self._cached_quotes = None
             self._cached_status = None

@@ -73,6 +73,7 @@ export interface RateSearchRequest {
   departure_date: string;
   search_window_days: number;
   user_name?: string;
+  hapag_region?: 'US_CA' | 'EU' | 'ROW';
 }
 
 export const CARRIERS = [
