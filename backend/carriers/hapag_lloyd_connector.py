@@ -440,6 +440,31 @@ class HapagLloydConnector(BaseCarrierConnector):
         await self._check_service_unavailable()
         await self._inject_onboarding_styles()
         
+        # Accept cookies if present on the current page
+        try:
+            accept_selectors = [
+                '#accept-recommended-btn-handler',
+                '#onetrust-accept-btn-handler',
+                'button:has-text("Accept All")',
+                'button:has-text("Accept")',
+                'button:has-text("Agree")',
+                'button:has-text("Confirm My Choices")',
+                '.cookie-accept-button'
+            ]
+            for selector in accept_selectors:
+                btn = self.page.locator(selector).first
+                if await btn.is_visible(timeout=1000):
+                    print(f"[HAPAG] Accepting cookies on current page: Clicking {selector}")
+                    await btn.click()
+                    try:
+                        await btn.wait_for(state="hidden", timeout=5000)
+                    except:
+                        pass
+                    await self._human_delay(800, 1500)
+                    break
+        except Exception as e:
+            print(f"[HAPAG] Warning during cookies check: {e}")
+        
         # If onboarding has already been dismissed this session, just do a single quick check
         # for other generic modals, rather than running the full 5-step onboarding loop.
         if self._onboarding_dismissed:
