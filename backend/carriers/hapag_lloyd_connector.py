@@ -416,6 +416,10 @@ class HapagLloydConnector(BaseCarrierConnector):
         try:
             if self.page and not (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
                 await self.page.add_style_tag(content="""
+                    body, html {
+                        overflow: auto !important;
+                        overflow-y: auto !important;
+                    }
                     .hal-onboarding__content, 
                     [class*="onboarding" i],
                     [id*="onboarding" i],
