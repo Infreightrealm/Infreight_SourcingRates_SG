@@ -461,7 +461,7 @@ class HapagLloydConnector(BaseCarrierConnector):
         print("[HAPAG] Dismissing any obscuring modal popups or onboarding wizards...")
         try:
             dismissed_any = False
-            for step in range(1, 6):
+            for step in range(1, 11):
                 dismissed = await self._run_modal_dismissal_pass()
                 if not dismissed:
                     break
