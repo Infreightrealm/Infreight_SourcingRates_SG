@@ -1083,16 +1083,19 @@ class HapagLloydConnector(BaseCarrierConnector):
                 item_text = (await item.text_content() or await item.inner_text() or "").strip().upper()
                 print(f"  Visible Suggestion text: '{item_text}'")
                 
-                # Filter out standard non-port option labels (e.g. Door delivery options)
-                is_unit_or_door = (
-                    "SELECT UNITS" in item_text or 
-                    "TERMINAL/RAMP" in item_text or 
-                    re.search(r'\b(KG|LB|DOOR)\b', item_text)
-                )
-                if is_unit_or_door:
-                    continue
+                is_port_match = target_match in item_text or (cached_name and cached_name.upper() in item_text)
                 
-                if target_match in item_text or (cached_name and cached_name.upper() in item_text):
+                if not is_port_match:
+                    # Filter out standard non-port option labels (e.g. Door delivery options)
+                    is_unit_or_door = (
+                        "SELECT UNITS" in item_text or 
+                        "TERMINAL/RAMP" in item_text or 
+                        re.search(r'\b(KG|LB|DOOR)\b', item_text)
+                    )
+                    if is_unit_or_door:
+                        continue
+                
+                if is_port_match:
                     print(f"[HAPAG] [MATCH] Found suggestion: '{item_text}'. Clicking...")
                     try:
                         await item.scroll_into_view_if_needed()
