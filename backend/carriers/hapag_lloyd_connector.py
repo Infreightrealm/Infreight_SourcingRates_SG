@@ -445,10 +445,11 @@ class HapagLloydConnector(BaseCarrierConnector):
             accept_selectors = [
                 '#accept-recommended-btn-handler',
                 '#onetrust-accept-btn-handler',
+                '.save-values-active-cookie-policy',
                 'button:has-text("Accept All")',
                 'button:has-text("Accept")',
                 'button:has-text("Agree")',
-                'button:has-text("Confirm My Choices")',
+                'text=Confirm My Choices',
                 '.cookie-accept-button'
             ]
             for selector in accept_selectors:
@@ -618,10 +619,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                 accept_selectors = [
                     '#accept-recommended-btn-handler',
                     '#onetrust-accept-btn-handler',
+                    '.save-values-active-cookie-policy',
                     'button:has-text("Accept All")',
                     'button:has-text("Accept")',
                     'button:has-text("Agree")',
-                    'button:has-text("Confirm My Choices")',
+                    'text=Confirm My Choices',
                     '.cookie-accept-button'
                 ]
                 for selector in accept_selectors:
