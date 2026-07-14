@@ -669,24 +669,30 @@ class HapagLloydConnector(BaseCarrierConnector):
             except:
                 pass
 
-            if is_form_visible:
-                print("[HAPAG] Already on New Quote page after login. Skipping sidebar clicks.")
+            is_login_page = "identity.hapag-lloyd.com" in self.page.url
+            if is_form_visible or is_login_page:
+                if is_form_visible:
+                    print("[HAPAG] Already on New Quote page. Skipping sidebar clicks.")
+                else:
+                    print("[HAPAG] On login page. Skipping sidebar clicks.")
             else:
-                # Expand Quote Sidebar
-                print("[HAPAG] Expanding 'Quote' sidebar menu...")
-                quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
-                await quote_sidebar.scroll_into_view_if_needed()
-                await quote_sidebar.click(force=True)
-                await self._human_delay(1000, 1800)
+                try:
+                    # Expand Quote Sidebar
+                    print("[HAPAG] Expanding 'Quote' sidebar menu...")
+                    quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+                    if await quote_sidebar.is_visible(timeout=5000):
+                        await quote_sidebar.scroll_into_view_if_needed()
+                        await quote_sidebar.click(force=True)
+                        await self._human_delay(1000, 1800)
 
-                # Click 'New Quote'
-                print("[HAPAG] Clicking 'New Quote' sub-menu...")
-                new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
-                await new_quote_btn.scroll_into_view_if_needed()
-                await new_quote_btn.click(force=True)
-                # Short settle only — the 180s settle loop below actively detects the
-                # login form / Quick Quote page, so a long blind wait here is redundant.
-                await self._human_delay(1500, 2500)
+                        # Click 'New Quote'
+                        print("[HAPAG] Clicking 'New Quote' sub-menu...")
+                        new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+                        await new_quote_btn.scroll_into_view_if_needed()
+                        await new_quote_btn.click(force=True)
+                        await self._human_delay(1500, 2500)
+                except Exception as sidebar_err:
+                    print(f"[HAPAG] Sidebar navigation encountered error (likely redirecting to login): {sidebar_err}")
 
             # Wait for either the login form (credentials required) or the Quick Quote page (already logged in) to settle
             print("[HAPAG] Waiting for page to settle (up to 180s) to detect if login is required or already logged in...")
