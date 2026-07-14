@@ -80,11 +80,21 @@ class HapagLloydConnector(BaseCarrierConnector):
         self.playwright = await async_playwright().start()
 
         # ── Persistent profile setup (similar to Maersk / CMA CGM) ──────────────
+        # Get the Hapag-Lloyd account region
+        region = "ROW"
+        if hasattr(self, "current_request") and self.current_request:
+            region = getattr(self.current_request, "hapag_region", "ROW") or "ROW"
+        region = region.upper().strip()
+
+        profile_suffix = f"_{region}" if region != "ROW" else ""
+        profile_name = f"chrome_profile_hapag{profile_suffix}"
+        print(f"[HAPAG] Using browser profile: {profile_name}")
+
         persistent_dir = os.getenv("PERSISTENT_PROFILES_DIR")
         if persistent_dir:
-            self.master_profile_dir = os.path.join(persistent_dir, "chrome_profile_hapag")
+            self.master_profile_dir = os.path.join(persistent_dir, profile_name)
         else:
-            self.master_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_hapag")
+            self.master_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), profile_name)
 
         if os.getenv("RESET_CHROME_PROFILES", "").lower() == "true":
             print(f"[HAPAG] [WARN] RESET_CHROME_PROFILES active. Clearing master profile: {self.master_profile_dir}")
@@ -98,9 +108,9 @@ class HapagLloydConnector(BaseCarrierConnector):
         # Create unique temp profile copy for this session
         unique_id = str(uuid.uuid4())[:8]
         if persistent_dir:
-            self.temp_profile_dir = os.path.join(persistent_dir, f"chrome_profile_hapag_tmp_{unique_id}")
+            self.temp_profile_dir = os.path.join(persistent_dir, f"{profile_name}_tmp_{unique_id}")
         else:
-            self.temp_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), f"chrome_profile_hapag_tmp_{unique_id}")
+            self.temp_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), f"{profile_name}_tmp_{unique_id}")
 
         # Sweep orphaned temp profiles left behind by crashed runs (close() removes
         # the current one on normal exit). Only THIS carrier's prefix, and only dirs
@@ -109,7 +119,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             parent_dir = os.path.dirname(self.temp_profile_dir)
             cutoff = datetime.now().timestamp() - 6 * 3600
             for entry in os.listdir(parent_dir):
-                if entry.startswith("chrome_profile_hapag_tmp_") and entry != os.path.basename(self.temp_profile_dir):
+                if entry.startswith(f"{profile_name}_tmp_") and entry != os.path.basename(self.temp_profile_dir):
                     stale_path = os.path.join(parent_dir, entry)
                     if os.path.isdir(stale_path) and os.path.getmtime(stale_path) < cutoff:
                         shutil.rmtree(stale_path, ignore_errors=True)
