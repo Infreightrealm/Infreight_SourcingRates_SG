@@ -3015,9 +3015,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 card_container = self.page.locator('.q-card, [class*="card" i]').filter(has=self.page.locator('text="Quick Quotes"')).filter(has_not=self.page.locator('text="Quick Quotes Spot"')).filter(has=self.page.locator('button:has-text("Price Breakdown")')).first
                 print("[HAPAG] Targeting Standard Quick Quotes card container.")
 
+            print(f"[HAPAG] [DEBUG] open_price_breakdown params: already_selected={already_selected}, is_spot={is_spot}, raw_date={raw_date}")
             try:
-                if not await card_container.is_visible(timeout=3000):
-                    print(f"[HAPAG] Card container not visible for is_spot={is_spot}.")
+                if not await card_container.is_visible(timeout=8000):
+                    print(f"[HAPAG] Card container not visible for is_spot={is_spot}. (Current is_visible status: {await card_container.is_visible(timeout=500)})")
                     quote_ref["is_sold_out"] = True
                     return False
             except Exception as e:
@@ -3143,6 +3144,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                     pass
                     
             if not pb_btn:
+                try:
+                    c_text = await card_container.inner_text()
+                    print(f"[HAPAG] [DEBUG] Card container innerText:\n{c_text}")
+                except Exception as text_err:
+                    print(f"[HAPAG] [DEBUG] Failed to get card innerText: {text_err}")
                 print(f"[HAPAG] Could not find Price Breakdown button inside card container (is_spot={is_spot}).")
                 return False
 
@@ -3516,12 +3522,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                     except:
                         pass
                 
-                # Bulletproof JS cleanup: hide all dialogs/modals and remove backdrops to ensure no blocking overlay remains
+                # Bulletproof JS cleanup: remove backdrops to ensure no blocking overlay remains (do NOT display:none the dialogs, as Vue re-uses them)
                 await self.page.evaluate('''() => {
-                    const dialogs = document.querySelectorAll('div[role="dialog"], .el-dialog, .modal, .q-dialog');
-                    dialogs.forEach(d => {
-                        d.style.display = 'none';
-                    });
                     const backdrops = document.querySelectorAll('.v-modal, .q-dialog__backdrop, [class*="backdrop" i], [class*="overlay" i]');
                     backdrops.forEach(b => {
                         b.remove();
@@ -3533,6 +3535,12 @@ class HapagLloydConnector(BaseCarrierConnector):
             except Exception as close_err:
                 print(f"[HAPAG] Error closing modal: {close_err}")
                 
+            # Wait for any dialog/modal to be completely hidden in DOM before proceeding
+            try:
+                await self.page.locator('div[role="dialog"]:visible, .q-dialog:visible').wait_for(state="hidden", timeout=5000)
+            except Exception as wait_err:
+                print(f"[HAPAG] Warning: wait for dialog hidden failed: {wait_err}")
+
             await self._human_delay(800, 1500)
             
         return charges
