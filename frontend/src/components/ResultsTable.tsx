@@ -223,15 +223,21 @@ export default function ResultsTable({ data }: ResultsTableProps) {
         for (const key of Object.keys(scheduleGroups)) {
           const groupQuotes = scheduleGroups[key];
           const rates: Record<string, string | number> = {};
-          
+          const isSpot = groupQuotes.some(q => 
+            (q.vessel || "").toUpperCase().includes("SPOT") || 
+            (q.service_name || "").toUpperCase().includes("SPOT")
+          );
+
           containerTypesList.forEach(ct => {
-            rates[`rate_${ct.replace(/\s+/g, "_")}`] = cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out";
+            rates[`rate_${ct.replace(/\s+/g, "_")}`] = isSpot 
+              ? "-" 
+              : (cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out");
           });
 
           groupQuotes.forEach(q => {
             if (q.container_type) {
               rates[`rate_${q.container_type.replace(/\s+/g, "_")}`] = q.final_freight_value === 0.0 
-                ? (cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out") 
+                ? (isSpot ? "-" : (cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out")) 
                 : q.final_freight_value;
             }
           });
