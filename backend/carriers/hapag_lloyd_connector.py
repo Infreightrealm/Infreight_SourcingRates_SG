@@ -1888,6 +1888,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             print("[HAPAG] Starting Quick Quote search...")
             self.current_request = request
+            self._last_selected_date = None
             
             # Dismiss any active modals (like "Recently Searched") before form filling
             await self._dismiss_hapag_modals()
@@ -2647,10 +2648,8 @@ class HapagLloydConnector(BaseCarrierConnector):
             for seq_idx, raw_date_str in enumerate(all_dates_seen):
                 normalized_date = self._normalize_date_string(raw_date_str)
                 grid_price = date_to_price.get(raw_date_str, 0.0)
+                # Standard Quote
                 self._all_quotes.append({
-                    # seq_idx is the logical position (0-based) across all paginated pages
-                    # page_offset will be calculated in open_price_breakdown to know how many
-                    # arrow clicks are needed to bring this date into view
                     "seq_idx": seq_idx,
                     "raw_date": raw_date_str,
                     "etd": normalized_date,
@@ -2663,7 +2662,25 @@ class HapagLloydConnector(BaseCarrierConnector):
                     "currency": "USD",
                     "is_sold_out": False,
                     "source": "carrier_portal",
-                    "carrier_code": self.carrier_code
+                    "carrier_code": self.carrier_code,
+                    "is_spot": False
+                })
+                # Spot Quote
+                self._all_quotes.append({
+                    "seq_idx": seq_idx,
+                    "raw_date": raw_date_str,
+                    "etd": normalized_date,
+                    "eta": None,
+                    "transit_time_days": None,
+                    "via_routing": "",
+                    "service_name": "Hapag Service Spot",
+                    "vessel": "Hapag Vessel",
+                    "total_price": 0.0,
+                    "currency": "USD",
+                    "is_sold_out": False,
+                    "source": "carrier_portal",
+                    "carrier_code": self.carrier_code,
+                    "is_spot": True
                 })
                 
             return self._all_quotes
@@ -2803,174 +2820,214 @@ class HapagLloydConnector(BaseCarrierConnector):
             }'''
 
             target_idx = quote_ref.get("seq_idx", 0)
+            is_spot = quote_ref.get("is_spot", False)
 
-            # ------------------------------------------------------------------
-            # Step 1: navigate left or right until target date is visible in the grid
-            # ------------------------------------------------------------------
-            for nav_attempt in range(30):    # safety: at most 30 arrow clicks
-                if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
-                    raise Exception("Playwright page is closed or crashed during date navigation.")
-                
-                await self._dismiss_hapag_modals()
-                await self._wait_for_captcha_resolution()
+            already_selected = getattr(self, "_last_selected_date", None) == raw_date
 
-                visible: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
-                if raw_date in visible:
-                    print(f"[HAPAG] Target date '{raw_date}' is now visible in grid.")
-                    break
-
-                # Determine direction to move
-                direction = "right"  # default fallback
-                target_etd = quote_ref.get("etd")
-                if self._all_quotes and target_etd:
-                    visible_etds = []
-                    for vd in visible:
-                        match = next((q for q in self._all_quotes if q["raw_date"] == vd), None)
-                        if match and match.get("etd"):
-                            visible_etds.append(match["etd"])
-                    if visible_etds:
-                        min_vis_etd = min(visible_etds)
-                        max_vis_etd = max(visible_etds)
-                        if target_etd < min_vis_etd:
-                            direction = "left"
-                        elif target_etd > max_vis_etd:
-                            direction = "right"
-
-                if direction == "left":
-                    arrow_result = await self.page.evaluate(JS_CLICK_LEFT_ARROW)
-                    print(f"[HAPAG] Left-arrow click #{nav_attempt+1} JS result: {arrow_result} (target_idx {target_idx})")
-                else:
-                    arrow_result = await self.page.evaluate(JS_CLICK_RIGHT_ARROW)
-                    print(f"[HAPAG] Right-arrow click #{nav_attempt+1} JS result: {arrow_result} (target_idx {target_idx})")
-
-                if arrow_result in ['disabled', 'not_found']:
-                    print(f"[HAPAG] Arrow navigation returned '{arrow_result}' -- assuming date not reachable.")
-                    break
-
-                await self._human_delay(800, 1200)
-
-            # ------------------------------------------------------------------
-            # Step 2: Click the correct date column by text content (not DOM index)
-            # ------------------------------------------------------------------
-            clicked = await self.page.evaluate(r'''targetDate => {
-                const patterns = [
-                    /^\d{4}-\d{2}-\d{2}$/,
-                    /^\d{2}\.\d{2}\.\d{4}$/,
-                    /^\d{2}-\d{2}-\d{4}$/,
-                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}$/i,
-                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
-                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
-                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
-                ];
-                const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
-                    const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
-                    if (!patterns.some(pat => pat.test(txt))) return false;
-                    let parent = el.parentElement;
-                    while (parent) {
-                        const id = (parent.id || '').toLowerCase();
-                        const cls = (parent.className || '').toLowerCase();
-                        if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
-                        if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || 
-                            cls.includes('criteria') || cls.includes('quick-quotes') ||
-                            id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
-                        parent = parent.parentElement;
-                    }
-                    return true;
-                });
-                const visible = dateEls.filter(el => {
-                    const r = el.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0;
-                });
-                const target = visible.find(el => el.textContent.trim() === targetDate);
-                if (target) {
-                    target.click();
-                    // Also click parent cell (TH/TD)
-                    let cell = target;
-                    while (cell && cell.tagName !== 'TH' && cell.tagName !== 'TD' && !cell.classList.contains('cell')) {
-                        cell = cell.parentElement;
-                    }
-                    if (cell) cell.click();
-                    return true;
-                }
-                return false;
-            }''', raw_date)
-            
-            if not clicked:
-                print(f"[HAPAG] Could not click column '{raw_date}'.")
-                return False
-                
-            if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
-                raise Exception("Playwright page is closed or crashed after clicking date column.")
-            await self._wait_for_captcha_resolution()
-                
-            # Wait for any loading indicator to disappear (up to 15 seconds)
-            print("[HAPAG] Waiting for details loading spinner to hide...")
-            try:
-                for check in range(30):
+            if already_selected:
+                print(f"[HAPAG] Date '{raw_date}' is already selected. Skipping navigation and using cached transit info.")
+                # Retrieve cached transit time / via routing
+                tt = getattr(self, "_last_parsed_transit_time", None)
+                via_routing = getattr(self, "_last_parsed_via_routing", "")
+                if tt:
+                    quote_ref["transit_time_days"] = tt
+                    quote_ref["eta"] = getattr(self, "_last_parsed_eta", None)
+                if via_routing:
+                    quote_ref["via_routing"] = via_routing
+                    quote_ref["service_name"] = f"Hapag Service (via {via_routing})"
+            else:
+                # ------------------------------------------------------------------
+                # Step 1: navigate left or right until target date is visible in the grid
+                # ------------------------------------------------------------------
+                for nav_attempt in range(30):    # safety: at most 30 arrow clicks
                     if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
-                        raise Exception("Playwright page is closed or crashed while waiting for details spinner.")
+                        raise Exception("Playwright page is closed or crashed during date navigation.")
+                    
+                    await self._dismiss_hapag_modals()
                     await self._wait_for_captcha_resolution()
-                    
-                    loading_selectors = [
-                        'text="Offer is loading" i',
-                        '.q-loading',
-                        '.loading',
-                        '[class*="loading" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"])'
-                    ]
-                    is_still_loading = False
-                    for sel in loading_selectors:
-                        try:
-                            loc = self.page.locator(sel).first
-                            if await loc.is_visible(timeout=100):
-                                is_still_loading = True
-                                break
-                        except:
-                            pass
-                    if not is_still_loading:
+
+                    visible: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
+                    if raw_date in visible:
+                        print(f"[HAPAG] Target date '{raw_date}' is now visible in grid.")
                         break
-                    await asyncio.sleep(0.5)
-            except Exception as wait_err:
-                print(f"[HAPAG] Warning: Error waiting for loading spinner: {wait_err}")
+
+                    # Determine direction to move
+                    direction = "right"  # default fallback
+                    target_etd = quote_ref.get("etd")
+                    if self._all_quotes and target_etd:
+                        visible_etds = []
+                        for vd in visible:
+                            match = next((q for q in self._all_quotes if q["raw_date"] == vd), None)
+                            if match and match.get("etd"):
+                                visible_etds.append(match["etd"])
+                        if visible_etds:
+                            min_vis_etd = min(visible_etds)
+                            max_vis_etd = max(visible_etds)
+                            if target_etd < min_vis_etd:
+                                direction = "left"
+                            elif target_etd > max_vis_etd:
+                                direction = "right"
+
+                    if direction == "left":
+                        arrow_result = await self.page.evaluate(JS_CLICK_LEFT_ARROW)
+                        print(f"[HAPAG] Left-arrow click #{nav_attempt+1} JS result: {arrow_result} (target_idx {target_idx})")
+                    else:
+                        arrow_result = await self.page.evaluate(JS_CLICK_RIGHT_ARROW)
+                        print(f"[HAPAG] Right-arrow click #{nav_attempt+1} JS result: {arrow_result} (target_idx {target_idx})")
+
+                    if arrow_result in ['disabled', 'not_found']:
+                        print(f"[HAPAG] Arrow navigation returned '{arrow_result}' -- assuming date not reachable.")
+                        break
+
+                    await self._human_delay(800, 1200)
+
+                # ------------------------------------------------------------------
+                # Step 2: Click the correct date column by text content (not DOM index)
+                # ------------------------------------------------------------------
+                clicked = await self.page.evaluate(r'''targetDate => {
+                    const patterns = [
+                        /^\d{4}-\d{2}-\d{2}$/,
+                        /^\d{2}\.\d{2}\.\d{4}$/,
+                        /^\d{2}-\d{2}-\d{4}$/,
+                        /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}$/i,
+                        /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
+                        /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
+                        /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
+                    ];
+                    const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
+                        const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                        if (!patterns.some(pat => pat.test(txt))) return false;
+                        let parent = el.parentElement;
+                        while (parent) {
+                            const id = (parent.id || '').toLowerCase();
+                            const cls = (parent.className || '').toLowerCase();
+                            if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
+                            if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || 
+                                cls.includes('criteria') || cls.includes('quick-quotes') ||
+                                id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
+                            parent = parent.parentElement;
+                        }
+                        return true;
+                    });
+                    const visible = dateEls.filter(el => {
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                    });
+                    const target = visible.find(el => el.textContent.trim() === targetDate);
+                    if (target) {
+                        target.click();
+                        // Also click parent cell (TH/TD)
+                        let cell = target;
+                        while (cell && cell.tagName !== 'TH' && cell.tagName !== 'TD' && !cell.classList.contains('cell')) {
+                            cell = cell.parentElement;
+                        }
+                        if (cell) cell.click();
+                        return true;
+                    }
+                    return false;
+                }''', raw_date)
                 
-            await self._human_delay(1200, 2200)
-            
-            # --- PARSE DETAILS FROM LEFT PANEL ---
-            tt = None
-            via_routing = ""
-            try:
-                left_panel = self.page.locator('div:has-text("Estimated Transit Time"), [class*="search" i], [class*="summary" i]').first
-                left_panel_text = await left_panel.inner_text()
-                
-                tt_match = re.search(r'Estimated Transit Time\s*(\d+)\s*days?', left_panel_text, re.IGNORECASE)
-                if not tt_match:
-                    tt_match = re.search(r'(\d+)\s*days?', left_panel_text, re.IGNORECASE)
-                if tt_match:
-                    tt = int(tt_match.group(1))
+                if not clicked:
+                    print(f"[HAPAG] Could not click column '{raw_date}'.")
+                    return False
                     
-                via_match = re.search(r'via\s*:\s*([^\n\r]+)', left_panel_text, re.IGNORECASE)
-                if via_match:
-                    via_routing = via_match.group(1).strip()
-            except Exception as left_err:
-                print(f"[HAPAG] Warning: Left panel parsing failed: {left_err}")
-                
-            if tt:
-                quote_ref["transit_time_days"] = tt
+                if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                    raise Exception("Playwright page is closed or crashed after clicking date column.")
+                await self._wait_for_captcha_resolution()
+                    
+                # Wait for any loading indicator to disappear (up to 15 seconds)
+                print("[HAPAG] Waiting for details loading spinner to hide...")
                 try:
-                    etd_date = datetime.strptime(quote_ref["etd"], "%Y-%m-%d").date()
-                    eta_date = etd_date + timedelta(days=tt)
-                    quote_ref["eta"] = eta_date.isoformat()
-                except:
-                    pass
-            if via_routing:
-                quote_ref["via_routing"] = via_routing
-                quote_ref["service_name"] = f"Hapag Service (via {via_routing})"
+                    for check in range(30):
+                        if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                            raise Exception("Playwright page is closed or crashed while waiting for details spinner.")
+                        await self._wait_for_captcha_resolution()
+                        
+                        loading_selectors = [
+                            'text="Offer is loading" i',
+                            '.q-loading',
+                            '.loading',
+                            '[class*="loading" i]:not([class*="sonner"]):not([class*="toast"]):not([class*="productfruits"]):not([class*="heap"])'
+                        ]
+                        is_still_loading = False
+                        for sel in loading_selectors:
+                            try:
+                                loc = self.page.locator(sel).first
+                                if await loc.is_visible(timeout=100):
+                                    is_still_loading = True
+                                    break
+                            except:
+                                pass
+                        if not is_still_loading:
+                            break
+                        await asyncio.sleep(0.5)
+                except Exception as wait_err:
+                    print(f"[HAPAG] Warning: Error waiting for loading spinner: {wait_err}")
+                    
+                await self._human_delay(1200, 2200)
                 
-            print(f"[HAPAG] Parsed transit time: {tt} days, via: '{via_routing}'")
+                # --- PARSE DETAILS FROM LEFT PANEL ---
+                tt = None
+                via_routing = ""
+                try:
+                    left_panel = self.page.locator('div:has-text("Estimated Transit Time"), [class*="search" i], [class*="summary" i]').first
+                    left_panel_text = await left_panel.inner_text()
+                    
+                    tt_match = re.search(r'Estimated Transit Time\s*(\d+)\s*days?', left_panel_text, re.IGNORECASE)
+                    if not tt_match:
+                        tt_match = re.search(r'(\d+)\s*days?', left_panel_text, re.IGNORECASE)
+                    if tt_match:
+                        tt = int(tt_match.group(1))
+                        
+                    via_match = re.search(r'via\s*:\s*([^\n\r]+)', left_panel_text, re.IGNORECASE)
+                    if via_match:
+                        via_routing = via_match.group(1).strip()
+                except Exception as left_err:
+                    print(f"[HAPAG] Warning: Left panel parsing failed: {left_err}")
+                    
+                if tt:
+                    quote_ref["transit_time_days"] = tt
+                    try:
+                        etd_date = datetime.strptime(quote_ref["etd"], "%Y-%m-%d").date()
+                        eta_date = etd_date + timedelta(days=tt)
+                        quote_ref["eta"] = eta_date.isoformat()
+                    except:
+                        pass
+                if via_routing:
+                    quote_ref["via_routing"] = via_routing
+                    quote_ref["service_name"] = f"Hapag Service (via {via_routing})"
+                    
+                # Cache the parsed transit info
+                self._last_parsed_transit_time = tt
+                self._last_parsed_eta = quote_ref.get("eta")
+                self._last_parsed_via_routing = via_routing
+                
+                self._last_selected_date = raw_date
+                
+                print(f"[HAPAG] Parsed transit time: {tt} days, via: '{via_routing}'")
             
-            # Parse card price directly for fallback and sold-out screening across all 3 container types
+            # --- CARD LEVEL PRICE EXTRACTION ---
+            # Locate standard vs spot card container
+            if is_spot:
+                card_container = self.page.locator('.q-card, div').filter(has=self.page.locator('text="Quick Quotes Spot"')).filter(has=self.page.locator('button:has-text("Price Breakdown")')).first
+                print("[HAPAG] Targeting Quick Quotes Spot card container.")
+            else:
+                card_container = self.page.locator('.q-card, div').filter(has=self.page.locator('text="Quick Quotes"')).filter(has_not=self.page.locator('text="Quick Quotes Spot"')).filter(has=self.page.locator('button:has-text("Price Breakdown")')).first
+                print("[HAPAG] Targeting Standard Quick Quotes card container.")
+
+            try:
+                if not await card_container.is_visible(timeout=3000):
+                    print(f"[HAPAG] Card container not visible for is_spot={is_spot}.")
+                    quote_ref["is_sold_out"] = True
+                    return False
+            except Exception as e:
+                print(f"[HAPAG] Card container visibility check error: {e}")
+                quote_ref["is_sold_out"] = True
+                return False
+
             self._last_parsed_card_prices = {}
             try:
-                card_prices = await self.page.evaluate(r'''() => {
+                card_prices = await card_container.evaluate(r'''(node) => {
                     const res = {
                         "DRY 20": null,
                         "DRY 40": null,
@@ -2996,7 +3053,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         "High Cube": "DRY 40H"
                     };
 
-                    const rows = Array.from(document.querySelectorAll('div, span, p, tr, td'));
+                    const rows = Array.from(node.querySelectorAll('div, span, p, tr, td'));
                     for (const row of rows) {
                         if (row.children.length > 8) continue;
                         const txt = (row.textContent || '').trim();
@@ -3022,8 +3079,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
                     }
 
-                    // Fallback to scanning body innerText lines
-                    const allText = document.body.innerText || "";
+                    // Fallback to scanning node innerText lines
+                    const allText = node.innerText || "";
                     const lines = allText.split("\n");
                     for (const line of lines) {
                         const cleanLine = line.replace(/\s+/g, ' ').trim();
@@ -3049,25 +3106,25 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                     return res;
                 }''')
-                print(f"[HAPAG] Multi-container card price evaluation results: {card_prices}")
+                print(f"[HAPAG] Multi-container card price evaluation results (is_spot={is_spot}): {card_prices}")
                 if isinstance(card_prices, dict):
                     self._last_parsed_card_prices = card_prices
                 
                 # Check if all are sold out
                 all_sold_out = all(v == "sold_out" or v is None for v in self._last_parsed_card_prices.values())
                 if all_sold_out:
-                    print(f"[HAPAG] All container types are sold out / unavailable for this departure.")
+                    print(f"[HAPAG] All container types are sold out / unavailable for this departure (is_spot={is_spot}).")
                     quote_ref["is_sold_out"] = True
                     return False
             except Exception as pe:
-                print(f"[HAPAG] Warning: Card price evaluation failed: {pe}")
+                print(f"[HAPAG] Warning: Card price evaluation failed (is_spot={is_spot}): {pe}")
 
             # Dismiss any onboarding tutorial popups that might intercept the Price Breakdown click
             print("[HAPAG] Dismissing any tutorial popups before clicking Price Breakdown...")
             await self._dismiss_hapag_modals()
             await self._human_delay(500, 800)
             
-            # Find Price Breakdown button
+            # Find Price Breakdown button inside card_container
             pb_selectors = [
                 'button:has-text("Price Breakdown")',
                 'button[title="Price Breakdown"]',
@@ -3078,13 +3135,17 @@ class HapagLloydConnector(BaseCarrierConnector):
             pb_btn = None
             for sel in pb_selectors:
                 try:
-                    loc = self.page.locator(sel).first
+                    loc = card_container.locator(sel).first
                     if await loc.is_visible(timeout=1000):
                         pb_btn = loc
                         break
                 except:
                     pass
                     
+            if not pb_btn:
+                print(f"[HAPAG] Could not find Price Breakdown button inside card container (is_spot={is_spot}).")
+                return False
+
             if not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
                 raise Exception("Playwright page is closed or crashed before clicking Price Breakdown.")
             await self._wait_for_captcha_resolution()
@@ -3096,8 +3157,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await pb_btn.click(timeout=8000)
             except Exception as click_err:
                 print(f"[HAPAG] Playwright click blocked ({click_err}). Falling back to JS click...")
-                await self.page.evaluate('''() => {
-                    const btns = Array.from(document.querySelectorAll('button[title="Price Breakdown"], button'));
+                await card_container.evaluate('''(node) => {
+                    const btns = Array.from(node.querySelectorAll('button[title="Price Breakdown"], button'));
                     const pb = btns.find(b => b.textContent.includes("Price Breakdown") || b.title === "Price Breakdown");
                     if (pb) pb.click();
                 }''')
@@ -3784,6 +3845,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                             normalized.routing = "Direct"
                             normalized.eta = None
                             normalized.transit_time_days = None
+
+                        if raw_quote.get("is_spot"):
+                            if normalized.vessel and "(SPOT)" not in normalized.vessel:
+                                normalized.vessel = f"{normalized.vessel} (SPOT)"
+                            if normalized.service_name and "(SPOT)" not in normalized.service_name:
+                                normalized.service_name = f"{normalized.service_name} (SPOT)"
 
                         # Apply Freetime
                         _apply_freetime_to_quote(normalized)
