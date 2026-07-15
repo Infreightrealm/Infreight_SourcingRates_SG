@@ -3009,10 +3009,10 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- CARD LEVEL PRICE EXTRACTION ---
             # Locate standard vs spot card container
             if is_spot:
-                card_container = self.page.locator('.q-card, div').filter(has=self.page.locator('text="Quick Quotes Spot"')).filter(has=self.page.locator('button:has-text("Price Breakdown")')).first
+                card_container = self.page.locator('.q-card, [class*="card" i]').filter(has=self.page.locator('text="Quick Quotes Spot"')).filter(has=self.page.locator('button:has-text("Price Breakdown")')).first
                 print("[HAPAG] Targeting Quick Quotes Spot card container.")
             else:
-                card_container = self.page.locator('.q-card, div').filter(has=self.page.locator('text="Quick Quotes"')).filter(has_not=self.page.locator('text="Quick Quotes Spot"')).filter(has=self.page.locator('button:has-text("Price Breakdown")')).first
+                card_container = self.page.locator('.q-card, [class*="card" i]').filter(has=self.page.locator('text="Quick Quotes"')).filter(has_not=self.page.locator('text="Quick Quotes Spot"')).filter(has=self.page.locator('button:has-text("Price Breakdown")')).first
                 print("[HAPAG] Targeting Standard Quick Quotes card container.")
 
             try:
@@ -3244,34 +3244,60 @@ class HapagLloydConnector(BaseCarrierConnector):
                     print(f"[HAPAG] Debug dump failed: {de}")
             
             charges = await self.page.evaluate(r'''() => {
+                let idx_name = -1;
+                let idx_unit = -1;
+                let idx_curr = -1;
                 let idx_20 = -1;
                 let idx_40 = -1;
                 let idx_40h = -1;
 
-                // Dynamically detect column header position
+                function getRowCells(row) {
+                    let c = Array.from(row.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"], div[role="cell"], .q-td, .q-th, .cell'));
+                    if (c.length === 0) {
+                        c = Array.from(row.children);
+                    }
+                    return c;
+                }
+
+                // Dynamically detect column header position by matching container labels
                 const allRows = Array.from(document.querySelectorAll('tr, div[role="row"]'));
-                let headerRows = [];
+                let headerRow = null;
+                let maxMatches = 0;
+                let maxLen = 0;
+                
+                const searchTerms20 = ["20STD", "20'STD", "20GP", "20'GP", "20'", "20Standard"];
+                const searchTerms40 = ["40STD", "40'STD", "40GP", "40'GP", "40'", "40Standard"];
+                const searchTerms40h = ["40HC", "40'HC", "40HQ", "40'HQ", "High Cube", "HighCube"];
+                const searchTermsUnit = ["Unit"];
+                const searchTermsCurr = ["Curr.", "Currency"];
+                const allTerms = [...searchTerms20, ...searchTerms40, ...searchTerms40h, ...searchTermsUnit, ...searchTermsCurr];
+
                 for (const r of allRows) {
-                    const cells = Array.from(r.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"]'));
-                    if (cells.length >= 3) {
-                        const cellTexts = cells.map(c => (c.textContent || '').trim());
-                        if (cellTexts.includes("Unit") && (cellTexts.includes("Curr.") || cellTexts.includes("Currency"))) {
-                            headerRows.push(cells);
+                    const cells = getRowCells(r);
+                    if (cells.length >= 2) {
+                        let matches = 0;
+                        const cellTexts = cells.map(c => (c.textContent || '').trim().replace(/\s+/g, ''));
+                        for (const txt of cellTexts) {
+                            if (allTerms.some(term => txt.includes(term.replace(/\s+/g, '')))) {
+                                matches++;
+                            }
+                        }
+                        if (matches > maxMatches || (matches === maxMatches && matches > 0 && cells.length > maxLen)) {
+                            maxMatches = matches;
+                            maxLen = cells.length;
+                            headerRow = cells;
                         }
                     }
                 }
 
-                // Pick the matching header row with the maximum number of cells to align with data rows
-                headerRows.sort((a, b) => b.length - a.length);
-                let headerRow = headerRows[0] || null;
-
                 if (headerRow) {
-                    const searchTerms20 = ["20STD", "20'STD", "20GP", "20'GP", "20'"];
-                    const searchTerms40 = ["40STD", "40'STD", "40GP", "40'GP", "40'"];
-                    const searchTerms40h = ["40HC", "40'HC", "40HQ", "40'HQ", "High Cube"];
                     for (let idx = 0; idx < headerRow.length; idx++) {
                         const headerText = (headerRow[idx].textContent || '').trim().replace(/\s+/g, '');
-                        if (searchTerms20.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
+                        if (searchTermsUnit.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
+                            idx_unit = idx;
+                        } else if (searchTermsCurr.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
+                            idx_curr = idx;
+                        } else if (searchTerms20.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
                             idx_20 = idx;
                         } else if (searchTerms40.some(term => headerText.includes(term.replace(/\s+/g, '')))) {
                             idx_40 = idx;
@@ -3279,13 +3305,29 @@ class HapagLloydConnector(BaseCarrierConnector):
                             idx_40h = idx;
                         }
                     }
+                    if (idx_unit !== -1) {
+                        idx_name = idx_unit - 1;
+                        if (idx_curr === -1) {
+                            idx_curr = idx_unit + 1;
+                        }
+                    }
                 }
 
-                // Fallback to default indexes only if no container columns were mapped at all
+                // Fallbacks
+                if (idx_unit === -1) {
+                    idx_name = 1;
+                    idx_unit = 2;
+                    idx_curr = 3;
+                }
+                if (idx_name < 0) {
+                    idx_name = 1;
+                }
                 if (idx_20 === -1 && idx_40 === -1 && idx_40h === -1) {
-                    idx_20 = 3;
-                    idx_40 = 4;
-                    idx_40h = 5;
+                    if (maxLen >= 6) {
+                        idx_20 = 4;
+                        idx_40 = 5;
+                        idx_40h = 6;
+                    }
                 }
                 
                 const results = {
@@ -3311,25 +3353,25 @@ class HapagLloydConnector(BaseCarrierConnector):
                 }
 
                 for (const row of rows) {
-                    const cells = Array.from(row.querySelectorAll('td, th, div[role="gridcell"], div[role="columnheader"]'));
+                    const cells = getRowCells(row);
                     if (cells.length === 0) continue;
                     
-                    const firstCellText = cells[0].textContent ? cells[0].textContent.trim() : "";
+                    const firstCellText = (idx_name !== -1 && cells[idx_name]) ? cells[idx_name].textContent.trim() : "";
                     const lowerText = firstCellText.toLowerCase();
                     
-                    if (lowerText === "freight charges") {
+                    if (lowerText === "freight charges" || lowerText.includes("freight charges")) {
                         currentSection = "freight_charges";
                         continue;
                     }
-                    if (lowerText === "freight surcharges" || lowerText === "surcharges") {
+                    if (lowerText === "freight surcharges" || lowerText === "surcharges" || lowerText.includes("surcharges")) {
                         currentSection = "surcharges";
                         continue;
                     }
-                    if (lowerText === "export surcharges") {
+                    if (lowerText === "export surcharges" || lowerText.includes("export surcharges")) {
                         currentSection = "export_surcharges";
                         continue;
                     }
-                    if (lowerText === "import surcharges") {
+                    if (lowerText === "import surcharges" || lowerText.includes("import surcharges")) {
                         currentSection = "import_surcharges";
                         continue;
                     }
@@ -3340,9 +3382,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                             continue;
                         }
                         
-                        const name = cells[0].textContent ? cells[0].textContent.trim() : "";
-                        const unit = cells[1].textContent ? cells[1].textContent.trim() : "";
-                        const curr = cells[2].textContent ? cells[2].textContent.trim() : "";
+                        const name = (idx_name !== -1 && cells[idx_name]) ? cells[idx_name].textContent.trim() : "";
+                        const unit = (idx_unit !== -1 && cells[idx_unit]) ? cells[idx_unit].textContent.trim() : "";
+                        const curr = (idx_curr !== -1 && cells[idx_curr]) ? cells[idx_curr].textContent.trim() : "";
                         
                         // Ignore header labels, section descriptors, or empty rows
                         if (!name || name === "Freight Charges" || name === "Freight Surcharges" || 
@@ -3353,24 +3395,49 @@ class HapagLloydConnector(BaseCarrierConnector):
                             continue;
                         }
                         
-                        const valStr_20 = (idx_20 !== -1 && cells[idx_20]) ? (cells[idx_20].textContent || "").trim() : "";
-                        const valStr_40 = (idx_40 !== -1 && cells[idx_40]) ? (cells[idx_40].textContent || "").trim() : "";
-                        const valStr_40h = (idx_40h !== -1 && cells[idx_40h]) ? (cells[idx_40h].textContent || "").trim() : "";
+                        // Check if the Unit text contains container size details
+                        const unitLower = unit.toLowerCase();
+                        let row_idx_20 = idx_20;
+                        let row_idx_40 = idx_40;
+                        let row_idx_40h = idx_40h;
+
+                        // If the columns were not mapped by header terms (e.g. Spot modal header is "Price"),
+                        // we dynamically map them based on the Unit cell text
+                        if (idx_20 === -1 && idx_40 === -1 && idx_40h === -1) {
+                            const valIdx = idx_curr !== -1 ? idx_curr + 1 : 4;
+                            const isBL = (unitLower === "bl" || unitLower === "b/l" || unitLower.includes("bl"));
+                            
+                            if (isBL) {
+                                row_idx_20 = valIdx;
+                                row_idx_40 = valIdx;
+                                row_idx_40h = valIdx;
+                            } else if (unitLower.includes("20std") || unitLower.includes("20'std") || unitLower.includes("20gp") || unitLower.includes("20'gp") || unitLower.includes("20'")) {
+                                row_idx_20 = valIdx;
+                            } else if (unitLower.includes("40std") || unitLower.includes("40'std") || unitLower.includes("40gp") || unitLower.includes("40'gp") || unitLower.includes("40'")) {
+                                row_idx_40 = valIdx;
+                            } else if (unitLower.includes("40hc") || unitLower.includes("40'hc") || unitLower.includes("40hq") || unitLower.includes("40'hq") || unitLower.includes("high cube") || unitLower.includes("highcube")) {
+                                row_idx_40h = valIdx;
+                            }
+                        }
+
+                        const valStr_20 = (row_idx_20 !== -1 && cells[row_idx_20]) ? (cells[row_idx_20].textContent || "").trim() : "";
+                        const valStr_40 = (row_idx_40 !== -1 && cells[row_idx_40]) ? (cells[row_idx_40].textContent || "").trim() : "";
+                        const valStr_40h = (row_idx_40h !== -1 && cells[row_idx_40h]) ? (cells[row_idx_40h].textContent || "").trim() : "";
 
                         let amt_20 = parseAmount(valStr_20);
                         let amt_40 = parseAmount(valStr_40);
                         let amt_40h = parseAmount(valStr_40h);
 
                         const isIrrelevant = (unit.toLowerCase() === "bl" || unit.toLowerCase() === "b/l" || 
-                                              (idx_20 !== -1 && valStr_20.toLowerCase().includes("irrelevant")) ||
-                                              (idx_40 !== -1 && valStr_40.toLowerCase().includes("irrelevant")) ||
-                                              (idx_40h !== -1 && valStr_40h.toLowerCase().includes("irrelevant")));
+                                              (row_idx_20 !== -1 && valStr_20.toLowerCase().includes("irrelevant")) ||
+                                              (row_idx_40 !== -1 && valStr_40.toLowerCase().includes("irrelevant")) ||
+                                              (row_idx_40h !== -1 && valStr_40h.toLowerCase().includes("irrelevant")));
                         
                         const commonAmt = amt_20 || amt_40 || amt_40h;
                         if (isIrrelevant && commonAmt !== null) {
-                            if (idx_20 !== -1 && amt_20 === null) amt_20 = commonAmt;
-                            if (idx_40 !== -1 && amt_40 === null) amt_40 = commonAmt;
-                            if (idx_40h !== -1 && amt_40h === null) amt_40h = commonAmt;
+                            if (row_idx_20 !== -1 && amt_20 === null) amt_20 = commonAmt;
+                            if (row_idx_40 !== -1 && amt_40 === null) amt_40 = commonAmt;
+                            if (row_idx_40h !== -1 && amt_40h === null) amt_40h = commonAmt;
                         }
 
                         let determinedCategory = null;
