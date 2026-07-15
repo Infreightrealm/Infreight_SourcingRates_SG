@@ -47,6 +47,10 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
     if "rotterdam" in text_lower or text_lower == "nlrtm":
         return "Rotterdam", "NLRTM"
         
+    # 0.5. Shanghai override
+    if "shanghai" in text_lower or text_lower == "cnsha":
+        return "Shanghai", "CNSHA"
+        
     # 1. Extract LOCODE from input text
     extracted_locode = None
     paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
