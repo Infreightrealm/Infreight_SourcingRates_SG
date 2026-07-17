@@ -11,7 +11,7 @@ import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchCompletionModal } from "@/components/SearchCompletionModal";
 import LoginModal from "@/components/LoginModal";
-import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults } from "@/lib/api";
+import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, registerUrlSwitchCallback, releaseRateSearch } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -24,17 +24,18 @@ function HomeContent() {
   const [searchId, setSearchId] = useState<string | null>(searchParams.get("id"));
   const [userName, setUserName] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
-
-  let backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  if (backendUrl && !backendUrl.startsWith("http://") && !backendUrl.startsWith("https://")) {
-    backendUrl = `https://${backendUrl}`;
-  }
+  const [backendUrl, setBackendUrl] = useState(getApiUrl());
 
   // Check backend health on mount
   useEffect(() => {
     setIsClient(true);
     const savedName = localStorage.getItem("userName");
     if (savedName) setUserName(savedName);
+
+    registerUrlSwitchCallback((newUrl) => {
+      setBackendUrl(newUrl);
+      toast.warning("Primary backend unreachable. Auto-switched to online backup backend!");
+    });
 
     healthCheck()
       .then((h) => setMockMode(h.mock_mode))
@@ -121,7 +122,7 @@ function HomeContent() {
               <button
                 onClick={async () => {
                   try {
-                    await fetch(`${backendUrl}/api/rate-search/${searchId}/release`, { method: "POST" });
+                    await releaseRateSearch(searchId);
                   } catch (e) {
                     console.error("Failed to release lock on new search", e);
                   }
