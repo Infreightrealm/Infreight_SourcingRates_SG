@@ -1144,18 +1144,12 @@ class OOCLConnector(BaseCarrierConnector):
                         
                         currentName = name;
                         currentCode = code;
-                    } else if (cells.length === 2) {
-                        // Rowspanned sub-row (unit + price only)
+                    } else if (cells.length === 2 || cells.length === 3) {
+                        // Rowspanned sub-row (unit + price + optional remarks)
                         name = currentName;
                         code = currentCode;
                         unit = cells[0];
                         priceStr = cells[1];
-                    } else if (cells.length === 3) {
-                        // Alternative layout (rowspanned but has term or per)
-                        name = currentName;
-                        code = currentCode;
-                        unit = cells[1];
-                        priceStr = cells[2];
                     }
 
                     if (code && unit && priceStr) {
