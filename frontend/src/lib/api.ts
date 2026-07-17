@@ -19,6 +19,8 @@ function formatUrl(url: string): string {
 const primaryApiUrl = formatUrl(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 const backupApiUrl = formatUrl(process.env.NEXT_PUBLIC_API_URL_BACKUP || "");
 
+export let API_URL = primaryApiUrl;
+
 let currentActiveUrl = primaryApiUrl;
 let onUrlSwitchCallback: ((url: string) => void) | null = null;
 
@@ -44,6 +46,7 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
     if (backupApiUrl && currentActiveUrl !== backupApiUrl) {
       console.warn(`[API] Primary URL ${currentActiveUrl} failed: ${primaryErr}. Switching to backup: ${backupApiUrl}`);
       currentActiveUrl = backupApiUrl;
+      API_URL = backupApiUrl;
       if (onUrlSwitchCallback) {
         try {
           onUrlSwitchCallback(backupApiUrl);
