@@ -1083,6 +1083,141 @@ class OOCLConnector(BaseCarrierConnector):
             "is_sold_out": is_sold_out,
         }
 
+    async def _fs_extract_dialog_charges(self, page, card) -> dict:
+        """
+        Opens the Details dialog for a card, clicks the Charge Breakdown tab,
+        extracts ETS and EBS surcharges, and closes the dialog.
+        """
+        surcharges_dict = {}
+        try:
+            # 1. Wait for any active dialog to close
+            try:
+                await page.locator('.el-dialog:visible, [role="dialog"]:visible').wait_for(state="hidden", timeout=3000)
+            except Exception:
+                pass
+
+            # 2. Click the Details button
+            details_btn = card.locator('button:has-text("Details")').first
+            if not await details_btn.is_visible():
+                print("[OOCL] Details button not visible on card.")
+                return surcharges_dict
+
+            await details_btn.scroll_into_view_if_needed()
+            await details_btn.click()
+            print("[OOCL] Clicked Details button.")
+
+            # 3. Wait for the details dialog to load
+            dialog = page.locator('.el-dialog, [role="dialog"]').first
+            await dialog.wait_for(state="visible", timeout=8000)
+            print("[OOCL] Details dialog appeared.")
+
+            # 4. Click the "Charge Breakdown" tab
+            tab_sel = '.el-dialog__body .el-tabs__item:has-text("Charge Breakdown"), [role="tab"]:has-text("Charge Breakdown")'
+            tab_btn = page.locator(tab_sel).first
+            await tab_btn.wait_for(state="visible", timeout=5000)
+            await tab_btn.click()
+            print("[OOCL] Clicked Charge Breakdown tab.")
+            await page.wait_for_timeout(2000) # Wait 2s for breakdown content to load
+
+            # 5. Extract charges from the breakdown table inside the dialog
+            extracted = await page.evaluate(r"""() => {
+                const tableRows = Array.from(document.querySelectorAll('.el-dialog tr, [role="dialog"] tr'));
+                let currentCode = "";
+                let currentName = "";
+                const results = [];
+
+                tableRows.forEach(row => {
+                    const cells = Array.from(row.querySelectorAll('td, th')).map(c => c.innerText.trim());
+                    if (cells.length === 0) return; // Header or empty
+                    
+                    let name = "";
+                    let code = "";
+                    let unit = "";
+                    let priceStr = "";
+
+                    if (cells.length >= 6) {
+                        // Main row with all columns
+                        name = cells[0];
+                        code = cells[1];
+                        unit = cells[4];
+                        priceStr = cells[5];
+                        
+                        currentName = name;
+                        currentCode = code;
+                    } else if (cells.length === 2) {
+                        // Rowspanned sub-row (unit + price only)
+                        name = currentName;
+                        code = currentCode;
+                        unit = cells[0];
+                        priceStr = cells[1];
+                    } else if (cells.length === 3) {
+                        // Alternative layout (rowspanned but has term or per)
+                        name = currentName;
+                        code = currentCode;
+                        unit = cells[1];
+                        priceStr = cells[2];
+                    }
+
+                    if (code && unit && priceStr) {
+                        results.push({ name, code, unit, priceStr });
+                    }
+                });
+                return results;
+            }""")
+
+            # 6. Parse extracted charges
+            print(f"[OOCL] Extracted dialog charges: {extracted}")
+            
+            # Map standard unit name to standard container types
+            unit_map = {
+                "20GP": "DRY 20", "20RF": "DRY 20",
+                "40GP": "DRY 40",
+                "40HQ": "DRY 40H", "40RQ": "DRY 40H"
+            }
+
+            for item in extracted:
+                code = (item.get("code") or "").strip().upper()
+                if code not in ("ETS", "EBS"):
+                    continue
+
+                unit = (item.get("unit") or "").strip().upper()
+                c_type = unit_map.get(unit)
+                if not c_type:
+                    continue
+
+                price_str = item.get("priceStr") or ""
+                # Parse number from priceStr, e.g. "USD 74" or "74"
+                match = re.search(r"([\d,]+(?:\.\d{1,2})?)", price_str)
+                if match:
+                    price_val = float(match.group(1).replace(",", ""))
+                    if c_type not in surcharges_dict:
+                        surcharges_dict[c_type] = {}
+                    surcharges_dict[c_type][code] = price_val
+
+            print(f"[OOCL] Parsed OOCL ETS/EBS surcharges: {surcharges_dict}")
+
+        except Exception as e:
+            print(f"[OOCL] Error extracting details: {e}")
+        finally:
+            # Always attempt to close the dialog to prevent overlay blocking
+            try:
+                close_btn = page.locator('.el-dialog__headerbtn, button:has-text("Close"), button:has-text("Cancel")').first
+                if await close_btn.is_visible(timeout=1000):
+                    await close_btn.click()
+            except Exception:
+                try:
+                    await page.keyboard.press("Escape")
+                except:
+                    pass
+            # Wait for dialog to be hidden
+            try:
+                await page.locator('.el-dialog:visible, [role="dialog"]:visible').wait_for(state="hidden", timeout=5000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(500)
+
+        return surcharges_dict
+
     async def _fs_extract_rows(self, page) -> List[dict]:
         """Collects result cards from the FreightSmart quote results page."""
         os.makedirs("scratch", exist_ok=True)
@@ -1188,6 +1323,9 @@ class OOCLConnector(BaseCarrierConnector):
                 if parsed.get("is_sold_out") or (not parsed.get("prices") and not parsed.get("total_price")):
                     continue
 
+                # Extract dialog charges (surcharges) if available
+                parsed["dialog_charges"] = await self._fs_extract_dialog_charges(page, card)
+
                 # Deduplicate
                 key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
                        tuple(sorted(parsed["prices"].items())), parsed.get("free_time"))
@@ -1226,6 +1364,9 @@ class OOCLConnector(BaseCarrierConnector):
                     # Drop if sold out or has no price
                     if parsed.get("is_sold_out") or (not parsed.get("prices") and not parsed.get("total_price")):
                         continue
+
+                    # Extract dialog charges (surcharges) if available
+                    parsed["dialog_charges"] = await self._fs_extract_dialog_charges(page, cards.nth(i))
 
                     key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
                            tuple(sorted(parsed["prices"].items())))
@@ -1683,6 +1824,7 @@ class OOCLConnector(BaseCarrierConnector):
                 "source": "carrier_portal",
                 "container_quantity": 1,
                 "validity_till": r.get("validity_end"),
+                "dialog_charges": r.get("dialog_charges"),
             }
             prices = r.get("prices") or {}
             if prices:
@@ -1720,7 +1862,47 @@ class OOCLConnector(BaseCarrierConnector):
     async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
         raw_quote["etd"] = standardize_date_string(raw_quote.get("etd"))
         raw_quote["eta"] = standardize_date_string(raw_quote.get("eta"))
-        return QuoteSchema(**raw_quote)
+        
+        container_type = raw_quote.get("container_type")
+        dialog_charges = raw_quote.get("dialog_charges") or {}
+        
+        included_surcharges = []
+        final_freight_value = raw_quote.get("final_freight_value") or 0.0
+        basic_ocean_freight = raw_quote.get("basic_ocean_freight") or 0.0
+        
+        if container_type and container_type in dialog_charges:
+            c_charges = dialog_charges[container_type]
+            
+            # ETS Compliance Fee
+            if "ETS" in c_charges:
+                ets_val = c_charges["ETS"]
+                from models.schemas import ChargeSchema
+                included_surcharges.append(ChargeSchema(
+                    name="ETS Compliance Fee",
+                    amount=ets_val,
+                    currency="USD",
+                    reason="ETS Compliance Fee"
+                ))
+                final_freight_value += ets_val
+                
+            # Emergency Bunker Surcharge
+            if "EBS" in c_charges:
+                ebs_val = c_charges["EBS"]
+                from models.schemas import ChargeSchema
+                included_surcharges.append(ChargeSchema(
+                    name="Emergency Bunker Surcharge",
+                    amount=ebs_val,
+                    currency="USD",
+                    reason="Emergency Bunker Surcharge"
+                ))
+                final_freight_value += ebs_val
+
+        raw_quote["included_freight_surcharges"] = included_surcharges
+        raw_quote["final_freight_value"] = round(final_freight_value, 2)
+        raw_quote["basic_ocean_freight"] = round(basic_ocean_freight, 2)
+        
+        clean_quote = {k: v for k, v in raw_quote.items() if k not in ("dialog_charges", "kind", "prices", "total_price")}
+        return QuoteSchema(**clean_quote)
 
     def _serve_for_cycle(self, request: RateSearchRequest) -> list[QuoteSchema]:
         """
