@@ -1296,6 +1296,7 @@ class OOCLConnector(BaseCarrierConnector):
             sub_cards = container.locator('.product-card')
             sub_count = await sub_cards.count()
             
+            parsed_cards = []
             for s_idx in range(sub_count):
                 card = sub_cards.nth(s_idx)
                 card_text = await card.inner_text()
@@ -1323,16 +1324,32 @@ class OOCLConnector(BaseCarrierConnector):
                 if parsed.get("is_sold_out") or (not parsed.get("prices") and not parsed.get("total_price")):
                     continue
 
-                # Extract dialog charges (surcharges) if available
-                parsed["dialog_charges"] = await self._fs_extract_dialog_charges(page, card)
+                parsed_cards.append((card, parsed))
 
-                # Deduplicate
-                key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
-                       tuple(sorted(parsed["prices"].items())), parsed.get("free_time"))
-                if key in seen:
-                    continue
-                seen.add(key)
-                rows.append(parsed)
+            # Find the cheapest card per vessel container and only extract details for that one
+            if parsed_cards:
+                cheapest_idx = 0
+                min_total = float('inf')
+                for idx, (card, parsed) in enumerate(parsed_cards):
+                    prices = parsed.get("prices") or {}
+                    row_total = sum(prices.values()) if prices else (parsed.get("total_price") or 0)
+                    if row_total > 0 and row_total < min_total:
+                        min_total = row_total
+                        cheapest_idx = idx
+
+                for idx, (card, parsed) in enumerate(parsed_cards):
+                    if idx == cheapest_idx:
+                        parsed["dialog_charges"] = await self._fs_extract_dialog_charges(page, card)
+                    else:
+                        parsed["dialog_charges"] = {}
+
+                    # Deduplicate
+                    key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
+                           tuple(sorted(parsed["prices"].items())), parsed.get("free_time"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rows.append(parsed)
 
         # Fallback to old behavior if no containers found
         if not rows:
