@@ -105,7 +105,7 @@ function HomeContent() {
     <div className="relative z-10 min-h-screen flex flex-col">
       {/* Header */}
       <header className="border-b border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/[0.02] backdrop-blur-xl sticky top-0 z-30 transition-colors">
-        <div className="max-w-[95%] mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-[98%] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/20">
               IF
@@ -198,7 +198,7 @@ function HomeContent() {
         </div>
       </header>
 
-      <main className="max-w-[95%] mx-auto px-6 py-8 space-y-8 flex-1 w-full">
+      <main className="max-w-[98%] mx-auto px-6 py-8 space-y-8 flex-1 w-full">
         {/* Self-Healing alerts / approvals */}
         <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
 
@@ -241,7 +241,7 @@ function HomeContent() {
 
       {/* Footer */}
       <footer className="border-t border-slate-200 dark:border-white/5 py-6 mt-auto transition-colors">
-        <div className="max-w-[95%] mx-auto px-6 text-center text-xs text-slate-500 dark:text-white/30">
+        <div className="max-w-[98%] mx-auto px-6 text-center text-xs text-slate-500 dark:text-white/30">
           Infreight Logistics — Ocean Carrier Rate Automation System
         </div>
       </footer>
