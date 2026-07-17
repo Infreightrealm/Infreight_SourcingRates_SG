@@ -11,8 +11,8 @@ echo [SERVER] Starting Infreight Backend...
 echo Press Ctrl+C once to trigger update and restart.
 echo ====================================================
 cd backend
-:: Running via 'cmd /c' intercepts Ctrl+C and prevents the 'Terminate batch job (Y/N)' prompt
-cmd /c "..\.venv\Scripts\python.exe run_server.py"
+:: Redirecting input via '< nul' bypasses the 'Terminate batch job (Y/N)' prompt
+cmd /c "..\.venv\Scripts\python.exe run_server.py" < nul
 cd ..
 echo.
 echo ====================================================
