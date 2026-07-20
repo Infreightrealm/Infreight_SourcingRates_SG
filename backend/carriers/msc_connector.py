@@ -50,6 +50,12 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
     # 0.5. Shanghai override
     if "shanghai" in text_lower or text_lower == "cnsha":
         return "Shanghai", "CNSHA"
+
+    # 0.6. Bangkok override: MSC defaults to PAT BANGKOK [THPAT] unless THBKK is explicitly specified
+    if "thbkk" in text_lower:
+        return "Bangkok", "THBKK"
+    elif "bangkok" in text_lower or "thpat" in text_lower or "pat bangkok" in text_lower:
+        return "Bangkok", "THPAT"
         
     # 1. Extract LOCODE from input text
     extracted_locode = None

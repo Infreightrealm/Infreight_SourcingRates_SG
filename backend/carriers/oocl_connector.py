@@ -77,6 +77,10 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
     # Ho Chi Minh override: OOCL FreightSmart only accepts "Ho Chi Minh"
     if "ho chi minh" in text_lower or text_lower == "vnsgn":
         return "Ho Chi Minh", "VNSGN", "VN", "Viet Nam"
+
+    # Alexandria / El Iskandariya override: OOCL FreightSmart lists it as "Alexandria, Al Iskandariyah, Egypt"
+    if any(k in text_lower for k in ["alexandria", "iskandariya", "iskandariyah", "egaly", "egalx"]):
+        return "Alexandria", "EGALY", "EG", "Egypt"
         
     # Extract LOCODE
     locode = None
