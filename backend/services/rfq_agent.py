@@ -257,8 +257,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
 async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow_str: str, gemini_key: str) -> str:
     """
-    Calls native Google Gemini API (gemini-1.5-flash) using httpx with x-goog-api-key header exclusively.
-    Matches curl behavior exactly: https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
+    Calls native Google Gemini API using httpx across query parameter and header authentication routes.
     """
     import httpx
     
@@ -266,9 +265,6 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         current_date=current_date_str,
         tomorrow_date=tomorrow_str
     )
-    
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-
     
     payload = {
         "contents": [
@@ -286,31 +282,38 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         }
     }
     
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": gemini_key
-    }
-
+    urls_to_try = [
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+    ]
     
-    async def log_request(request):
-        hdr_dict = dict(request.headers)
-        if "x-goog-api-key" in hdr_dict:
-            k = hdr_dict["x-goog-api-key"]
-            hdr_dict["x-goog-api-key"] = f"{k[:6]}...{k[-4:]} (len={len(k)})" if len(k) > 10 else "***"
-        print("\n[RFQ Agent Wire Hook] WIRE URL:", request.url)
-        print("[RFQ Agent Wire Hook] WIRE HEADERS:", json.dumps(hdr_dict, indent=2))
+    last_err = None
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for url in urls_to_try:
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": gemini_key,
+                "User-Agent": "curl/8.7.1"
+            }
+            
+            clean_log_url = url.split("?")[0]
+            print(f"[RFQ Agent Attempt] Hitting endpoint: {clean_log_url}")
+            res = await client.post(url, json=payload, headers=headers)
+            if res.status_code == 200:
+                print(f"[RFQ Agent Success] Successfully authenticated with endpoint: {clean_log_url}")
+                response_json = res.json()
+                try:
+                    return response_json["candidates"][0]["content"]["parts"][0]["text"]
+                except (KeyError, IndexError) as ex:
+                    raise ValueError(f"Unexpected response structure from Gemini API: {response_json}") from ex
+            else:
+                last_err = f"Status {res.status_code}: {res.text}"
+                print(f"[RFQ Agent Attempt Failed] Endpoint {clean_log_url} returned: {res.status_code}")
+    
+    raise RuntimeError(f"All Gemini API URL variations failed. Last error: {last_err}")
 
-
-    async with httpx.AsyncClient(timeout=30.0, event_hooks={"request": [log_request]}) as client:
-        res = await client.post(url, json=payload, headers=headers)
-        if res.status_code != 200:
-            raise RuntimeError(f"Gemini API error ({res.status_code}): {res.text}")
-        
-        response_json = res.json()
-        try:
-            return response_json["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError) as ex:
-            raise ValueError(f"Unexpected response structure from Gemini API: {response_json}") from ex
 
 
 async def parse_rfq(raw_text: str) -> RFQParseResult:
