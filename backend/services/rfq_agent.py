@@ -241,8 +241,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         container_quantity=qty,
         weight_per_container_kg=weight,
         commodity=commodity,
-        departure_date=dep_date,
-        search_window_days=14
+        departure_date=dep_date
     )
 
     return RFQParseResult(
@@ -319,15 +318,18 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         "x-goog-api-key": gemini_key
     }
     
-    masked_key = gemini_key[:6] + "..." + gemini_key[-4:] if len(gemini_key) > 10 else "***"
-    print(f"[RFQ Agent Outbound Request] URL: {url}")
-    print(f"[RFQ Agent Outbound Request] Headers: {{'Content-Type': 'application/json', 'x-goog-api-key': '{masked_key}'}}")
-    
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async def log_request(request):
+        hdr_dict = dict(request.headers)
+        if "x-goog-api-key" in hdr_dict:
+            k = hdr_dict["x-goog-api-key"]
+            hdr_dict["x-goog-api-key"] = k[:6] + "..." + k[-4:] if len(k) > 10 else "***"
+        print("\n[RFQ Agent Wire Hook] WIRE URL:", request.url)
+        print("[RFQ Agent Wire Hook] WIRE HEADERS:", json.dumps(hdr_dict, indent=2))
+
+    async with httpx.AsyncClient(timeout=30.0, event_hooks={"request": [log_request]}) as client:
         res = await client.post(url, json=payload, headers=headers)
         if res.status_code != 200:
             raise RuntimeError(f"Gemini API error ({res.status_code}): {res.text}")
-
         
         response_json = res.json()
         try:
