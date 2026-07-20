@@ -62,6 +62,7 @@ async def lifespan(app: FastAPI):
 
     mock_mode = os.getenv("USE_MOCK_CARRIERS", "true").lower() in ("true", "1", "yes")
     print(f"[MODE] Mock mode: {'ENABLED' if mock_mode else 'DISABLED - using live connectors'}")
+    print("[VERSION] RFQ Agent Version: 2.1.0-gemini-headeronly (native httpx x-goog-api-key header-only)")
     yield
     print("[*] Shutting down...")
 
@@ -69,7 +70,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Infreight Ocean Carrier Rate Automation",
     description="Internal API for searching and comparing ocean freight rates across carriers.",
-    version="1.0.0",
+    version="2.1.0",
     lifespan=lifespan,
 )
 
@@ -102,7 +103,10 @@ async def health():
         "status": "healthy",
         "service": "Infreight Rate Automation",
         "mock_mode": mock_mode,
+        "version": "2.1.0-gemini-headeronly",
+        "rfq_agent_version": "2.1.0-gemini-headeronly",
     }
+
 
 
 @app.get("/api/vnc-status")
