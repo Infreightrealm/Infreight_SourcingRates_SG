@@ -17,10 +17,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
   const [destination, setDestination] = useState("Hamburg");
   const [serviceTerm, setServiceTerm] = useState("CY/CY");
   const [containerTypes, setContainerTypes] = useState<string[]>(["DRY 40H"]);
-  const [containerQty, setContainerQty] = useState(1);
   const [weight, setWeight] = useState(20000);
-  const [commodity, setCommodity] = useState("Furniture");
-  const [departureDate, setDepartureDate] = useState("tomorrow");
   const [searchWindow, setSearchWindow] = useState(14);
   const [hapagRegion, setHapagRegion] = useState<'US_CA' | 'EU' | 'ROW'>("ROW");
 
@@ -33,13 +30,9 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
       } else if (initialValues.container_type) {
         setContainerTypes([initialValues.container_type]);
       }
-      if (initialValues.container_quantity) setContainerQty(initialValues.container_quantity);
       if (initialValues.weight_per_container_kg) setWeight(initialValues.weight_per_container_kg);
-      if (initialValues.commodity) setCommodity(initialValues.commodity);
-      if (initialValues.departure_date) setDepartureDate(initialValues.departure_date);
     }
   }, [initialValues]);
-
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,10 +54,10 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
       destination,
       service_term: serviceTerm,
       container_types: containerTypes,
-      container_quantity: containerQty,
+      container_quantity: 1, // Fixed to 1
       weight_per_container_kg: weight,
-      commodity,
-      departure_date: departureDate,
+      commodity: "Furniture", // Fixed to Furniture
+      departure_date: "tomorrow", // Fixed to tomorrow
       search_window_days: searchWindow,
       hapag_region: carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL") ? hapagRegion : undefined,
     });
@@ -111,8 +104,8 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
         </div>
       )}
 
-      {/* Route & Commodity Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in-up stagger-1">
+      {/* Route Row (Origin & Destination) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in-up stagger-1">
         <PortAutocomplete
           label="Origin"
           value={origin}
@@ -127,17 +120,6 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
           placeholder="e.g. Hamburg"
           required
         />
-        <div>
-          <label className={labelClass}>Commodity</label>
-          <input
-            type="text"
-            value={commodity}
-            onChange={(e) => setCommodity(e.target.value)}
-            className={inputClass}
-            placeholder="e.g. Furniture"
-            required
-          />
-        </div>
       </div>
 
       {destination.toLowerCase().includes("batam") && (
@@ -150,9 +132,9 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
         </div>
       )}
 
-      {/* Container Details */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 animate-fade-in-up stagger-2">
-        <div className="col-span-2 md:col-span-3">
+      {/* Container Details & Weight Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in-up stagger-2">
+        <div className="md:col-span-2">
           <label className={labelClass}>Container Types</label>
           <div className="flex flex-wrap gap-4 mt-2.5">
             {CONTAINER_TYPES.map((ct) => {
@@ -182,22 +164,18 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
             })}
           </div>
         </div>
+
         <div>
-          <label className={labelClass}>Quantity</label>
-          <input type="number" value={containerQty} onChange={(e) => setContainerQty(parseInt(e.target.value) || 1)} className={inputClass} min={1} />
-        </div>
-        <div>
-          <label className={labelClass}>Weight (KG)</label>
-          <input type="number" value={weight} onChange={(e) => setWeight(parseFloat(e.target.value) || 0)} className={inputClass} min={0} />
-        </div>
-        <div className="col-span-2 md:col-span-1">
-          <label className={labelClass}>Departure Date</label>
-          <input type="text" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} className={inputClass} placeholder="YYYY-MM-DD or tomorrow" />
+          <label className={labelClass}>Weight PER CONTAINER (KG)</label>
+          <input
+            type="number"
+            value={weight}
+            onChange={(e) => setWeight(parseFloat(e.target.value) || 0)}
+            className={inputClass}
+            min={0}
+          />
         </div>
       </div>
-
-
-
 
       {/* Submit */}
       <button
