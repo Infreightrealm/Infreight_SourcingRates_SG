@@ -420,6 +420,67 @@ class CMAConnector(BaseCarrierConnector):
             return clean
         return text
 
+    async def _dismiss_cma_modals(self):
+        """
+        Dismisses any informational popups/modals that appear on CMA CGM (e.g.
+        'Information on Egypt Terminal Handling and Sealing Charges', port notices, etc.)
+        by clicking 'Okay, I got it!' or close buttons or pressing Escape.
+        """
+        if not self.page:
+            return
+        try:
+            modal_btn_selectors = [
+                'button:has-text("Okay, I got it!")',
+                'button:has-text("Okay, I got it")',
+                'button:has-text("I got it")',
+                'button:has-text("Got it")',
+                'button:has-text("Okay")',
+                'button:has-text("Accept")',
+                'button:has-text("Understand")',
+                'button:has-text("Close")',
+                '[role="dialog"] button',
+                'div[class*="modal"] button',
+                'div[class*="popup"] button',
+                'div[class*="dialog"] button',
+                'button.close',
+                'button[aria-label="Close"]',
+                'span:has-text("×")',
+            ]
+            
+            dismissed = False
+            for sel in modal_btn_selectors:
+                try:
+                    btns = self.page.locator(sel)
+                    count = await btns.count()
+                    for i in range(count):
+                        btn = btns.nth(i)
+                        if await btn.is_visible(timeout=300):
+                            btn_text = (await btn.inner_text()).strip()
+                            if any(k in btn_text.lower() for k in ["okay", "got it", "accept", "understand", "close", "ok"]) or btn_text == "×" or btn_text == "":
+                                print(f"[CMA] Dismissing popup modal via button ('{btn_text}'): {sel}")
+                                await btn.click(force=True)
+                                await self.page.wait_for_timeout(500)
+                                dismissed = True
+                                break
+                    if dismissed:
+                        break
+                except Exception:
+                    pass
+
+            if not dismissed:
+                dialogs = self.page.locator('[role="dialog"]:visible, div[class*="modal"]:visible, div[class*="overlay"]:visible, div[class*="backdrop"]:visible')
+                if await dialogs.count() > 0:
+                    print("[CMA] Visible popup dialog/overlay detected. Pressing Escape key fallback...")
+                    await self.page.keyboard.press("Escape")
+                    await self.page.wait_for_timeout(500)
+                    try:
+                        await self.page.mouse.click(20, 20)
+                        await self.page.wait_for_timeout(300)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     async def _select_cma_dropdown_option(self, label: str, locode: str, cached_name: Optional[str] = None) -> bool:
         # Target individual <li> items only — NOT the <ul class="options"> container
         suggestion_sel = 'ul[role="listbox"] li, ul.options li, li[role="option"], [class*="suggestion"] li'
@@ -1051,10 +1112,12 @@ class CMAConnector(BaseCarrierConnector):
         Repeatedly clicks 'More results' if visible to load ALL quotes on the page.
         """
         try:
+            await self._dismiss_cma_modals()
             max_clicks = 5
             clicks = 0
             
             while clicks < max_clicks:
+                await self._dismiss_cma_modals()
                 # Scroll to bottom first to ensure button is rendered/visible
                 print(f"[CMA] Scrolling to bottom to check for more results (iteration {clicks+1})...")
                 await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
@@ -1075,6 +1138,7 @@ class CMAConnector(BaseCarrierConnector):
 
     async def open_price_breakdown(self, quote_ref: dict) -> bool:
         try:
+            await self._dismiss_cma_modals()
             card = quote_ref["card_locator"]
             await card.scroll_into_view_if_needed()
             await self._random_mouse_move()
@@ -1082,14 +1146,18 @@ class CMAConnector(BaseCarrierConnector):
             
             # Fast fail if Details button doesn't exist (e.g. for "Sold out" cards)
             if not await details_btn.is_visible(timeout=2000):
-                print(f"[CMA] Details button not visible for quote. Possibly Sold out.")
-                return False
+                await self._dismiss_cma_modals()
+                if not await details_btn.is_visible(timeout=1000):
+                    print(f"[CMA] Details button not visible for quote. Possibly Sold out.")
+                    return False
                 
             await self._hover_and_click(details_btn)
             await self._human_delay(1500, 2500)
+            await self._dismiss_cma_modals()
 
             # --- Extract Free Time from D&D tab ---
             try:
+                await self._dismiss_cma_modals()
                 dd_tab = card.locator('button:has-text("D&D"), [role="tab"]:has-text("D&D")').first
                 if await dd_tab.is_visible(timeout=2000):
                     await self._hover_and_click(dd_tab)
@@ -1184,6 +1252,7 @@ class CMAConnector(BaseCarrierConnector):
                 print(f"[CMA] Error extracting free time from D&D: {e}")
 
             # --- Switch back to Rate tab for charge breakdown ---
+            await self._dismiss_cma_modals()
             rate_tab = card.locator('button:has-text("Rate"), [role="tab"]:has-text("Rate")').first
             if await rate_tab.is_visible():
                 await self._hover_and_click(rate_tab)
@@ -1197,6 +1266,7 @@ class CMAConnector(BaseCarrierConnector):
 
     async def extract_charge_breakdown(self) -> list[dict]:
         try:
+            await self._dismiss_cma_modals()
             if not self.current_card: return []
             text = await self.current_card.inner_text()
             
