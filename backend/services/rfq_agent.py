@@ -257,7 +257,8 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
 async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow_str: str, gemini_key: str) -> str:
     """
-    Calls native Google Gemini API using httpx across query parameter and header authentication routes.
+    Calls native Google Gemini API (gemini-2.5-flash) using httpx with raw x-goog-api-key header.
+    Matches working curl behavior exactly: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
     """
     import httpx
     
@@ -265,6 +266,8 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         current_date=current_date_str,
         tomorrow_date=tomorrow_str
     )
+    
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     
     payload = {
         "contents": [
@@ -282,38 +285,25 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         }
     }
     
-    urls_to_try = [
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}",
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-    ]
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": gemini_key
+    }
     
-    last_err = None
+    is_52 = (len(gemini_key) == 52) if gemini_key else False
+    print(f"[RFQ Agent Wire Check] URL: {url}")
+    print(f"[RFQ Agent Wire Check] Raw Key Length: {len(gemini_key) if gemini_key else 0} | len == 52: {is_52}")
+    
     async with httpx.AsyncClient(timeout=30.0) as client:
-        for url in urls_to_try:
-            headers = {
-                "Content-Type": "application/json",
-                "x-goog-api-key": gemini_key,
-                "User-Agent": "curl/8.7.1"
-            }
-            
-            clean_log_url = url.split("?")[0]
-            print(f"[RFQ Agent Attempt] Hitting endpoint: {clean_log_url}")
-            res = await client.post(url, json=payload, headers=headers)
-            if res.status_code == 200:
-                print(f"[RFQ Agent Success] Successfully authenticated with endpoint: {clean_log_url}")
-                response_json = res.json()
-                try:
-                    return response_json["candidates"][0]["content"]["parts"][0]["text"]
-                except (KeyError, IndexError) as ex:
-                    raise ValueError(f"Unexpected response structure from Gemini API: {response_json}") from ex
-            else:
-                last_err = f"Status {res.status_code}: {res.text}"
-                print(f"[RFQ Agent Attempt Failed] Endpoint {clean_log_url} returned: {res.status_code}")
-    
-    raise RuntimeError(f"All Gemini API URL variations failed. Last error: {last_err}")
-
+        res = await client.post(url, json=payload, headers=headers)
+        if res.status_code != 200:
+            raise RuntimeError(f"Gemini API error ({res.status_code}): {res.text}")
+        
+        response_json = res.json()
+        try:
+            return response_json["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError) as ex:
+            raise ValueError(f"Unexpected response structure from Gemini API: {response_json}") from ex
 
 
 async def parse_rfq(raw_text: str) -> RFQParseResult:
@@ -332,15 +322,10 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
     current_date_str = now.strftime("%Y-%m-%d")
     tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Environment & API Key Check
+    # Environment & API Key Check (Raw & Unmodified as requested)
     is_mock_env = os.getenv("RFQ_AGENT_MOCK", "false").lower() in ("true", "1", "yes")
     is_test_env = "PYTEST_CURRENT_TEST" in os.environ or os.getenv("USE_MOCK_CARRIERS", "false").lower() in ("true", "1", "yes")
-    raw_key = os.getenv("GEMINI_API_KEY")
-    gemini_key = re.sub(r'[^a-zA-Z0-9\._\-]', '', raw_key) if raw_key else None
-    if raw_key and gemini_key:
-        print(f"[RFQ Agent Key Debug] Raw key length: {len(raw_key)}, Cleaned key length: {len(gemini_key)}")
-
-
+    gemini_key = os.getenv("GEMINI_API_KEY")
 
     if (is_mock_env or is_test_env) and not gemini_key:
         print("[RFQ Agent] Using mock parser (RFQ_AGENT_MOCK or test environment active)")
@@ -352,8 +337,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
             "Please configure GEMINI_API_KEY in your environment or set RFQ_AGENT_MOCK=true for testing."
         )
 
-
-    print("[RFQ Agent] Processing RFQ via Native Gemini API (gemini-1.5-flash) with x-goog-api-key...")
+    print(f"[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash) | Key len: {len(gemini_key)}...")
     
     try:
         raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key)
@@ -362,6 +346,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
         if is_mock_env or is_test_env:
             return _run_mock_parse(raw_text, current_date_str)
         raise RuntimeError(f"Gemini RFQ Agent extraction failed: {str(e)}") from e
+
 
     try:
         extracted_data = json.loads(raw_llm_json)
