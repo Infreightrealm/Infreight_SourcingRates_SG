@@ -76,6 +76,18 @@ export interface RateSearchRequest {
   hapag_region?: 'US_CA' | 'EU' | 'ROW';
 }
 
+export interface RFQParseResult {
+  status: "success" | "needs_clarification";
+  parsed_fields?: RateSearchRequest;
+  clarification_question?: string;
+  missing_fields?: string[];
+  extracted_fields?: string[];
+  default_injected_fields?: string[];
+  debug_raw_llm_response?: string;
+}
+
+
+
 export const CARRIERS = [
   { code: "MAERSK", name: "Maersk", color: "#004B8D" },
   { code: "ONE", name: "ONE", color: "#FF00A0" },

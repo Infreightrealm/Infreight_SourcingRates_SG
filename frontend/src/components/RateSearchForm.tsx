@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import CarrierMultiSelect from "./CarrierMultiSelect";
 import PortAutocomplete from "./PortAutocomplete";
 import { CONTAINER_TYPES, type RateSearchRequest } from "@/lib/types";
@@ -8,9 +8,10 @@ import { toast } from "sonner";
 interface RateSearchFormProps {
   onSubmit: (request: RateSearchRequest) => void;
   isLoading: boolean;
+  initialValues?: Partial<RateSearchRequest>;
 }
 
-export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormProps) {
+export default function RateSearchForm({ onSubmit, isLoading, initialValues }: RateSearchFormProps) {
   const [carriers, setCarriers] = useState<string[]>(["ALL"]);
   const [origin, setOrigin] = useState("Singapore");
   const [destination, setDestination] = useState("Hamburg");
@@ -22,6 +23,23 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
   const [departureDate, setDepartureDate] = useState("tomorrow");
   const [searchWindow, setSearchWindow] = useState(14);
   const [hapagRegion, setHapagRegion] = useState<'US_CA' | 'EU' | 'ROW'>("ROW");
+
+  useEffect(() => {
+    if (initialValues) {
+      if (initialValues.origin) setOrigin(initialValues.origin);
+      if (initialValues.destination) setDestination(initialValues.destination);
+      if (initialValues.container_types && initialValues.container_types.length > 0) {
+        setContainerTypes(initialValues.container_types);
+      } else if (initialValues.container_type) {
+        setContainerTypes([initialValues.container_type]);
+      }
+      if (initialValues.container_quantity) setContainerQty(initialValues.container_quantity);
+      if (initialValues.weight_per_container_kg) setWeight(initialValues.weight_per_container_kg);
+      if (initialValues.commodity) setCommodity(initialValues.commodity);
+      if (initialValues.departure_date) setDepartureDate(initialValues.departure_date);
+    }
+  }, [initialValues]);
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,7 +190,12 @@ export default function RateSearchForm({ onSubmit, isLoading }: RateSearchFormPr
           <label className={labelClass}>Weight (KG)</label>
           <input type="number" value={weight} onChange={(e) => setWeight(parseFloat(e.target.value) || 0)} className={inputClass} min={0} />
         </div>
+        <div className="col-span-2 md:col-span-1">
+          <label className={labelClass}>Departure Date</label>
+          <input type="text" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} className={inputClass} placeholder="YYYY-MM-DD or tomorrow" />
+        </div>
       </div>
+
 
 
 

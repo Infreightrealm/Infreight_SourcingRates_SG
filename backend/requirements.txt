@@ -13,4 +13,7 @@ pytest==8.3.4
 pytest-asyncio==0.24.0
 playwright-stealth==2.0.3
 patchright==1.49.1
+google-genai>=0.1.0
+
+
 

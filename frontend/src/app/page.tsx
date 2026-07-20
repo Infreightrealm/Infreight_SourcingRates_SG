@@ -2,6 +2,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import RateSearchForm from "@/components/RateSearchForm";
+import RfqInputSection from "@/components/RfqInputSection";
 import ResultsTable from "@/components/ResultsTable";
 import LoadingState from "@/components/LoadingState";
 import StatusBadge from "@/components/StatusBadge";
@@ -25,6 +26,8 @@ function HomeContent() {
   const [userName, setUserName] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   const [backendUrl, setBackendUrl] = useState(getApiUrl());
+  const [parsedRfqFields, setParsedRfqFields] = useState<RateSearchRequest | undefined>(undefined);
+
 
   // Check backend health on mount
   useEffect(() => {
@@ -202,6 +205,9 @@ function HomeContent() {
         {/* Self-Healing alerts / approvals */}
         <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
 
+        {/* AI RFQ Front Door */}
+        <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} />
+
         {/* Search Form Card */}
         <section className="bg-white/60 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 backdrop-blur-sm transition-colors shadow-sm">
           <div className="flex items-center gap-2 mb-5">
@@ -210,8 +216,9 @@ function HomeContent() {
             </svg>
             <h2 className="text-base font-semibold text-slate-900 dark:text-white">Search Parameters</h2>
           </div>
-          <RateSearchForm key={searchId || "new"} onSubmit={handleSearch} isLoading={isLoading} />
+          <RateSearchForm key={searchId || JSON.stringify(parsedRfqFields) || "new"} onSubmit={handleSearch} isLoading={isLoading} initialValues={parsedRfqFields} />
         </section>
+
 
         {/* Queue Status Overlay */}
         {searchResult && searchResult.status === "QUEUED" && searchResult.queue_position !== undefined && (

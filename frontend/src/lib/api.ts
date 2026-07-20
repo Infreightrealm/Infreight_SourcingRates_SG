@@ -1,7 +1,8 @@
 /**
  * API client for the Infreight Rate Automation backend.
  */
-import type { RateSearchRequest, RateSearchCreateResponse, RateSearchResultResponse } from "./types";
+import type { RateSearchRequest, RateSearchCreateResponse, RateSearchResultResponse, RFQParseResult } from "./types";
+
 
 const defaultHeaders = {
   "ngrok-skip-browser-warning": "true"
@@ -181,3 +182,17 @@ export async function savePortsConfig(
   }
   return res.json();
 }
+
+export async function parseRfq(text: string): Promise<RFQParseResult> {
+  const res = await failoverFetch(`/api/rfq/parse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `RFQ Parsing error: ${res.status}`);
+  }
+  return res.json();
+}
+

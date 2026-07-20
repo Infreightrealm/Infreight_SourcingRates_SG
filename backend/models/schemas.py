@@ -121,8 +121,24 @@ class RateSearchRequest(BaseModel):
         return data
 
 
+class RFQParseRequest(BaseModel):
+    text: str = Field(..., description="Raw RFQ text from email or message")
+
+
+class RFQParseResult(BaseModel):
+    status: str = Field(..., description="'success' or 'needs_clarification'")
+    parsed_fields: Optional[RateSearchRequest] = Field(default=None, description="Extracted RateSearchRequest fields if successful")
+    clarification_question: Optional[str] = Field(default=None, description="Question for user if required fields are missing or ambiguous")
+    missing_fields: list[str] = Field(default_factory=list, description="List of missing required fields")
+    extracted_fields: list[str] = Field(default_factory=list, description="Fields explicitly extracted from raw text")
+    default_injected_fields: list[str] = Field(default_factory=list, description="Fields populated from system defaults")
+    debug_raw_llm_response: Optional[str] = Field(default=None, description="Raw response returned by Gemini LLM")
+
+
+
 # ────────────────────────────────────────────
 # Response schemas
+
 # ────────────────────────────────────────────
 
 class ChargeSchema(BaseModel):
