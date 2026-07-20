@@ -296,9 +296,10 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         hdr_dict = dict(request.headers)
         if "x-goog-api-key" in hdr_dict:
             k = hdr_dict["x-goog-api-key"]
-            hdr_dict["x-goog-api-key"] = k[:6] + "..." + k[-4:] if len(k) > 10 else "***"
+            hdr_dict["x-goog-api-key"] = f"{k[:6]}...{k[-4:]} (len={len(k)})" if len(k) > 10 else "***"
         print("\n[RFQ Agent Wire Hook] WIRE URL:", request.url)
         print("[RFQ Agent Wire Hook] WIRE HEADERS:", json.dumps(hdr_dict, indent=2))
+
 
     async with httpx.AsyncClient(timeout=30.0, event_hooks={"request": [log_request]}) as client:
         res = await client.post(url, json=payload, headers=headers)
@@ -330,8 +331,8 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
 
     # Environment & API Key Check
     is_mock_env = os.getenv("RFQ_AGENT_MOCK", "false").lower() in ("true", "1", "yes")
-    is_test_env = "PYTEST_CURRENT_TEST" in os.environ or os.getenv("USE_MOCK_CARRIERS", "false").lower() in ("true", "1", "yes")
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    raw_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = raw_key.strip().strip('"').strip("'").strip() if raw_key else None
 
     if (is_mock_env or is_test_env) and not gemini_key:
         print("[RFQ Agent] Using mock parser (RFQ_AGENT_MOCK or test environment active)")
@@ -342,6 +343,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
             "GEMINI_API_KEY is not set in environment. "
             "Please configure GEMINI_API_KEY in your environment or set RFQ_AGENT_MOCK=true for testing."
         )
+
 
     print("[RFQ Agent] Processing RFQ via Native Gemini API (gemini-1.5-flash) with x-goog-api-key...")
     
