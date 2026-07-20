@@ -257,8 +257,8 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
 async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow_str: str, gemini_key: str) -> str:
     """
-    Calls native Google Gemini API (gemini-2.5-flash) using httpx with x-goog-api-key header exclusively.
-    Matches curl behavior exactly: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
+    Calls native Google Gemini API (gemini-1.5-flash) using httpx with x-goog-api-key header exclusively.
+    Matches curl behavior exactly: https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
     """
     import httpx
     
@@ -267,7 +267,8 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         tomorrow_date=tomorrow_str
     )
     
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+
     
     payload = {
         "contents": [
@@ -342,7 +343,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
             "Please configure GEMINI_API_KEY in your environment or set RFQ_AGENT_MOCK=true for testing."
         )
 
-    print("[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash) with x-goog-api-key...")
+    print("[RFQ Agent] Processing RFQ via Native Gemini API (gemini-1.5-flash) with x-goog-api-key...")
     
     try:
         raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key)
