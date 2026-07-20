@@ -90,7 +90,7 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
 
     # Broad origin pattern
     if ("origin" in name_lower or "orig" in name_lower or "pol" in name_lower or "export" in name_lower) and \
-       any(x in name_lower for x in ["thc", "terminal", "handling", "local", "documentation", "customs", "fee"]):
+       any(x in name_lower for x in ["thc", "terminal", "handling", "local", "documentation", "customs", "fee", "truck", "landfreight", "haulage", "drayage", "seal", "sealing"]):
         return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, "Broad origin charge pattern matched"
 
     # ── DESTINATION CHARGES (EXCLUDED) ───────────────────────
@@ -114,9 +114,14 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
         "destination local",
         "dest local",
         "discharge charge",
+        "discharging expenses",
         "destination haulage",
         "dest haulage",
         "terminal handling charge (d)",
+        "empty reload",
+        "equipment maintenance",
+        "cargo release",
+        "delivery order fee",
     ]
     for kw in destination_keywords:
         if kw in name_lower:
@@ -124,7 +129,7 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
 
     # Broad destination pattern
     if ("destination" in name_lower or "dest" in name_lower or "pod" in name_lower or "import" in name_lower) and \
-       any(x in name_lower for x in ["thc", "terminal", "handling", "local", "documentation", "customs", "fee"]):
+       any(x in name_lower for x in ["thc", "terminal", "handling", "local", "documentation", "customs", "fee", "truck", "landfreight", "haulage", "drayage", "discharging", "reload", "release"]):
         return ChargeCategory.DESTINATION_CHARGE_EXCLUDED, "Broad destination charge pattern matched"
 
     # ── OTHER LOCAL CHARGES (EXCLUDED) ───────────────────────

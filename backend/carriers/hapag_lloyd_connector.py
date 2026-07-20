@@ -3365,20 +3365,20 @@ class HapagLloydConnector(BaseCarrierConnector):
                     const firstCellText = (idx_name !== -1 && cells[idx_name]) ? cells[idx_name].textContent.trim() : "";
                     const lowerText = firstCellText.toLowerCase();
                     
-                    if (lowerText === "freight charges" || lowerText.includes("freight charges")) {
-                        currentSection = "freight_charges";
-                        continue;
-                    }
-                    if (lowerText === "freight surcharges" || lowerText === "surcharges" || lowerText.includes("surcharges")) {
-                        currentSection = "surcharges";
-                        continue;
-                    }
-                    if (lowerText === "export surcharges" || lowerText.includes("export surcharges")) {
+                    if (lowerText.includes("export surcharges") || lowerText.includes("export surcharge") || lowerText.includes("export")) {
                         currentSection = "export_surcharges";
                         continue;
                     }
-                    if (lowerText === "import surcharges" || lowerText.includes("import surcharges")) {
+                    if (lowerText.includes("import surcharges") || lowerText.includes("import surcharge") || lowerText.includes("import")) {
                         currentSection = "import_surcharges";
+                        continue;
+                    }
+                    if (lowerText.includes("freight charges") || lowerText.includes("freight charge")) {
+                        currentSection = "freight_charges";
+                        continue;
+                    }
+                    if (lowerText.includes("freight surcharges") || lowerText.includes("freight surcharge") || lowerText === "surcharges") {
+                        currentSection = "surcharges";
                         continue;
                     }
                     
@@ -3394,6 +3394,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         
                         // Ignore header labels, section descriptors, or empty rows
                         if (!name || name === "Freight Charges" || name === "Freight Surcharges" || 
+                            name === "Export Surcharges" || name === "Import Surcharges" ||
                             name === "Charge" || name === "Unit" || name === "Currency" || name === "Ctr." ||
                             name.includes("20STD") || name.includes("40STD") || name.includes("40HC") ||
                             curr.includes("20STD") || curr.includes("40STD") || curr.includes("40HC") ||
@@ -3448,14 +3449,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                         let determinedCategory = null;
                         if (currentSection === "freight_charges") determinedCategory = "BASIC_OCEAN_FREIGHT";
-                        else if (currentSection === "surcharges") {
-                            const nameLower = name.toLowerCase();
-                            if (nameLower.includes("manifest") || nameLower.includes("document fee") || nameLower.includes("documentation fee")) {
-                                determinedCategory = "ORIGIN_CHARGE_EXCLUDED";
-                            } else {
-                                determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
-                            }
-                        }
+                        else if (currentSection === "surcharges") determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
                         else if (currentSection === "export_surcharges") determinedCategory = "ORIGIN_CHARGE_EXCLUDED";
                         else if (currentSection === "import_surcharges") determinedCategory = "DESTINATION_CHARGE_EXCLUDED";
 
