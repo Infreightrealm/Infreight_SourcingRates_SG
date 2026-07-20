@@ -258,7 +258,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
 async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow_str: str, gemini_key: str) -> str:
     """
-    Calls native Google Gemini API (gemini-2.5-flash) using httpx with x-goog-api-key header.
+    Calls native Google Gemini API (gemini-2.5-flash) using httpx with x-goog-api-key header exclusively.
     Matches curl behavior exactly: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
     """
     import httpx
@@ -268,7 +268,7 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         tomorrow_date=tomorrow_str
     )
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     
     payload = {
         "contents": [
@@ -319,10 +319,15 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         "x-goog-api-key": gemini_key
     }
     
+    masked_key = gemini_key[:6] + "..." + gemini_key[-4:] if len(gemini_key) > 10 else "***"
+    print(f"[RFQ Agent Outbound Request] URL: {url}")
+    print(f"[RFQ Agent Outbound Request] Headers: {{'Content-Type': 'application/json', 'x-goog-api-key': '{masked_key}'}}")
+    
     async with httpx.AsyncClient(timeout=30.0) as client:
         res = await client.post(url, json=payload, headers=headers)
         if res.status_code != 200:
             raise RuntimeError(f"Gemini API error ({res.status_code}): {res.text}")
+
         
         response_json = res.json()
         try:
