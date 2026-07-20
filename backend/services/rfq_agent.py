@@ -1,5 +1,6 @@
 """
-AI Agent service for parsing free-text RFQ emails or messages into structured RateSearchRequest objects using Google Gemini or OpenAI.
+AI Agent service for parsing free-text RFQ emails or messages into structured RateSearchRequest objects
+using native Google Gemini API (gemini-2.5-flash) with x-goog-api-key authentication.
 """
 import os
 import json
@@ -12,7 +13,7 @@ from models.schemas import RateSearchRequest, RFQParseResult
 
 
 # ────────────────────────────────────────────
-# Extraction Schema
+# Gemini Extraction Schema
 # ────────────────────────────────────────────
 
 class RFQExtractionSchema(BaseModel):
@@ -255,9 +256,10 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     )
 
 
-async def _run_gemini_api_via_httpx(raw_text: str, current_date_str: str, tomorrow_str: str, gemini_key: str) -> str:
+async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow_str: str, gemini_key: str) -> str:
     """
-    Direct HTTP call to Gemini API using httpx.
+    Calls native Google Gemini API (gemini-2.5-flash) using httpx with x-goog-api-key header.
+    Matches curl behavior exactly: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
     """
     import httpx
     
@@ -313,97 +315,25 @@ async def _run_gemini_api_via_httpx(raw_text: str, current_date_str: str, tomorr
     }
     
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-goog-api-key": gemini_key
     }
     
     async with httpx.AsyncClient(timeout=30.0) as client:
         res = await client.post(url, json=payload, headers=headers)
         if res.status_code != 200:
-            raise RuntimeError(f"Gemini API returned status code {res.status_code}: {res.text}")
+            raise RuntimeError(f"Gemini API error ({res.status_code}): {res.text}")
         
         response_json = res.json()
         try:
-            raw_text_out = response_json["candidates"][0]["content"]["parts"][0]["text"]
-            return raw_text_out
+            return response_json["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError) as ex:
             raise ValueError(f"Unexpected response structure from Gemini API: {response_json}") from ex
 
 
-async def _run_openai_api_via_httpx(raw_text: str, current_date_str: str, tomorrow_str: str, openai_key: str) -> str:
-    """
-    Direct HTTP call to OpenAI API using httpx.
-    """
-    import httpx
-    
-    formatted_system_prompt = SYSTEM_PROMPT.format(
-        current_date=current_date_str,
-        tomorrow_date=tomorrow_str
-    )
-    
-    url = "https://api.openai.com/v1/chat/completions"
-    
-    tool_spec = {
-        "type": "function",
-        "function": {
-            "name": "extract_rfq_details",
-            "description": "Extract structured rate search request fields from an RFQ text.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "origin": {"type": "string", "description": "Port of Loading (POL) / Origin city or port."},
-                    "destination": {"type": "string", "description": "Port of Discharge (POD) / Destination city or port."},
-                    "container_types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Container type codes e.g. ['DRY 40H'], ['DRY 20']."
-                    },
-                    "container_quantity": {"type": "integer", "description": "Total container count."},
-                    "weight_per_container_kg": {"type": "number", "description": "Weight PER CONTAINER in KG. Null if weight not in text."},
-                    "total_weight_kg": {"type": "number", "description": "Total shipment weight in KG across all containers."},
-                    "commodity": {"type": "string", "description": "Cargo description. Null if not mentioned."},
-                    "departure_date": {"type": "string", "description": "Resolved ISO date YYYY-MM-DD. Null if not mentioned."},
-                    "is_complete": {"type": "boolean", "description": "True if POL, POD, and container type are present."},
-                    "missing_fields": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of missing mandatory fields e.g. ['destination']."
-                    },
-                    "clarification_question": {"type": "string", "description": "Targeted question to ask if mandatory fields are missing."}
-                },
-                "required": ["is_complete", "missing_fields"]
-            }
-        }
-    }
-    
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": [
-            {"role": "system", "content": formatted_system_prompt},
-            {"role": "user", "content": f"Parse the following RFQ:\n\n{raw_text}"}
-        ],
-        "tools": [tool_spec],
-        "tool_choice": {"type": "function", "function": {"name": "extract_rfq_details"}},
-        "temperature": 0.0
-    }
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {openai_key}"
-    }
-    
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        res = await client.post(url, json=payload, headers=headers)
-        if res.status_code != 200:
-            raise RuntimeError(f"OpenAI API returned status code {res.status_code}: {res.text}")
-        
-        data = res.json()
-        tool_call_args = data["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
-        return tool_call_args
-
-
 async def parse_rfq(raw_text: str) -> RFQParseResult:
     """
-    Parses free-text RFQ message into structured RFQParseResult using Google Gemini or OpenAI API.
+    Parses free-text RFQ message into structured RFQParseResult using Native Google Gemini API (gemini-2.5-flash).
     """
     if not raw_text or not raw_text.strip():
         return RFQParseResult(
@@ -421,64 +351,26 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
     is_mock_env = os.getenv("RFQ_AGENT_MOCK", "false").lower() in ("true", "1", "yes")
     is_test_env = "PYTEST_CURRENT_TEST" in os.environ or os.getenv("USE_MOCK_CARRIERS", "false").lower() in ("true", "1", "yes")
     gemini_key = os.getenv("GEMINI_API_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY")
 
-    if (is_mock_env or is_test_env) and not (gemini_key or openai_key):
+    if (is_mock_env or is_test_env) and not gemini_key:
         print("[RFQ Agent] Using mock parser (RFQ_AGENT_MOCK or test environment active)")
         return _run_mock_parse(raw_text, current_date_str)
 
-    if not (gemini_key or openai_key):
+    if not gemini_key:
         raise ValueError(
-            "No LLM API key set in environment (GEMINI_API_KEY or OPENAI_API_KEY). "
-            "Please configure GEMINI_API_KEY or OPENAI_API_KEY in your environment, or set RFQ_AGENT_MOCK=true for testing."
+            "GEMINI_API_KEY is not set in environment. "
+            "Please configure GEMINI_API_KEY in your environment or set RFQ_AGENT_MOCK=true for testing."
         )
 
-    raw_llm_json = None
-
-    # 1. Try Gemini API if key is present
-    if gemini_key:
-        try:
-            try:
-                from google import genai
-                from google.genai import types
-
-                client = genai.Client(api_key=gemini_key)
-
-                formatted_system_prompt = SYSTEM_PROMPT.format(
-                    current_date=current_date_str,
-                    tomorrow_date=tomorrow_str
-                )
-
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=f"Parse the following RFQ:\n\n{raw_text}",
-                    config=types.GenerateContentConfig(
-                        system_instruction=formatted_system_prompt,
-                        response_mime_type="application/json",
-                        response_schema=RFQExtractionSchema,
-                        temperature=0.0,
-                    ),
-                )
-
-                raw_llm_json = response.text or "{}"
-            except Exception as sdk_err:
-                print(f"[RFQ Agent] Google SDK call failed ({sdk_err}). Attempting direct HTTPX call...")
-                raw_llm_json = await _run_gemini_api_via_httpx(raw_text, current_date_str, tomorrow_str, gemini_key)
-        except Exception as g_err:
-            print(f"[RFQ Agent] Gemini API call failed: {g_err}")
-
-    # 2. Try OpenAI fallback if Gemini failed or key not set
-    if not raw_llm_json and openai_key:
-        try:
-            print("[RFQ Agent] Calling OpenAI API (gpt-4o-mini) as fallback provider...")
-            raw_llm_json = await _run_openai_api_via_httpx(raw_text, current_date_str, tomorrow_str, openai_key)
-        except Exception as o_err:
-            print(f"[RFQ Agent] OpenAI API call failed: {o_err}")
-
-    if not raw_llm_json:
+    print("[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash) with x-goog-api-key...")
+    
+    try:
+        raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key)
+    except Exception as e:
+        print(f"[RFQ Agent] Native Gemini API call failed: {e}")
         if is_mock_env or is_test_env:
             return _run_mock_parse(raw_text, current_date_str)
-        raise RuntimeError("LLM extraction failed. Please check your GEMINI_API_KEY or OPENAI_API_KEY configuration.")
+        raise RuntimeError(f"Gemini RFQ Agent extraction failed: {str(e)}") from e
 
     try:
         extracted_data = json.loads(raw_llm_json)
