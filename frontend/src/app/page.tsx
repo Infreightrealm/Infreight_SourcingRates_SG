@@ -115,9 +115,10 @@ function HomeContent() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                Infreight Ocean Carrier Rate Search
+                Infreight Ocean & Air Rate Automation
               </h1>
-              <p className="text-xs text-slate-500 dark:text-white/40">Automated freight quotation comparison</p>
+              <p className="text-xs text-slate-500 dark:text-white/40">Automated ocean rate searches & airfreight partner routing</p>
+
             </div>
           </div>
           <div className="flex items-center gap-3">

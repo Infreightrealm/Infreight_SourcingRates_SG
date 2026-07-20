@@ -76,15 +76,35 @@ export interface RateSearchRequest {
   hapag_region?: 'US_CA' | 'EU' | 'ROW';
 }
 
+export interface AirDraftEmail {
+  forwarder_id: string;
+  company_name: string;
+  contact_person: string;
+  contact_email: string;
+  email_subject: string;
+  email_body: string;
+}
+
 export interface RFQParseResult {
-  status: "success" | "needs_clarification";
+  status: "success" | "air_draft_generated" | "needs_clarification";
+  mode?: "air" | "sea";
+  confidence?: number;
+  matched_keywords?: string[];
+  is_dangerous_goods?: boolean;
+  compliance_notes?: string;
+  hs_code?: string;
+  air_drafts?: AirDraftEmail[];
   parsed_fields?: RateSearchRequest;
+  all_parsed_pairs?: any[];
+  total_pairs_found?: number;
+  pairs_omitted_count?: number;
   clarification_question?: string;
   missing_fields?: string[];
   extracted_fields?: string[];
   default_injected_fields?: string[];
   debug_raw_llm_response?: string;
 }
+
 
 
 

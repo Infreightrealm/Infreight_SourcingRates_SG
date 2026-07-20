@@ -10,9 +10,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Infreight Ocean Carrier Rate Search",
-  description: "Internal rate search and comparison tool for ocean freight quotations across multiple carriers.",
+  title: "Infreight Ocean & Air Rate Automation",
+  description: "Internal rate search, airfreight routing, and comparison tool for ocean and air freight quotations.",
 };
+
 
 export default function RootLayout({
   children,

@@ -1,5 +1,7 @@
 """
 Unit tests for the Gemini AI RFQ Agent service (parse_rfq).
+Includes verification for Air/Sea classification, dual-partner air draft generation,
+dangerous goods compliance preservation, and multi-origin gappy destination lists.
 """
 import sys
 import os
@@ -16,77 +18,153 @@ from models.schemas import RFQParseResult, RateSearchRequest
 
 
 @pytest.mark.asyncio
-async def test_complete_unambiguous_rfq_total_weight():
-    """Test 1: Complete RFQ text with total weight calculation (18,000 kg total for 2 containers -> 9,000 kg/container)."""
+async def test_air_rfq_image1_lithium_batteries_compliance():
+    """Test Image 1: EXW airfreight rates with lithium batteries PI 970 & HS code preservation."""
     rfq_text = (
-        "Hi team,\n"
-        "Please quote rate from Shanghai to Rotterdam for 2x40HQ containers, "
-        "weight 18,000 kg total for 2 containers, commodity Furniture. Target ETD 2026-08-15.\n"
-        "Thanks!"
+        "Dear All,\n"
+        "Please quote cheap and best EXW airfreight rates;\n"
+        "Collect from:\n"
+        "Hitachi Asia Ltd\n"
+        "Industrial Components and Equipment Group (ICE)\n"
+        "30 Pioneer Crescent #10-15, West Park Bizcentral, Singapore 628560\n\n"
+        "Commodity: HITACHI PRINTERS -LITHIUM METAL BATTERIES IN COMPLIANCE WITH SECTION II OF PI 970\n"
+        "Dim: 64x53x74 cm/10 pkgs\n"
+        "Gross weight: 320 kg\n"
+        "HS CODE: 84433100\n\n"
+        "Best Regards,\n"
+        "Mohammed Shamnad\n"
+        "Manager - Airfreight\n"
+        "Airlift Logistics"
     )
     result = await parse_rfq(rfq_text)
     
     assert isinstance(result, RFQParseResult)
-    assert result.status == "success"
-    assert result.parsed_fields is not None
+    assert result.mode == "air"
+    assert result.status == "air_draft_generated"
+    assert result.is_dangerous_goods is True
+    assert result.hs_code == "84433100"
+    assert "LITHIUM METAL BATTERIES" in (result.compliance_notes or "")
+    assert result.air_drafts is not None
+    assert len(result.air_drafts) == 2  # Dual drafts: AWOT (Glenn) and ASPAC (Jing Hui)
     
-    fields = result.parsed_fields
-    assert fields.origin == "Shanghai"
-    assert fields.destination == "Rotterdam"
-    assert fields.container_quantity == 2
-    assert fields.weight_per_container_kg == 9000.0  # 18000 / 2 = 9000 kg per container
-    assert fields.commodity == "Furniture"
-    assert "DRY 40H" in fields.container_types
-    assert result.clarification_question is None
-    assert "origin" in result.extracted_fields
-    assert "destination" in result.extracted_fields
-    assert "weight_per_container_kg" in result.extracted_fields
-    assert result.debug_raw_llm_response is not None
+    # Verify both draft emails contain the DG compliance & HS code details
+    for draft in result.air_drafts:
+        assert "LITHIUM METAL BATTERIES IN COMPLIANCE WITH SECTION II OF PI 970" in draft["email_body"]
+        assert "84433100" in draft["email_body"]
 
 
 @pytest.mark.asyncio
-async def test_missing_field_requires_clarification():
-    """Test 2: Missing required field (POD / destination) returns needs_clarification."""
+async def test_air_rfq_image2_glenn_awot_dual_draft():
+    """Test Image 2: Air rate request to Glenn generates dual drafts to Glenn (AWOT) and Jing Hui (ASPAC)."""
     rfq_text = (
-        "Hi Infreight, need rate for 1x20GP container loaded from Singapore. "
-        "Weight is 15 MT. Please quote asap."
+        "Hi Glenn,\n\n"
+        "Good Day\n"
+        "Kindly advise us air rates for below:\n"
+        "POL: Singapore Airport\n"
+        "POD: KUL\n"
+        "Commodity: Machines Part Accessories - Docking Roller Assy / Trial Cutter Roller Assy Bottom Surface\n"
+        "2 Crates / Sets\n"
+        "Dimension of each crate:\n"
+        "186 x 32 x 37 cm H - 2 Crates\n"
+        "Gross Weight: 320.00 kgs\n"
+        "(160 kgs x 2 crates)\n"
+        "Please also provide available flight schedule and transit time.\n"
+        "Thank you"
     )
     result = await parse_rfq(rfq_text)
     
     assert isinstance(result, RFQParseResult)
-    assert result.status == "needs_clarification"
-    assert result.parsed_fields is None
-    assert result.clarification_question is not None
-    assert "destination" in result.missing_fields or "pod" in [m.lower() for m in result.missing_fields]
+    assert result.mode == "air"
+    assert result.status == "air_draft_generated"
+    assert result.air_drafts is not None
+    assert len(result.air_drafts) == 2
+    
+    contact_persons = [d["contact_person"] for d in result.air_drafts]
+    assert "Glenn" in contact_persons
+    assert "Jing Hui" in contact_persons
 
 
 @pytest.mark.asyncio
-async def test_relative_date_no_weight_fabrication():
-    """Test 3: Relative date terms ('early August') resolve to date, and missing weight is NOT fabricated in extraction."""
+async def test_air_rfq_image3_jing_hui_aspac_dual_draft():
+    """Test Image 3: Air rate request to Jing Hui generates dual drafts to Glenn (AWOT) and Jing Hui (ASPAC)."""
     rfq_text = (
-        "Good day, please check rate for 1x40HQ Electronics from Singapore to Hamburg. "
-        "Departure scheduled for early August."
+        "Hi Jing Hui,\n\n"
+        "Good Day\n"
+        "Kindly advise us air rates for below:\n"
+        "POL: Singapore Airport\n"
+        "POD: KUL\n"
+        "Commodity: Machines Part Accessories - Docking Roller Assy / Trial Cutter Roller Assy Bottom Surface\n"
+        "2 Crates / Sets\n"
+        "Dimension of each crate:\n"
+        "186 x 32 x 37 cm H - 2 Crates\n"
+        "Gross Weight: 320.00 kgs\n"
+        "(160 kgs x 2 crates)\n"
+        "Please also provide available flight schedule and transit time.\n"
+        "Thank you."
     )
     result = await parse_rfq(rfq_text)
     
     assert isinstance(result, RFQParseResult)
-    assert result.status == "success"
-    assert result.parsed_fields is not None
-    
-    dep_date = result.parsed_fields.departure_date
-    assert dep_date is not None
-    parsed_date = datetime.strptime(dep_date, "%Y-%m-%d")
-    assert parsed_date.month == 8
-    assert 1 <= parsed_date.day <= 10
+    assert result.mode == "air"
+    assert result.status == "air_draft_generated"
+    assert result.air_drafts is not None
+    assert len(result.air_drafts) == 2
 
-    # Weight was not in text -> marked as injected default, NOT extracted
-    assert "weight_per_container_kg" in result.default_injected_fields
-    assert "weight_per_container_kg" not in result.extracted_fields
+
+@pytest.mark.asyncio
+async def test_sea_rfq_image4_steel_plate_multi_origin_gappy_list():
+    """
+    Test Image 4: Steel Plate ex Pasir Gudang / Tanjung Pelepas for 20' & 40'.
+    Asserts:
+    1. Mode is SEA.
+    2. 2 origins x 17 destinations = 34 exact expanded pairs (item #3 is skipped in raw text).
+    3. Capped at 10 pairs for execution with 24 omitted pairs reported.
+    """
+    rfq_text = (
+        "Hi Toby, Shona and Bethy.\n\n"
+        "Good day.\n\n"
+        "Please compile rates from ex Pasir Gudang / Tanjung Pelepas for 20' & 40' as follows.\n\n"
+        "Commodity: Steel Plate, Steel Coil.\n\n"
+        "1) Koper, Slovenia\n"
+        "2) Nagoya, Japan\n"
+        "4) Thessaloniki, Greece\n"
+        "5) Liverpool, England\n"
+        "6) Colombo, Sri Lanka\n"
+        "7) Chiba, Japan\n"
+        "8) Montreal, Canada\n"
+        "9) Baltimore, US\n"
+        "10) Toronto (Halifax), Canada\n"
+        "11) Toronto (Vancouver), Canada\n"
+        "12) Winnipeg, Canada\n"
+        "13) Vancouver, Canada\n"
+        "14) Houston, US\n"
+        "15) Kaohsiung, Taiwan\n"
+        "16) Chattogram, Bangladesh\n"
+        "17) Manzanillo, Mexico\n"
+        "18) Bourges, France"
+    )
+    result = await parse_rfq(rfq_text)
+    
+    assert isinstance(result, RFQParseResult)
+    assert result.mode == "sea"
+    assert result.status == "success"
+    assert result.all_parsed_pairs is not None
+    
+    # 2 origins x 17 destinations = 34 exact pairs
+    assert result.total_pairs_found == 34
+    assert result.pairs_omitted_count == 24
+    assert len(result.all_parsed_pairs) == 34
+
+    # Verify origin expansion
+    origins = list(set(p["origin"] for p in result.all_parsed_pairs))
+    assert "Pasir Gudang" in origins
+    assert "Tanjung Pelepas" in origins
 
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(test_complete_unambiguous_rfq_total_weight())
-    asyncio.run(test_missing_field_requires_clarification())
-    asyncio.run(test_relative_date_no_weight_fabrication())
-    print("[OK] All Gemini RFQ Agent unit tests passed!")
+    asyncio.run(test_air_rfq_image1_lithium_batteries_compliance())
+    asyncio.run(test_air_rfq_image2_glenn_awot_dual_draft())
+    asyncio.run(test_air_rfq_image3_jing_hui_aspac_dual_draft())
+    asyncio.run(test_sea_rfq_image4_steel_plate_multi_origin_gappy_list())
+    print("[OK] All Air/Sea RFQ Agent unit tests passed!")

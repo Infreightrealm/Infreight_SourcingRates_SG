@@ -1,0 +1,16 @@
+{
+  "air_partners": [
+    {
+      "id": "awot",
+      "company_name": "AWOT Global Logistics",
+      "contact_person": "Glenn",
+      "contact_email": "glenn@awotglobal.com"
+    },
+    {
+      "id": "aspac",
+      "company_name": "ASPAC International Logistics",
+      "contact_person": "Jing Hui",
+      "contact_email": "jinghui@aspac.com"
+    }
+  ]
+}
