@@ -333,7 +333,10 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
     is_mock_env = os.getenv("RFQ_AGENT_MOCK", "false").lower() in ("true", "1", "yes")
     is_test_env = "PYTEST_CURRENT_TEST" in os.environ or os.getenv("USE_MOCK_CARRIERS", "false").lower() in ("true", "1", "yes")
     raw_key = os.getenv("GEMINI_API_KEY")
-    gemini_key = raw_key.strip().strip('"').strip("'").strip() if raw_key else None
+    gemini_key = re.sub(r'[^a-zA-Z0-9\._\-]', '', raw_key) if raw_key else None
+    if raw_key and gemini_key:
+        print(f"[RFQ Agent Key Debug] Raw key length: {len(raw_key)}, Cleaned key length: {len(gemini_key)}")
+
 
 
     if (is_mock_env or is_test_env) and not gemini_key:
