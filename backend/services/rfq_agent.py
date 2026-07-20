@@ -273,42 +273,14 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         "contents": [
             {
                 "parts": [
-                    {"text": f"Parse the following RFQ:\n\n{raw_text}"}
+                    {
+                        "text": f"{formatted_system_prompt}\n\nOUTPUT FORMAT:\nReturn a single JSON object with these keys: origin, destination, container_types (list), container_quantity (int), weight_per_container_kg (float/null), total_weight_kg (float/null), commodity, departure_date, is_complete (bool), missing_fields (list), clarification_question.\n\nRFQ TO PARSE:\n{raw_text}"
+                    }
                 ]
             }
         ],
-        "systemInstruction": {
-            "parts": [
-                {"text": formatted_system_prompt}
-            ]
-        },
         "generationConfig": {
             "responseMimeType": "application/json",
-            "responseSchema": {
-                "type": "OBJECT",
-                "properties": {
-                    "origin": {"type": "STRING", "description": "Port of Loading (POL) / Origin city or port."},
-                    "destination": {"type": "STRING", "description": "Port of Discharge (POD) / Destination city or port."},
-                    "container_types": {
-                        "type": "ARRAY",
-                        "items": {"type": "STRING"},
-                        "description": "Container type codes e.g. ['DRY 40H'], ['DRY 20']."
-                    },
-                    "container_quantity": {"type": "INTEGER", "description": "Total container count."},
-                    "weight_per_container_kg": {"type": "NUMBER", "description": "Weight PER CONTAINER in KG. Null if weight not in text."},
-                    "total_weight_kg": {"type": "NUMBER", "description": "Total shipment weight in KG across all containers."},
-                    "commodity": {"type": "STRING", "description": "Cargo description. Null if not mentioned."},
-                    "departure_date": {"type": "STRING", "description": "Resolved ISO date YYYY-MM-DD. Null if not mentioned."},
-                    "is_complete": {"type": "BOOLEAN", "description": "True if POL, POD, and container type are present."},
-                    "missing_fields": {
-                        "type": "ARRAY",
-                        "items": {"type": "STRING"},
-                        "description": "List of missing mandatory fields e.g. ['destination']."
-                    },
-                    "clarification_question": {"type": "STRING", "description": "Targeted question to ask if mandatory fields are missing."}
-                },
-                "required": ["is_complete", "missing_fields"]
-            },
             "temperature": 0.0
         }
     }
@@ -317,6 +289,7 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         "Content-Type": "application/json",
         "x-goog-api-key": gemini_key
     }
+
     
     async def log_request(request):
         hdr_dict = dict(request.headers)
