@@ -58,9 +58,10 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
       }
     } catch (err: any) {
       toast.error(err.message || "Failed to parse RFQ");
-    } font-mono;
+    } finally {
       setIsParsing(false);
     }
+
   };
 
   const handleClarifySubmit = (e: React.FormEvent) => {
