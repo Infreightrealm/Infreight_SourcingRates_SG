@@ -255,6 +255,80 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     )
 
 
+async def _run_gemini_api_via_httpx(raw_text: str, current_date_str: str, tomorrow_str: str, gemini_key: str) -> str:
+    """
+    Direct HTTP call to Gemini API using httpx to bypass SDK auth issues with AQ. keys.
+    """
+    import httpx
+    
+    formatted_system_prompt = SYSTEM_PROMPT.format(
+        current_date=current_date_str,
+        tomorrow_date=tomorrow_str
+    )
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+    
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": f"Parse the following RFQ:\n\n{raw_text}"}
+                ]
+            }
+        ],
+        "systemInstruction": {
+            "parts": [
+                {"text": formatted_system_prompt}
+            ]
+        },
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "origin": {"type": "STRING", "description": "Port of Loading (POL) / Origin city or port."},
+                    "destination": {"type": "STRING", "description": "Port of Discharge (POD) / Destination city or port."},
+                    "container_types": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "Container type codes e.g. ['DRY 40H'], ['DRY 20']."
+                    },
+                    "container_quantity": {"type": "INTEGER", "description": "Total container count."},
+                    "weight_per_container_kg": {"type": "NUMBER", "description": "Weight PER CONTAINER in KG. Null if weight not in text."},
+                    "total_weight_kg": {"type": "NUMBER", "description": "Total shipment weight in KG across all containers."},
+                    "commodity": {"type": "STRING", "description": "Cargo description. Null if not mentioned."},
+                    "departure_date": {"type": "STRING", "description": "Resolved ISO date YYYY-MM-DD. Null if not mentioned."},
+                    "is_complete": {"type": "BOOLEAN", "description": "True if POL, POD, and container type are present."},
+                    "missing_fields": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "List of missing mandatory fields e.g. ['destination']."
+                    },
+                    "clarification_question": {"type": "STRING", "description": "Targeted question to ask if mandatory fields are missing."}
+                },
+                "required": ["is_complete", "missing_fields"]
+            },
+            "temperature": 0.0
+        }
+    }
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        res = await client.post(url, json=payload, headers=headers)
+        if res.status_code != 200:
+            raise RuntimeError(f"Gemini API returned status code {res.status_code}: {res.text}")
+        
+        response_json = res.json()
+        try:
+            raw_text_out = response_json["candidates"][0]["content"]["parts"][0]["text"]
+            return raw_text_out
+        except (KeyError, IndexError) as ex:
+            raise ValueError(f"Unexpected response structure from Gemini API: {response_json}") from ex
+
+
 async def parse_rfq(raw_text: str) -> RFQParseResult:
     """
     Parses free-text RFQ message into structured RFQParseResult using Google Gemini API (gemini-2.5-flash).
@@ -286,6 +360,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
             "Please configure GEMINI_API_KEY in your environment or set RFQ_AGENT_MOCK=true for testing."
         )
 
+    raw_llm_json = "{}"
     try:
         from google import genai
         from google.genai import types
@@ -309,10 +384,22 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
         )
 
         raw_llm_json = response.text or "{}"
+    except Exception as sdk_err:
+        print(f"[RFQ Agent] Google SDK call failed ({sdk_err}). Attempting self-healing fallback via HTTPX...")
+        try:
+            raw_llm_json = await _run_gemini_api_via_httpx(raw_text, current_date_str, tomorrow_str, gemini_key)
+        except Exception as http_err:
+            print(f"[RFQ Agent] Fallback HTTPX call also failed: {http_err}")
+            if is_mock_env or is_test_env:
+                return _run_mock_parse(raw_text, current_date_str)
+            raise RuntimeError(f"Gemini RFQ Agent extraction failed (SDK: {sdk_err}, HTTPX: {http_err})") from http_err
+
+    try:
         extracted_data = json.loads(raw_llm_json)
 
         origin = extracted_data.get("origin")
         destination = extracted_data.get("destination")
+
         c_types = extracted_data.get("container_types")
         is_complete = extracted_data.get("is_complete", True)
         missing = extracted_data.get("missing_fields", [])
