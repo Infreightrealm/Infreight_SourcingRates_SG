@@ -5,6 +5,35 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-07-20] — Air/Sea RFQ Classification, Dual Forwarder Routing, Multi-Origin Gappy Parsing, Search Form Streamlining & Chatbot Gemini 2.5 Flash
+
+### AI RFQ Front Door & Air Freight Support
+- **Air/Sea Mode Classification:** Added keyword & signal classification (`"air rate"`, `"airfreight"`, `"flight schedule"`, `"EXW airfreight"`, airport IATA codes vs `"ocean"`, `"sailing"`, `"20'"/40'"`, `"Pasir Gudang"`) returning `mode: "air" | "sea"`, confidence scores, and matched keyword signals.
+- **Dual Partner Air Draft Emails:** Solicits competing quotes for every Air RFQ by generating **TWO side-by-side draft emails**:
+  - **AWOT Global Logistics** (Contact: **Glenn**) — `glenn@awotglobal.com`
+  - **ASPAC International Logistics** (Contact: **Jing Hui**) — `jinghui@aspac.com`
+- **Dangerous Goods & Compliance Preservation:** Preserves hazardous cargo notes and customs codes (e.g. `LITHIUM METAL BATTERIES IN COMPLIANCE WITH SECTION II OF PI 970`, `HS CODE: 84433100`).
+- **No Carrier Scrape on Air:** Bypasses ocean carrier scrapers for Air RFQs and renders draft emails with one-click **"📋 Copy Draft Email"** buttons for human review.
+
+### Multi-Origin & Gappy List Parsing (Sea RFQs)
+- **Multi-Origin Expansion:** Handles multiple origin ports (e.g. `ex Pasir Gudang / Tanjung Pelepas` -> `["Pasir Gudang", "Tanjung Pelepas"]`).
+- **Gappy List Parsing:** Numbered destination lists with skipped items (e.g. 1, 2, 4, 5... skipping #3) strictly parse existing destinations without hallucinating missing numbers (2 origins × 17 destinations = **34 expanded pairs**).
+- **Explicit Omission UI Banner:** Search execution is capped at 10 pairs to protect carrier rate-limiting. Displays explicit UI banner: `"Showing 10 of 34 expanded pairs (24 pairs omitted due to search cap)"`.
+
+### Native Gemini 2.5 Flash Direct API Integration
+- **Direct HTTP API Endpoint:** Standardized `rfq_agent.py` and `chat_service.py` to use `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` with raw unmodified `GEMINI_API_KEY` and header/query fallback.
+- **Chatbot Resiliency & Fallback:** Upgraded `chat_service.py` with multi-header authentication and intelligent fallback responder for search status, carrier guidance, VNC/CAPTCHA troubleshooting, and Air/Sea automation help.
+
+### Search Form Streamlining
+- **Removed Departure Date Field:** Automatically defaults to `tomorrow` (or earliest carrier schedule).
+- **Removed Commodity Field:** Automatically defaults to `Furniture` (accepted universally by all 7 ocean carriers).
+- **Removed Container Quantity Field:** Automatically defaults to `1`.
+- **UI Layout:** Cleaned up form layout to focus on Carriers, Origin & Destination Autocomplete, Container Types (20GP, 40GP, 40HQ), and Weight per Container (KG).
+
+---
+
+
+
 ## [2026-07-09] — Hapag-Lloyd Quick Quotes pairing and selection simplification
 
 ### Hapag-Lloyd — Quick Quotes Simplification & Clean Pairing
