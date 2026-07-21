@@ -38,6 +38,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
   const [parseResult, setParseResult] = useState<RFQParseResult | null>(null);
   const [clarificationInput, setClarificationInput] = useState("");
   const [showDebug, setShowDebug] = useState(false);
+  const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
 
   const handleParse = async (textToParse: string) => {
     if (!textToParse.trim()) {
@@ -47,6 +48,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
 
     setIsParsing(true);
     setParseResult(null);
+    setSelectedPairIndex(0);
 
     try {
       const result = await parseRfq(textToParse);
@@ -77,6 +79,23 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
     setRfqText(updatedText);
     setClarificationInput("");
     handleParse(updatedText);
+  };
+
+  const handlePairSelect = (index: number) => {
+    setSelectedPairIndex(index);
+    if (!parseResult || !parseResult.all_parsed_pairs || !parseResult.parsed_fields) return;
+
+    const pair = parseResult.all_parsed_pairs[index];
+    if (pair) {
+      const updatedReq: RateSearchRequest = {
+        ...parseResult.parsed_fields,
+        origin: pair.origin,
+        destination: pair.destination,
+        container_types: pair.container_types || parseResult.parsed_fields.container_types
+      };
+      onParsedSuccess(updatedReq);
+      toast.info(`Updated search route to: ${pair.origin} ➔ ${pair.destination}`);
+    }
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -350,17 +369,31 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               </div>
             </div>
 
-            {/* Multi-Pair Destination Omission Counter Banner */}
+            {/* Multi-Pair Destination Routing Summary Banner & Selector */}
             {parseResult.total_pairs_found && parseResult.total_pairs_found > 1 && (
-              <div className="p-3 bg-blue-500/15 border border-blue-500/30 rounded-xl text-blue-800 dark:text-blue-200 text-xs space-y-1.5">
-                <div className="font-bold flex items-center justify-between">
-                  <span>📍 Multi-Destination Routing Summary:</span>
+              <div className="p-3.5 bg-blue-500/15 border border-blue-500/30 rounded-xl text-blue-800 dark:text-blue-200 text-xs space-y-2.5">
+                <div className="font-bold flex items-center justify-between flex-wrap gap-2">
+                  <span>📍 Multi-Destination Routing Summary ({parseResult.total_pairs_found} pairs total):</span>
                   <span className="px-2 py-0.5 bg-blue-500/20 rounded-full font-mono text-[10px]">
-                    Showing 10 of {parseResult.total_pairs_found} pairs ({parseResult.pairs_omitted_count} omitted due to search cap)
+                    Showing 10 pairs ({parseResult.pairs_omitted_count} omitted due to search cap)
                   </span>
                 </div>
-                <div className="text-[11px] text-blue-700 dark:text-blue-300">
-                  Parsed expanded origin-destination pairs ({parseResult.all_parsed_pairs?.length} total). Sequential 3-worker FIFO queue prevents carrier site rate-limiting.
+
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                    Select Pair to Pre-fill Form:
+                  </label>
+                  <select
+                    value={selectedPairIndex}
+                    onChange={(e) => handlePairSelect(parseInt(e.target.value))}
+                    className="flex-1 px-3 py-1.5 bg-white/90 dark:bg-black/60 border border-blue-500/40 rounded-lg text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                  >
+                    {parseResult.all_parsed_pairs?.slice(0, 10).map((pair, idx) => (
+                      <option key={idx} value={idx}>
+                        Pair #{idx + 1}: {pair.origin} ➔ {pair.destination}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             )}
