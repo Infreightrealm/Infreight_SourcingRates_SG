@@ -6,6 +6,7 @@
   "tpp": "Tanjung Pelepas",
   "sin": "Singapore",
   "sg": "Singapore",
+  "kul": "Kuala Lumpur (KUL)",
   "hk": "Hong Kong",
   "hkg": "Hong Kong",
   "sha": "Shanghai",
@@ -25,5 +26,14 @@
   "mnl": "Manila",
   "khh": "Kaohsiung",
   "cgp": "Chattogram",
-  "cmb": "Colombo"
+  "cmb": "Colombo",
+  "lhr": "London Heathrow (LHR)",
+  "ord": "Chicago O'Hare (ORD)",
+  "jfk": "New York (JFK)",
+  "fra": "Frankfurt (FRA)",
+  "cdg": "Paris (CDG)",
+  "dxb": "Dubai (DXB)",
+  "icn": "Seoul Incheon (ICN)",
+  "nrt": "Tokyo Narita (NRT)",
+  "syd": "Sydney (SYD)"
 }

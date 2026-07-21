@@ -79,12 +79,13 @@ def _load_port_aliases_config() -> dict[str, str]:
     }
 
 
-def resolve_port_alias(port_str: Optional[str]) -> tuple[Optional[str], Optional[str], bool]:
+def resolve_port_alias(port_str: Optional[str], mode: str = "sea") -> tuple[Optional[str], Optional[str], bool]:
     """
     Deterministically resolves a port string against ports_aliases.json.
     Returns (resolved_full_name, display_str_with_orig_code, requires_clarification).
     - If port_str is in ports_aliases.json: returns ("Port Klang", "Port Klang (from 'PK')", False)
-    - If port_str is 2-3 letters NOT in ports_aliases.json: returns (port_str, None, True)
+    - If mode == 'air' and port_str is 3-letter IATA airport code: returns (port_str.upper(), f"{port_str.upper()} Airport", False)
+    - If port_str is 2-3 letters NOT in ports_aliases.json (sea mode): returns (port_str, None, True)
     - Otherwise: returns (port_str, port_str, False)
     """
     if not port_str or not port_str.strip():
@@ -99,11 +100,17 @@ def resolve_port_alias(port_str: Optional[str]) -> tuple[Optional[str], Optional
         display = f"{full_name} (from '{clean_str}')"
         return full_name, display, False
 
+    # Air mode allows standard 3-letter IATA airport codes (e.g. KUL, SIN, LHR, ORD)
+    if mode == "air" and len(clean_str) == 3 and clean_str.isalpha():
+        iata_code = clean_str.upper()
+        return iata_code, f"{iata_code} Airport", False
+
     # Check if clean_str is a short code (2-3 chars) not in alias map -> require clarification!
     if len(clean_str) <= 3 and clean_str.isalpha():
         return clean_str, f"Unknown code '{clean_str}'", True
 
     return clean_str, clean_str, False
+
 
 
 def generate_dual_air_drafts(
@@ -653,7 +660,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
         resolved_origins = []
         origin_displays = []
         for o in raw_origins:
-            full_o, disp_o, unmapped_o = resolve_port_alias(o)
+            full_o, disp_o, unmapped_o = resolve_port_alias(o, mode)
             if unmapped_o:
                 msg = f"Origin code '{o}' → Unknown port abbreviation. Please confirm port name."
                 return RFQParseResult(
@@ -670,7 +677,8 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
         resolved_destinations = []
         destination_displays = []
         for d in raw_destinations:
-            full_d, disp_d, unmapped_d = resolve_port_alias(d)
+            full_d, disp_d, unmapped_d = resolve_port_alias(d, mode)
+
             if unmapped_d:
                 msg = f"Destination code '{d}' → Unknown port abbreviation. Please confirm port name."
                 return RFQParseResult(
