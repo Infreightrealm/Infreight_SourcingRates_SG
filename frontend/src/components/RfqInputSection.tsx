@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { parseRfq } from "@/lib/api";
 import type { RateSearchRequest, RFQParseResult } from "@/lib/types";
 import { toast } from "sonner";
@@ -71,6 +71,28 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
     };
     reader.readAsDataURL(file);
   };
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (e.clipboardData && e.clipboardData.items) {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.startsWith("image/")) {
+            const file = items[i].getAsFile();
+            if (file) {
+              processFile(file);
+              toast.success("📋 Screenshot pasted from clipboard!");
+              break;
+            }
+          }
+        }
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, []);
+
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -259,13 +281,14 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                   onChange={handleFileSelect}
                   className="hidden"
                 />
-                <span className="text-xl mb-1">🖼️</span>
+                <span className="text-xl mb-1">📋 🖼️</span>
                 <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Drop enquiry screenshot or click to upload
+                  Paste screenshot (Ctrl+V / Cmd+V), drop file, or click
                 </span>
-                <span className="text-[10px] text-slate-400 mt-0.5">
-                  PNG, JPG, WEBP (Max 5MB)
+                <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium mt-0.5">
+                  Direct clipboard paste supported | PNG, JPG, WEBP (Max 5MB)
                 </span>
+
               </div>
             )}
           </div>
