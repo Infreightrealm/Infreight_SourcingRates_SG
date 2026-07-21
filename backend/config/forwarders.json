@@ -11,6 +11,12 @@
       "company_name": "ASPAC International Logistics",
       "contact_person": "Jing Hui",
       "contact_email": "jinghui@aspac.com"
+    },
+    {
+      "id": "speedmark",
+      "company_name": "SpeedMark",
+      "contact_person": "Melvin Tan",
+      "contact_email": "Melvin.Tan@speedmark.com.sg"
     }
   ]
 }

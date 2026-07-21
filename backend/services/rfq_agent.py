@@ -41,8 +41,15 @@ def _load_forwarders_config() -> list[dict]:
             "company_name": "ASPAC International Logistics",
             "contact_person": "Jing Hui",
             "contact_email": "jinghui@aspac.com"
+        },
+        {
+            "id": "speedmark",
+            "company_name": "SpeedMark",
+            "contact_person": "Melvin Tan",
+            "contact_email": "Melvin.Tan@speedmark.com.sg"
         }
     ]
+
 
 
 def _load_port_aliases_config() -> dict[str, str]:

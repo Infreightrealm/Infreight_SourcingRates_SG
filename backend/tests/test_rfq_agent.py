@@ -106,12 +106,22 @@ async def test_air_rfq_image1_lithium_batteries_compliance():
     assert result.hs_code == "84433100"
     assert "LITHIUM METAL BATTERIES" in (result.compliance_notes or "")
     assert result.air_drafts is not None
-    assert len(result.air_drafts) == 2
+    assert len(result.air_drafts) == 3
+    
+    # Verify all 3 draft emails contain the DG compliance & HS code details
+    contact_persons = [d["contact_person"] for d in result.air_drafts]
+    assert "Glenn" in contact_persons
+    assert "Jing Hui" in contact_persons
+    assert "Melvin Tan" in contact_persons
+
+    for draft in result.air_drafts:
+        assert "LITHIUM METAL BATTERIES IN COMPLIANCE WITH SECTION II OF PI 970" in draft["email_body"]
+        assert "84433100" in draft["email_body"]
 
 
 @pytest.mark.asyncio
 async def test_air_rfq_image2_glenn_awot_dual_draft():
-    """Test Image 2: Air rate request to Glenn generates dual drafts to Glenn (AWOT) and Jing Hui (ASPAC)."""
+    """Test Image 2: Air rate request generates 3 drafts to Glenn (AWOT), Jing Hui (ASPAC), and Melvin Tan (SpeedMark)."""
     rfq_text = (
         "Hi Glenn,\n\n"
         "Good Day\n"
@@ -133,7 +143,13 @@ async def test_air_rfq_image2_glenn_awot_dual_draft():
     assert result.mode == "air"
     assert result.status == "air_draft_generated"
     assert result.air_drafts is not None
-    assert len(result.air_drafts) == 2
+    assert len(result.air_drafts) == 3
+    
+    contact_persons = [d["contact_person"] for d in result.air_drafts]
+    assert "Glenn" in contact_persons
+    assert "Jing Hui" in contact_persons
+    assert "Melvin Tan" in contact_persons
+
 
 
 @pytest.mark.asyncio
