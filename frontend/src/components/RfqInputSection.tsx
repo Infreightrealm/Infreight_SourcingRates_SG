@@ -177,12 +177,12 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
           ))}
         </div>
 
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => handleParse(rfqText)}
             disabled={isParsing || !rfqText.trim()}
-            className="px-6 py-2.5 rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md shadow-purple-500/20 flex items-center gap-2"
+            className="px-6 py-3 min-h-[44px] justify-center rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md shadow-purple-500/20 flex items-center gap-2"
           >
             {isParsing ? (
               <>
@@ -203,12 +203,13 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                 setRfqText("");
                 setParseResult(null);
               }}
-              className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 py-2 sm:py-0 text-center"
             >
               Clear
             </button>
           )}
         </div>
+
 
         {/* Mode Indicator & Confidence Banner */}
         {parseResult && parseResult.status !== "unsupported_cargo" && (

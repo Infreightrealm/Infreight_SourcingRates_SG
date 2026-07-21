@@ -431,14 +431,14 @@ export default function ResultsTable({ data }: ResultsTableProps) {
           </div>
 
           {/* Controls */}
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
             {/* Container Type Filter */}
             {uniqueContainerTypes.length > 1 && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                 <span className="text-xs text-slate-500 dark:text-white/40">Container:</span>
                 <button
                   onClick={() => setContainerFilter("ALL")}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium btn-interactive transition-all ${
+                  className={`px-3 py-1.5 min-h-[36px] sm:min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium btn-interactive transition-all ${
                     containerFilter === "ALL"
                       ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
@@ -450,7 +450,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                   <button
                     key={ct}
                     onClick={() => setContainerFilter(ct)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium btn-interactive transition-all ${
+                    className={`px-3 py-1.5 min-h-[36px] sm:min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium btn-interactive transition-all ${
                       containerFilter === ct
                         ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30"
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
@@ -462,13 +462,13 @@ export default function ResultsTable({ data }: ResultsTableProps) {
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <span className="text-xs text-slate-500 dark:text-white/40">Sort by:</span>
               {(["freight", "etd", "transit"] as const).map((key) => (
                 <button
                   key={key}
                   onClick={() => setSortBy(key)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium btn-interactive transition-all ${
+                  className={`px-3 py-1.5 min-h-[36px] sm:min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium btn-interactive transition-all ${
                     sortBy === key 
                       ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30" 
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
@@ -482,7 +482,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             {quoteRows.length > 0 && (
               <button
                 onClick={exportToExcel}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 dark:border-white/10 transition-colors btn-interactive shine-on-hover"
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 dark:border-white/10 transition-colors btn-interactive shine-on-hover"
               >
                 <Download className="w-3.5 h-3.5" />
                 Export Excel
@@ -503,7 +503,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] max-h-[600px] overflow-y-auto">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] max-h-[600px] overflow-y-auto w-full max-w-full">
+
             <table className="w-full text-xs relative">
               <thead className="sticky top-0 z-10">
                 <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#1a1f2e] backdrop-blur-md">

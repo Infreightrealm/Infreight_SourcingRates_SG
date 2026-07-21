@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -14,6 +14,11 @@ export const metadata: Metadata = {
   description: "Internal rate search, airfreight routing, and comparison tool for ocean and air freight quotations.",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
 
 export default function RootLayout({
   children,
@@ -22,7 +27,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} font-sans antialiased bg-slate-50 dark:bg-[#060a14] text-slate-900 dark:text-white min-h-screen transition-colors duration-300`}>
+      <body className={`${inter.variable} font-sans antialiased bg-slate-50 dark:bg-[#060a14] text-slate-900 dark:text-white min-h-screen transition-colors duration-300 overflow-x-hidden`}>
+
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

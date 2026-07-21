@@ -79,7 +79,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
           <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-2">
             Hapag-Lloyd Contract Account Region
           </label>
-          <div className="flex gap-2 p-1 bg-slate-200/50 dark:bg-black/20 rounded-lg max-w-md">
+          <div className="flex flex-col sm:flex-row gap-2 p-1 bg-slate-200/50 dark:bg-black/20 rounded-lg max-w-md">
             {[
               { id: "US_CA", label: "US / Canada" },
               { id: "EU", label: "Europe" },
@@ -91,7 +91,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
                   key={reg.id}
                   type="button"
                   onClick={() => setHapagRegion(reg.id as any)}
-                  className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all duration-200 select-none ${
+                  className={`flex-1 py-2 px-3 min-h-[44px] flex items-center justify-center rounded-md text-xs font-medium transition-all duration-200 select-none ${
                     active 
                       ? "bg-blue-600 text-white shadow-sm" 
                       : "text-slate-600 dark:text-white/60 hover:text-slate-900 dark:hover:text-white hover:bg-slate-300/30 dark:hover:bg-white/5"
@@ -106,7 +106,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
       )}
 
       {/* Route Row (Origin & Destination) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in-up stagger-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in-up stagger-1">
         <PortAutocomplete
           label="Origin"
           value={origin}
@@ -134,15 +134,15 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
       )}
 
       {/* Container Details & Weight Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in-up stagger-2">
-        <div className="md:col-span-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 animate-fade-in-up stagger-2">
+        <div className="sm:col-span-2">
           <label className={labelClass}>Container Types</label>
-          <div className="flex flex-wrap gap-4 mt-2.5">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2.5 sm:gap-3 mt-2.5">
             {CONTAINER_TYPES.map((ct) => {
               const isSelected = containerTypes.includes(ct);
               const displayName = ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct;
               return (
-                <label key={ct} className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700 dark:text-white/80 select-none">
+                <label key={ct} className="flex items-center gap-2.5 px-3.5 py-2.5 min-h-[44px] bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl cursor-pointer text-sm font-medium text-slate-700 dark:text-white/80 select-none transition-all hover:bg-slate-200 dark:hover:bg-white/10">
                   <input
                     type="checkbox"
                     checked={isSelected}
@@ -172,7 +172,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
             type="number"
             value={weight}
             onChange={(e) => setWeight(parseFloat(e.target.value) || 0)}
-            className={inputClass}
+            className={`${inputClass} min-h-[44px]`}
             min={0}
           />
         </div>
@@ -182,7 +182,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
       <button
         type="submit"
         disabled={isLoading || carriers.length === 0}
-        className="w-full py-3 px-6 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 btn-interactive btn-gradient shine-on-hover"
+        className="w-full py-3.5 px-6 min-h-[44px] rounded-xl font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 btn-interactive btn-gradient shine-on-hover flex items-center justify-center"
       >
         {isLoading ? (
           <span className="flex items-center justify-center gap-2">
@@ -193,6 +193,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
           "🔍 Search Rates"
         )}
       </button>
+
     </form>
   );
 }
