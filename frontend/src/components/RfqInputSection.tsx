@@ -11,27 +11,27 @@ interface RfqInputSectionProps {
 
 const DEMO_EXAMPLES = [
   {
-    title: "1. Air: Hitachi Lithium",
+    title: "Example: Air enquiry (Lithium DG)",
     text: "Dear All,\nPlease quote cheap and best EXW airfreight rates;\nCollect from: Hitachi Asia Ltd (ICE), 30 Pioneer Crescent #10-15, Singapore 628560\nCommodity: HITACHI PRINTERS -LITHIUM METAL BATTERIES IN COMPLIANCE WITH SECTION II OF PI 970\nDim: 64x53x74 cm/10 pkgs\nGross weight: 320 kg\nHS CODE: 84433100\nBest Regards, Mohammed Shamnad"
   },
   {
-    title: "2. Air: Hi Glenn (KUL)",
+    title: "Example: Air enquiry (KUL)",
     text: "Hi Glenn,\nGood Day\nKindly advise us air rates for below:\nPOL: Singapore Airport\nPOD: KUL\nCommodity: Machines Part Accessories\n2 Crates / Sets\nDimension: 186 x 32 x 37 cm H - 2 Crates\nGross Weight: 320.00 kgs (160 kgs x 2 crates)\nPlease provide available flight schedule and transit time. Thank you"
   },
   {
-    title: "3. Ocean: Steel Plate (34 Pairs)",
+    title: "Example: Ocean (Steel Plate 34 pairs)",
     text: "Hi Toby, Shona and Bethy.\nGood day.\nPlease compile rates from ex Pasir Gudang / Tanjung Pelepas for 20' & 40' as follows.\nCommodity: Steel Plate, Steel Coil.\n1) Koper, Slovenia\n2) Nagoya, Japan\n4) Thessaloniki, Greece\n5) Liverpool, England\n6) Colombo, Sri Lanka\n7) Chiba, Japan\n8) Montreal, Canada\n9) Baltimore, US\n10) Toronto (Halifax), Canada\n11) Toronto (Vancouver), Canada\n12) Winnipeg, Canada\n13) Vancouver, Canada\n14) Houston, US\n15) Kaohsiung, Taiwan\n16) Chattogram, Bangladesh\n17) Manzanillo, Mexico\n18) Bourges, France"
   },
   {
-    title: "4. Ocean: Pak Shaun (PK → JKT)",
+    title: "Example: Messy email (PK to JKT)",
     text: "Hi team, need rate for 10x20GP from PK to JKT. Urgent for this week. Also have another 15x20 and 10x20 coming up next week. Using 2 forwarders currently, please try USD 70-80 target rate if possible. Thanks, Pak Shaun."
   },
   {
-    title: "5. Guardrail: Reefer Container",
+    title: "Example: Reefer (Special Equip)",
     text: "Hi team, please check ocean freight rate for 1x40' Reefer container from Singapore to Hamburg. Weight 18,000 kg."
   },
   {
-    title: "6. Guardrail: LCL Shipment",
+    title: "Example: LCL (Consolidation)",
     text: "Hi team, please quote rate for 4 CBM LCL consolidation shipment from Singapore to Hamburg."
   }
 ];
@@ -46,7 +46,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
 
   const handleParse = async (textToParse: string) => {
     if (!textToParse.trim()) {
-      toast.error("Please paste an RFQ email or message before parsing.");
+      toast.error("Please paste an enquiry email before reading.");
       return;
     }
 
@@ -59,17 +59,17 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
       setParseResult(result);
 
       if (result.status === "air_draft_generated") {
-        toast.info("✈️ Air freight RFQ detected! Dual forwarder email drafts generated below.");
+        toast.info("✈️ Air freight enquiry detected! Partner email drafts generated below.");
       } else if (result.status === "unsupported_cargo") {
         toast.warning(result.unsupported_reason || "Unsupported cargo equipment or LCL mode detected.");
       } else if (result.status === "success" && result.parsed_fields) {
-        toast.success("🚢 Ocean RFQ parsed successfully! Search fields pre-filled below.");
+        toast.success("🚢 Ocean enquiry read successfully! Search details filled below.");
         onParsedSuccess(result.parsed_fields);
       } else if (result.status === "needs_clarification") {
         toast.warning("Clarification required before search.");
       }
     } catch (err: any) {
-      toast.error(err.message || "Failed to parse RFQ");
+      toast.error(err.message || "Failed to read email details");
     } finally {
       setIsParsing(false);
     }
@@ -112,24 +112,24 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center text-white text-sm shadow-md">
-            🤖
+            ✉️
           </div>
           <div>
             <h2 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-              Gemini AI RFQ Front Door
+              Quote from an email
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                Air & FCL Ocean Classifier
+                Air & Ocean Email Reader
               </span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-white/50">
-              Paste an email inquiry — AI classifies Air/Ocean mode, checks FCL Dry container compatibility, or drafts partner emails.
+              Paste a customer's enquiry email and AI fills in the search for you — for ocean and air.
             </p>
           </div>
         </div>
 
         {/* Preset Demo Buttons */}
         <div className="hidden lg:flex items-center gap-1.5 flex-wrap justify-end">
-          <span className="text-[11px] text-slate-400 font-medium mr-1">Presets:</span>
+          <span className="text-[11px] text-slate-400 font-medium mr-1">Examples:</span>
           {DEMO_EXAMPLES.map((ex, idx) => (
             <button
               key={idx}
@@ -154,9 +154,9 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               setRfqText(e.target.value);
               if (parseResult) setParseResult(null);
             }}
-            placeholder="Paste raw RFQ email or chat message here (Airfreight, FCL Ocean, Multi-destination)..."
+            placeholder={`Paste a customer enquiry here, e.g.—\n"Hi, please quote 2x40HQ from Singapore to Rotterdam, commodity furniture, ready early August."\nWorks for ocean and air enquiries, including multiple destinations.`}
             rows={3}
-            className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/30 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all font-mono resize-y"
+            className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/40 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all font-mono resize-y"
           />
         </div>
 
@@ -187,11 +187,11 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             {isParsing ? (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Classifying & Parsing RFQ…
+                Reading email & filling details…
               </>
             ) : (
               <>
-                ✨ Parse RFQ & Classify
+                ✨ Read email & fill form
               </>
             )}
           </button>
@@ -210,24 +210,23 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
           )}
         </div>
 
-
-        {/* Mode Indicator & Confidence Banner */}
+        {/* Mode Indicator & Plain Caption Banner */}
         {parseResult && parseResult.status !== "unsupported_cargo" && (
           <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-white/10 text-xs">
-            <span className="text-slate-500 dark:text-slate-400 font-medium">Classification:</span>
+            <span className="text-slate-500 dark:text-slate-400 font-medium">Detected Mode:</span>
             {parseResult.mode === "air" ? (
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-500/20 text-sky-600 dark:text-sky-300 border border-sky-500/30 flex items-center gap-1.5">
-                ✈️ AIR FREIGHT ({Math.round((parseResult.confidence || 1) * 100)}% Confidence)
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-500/20 text-sky-600 dark:text-sky-300 border border-sky-500/30 flex items-center gap-1.5" title="AI detected this is an air enquiry.">
+                ✈️ AIR FREIGHT (AI detected this is an air enquiry)
               </span>
             ) : (
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/30 flex items-center gap-1.5">
-                🚢 OCEAN FREIGHT (FCL) ({Math.round((parseResult.confidence || 1) * 100)}% Confidence)
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/30 flex items-center gap-1.5" title="AI detected this is an ocean enquiry.">
+                🚢 OCEAN FREIGHT (AI detected this is an ocean enquiry)
               </span>
             )}
 
             {parseResult.matched_keywords && parseResult.matched_keywords.length > 0 && (
               <span className="text-[11px] text-slate-400">
-                Matched signals: <code className="text-slate-700 dark:text-slate-300">{parseResult.matched_keywords.join(", ")}</code>
+                Matched terms: <code className="text-slate-700 dark:text-slate-300">{parseResult.matched_keywords.join(", ")}</code>
               </span>
             )}
           </div>
@@ -262,7 +261,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               <span className="text-xl flex-shrink-0">✉️</span>
               <div className="flex-1">
                 <span className="font-bold text-sm text-sky-700 dark:text-sky-300 block mb-0.5">
-                  Air Freight Inquiries (No Ocean Scrape Triggered)
+                  Air Freight Partner Email Drafts
                 </span>
                 <p className="text-slate-600 dark:text-slate-300">
                   Two competing draft emails generated for human review before sending to our air-freight rate partners.
@@ -364,11 +363,18 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
         {/* Ocean Success Banner */}
         {parseResult && parseResult.status === "success" && (
           <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs space-y-3 backdrop-blur-md animate-fade-in-up">
+            
+            {/* Draft Review Frame Confirmation Banner */}
+            <div className="p-2.5 bg-purple-500/15 border border-purple-500/25 rounded-lg text-purple-900 dark:text-purple-200 font-medium text-xs flex items-center gap-2">
+              <span className="text-base flex-shrink-0">📝</span>
+              <span>We read your email and filled in the details below — please check and edit before searching.</span>
+            </div>
+
             <div className="flex items-start gap-2.5">
               <span className="text-base flex-shrink-0">✅</span>
               <div className="flex-1">
                 <span className="font-semibold block text-sm mb-0.5 text-emerald-800 dark:text-emerald-200">
-                  Ocean RFQ Parsed Successfully (FCL Dry)
+                  Email Details Extracted Successfully (FCL Dry)
                 </span>
                 Search parameters pre-filled below. Review before submitting rate search.
                 
@@ -394,7 +400,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             {parseResult.sales_notes && (
               <div className="p-3 bg-purple-500/15 border border-purple-500/30 rounded-xl text-purple-900 dark:text-purple-200 text-xs space-y-2">
                 <div className="font-bold flex items-center gap-1.5 text-purple-800 dark:text-purple-300">
-                  <span>💼 Sales Desk Intelligence (Commercial Signals Extracted):</span>
+                  <span>💼 Sales Desk Notes (Commercial Signals Extracted):</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
                   {parseResult.sales_notes.target_rate && (
