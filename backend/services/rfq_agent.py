@@ -592,7 +592,14 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
 
 
-async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow_str: str, gemini_key: str) -> str:
+async def _call_native_gemini_api(
+    raw_text: str,
+    current_date_str: str,
+    tomorrow_str: str,
+    gemini_key: str,
+    image_b64: Optional[str] = None,
+    image_mime: Optional[str] = None
+) -> str:
     import httpx
     
     formatted_system_prompt = SYSTEM_PROMPT.format(
@@ -601,15 +608,36 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
     )
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+
     
+    parts = []
+    if image_b64 and image_mime:
+        clean_mime = image_mime.lower().strip()
+        if clean_mime not in ["image/png", "image/jpeg", "image/jpg", "image/webp"]:
+            raise ValueError(f"Unsupported image type '{image_mime}'. Allowed formats: PNG, JPG, WEBP.")
+        
+        clean_b64 = image_b64.strip()
+        if "," in clean_b64:
+            clean_b64 = clean_b64.split(",", 1)[1]
+            
+        parts.append({
+            "inline_data": {
+                "mime_type": clean_mime if clean_mime != "image/jpg" else "image/jpeg",
+                "data": clean_b64
+            }
+        })
+    
+    prompt_text = (
+        f"{formatted_system_prompt}\n\nOUTPUT FORMAT:\n"
+        f"Return a single JSON object with these keys: mode ('air'|'sea'), confidence (float), matched_keywords (list), origin, origins (list), destination, destinations (list), container_types (list), container_quantity (int/null), weight_per_container_kg (float/null), total_weight_kg (float/null), weight_display_str, dimensions_display_str, package_count_str, is_dangerous_goods (bool), compliance_notes, hs_code, commodity, departure_date, future_volume, competitive_pressure, urgency, target_rate, is_complete (bool), missing_fields (list), clarification_question.\n\n"
+        f"RFQ ENQUIRY TO PARSE:\n{raw_text.strip() if raw_text else 'Extract and parse details directly from the attached screenshot image.'}"
+    )
+    parts.append({"text": prompt_text})
+
     payload = {
         "contents": [
             {
-                "parts": [
-                    {
-                        "text": f"{formatted_system_prompt}\n\nOUTPUT FORMAT:\nReturn a single JSON object with these keys: mode ('air'|'sea'), confidence (float), matched_keywords (list), origin, origins (list), destination, destinations (list), container_types (list), container_quantity (int/null), weight_per_container_kg (float/null), total_weight_kg (float/null), weight_display_str, dimensions_display_str, package_count_str, is_dangerous_goods (bool), compliance_notes, hs_code, commodity, departure_date, future_volume, competitive_pressure, urgency, target_rate, is_complete (bool), missing_fields (list), clarification_question.\n\nRFQ TO PARSE:\n{raw_text}"
-                    }
-                ]
+                "parts": parts
             }
         ],
         "generationConfig": {
@@ -623,7 +651,7 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         "x-goog-api-key": gemini_key
     }
     
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=35.0) as client:
         res = await client.post(url, json=payload, headers=headers)
         if res.status_code != 200:
             raise RuntimeError(f"Gemini API error ({res.status_code}): {res.text}")
@@ -635,20 +663,40 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
             raise ValueError(f"Unexpected response structure from Gemini API: {response_json}") from ex
 
 
-async def parse_rfq(raw_text: str) -> RFQParseResult:
+async def parse_rfq(
+    raw_text: str = "",
+    image_b64: Optional[str] = None,
+    image_mime: Optional[str] = None
+) -> RFQParseResult:
     """
-    Parses free-text RFQ message into structured RFQParseResult using Native Google Gemini API (gemini-2.5-flash).
-    Includes deterministic port alias resolution, abbreviation guardrails, and sales notes extraction.
+    Parses free-text or multimodal screenshot RFQ into structured RFQParseResult using Native Google Gemini API (gemini-2.5-flash).
+    Includes image validation (5MB max limit, PNG/JPG/WEBP allowed), port/airport alias resolution, guardrails, and draft generation.
     """
-    if not raw_text or not raw_text.strip():
+    has_text = bool(raw_text and raw_text.strip())
+    has_image = bool(image_b64 and image_b64.strip())
+
+    if not has_text and not has_image:
         return RFQParseResult(
             status="needs_clarification",
             mode="sea",
             confidence=0.0,
             parsed_fields=None,
-            clarification_question="The RFQ text was empty. Please paste an RFQ email or inquiry details.",
-            missing_fields=["text"]
+            clarification_question="Please paste enquiry text or upload a screenshot image before reading.",
+            missing_fields=["input"]
         )
+
+    # Validate image MIME type & size (5MB max)
+    if has_image:
+        if image_mime:
+            clean_mime = image_mime.lower().strip()
+            if clean_mime not in ["image/png", "image/jpeg", "image/jpg", "image/webp"]:
+                raise ValueError(f"Unsupported image type '{image_mime}'. Allowed formats: PNG, JPG, WEBP.")
+
+        clean_b64 = image_b64.split(",", 1)[1] if "," in image_b64 else image_b64
+        approx_size_bytes = len(clean_b64) * 0.75
+        if approx_size_bytes > 5 * 1024 * 1024:
+            raise ValueError("Image file size exceeds 5MB limit. Please upload a smaller screenshot.")
+
 
     now = datetime.now()
     current_date_str = now.strftime("%Y-%m-%d")
@@ -661,7 +709,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
 
     if (is_mock_env or is_test_env) and not gemini_key:
         print("[RFQ Agent] Using mock parser (RFQ_AGENT_MOCK or test environment active)")
-        return _run_mock_parse(raw_text, current_date_str)
+        return _run_mock_parse(raw_text or "image input", current_date_str)
 
     if not gemini_key:
         raise ValueError(
@@ -693,8 +741,9 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
     print(f"[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash)...")
     
     try:
-        raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key)
+        raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key, image_b64=image_b64, image_mime=image_mime)
     except Exception as e:
+
         print(f"[RFQ Agent] Native Gemini API call failed: {e}")
         if is_mock_env or is_test_env:
             return _run_mock_parse(raw_text, current_date_str)

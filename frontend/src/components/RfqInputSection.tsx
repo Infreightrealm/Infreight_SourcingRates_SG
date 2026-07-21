@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { parseRfq } from "@/lib/api";
 import type { RateSearchRequest, RFQParseResult } from "@/lib/types";
 import { toast } from "sonner";
@@ -38,15 +38,57 @@ const DEMO_EXAMPLES = [
 
 export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProps) {
   const [rfqText, setRfqText] = useState("");
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [imageMime, setImageMime] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [parseResult, setParseResult] = useState<RFQParseResult | null>(null);
   const [clarificationInput, setClarificationInput] = useState("");
   const [showDebug, setShowDebug] = useState(false);
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
 
-  const handleParse = async (textToParse: string) => {
-    if (!textToParse.trim()) {
-      toast.error("Please paste an enquiry email before reading.");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const processFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please upload an image file (PNG, JPG, or WEBP).");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File size exceeds 5MB limit. Please upload a smaller screenshot.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setImagePreview(result);
+      setImageMime(file.type);
+      setImageBase64(result);
+      if (parseResult) setParseResult(null);
+      toast.success(`Loaded screenshot (${(file.size / 1024).toFixed(0)} KB)`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      processFile(e.target.files[0]);
+    }
+  };
+
+  const handleParse = async (textToParse: string, imgB64?: string | null, imgMime?: string | null) => {
+    if (!textToParse.trim() && !imgB64) {
+      toast.error("Please paste an enquiry text or upload a screenshot image.");
       return;
     }
 
@@ -55,7 +97,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
     setSelectedPairIndex(0);
 
     try {
-      const result = await parseRfq(textToParse);
+      const result = await parseRfq(textToParse, imgB64 || undefined, imgMime || undefined);
       setParseResult(result);
 
       if (result.status === "air_draft_generated") {
@@ -69,7 +111,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
         toast.warning("Clarification required before search.");
       }
     } catch (err: any) {
-      toast.error(err.message || "Failed to read email details");
+      toast.error(err.message || "Failed to read enquiry details");
     } finally {
       setIsParsing(false);
     }
@@ -82,7 +124,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
     const updatedText = `${rfqText}\nClarification update: ${clarificationInput.trim()}`;
     setRfqText(updatedText);
     setClarificationInput("");
-    handleParse(updatedText);
+    handleParse(updatedText, imageBase64, imageMime);
   };
 
   const handlePairSelect = (index: number) => {
@@ -118,11 +160,11 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             <h2 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
               Quote from an email
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                Air & Ocean Email Reader
+                Air & Ocean Reader (Text + Multimodal Vision)
               </span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-white/50">
-              Paste a customer's enquiry email and AI fills in the search for you — for ocean and air.
+              Paste a customer's enquiry email or upload a screenshot — AI vision fills in the search for you.
             </p>
           </div>
         </div>
@@ -136,6 +178,9 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               type="button"
               onClick={() => {
                 setRfqText(ex.text);
+                setImageBase64(null);
+                setImageMime(null);
+                setImagePreview(null);
                 setParseResult(null);
               }}
               className="px-2 py-1 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10 transition-all select-none"
@@ -147,17 +192,83 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
       </div>
 
       <div className="space-y-4">
-        <div>
-          <textarea
-            value={rfqText}
-            onChange={(e) => {
-              setRfqText(e.target.value);
-              if (parseResult) setParseResult(null);
-            }}
-            placeholder={`Paste a customer enquiry here, e.g.—\n"Hi, please quote 2x40HQ from Singapore to Rotterdam, commodity furniture, ready early August."\nWorks for ocean and air enquiries, including multiple destinations.`}
-            rows={3}
-            className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/40 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all font-mono resize-y"
-          />
+        {/* Dual Input Section: Textarea + Multimodal Screenshot Drop Zone Side-by-Side */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+          
+          {/* Text Area (Left / Top Column: 7 cols) */}
+          <div className="md:col-span-7 flex flex-col space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-white/40 flex items-center justify-between">
+              <span>Paste Enquiry Text</span>
+              <span className="text-[10px] text-slate-400 font-normal">Plain text email / chat</span>
+            </label>
+            <textarea
+              value={rfqText}
+              onChange={(e) => {
+                setRfqText(e.target.value);
+                if (parseResult) setParseResult(null);
+              }}
+              placeholder={`Paste a customer enquiry here, e.g.—\n"Hi, please quote 2x40HQ from Singapore to Rotterdam, commodity furniture, ready early August."\nWorks for ocean and air enquiries, including multiple destinations.`}
+              rows={4}
+              className="w-full flex-1 min-h-[110px] px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/40 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all font-mono resize-y"
+            />
+          </div>
+
+          {/* Screenshot Drop Zone (Right / Bottom Column: 5 cols) */}
+          <div className="md:col-span-5 flex flex-col space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-white/40 flex items-center justify-between">
+              <span>Upload Screenshot</span>
+              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-normal">AI Vision Input</span>
+            </label>
+
+            {imagePreview ? (
+              <div className="relative border border-purple-500/30 rounded-xl p-2 bg-slate-50 dark:bg-white/5 flex flex-col items-center justify-center flex-1 min-h-[110px]">
+                <img
+                  src={imagePreview}
+                  alt="RFQ Screenshot Preview"
+                  className="max-h-24 max-w-full object-contain rounded-lg shadow-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImageBase64(null);
+                    setImageMime(null);
+                    setImagePreview(null);
+                    if (parseResult) setParseResult(null);
+                  }}
+                  className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1"
+                >
+                  ✕ Remove Screenshot
+                </button>
+              </div>
+            ) : (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center flex-1 min-h-[110px] text-center cursor-pointer transition-all ${
+                  isDragging
+                    ? "border-purple-500 bg-purple-500/10"
+                    : "border-slate-300 dark:border-white/15 hover:border-purple-500/50 hover:bg-slate-100 dark:hover:bg-white/5"
+                }`}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <span className="text-xl mb-1">🖼️</span>
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Drop enquiry screenshot or click to upload
+                </span>
+                <span className="text-[10px] text-slate-400 mt-0.5">
+                  PNG, JPG, WEBP (Max 5MB)
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Preset Buttons for mobile / small screens */}
@@ -168,6 +279,9 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               type="button"
               onClick={() => {
                 setRfqText(ex.text);
+                setImageBase64(null);
+                setImageMime(null);
+                setImagePreview(null);
                 setParseResult(null);
               }}
               className="px-2 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10"
@@ -180,27 +294,30 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => handleParse(rfqText)}
-            disabled={isParsing || !rfqText.trim()}
+            onClick={() => handleParse(rfqText, imageBase64, imageMime)}
+            disabled={isParsing || (!rfqText.trim() && !imageBase64)}
             className="px-6 py-3 min-h-[44px] justify-center rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md shadow-purple-500/20 flex items-center gap-2"
           >
             {isParsing ? (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Reading email & filling details…
+                {imageBase64 ? "Reading screenshot with AI vision…" : "Reading enquiry & filling details…"}
               </>
             ) : (
               <>
-                ✨ Read email & fill form
+                ✨ Read enquiry & fill form
               </>
             )}
           </button>
 
-          {rfqText && (
+          {(rfqText || imageBase64) && (
             <button
               type="button"
               onClick={() => {
                 setRfqText("");
+                setImageBase64(null);
+                setImageMime(null);
+                setImagePreview(null);
                 setParseResult(null);
               }}
               className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 py-2 sm:py-0 text-center"
@@ -284,7 +401,6 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                 )}
               </div>
             </div>
-
 
             {/* Dangerous Goods Alert */}
             {parseResult.is_dangerous_goods && (
@@ -384,14 +500,14 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             {/* Draft Review Frame Confirmation Banner */}
             <div className="p-2.5 bg-purple-500/15 border border-purple-500/25 rounded-lg text-purple-900 dark:text-purple-200 font-medium text-xs flex items-center gap-2">
               <span className="text-base flex-shrink-0">📝</span>
-              <span>We read your email and filled in the details below — please check and edit before searching.</span>
+              <span>We read your enquiry and filled in the details below — please check and edit before searching.</span>
             </div>
 
             <div className="flex items-start gap-2.5">
               <span className="text-base flex-shrink-0">✅</span>
               <div className="flex-1">
                 <span className="font-semibold block text-sm mb-0.5 text-emerald-800 dark:text-emerald-200">
-                  Email Details Extracted Successfully (FCL Dry)
+                  Enquiry Details Extracted Successfully (FCL Dry)
                 </span>
                 Search parameters pre-filled below. Review before submitting rate search.
                 
@@ -481,7 +597,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             <div className="pt-2 border-t border-emerald-500/20 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
               <div>
                 <span className="font-semibold text-emerald-800 dark:text-emerald-200 block mb-1">
-                  🔍 Extracted from raw text ({parseResult.extracted_fields?.length || 0}):
+                  🔍 Extracted fields ({parseResult.extracted_fields?.length || 0}):
                 </span>
                 <div className="flex flex-wrap gap-1">
                   {parseResult.extracted_fields?.map((f) => (

@@ -235,6 +235,34 @@ async def test_openflights_airport_alias_resolution():
     assert info3 is None
 
 
+@pytest.mark.asyncio
+async def test_multimodal_image_rfq_parsing_and_guardrails():
+    """Test Multimodal Image Input validation and parsing."""
+    import base64
+
+    # 1. Reject invalid MIME type
+    try:
+        await parse_rfq(raw_text="", image_b64="c29tZWJhc2U2NA==", image_mime="application/pdf")
+        assert False, "Should have raised ValueError for invalid image MIME type"
+    except ValueError as ve:
+        assert "Unsupported image type" in str(ve)
+
+    # 2. Reject file size over 5MB
+    large_b64 = base64.b64encode(b"0" * (6 * 1024 * 1024)).decode("utf-8")
+    try:
+        await parse_rfq(raw_text="", image_b64=large_b64, image_mime="image/png")
+        assert False, "Should have raised ValueError for image size exceeding 5MB"
+    except ValueError as ve:
+        assert "exceeds 5MB" in str(ve)
+
+    # 3. Valid image base64 input parses correctly via pipeline
+    small_b64 = base64.b64encode(b"fake_image_data_singapore_hamburg_40hq").decode("utf-8")
+    res = await parse_rfq(raw_text="", image_b64=small_b64, image_mime="image/png")
+    assert isinstance(res, RFQParseResult)
+    assert res.status in ["success", "needs_clarification", "air_draft_generated"]
+
+
+
 
 if __name__ == "__main__":
     import asyncio
