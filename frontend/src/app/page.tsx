@@ -154,13 +154,14 @@ function HomeContent() {
       <header className="border-b border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/[0.02] backdrop-blur-xl sticky top-0 z-30 transition-colors">
         <div className="max-w-[98%] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-white dark:bg-white/10 p-1 flex items-center justify-center border border-slate-200 dark:border-white/15 shadow-sm flex-shrink-0">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-white/80 dark:bg-white/10 p-1 flex items-center justify-center border border-slate-200/80 dark:border-white/15 shadow-sm flex-shrink-0">
               <img
                 src="/infreight_logo.png"
                 alt="Infreight Logistics"
                 className="w-full h-full object-contain"
               />
             </div>
+
 
             <div>
               <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
