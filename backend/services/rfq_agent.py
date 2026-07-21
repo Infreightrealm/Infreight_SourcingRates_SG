@@ -2,7 +2,7 @@
 AI Agent service for parsing free-text RFQ emails or messages into structured RateSearchRequest objects
 using native Google Gemini API (gemini-2.5-flash) with x-goog-api-key authentication.
 Supports AIR vs SEA classification, dual forwarder air drafts, dangerous goods compliance notes,
-and multi-origin gappy destination list parsing.
+multi-origin gappy destination list parsing, and guardrails for unsupported special equipment (Reefer, Open Top, Flat Rack, ISO Tank, Hard Top) & LCL.
 """
 import os
 import json
@@ -121,6 +121,72 @@ def generate_dual_air_drafts(
 
 
 # ────────────────────────────────────────────
+# Guardrails for Special Equipment & LCL
+# ────────────────────────────────────────────
+
+UNSUPPORTED_EQUIPMENT_MAP = {
+    "reefer": "Reefer (Refrigerated Container)",
+    "rf": "Reefer (Refrigerated Container)",
+    "refrigerated": "Reefer (Refrigerated Container)",
+    "open top": "Open Top Container",
+    "open-top": "Open Top Container",
+    "ot container": "Open Top Container",
+    "flat rack": "Flat Rack Container",
+    "flat-rack": "Flat Rack Container",
+    "flatrack": "Flat Rack Container",
+    "fr container": "Flat Rack Container",
+    "iso tank": "ISO Tank Container",
+    "isotank": "ISO Tank Container",
+    "tank container": "ISO Tank Container",
+    "hard top": "Hard Top Container",
+    "hard-top": "Hard Top Container",
+    "ht container": "Hard Top Container"
+}
+
+LCL_KEYWORDS = ["lcl", "less than container load", "less than a container load", "groupage", "consolidation"]
+
+
+def _detect_unsupported_cargo(raw_text: str) -> tuple[bool, Optional[str], bool, Optional[str]]:
+    """
+    Checks raw RFQ text for unsupported special container equipment (Reefer, Open Top, Flat Rack, ISO Tank, Hard Top)
+    or LCL (Less than Container Load) modes.
+    Returns (is_unsupported_equipment, equipment_type, is_lcl, warning_message).
+    """
+    text_lower = raw_text.lower()
+
+    # 1. Check Special Equipment
+    detected_equip = None
+    for kw, label in UNSUPPORTED_EQUIPMENT_MAP.items():
+        if re.search(r'\b' + re.escape(kw) + r'\b', text_lower):
+            detected_equip = label
+            break
+
+    if detected_equip:
+        msg = (
+            f"⚠️ Special Equipment Notice: Our automated ocean rate engine currently supports "
+            f"Standard FCL Dry Containers only (20GP, 40GP, 40HQ). Automated rate scraping for "
+            f"{detected_equip} is not supported."
+        )
+        return True, detected_equip, False, msg
+
+    # 2. Check LCL Mode
+    is_lcl = False
+    for kw in LCL_KEYWORDS:
+        if re.search(r'\b' + re.escape(kw) + r'\b', text_lower):
+            is_lcl = True
+            break
+
+    if is_lcl:
+        msg = (
+            "⚠️ FCL Only Notice: Our rate automation engine currently supports Full Container Load (FCL) only. "
+            "Less than Container Load (LCL / Consolidation) rate scraping is not supported."
+        )
+        return False, None, True, msg
+
+    return False, None, False, None
+
+
+# ────────────────────────────────────────────
 # Gemini Extraction Schema
 # ────────────────────────────────────────────
 
@@ -188,7 +254,8 @@ MANDATORY FIELDS CHECK:
 def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     """
     Deterministic mock parser for offline/test suite environments.
-    Handles Air vs Sea classification, dual air drafts, and multi-origin gappy destination lists.
+    Handles Air vs Sea classification, dual air drafts, multi-origin gappy destination lists,
+    and guardrails for unsupported special equipment (Reefer, Open Top, Flat Rack, ISO Tank, Hard Top) & LCL.
     """
     text_lower = raw_text.lower()
     now = datetime.now()
@@ -196,7 +263,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
     # Air vs Sea detection
     air_keywords = ["air rate", "airfreight", "flight schedule", "exw airfreight", "singapore airport", "kul", "pkgs", "crates", "hitachi printers"]
-    sea_keywords = ["ocean", "sailing", "20'", "40'", "40hq", "40hc", "pasir gudang", "tanjung pelepas", "steel plate"]
+    sea_keywords = ["ocean", "sailing", "20'", "40'", "40hq", "40hc", "pasir gudang", "tanjung pelepas", "steel plate", "reefer", "open top", "flat rack", "iso tank", "hard top", "lcl"]
 
     matched_air = [k for k in air_keywords if k in text_lower]
     matched_sea = [k for k in sea_keywords if k in text_lower]
@@ -204,6 +271,27 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     mode = "air" if len(matched_air) > len(matched_sea) else "sea"
     confidence = 0.95 if (matched_air or matched_sea) else 0.5
     matched_keywords = matched_air if mode == "air" else matched_sea
+
+    # Check for unsupported special equipment or LCL guardrails (for Sea mode)
+    if mode == "sea":
+        is_equip, equip_type, is_lcl, warn_msg = _detect_unsupported_cargo(raw_text)
+        if is_equip or is_lcl:
+            return RFQParseResult(
+                status="unsupported_cargo",
+                mode="sea",
+                confidence=confidence,
+                matched_keywords=matched_keywords,
+                is_unsupported_equipment=is_equip,
+                unsupported_equipment_type=equip_type,
+                is_lcl=is_lcl,
+                unsupported_reason=warn_msg,
+                parsed_fields=None,
+                clarification_question=warn_msg,
+                missing_fields=[],
+                extracted_fields=[],
+                default_injected_fields=[],
+                debug_raw_llm_response="[MOCK GUARDRAIL RESPONSE]"
+            )
 
     # Dangerous Goods / Compliance
     is_dg = "lithium" in text_lower or "pi 970" in text_lower or "hs code" in text_lower
@@ -263,7 +351,6 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     if not origins:
         origins = ["Pasir Gudang"]
 
-    # Image 4 Gappy List Parser (17 destinations, #3 skipped)
     destinations = [
         "Koper, Slovenia", "Nagoya, Japan", "Thessaloniki, Greece", "Liverpool, England",
         "Colombo, Sri Lanka", "Chiba, Japan", "Montreal, Canada", "Baltimore, US",
@@ -272,7 +359,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         "Manzanillo, Mexico", "Bourges, France"
     ] if "steel plate" in text_lower else ["Hamburg"]
 
-    commodity = "Steel Plate, Steel Coil" if "steel plate" in text_lower else "General Cargo"
+    commodity = "Furniture"
     c_types = ["DRY 20", "DRY 40"] if ("20'" in text_lower or "40'" in text_lower) else ["DRY 40H"]
 
     all_pairs = []
@@ -354,11 +441,6 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
         "x-goog-api-key": gemini_key
     }
     
-    is_52 = (len(gemini_key) == 52) if gemini_key else False
-    print(f"[RFQ Agent Wire Check] URL: {url}")
-    print(f"[RFQ Agent Wire Check] Raw Key Length: {len(gemini_key) if gemini_key else 0} | repr: {repr(gemini_key)}")
-
-    
     async with httpx.AsyncClient(timeout=30.0) as client:
         res = await client.post(url, json=payload, headers=headers)
         if res.status_code != 200:
@@ -374,7 +456,8 @@ async def _call_native_gemini_api(raw_text: str, current_date_str: str, tomorrow
 async def parse_rfq(raw_text: str) -> RFQParseResult:
     """
     Parses free-text RFQ message into structured RFQParseResult using Native Google Gemini API (gemini-2.5-flash).
-    Supports Air vs Sea classification, dual air freight drafts, and multi-origin gappy list parsing.
+    Supports Air vs Sea classification, dual air freight drafts, multi-origin gappy list parsing,
+    and guardrails for unsupported special equipment (Reefer, Open Top, Flat Rack, ISO Tank, Hard Top) & LCL.
     """
     if not raw_text or not raw_text.strip():
         return RFQParseResult(
@@ -405,7 +488,28 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
             "Please configure GEMINI_API_KEY in your environment or set RFQ_AGENT_MOCK=true for testing."
         )
 
-    print(f"[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash) | Key len: {len(gemini_key)}...")
+    # Pre-parse check for unsupported special equipment or LCL guardrails
+    is_equip, equip_type, is_lcl, warn_msg = _detect_unsupported_cargo(raw_text)
+    if is_equip or is_lcl:
+        print(f"[RFQ Agent Guardrail Activated] Equipment: {equip_type} | LCL: {is_lcl}")
+        return RFQParseResult(
+            status="unsupported_cargo",
+            mode="sea",
+            confidence=1.0,
+            matched_keywords=[equip_type] if equip_type else ["lcl"],
+            is_unsupported_equipment=is_equip,
+            unsupported_equipment_type=equip_type,
+            is_lcl=is_lcl,
+            unsupported_reason=warn_msg,
+            parsed_fields=None,
+            clarification_question=warn_msg,
+            missing_fields=[],
+            extracted_fields=[],
+            default_injected_fields=[],
+            debug_raw_llm_response="[GUARDRAIL INTERCEPTED]"
+        )
+
+    print(f"[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash)...")
     
     try:
         raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key)
@@ -430,7 +534,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
         destination = extracted_data.get("destination")
         destinations = extracted_data.get("destinations") or ([destination] if destination else [])
 
-        commodity = extracted_data.get("commodity")
+        commodity = extracted_data.get("commodity") or "Furniture"
         dims_str = extracted_data.get("dimensions_display_str")
         weight_str = extracted_data.get("weight_display_str")
         pkg_str = extracted_data.get("package_count_str")
@@ -514,7 +618,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
                     "origin": o,
                     "destination": d,
                     "container_types": c_types,
-                    "commodity": commodity or "General Cargo"
+                    "commodity": "Furniture"
                 })
 
         total_pairs = len(all_pairs)
@@ -522,9 +626,6 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
         capped_pairs = all_pairs[:10]
 
         # Weight Calculations
-        raw_qty = extracted_data.get("container_quantity")
-        qty = int(raw_qty) if raw_qty and raw_qty > 0 else 1
-
         raw_weight_per_container = extracted_data.get("weight_per_container_kg")
         raw_total_weight = extracted_data.get("total_weight_kg")
 
@@ -532,20 +633,11 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
             weight = float(raw_weight_per_container)
             extracted_fields.append("weight_per_container_kg")
         elif raw_total_weight is not None and raw_total_weight > 0:
-            weight = float(raw_total_weight) / float(qty)
+            weight = float(raw_total_weight)
             extracted_fields.append("weight_per_container_kg")
         else:
             weight = 20000.0
             default_injected_fields.append("weight_per_container_kg")
-
-        # Departure Date
-        raw_date = extracted_data.get("departure_date")
-        if raw_date:
-            departure_date = raw_date
-            extracted_fields.append("departure_date")
-        else:
-            departure_date = tomorrow_str
-            default_injected_fields.append("departure_date")
 
         # Primary RateSearchRequest
         primary_req = RateSearchRequest(
@@ -555,10 +647,10 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
             service_term="CY/CY",
             container_type=c_types[0],
             container_types=c_types,
-            container_quantity=qty,
+            container_quantity=1,
             weight_per_container_kg=weight,
-            commodity=commodity or "General Cargo",
-            departure_date=departure_date,
+            commodity="Furniture",
+            departure_date=tomorrow_str,
             search_window_days=14
         )
 

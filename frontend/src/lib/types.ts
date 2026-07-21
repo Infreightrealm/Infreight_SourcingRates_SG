@@ -86,18 +86,23 @@ export interface AirDraftEmail {
 }
 
 export interface RFQParseResult {
-  status: "success" | "air_draft_generated" | "needs_clarification";
+  status: "success" | "air_draft_generated" | "needs_clarification" | "unsupported_cargo";
   mode?: "air" | "sea";
   confidence?: number;
   matched_keywords?: string[];
   is_dangerous_goods?: boolean;
   compliance_notes?: string;
   hs_code?: string;
+  is_unsupported_equipment?: boolean;
+  unsupported_equipment_type?: string;
+  is_lcl?: boolean;
+  unsupported_reason?: string;
   air_drafts?: AirDraftEmail[];
   parsed_fields?: RateSearchRequest;
   all_parsed_pairs?: any[];
   total_pairs_found?: number;
   pairs_omitted_count?: number;
+
   clarification_question?: string;
   missing_fields?: string[];
   extracted_fields?: string[];

@@ -5,7 +5,17 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-07-21] — Guardrails for Special Equipment (Reefer, Open Top, Flat Rack, ISO Tank, Hard Top) & LCL Shipments
+
+### RFQ Agent & UI Guardrails
+- **Unsupported Special Equipment Guardrail**: Detects special container equipment requests (`Reefer`, `Open Top`, `Flat Rack`, `ISO Tank`, `Hard Top`) and intercepts automated search execution with an explicit notice explaining that rate scraping currently supports **Standard FCL Dry Containers (20GP, 40GP, 40HQ)** only.
+- **FCL-Only (LCL Guardrail)**: Detects Less than Container Load (`LCL`), `Groupage`, or `Consolidation` requests and alerts the user that rate automation is supported for **Full Container Load (FCL)** only.
+- **Frontend Warning Banners & Presets**: Added preset demo buttons for Reefer & LCL guardrails and styled warning boxes in `RfqInputSection.tsx`.
+
+---
+
 ## [2026-07-20] — Air/Sea RFQ Classification, Dual Forwarder Routing, Multi-Origin Gappy Parsing, Search Form Streamlining & Chatbot Gemini 2.5 Flash
+
 
 ### AI RFQ Front Door & Air Freight Support
 - **Air/Sea Mode Classification:** Added keyword & signal classification (`"air rate"`, `"airfreight"`, `"flight schedule"`, `"EXW airfreight"`, airport IATA codes vs `"ocean"`, `"sailing"`, `"20'"/40'"`, `"Pasir Gudang"`) returning `mode: "air" | "sea"`, confidence scores, and matched keyword signals.

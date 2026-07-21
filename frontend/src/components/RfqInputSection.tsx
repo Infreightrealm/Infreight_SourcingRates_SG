@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { parseRfq } from "@/lib/api";
-import type { RateSearchRequest, RFQParseResult, AirDraftEmail } from "@/lib/types";
+import type { RateSearchRequest, RFQParseResult } from "@/lib/types";
 import { toast } from "sonner";
 
 interface RfqInputSectionProps {
@@ -11,7 +11,7 @@ interface RfqInputSectionProps {
 
 const DEMO_EXAMPLES = [
   {
-    title: "1. Air: Hitachi Lithium (PI 970)",
+    title: "1. Air: Hitachi Lithium",
     text: "Dear All,\nPlease quote cheap and best EXW airfreight rates;\nCollect from: Hitachi Asia Ltd (ICE), 30 Pioneer Crescent #10-15, Singapore 628560\nCommodity: HITACHI PRINTERS -LITHIUM METAL BATTERIES IN COMPLIANCE WITH SECTION II OF PI 970\nDim: 64x53x74 cm/10 pkgs\nGross weight: 320 kg\nHS CODE: 84433100\nBest Regards, Mohammed Shamnad"
   },
   {
@@ -19,12 +19,16 @@ const DEMO_EXAMPLES = [
     text: "Hi Glenn,\nGood Day\nKindly advise us air rates for below:\nPOL: Singapore Airport\nPOD: KUL\nCommodity: Machines Part Accessories\n2 Crates / Sets\nDimension: 186 x 32 x 37 cm H - 2 Crates\nGross Weight: 320.00 kgs (160 kgs x 2 crates)\nPlease provide available flight schedule and transit time. Thank you"
   },
   {
-    title: "3. Air: Hi Jing Hui (KUL)",
-    text: "Hi Jing Hui,\nGood Day\nKindly advise us air rates for below:\nPOL: Singapore Airport\nPOD: KUL\nCommodity: Machines Part Accessories\n2 Crates / Sets\nDimension: 186 x 32 x 37 cm H - 2 Crates\nGross Weight: 320.00 kgs (160 kgs x 2 crates)\nPlease provide available flight schedule and transit time. Thank you."
+    title: "3. Ocean: Steel Plate (34 Pairs)",
+    text: "Hi Toby, Shona and Bethy.\nGood day.\nPlease compile rates from ex Pasir Gudang / Tanjung Pelepas for 20' & 40' as follows.\nCommodity: Steel Plate, Steel Coil.\n1) Koper, Slovenia\n2) Nagoya, Japan\n4) Thessaloniki, Greece\n5) Liverpool, England\n6) Colombo, Sri Lanka\n7) Chiba, Japan\n8) Montreal, Canada\n9) Baltimore, US\n10) Toronto (Halifax), Canada\n11) Toronto (Vancouver), Canada\n12) Winnipeg, Canada\n13) Vancouver, Canada\n14) Houston, US\n15) Kaohsiung, Taiwan\n16) Chattogram, Bangladesh\n17) Manzanillo, Mexico\n18) Bourges, France"
   },
   {
-    title: "4. Ocean: Steel Plate (34 Pairs)",
-    text: "Hi Toby, Shona and Bethy.\nGood day.\nPlease compile rates from ex Pasir Gudang / Tanjung Pelepas for 20' & 40' as follows.\nCommodity: Steel Plate, Steel Coil.\n1) Koper, Slovenia\n2) Nagoya, Japan\n4) Thessaloniki, Greece\n5) Liverpool, England\n6) Colombo, Sri Lanka\n7) Chiba, Japan\n8) Montreal, Canada\n9) Baltimore, US\n10) Toronto (Halifax), Canada\n11) Toronto (Vancouver), Canada\n12) Winnipeg, Canada\n13) Vancouver, Canada\n14) Houston, US\n15) Kaohsiung, Taiwan\n16) Chattogram, Bangladesh\n17) Manzanillo, Mexico\n18) Bourges, France"
+    title: "4. Guardrail: Reefer Container",
+    text: "Hi team, please check ocean freight rate for 1x40' Reefer container from Singapore to Hamburg. Weight 18,000 kg."
+  },
+  {
+    title: "5. Guardrail: LCL Shipment",
+    text: "Hi team, please quote rate for 4 CBM LCL consolidation shipment from Singapore to Hamburg."
   }
 ];
 
@@ -50,6 +54,8 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
 
       if (result.status === "air_draft_generated") {
         toast.info("✈️ Air freight RFQ detected! Dual forwarder email drafts generated below.");
+      } else if (result.status === "unsupported_cargo") {
+        toast.warning(result.unsupported_reason || "Unsupported cargo equipment or LCL mode detected.");
       } else if (result.status === "success" && result.parsed_fields) {
         toast.success("🚢 Ocean RFQ parsed successfully! Search fields pre-filled below.");
         onParsedSuccess(result.parsed_fields);
@@ -61,7 +67,6 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
     } finally {
       setIsParsing(false);
     }
-
   };
 
   const handleClarifySubmit = (e: React.FormEvent) => {
@@ -90,18 +95,18 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             <h2 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
               Gemini AI RFQ Front Door
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                Air & Ocean Classifier
+                Air & FCL Ocean Classifier
               </span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-white/50">
-              Paste an email inquiry — AI classifies Mode (Air/Ocean), drafts partner emails, or pre-fills rate searches.
+              Paste an email inquiry — AI classifies Air/Ocean mode, checks FCL Dry container compatibility, or drafts partner emails.
             </p>
           </div>
         </div>
 
         {/* Preset Demo Buttons */}
-        <div className="hidden lg:flex items-center gap-1.5">
-          <span className="text-[11px] text-slate-400 font-medium mr-1">Demo presets:</span>
+        <div className="hidden lg:flex items-center gap-1.5 flex-wrap justify-end">
+          <span className="text-[11px] text-slate-400 font-medium mr-1">Presets:</span>
           {DEMO_EXAMPLES.map((ex, idx) => (
             <button
               key={idx}
@@ -126,7 +131,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               setRfqText(e.target.value);
               if (parseResult) setParseResult(null);
             }}
-            placeholder="Paste raw RFQ email or chat message here (Airfreight, Ocean, Single or Multi-destination)..."
+            placeholder="Paste raw RFQ email or chat message here (Airfreight, FCL Ocean, Multi-destination)..."
             rows={3}
             className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/30 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all font-mono resize-y"
           />
@@ -183,7 +188,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
         </div>
 
         {/* Mode Indicator & Confidence Banner */}
-        {parseResult && (
+        {parseResult && parseResult.status !== "unsupported_cargo" && (
           <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-white/10 text-xs">
             <span className="text-slate-500 dark:text-slate-400 font-medium">Classification:</span>
             {parseResult.mode === "air" ? (
@@ -192,7 +197,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               </span>
             ) : (
               <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/30 flex items-center gap-1.5">
-                🚢 OCEAN FREIGHT ({Math.round((parseResult.confidence || 1) * 100)}% Confidence)
+                🚢 OCEAN FREIGHT (FCL) ({Math.round((parseResult.confidence || 1) * 100)}% Confidence)
               </span>
             )}
 
@@ -201,6 +206,28 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                 Matched signals: <code className="text-slate-700 dark:text-slate-300">{parseResult.matched_keywords.join(", ")}</code>
               </span>
             )}
+          </div>
+        )}
+
+        {/* Unsupported Equipment or LCL Warning Banner */}
+        {parseResult && parseResult.status === "unsupported_cargo" && (
+          <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-700 dark:text-rose-300 text-xs space-y-3 backdrop-blur-md animate-fade-in-up">
+            <div className="flex items-start gap-2.5">
+              <span className="text-lg flex-shrink-0">🛑</span>
+              <div>
+                <span className="font-bold block text-sm mb-1 text-rose-800 dark:text-rose-200">
+                  {parseResult.is_unsupported_equipment ? "Special Equipment Not Supported" : "LCL Mode Not Supported"}
+                </span>
+                <p className="leading-relaxed font-medium">
+                  {parseResult.unsupported_reason || "Our automated ocean rate engine currently supports Standard FCL Dry Containers (20GP, 40GP, 40HQ) only."}
+                </p>
+                <div className="mt-2.5 p-2.5 bg-rose-500/15 rounded-lg border border-rose-500/20 text-[11px] font-mono leading-relaxed">
+                  ✅ Supported: Standard FCL Dry Containers (20GP, 40GP, 40HQ).
+                  <br />
+                  🚫 Unsupported: Reefer, Open Top, Flat Rack, ISO Tank, Hard Top, and LCL / Consolidation.
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -317,7 +344,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               <span className="text-base flex-shrink-0">✅</span>
               <div className="flex-1">
                 <span className="font-semibold block text-sm mb-0.5 text-emerald-800 dark:text-emerald-200">
-                  Ocean RFQ Parsed Successfully
+                  Ocean RFQ Parsed Successfully (FCL Dry)
                 </span>
                 Search parameters pre-filled below. Review before submitting rate search.
               </div>

@@ -126,23 +126,28 @@ class RFQParseRequest(BaseModel):
 
 
 class RFQParseResult(BaseModel):
-    status: str = Field(..., description="'success', 'air_draft_generated', or 'needs_clarification'")
+    status: str = Field(..., description="'success', 'air_draft_generated', 'needs_clarification', or 'unsupported_cargo'")
     mode: str = Field(default="sea", description="'air' or 'sea'")
     confidence: float = Field(default=1.0, description="Classification confidence score 0.0-1.0")
     matched_keywords: list[str] = Field(default_factory=list, description="Matched keyword signals")
     is_dangerous_goods: bool = Field(default=False, description="True if dangerous goods / compliance detected")
     compliance_notes: Optional[str] = Field(default=None, description="Preserved compliance notes e.g. Lithium Metal Batteries PI 970 Section II")
     hs_code: Optional[str] = Field(default=None, description="HS Code if mentioned in text")
+    is_unsupported_equipment: bool = Field(default=False, description="True if special equipment like Reefer, Open Top, Flat Rack, ISO Tank, Hard Top is detected")
+    unsupported_equipment_type: Optional[str] = Field(default=None, description="Type of unsupported equipment detected")
+    is_lcl: bool = Field(default=False, description="True if LCL / Less than Container Load is detected")
+    unsupported_reason: Optional[str] = Field(default=None, description="Explanation message if shipment uses unsupported equipment or LCL mode")
     air_drafts: Optional[list[dict]] = Field(default=None, description="Dual draft emails for AWOT (Glenn) and ASPAC (Jing Hui)")
     parsed_fields: Optional[RateSearchRequest] = Field(default=None, description="Primary RateSearchRequest if successful")
     all_parsed_pairs: Optional[list[dict]] = Field(default=None, description="All parsed POL-POD pairs for multi-pair RFQs")
     total_pairs_found: int = Field(default=1, description="Total expanded POL-POD pairs found")
     pairs_omitted_count: int = Field(default=0, description="Number of pairs omitted due to search cap")
-    clarification_question: Optional[str] = Field(default=None, description="Question for user if required fields are missing or ambiguous")
+    clarification_question: Optional[str] = Field(default=None, description="Question or warning for user if required fields are missing, ambiguous, or unsupported")
     missing_fields: list[str] = Field(default_factory=list, description="List of missing required fields")
     extracted_fields: list[str] = Field(default_factory=list, description="Fields explicitly extracted from raw text")
     default_injected_fields: list[str] = Field(default_factory=list, description="Fields populated from system defaults")
     debug_raw_llm_response: Optional[str] = Field(default=None, description="Raw response returned by Gemini LLM")
+
 
 
 

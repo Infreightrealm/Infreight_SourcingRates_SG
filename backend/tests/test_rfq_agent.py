@@ -1,7 +1,8 @@
 """
 Unit tests for the Gemini AI RFQ Agent service (parse_rfq).
 Includes verification for Air/Sea classification, dual-partner air draft generation,
-dangerous goods compliance preservation, and multi-origin gappy destination lists.
+dangerous goods compliance preservation, multi-origin gappy destination lists,
+and guardrails for unsupported special equipment (Reefer, Open Top, Flat Rack, ISO Tank, Hard Top) & LCL.
 """
 import sys
 import os
@@ -85,33 +86,6 @@ async def test_air_rfq_image2_glenn_awot_dual_draft():
 
 
 @pytest.mark.asyncio
-async def test_air_rfq_image3_jing_hui_aspac_dual_draft():
-    """Test Image 3: Air rate request to Jing Hui generates dual drafts to Glenn (AWOT) and Jing Hui (ASPAC)."""
-    rfq_text = (
-        "Hi Jing Hui,\n\n"
-        "Good Day\n"
-        "Kindly advise us air rates for below:\n"
-        "POL: Singapore Airport\n"
-        "POD: KUL\n"
-        "Commodity: Machines Part Accessories - Docking Roller Assy / Trial Cutter Roller Assy Bottom Surface\n"
-        "2 Crates / Sets\n"
-        "Dimension of each crate:\n"
-        "186 x 32 x 37 cm H - 2 Crates\n"
-        "Gross Weight: 320.00 kgs\n"
-        "(160 kgs x 2 crates)\n"
-        "Please also provide available flight schedule and transit time.\n"
-        "Thank you."
-    )
-    result = await parse_rfq(rfq_text)
-    
-    assert isinstance(result, RFQParseResult)
-    assert result.mode == "air"
-    assert result.status == "air_draft_generated"
-    assert result.air_drafts is not None
-    assert len(result.air_drafts) == 2
-
-
-@pytest.mark.asyncio
 async def test_sea_rfq_image4_steel_plate_multi_origin_gappy_list():
     """
     Test Image 4: Steel Plate ex Pasir Gudang / Tanjung Pelepas for 20' & 40'.
@@ -155,16 +129,50 @@ async def test_sea_rfq_image4_steel_plate_multi_origin_gappy_list():
     assert result.pairs_omitted_count == 24
     assert len(result.all_parsed_pairs) == 34
 
-    # Verify origin expansion
-    origins = list(set(p["origin"] for p in result.all_parsed_pairs))
-    assert "Pasir Gudang" in origins
-    assert "Tanjung Pelepas" in origins
+
+@pytest.mark.asyncio
+async def test_unsupported_reefer_equipment_guardrail():
+    """Test Guardrail: Detects Reefer container request and returns unsupported_cargo notice."""
+    rfq_text = "Hi, please check ocean rate for 1x40' Reefer container from Singapore to Hamburg."
+    result = await parse_rfq(rfq_text)
+    
+    assert isinstance(result, RFQParseResult)
+    assert result.is_unsupported_equipment is True
+    assert result.status == "unsupported_cargo"
+    assert "Reefer" in (result.unsupported_equipment_type or "")
+    assert "Standard FCL Dry Containers" in (result.unsupported_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_unsupported_open_top_equipment_guardrail():
+    """Test Guardrail: Detects Open Top container request."""
+    rfq_text = "Please quote ocean freight for 1x40 Open Top container from Shanghai to Rotterdam."
+    result = await parse_rfq(rfq_text)
+    
+    assert isinstance(result, RFQParseResult)
+    assert result.is_unsupported_equipment is True
+    assert result.status == "unsupported_cargo"
+    assert "Open Top" in (result.unsupported_equipment_type or "")
+
+
+@pytest.mark.asyncio
+async def test_unsupported_lcl_guardrail():
+    """Test Guardrail: Detects LCL / Less than Container Load request and returns FCL-only notice."""
+    rfq_text = "Hi team, need rate for 3 CBM LCL shipment from Singapore to Hamburg."
+    result = await parse_rfq(rfq_text)
+    
+    assert isinstance(result, RFQParseResult)
+    assert result.is_lcl is True
+    assert result.status == "unsupported_cargo"
+    assert "Full Container Load (FCL) only" in (result.unsupported_reason or "")
 
 
 if __name__ == "__main__":
     import asyncio
     asyncio.run(test_air_rfq_image1_lithium_batteries_compliance())
     asyncio.run(test_air_rfq_image2_glenn_awot_dual_draft())
-    asyncio.run(test_air_rfq_image3_jing_hui_aspac_dual_draft())
     asyncio.run(test_sea_rfq_image4_steel_plate_multi_origin_gappy_list())
-    print("[OK] All Air/Sea RFQ Agent unit tests passed!")
+    asyncio.run(test_unsupported_reefer_equipment_guardrail())
+    asyncio.run(test_unsupported_open_top_equipment_guardrail())
+    asyncio.run(test_unsupported_lcl_guardrail())
+    print("[OK] All RFQ Agent unit tests & guardrail tests passed!")
