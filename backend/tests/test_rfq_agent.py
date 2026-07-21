@@ -212,6 +212,30 @@ async def test_unsupported_lcl_guardrail():
     assert result.status == "unsupported_cargo"
 
 
+@pytest.mark.asyncio
+async def test_openflights_airport_alias_resolution():
+    """Test OpenFlights 6,072 IATA airport dataset and shorthand alias resolution."""
+    from services.rfq_agent import resolve_airport_alias
+
+    # 1. Alias shorthand ('changi' -> SIN)
+    info1, disp1, unmapped1 = resolve_airport_alias("changi")
+    assert unmapped1 is False
+    assert info1["iata"] == "SIN"
+    assert "Singapore Changi Airport" in disp1
+
+    # 2. Exact IATA lookup ('KUL' -> Kuala Lumpur International Airport)
+    info2, disp2, unmapped2 = resolve_airport_alias("KUL")
+    assert unmapped2 is False
+    assert info2["iata"] == "KUL"
+    assert "Kuala Lumpur International Airport" in disp2
+
+    # 3. Unmapped airport code -> triggers needs_clarification (never guess)
+    info3, disp3, unmapped3 = resolve_airport_alias("XYZUNKNOWN99")
+    assert unmapped3 is True
+    assert info3 is None
+
+
+
 if __name__ == "__main__":
     import asyncio
     asyncio.run(test_pak_shaun_email_fixture_port_aliases_and_sales_notes())

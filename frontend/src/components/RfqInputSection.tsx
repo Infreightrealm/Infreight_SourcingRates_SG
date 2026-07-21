@@ -264,10 +264,27 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                   Air Freight Partner Email Drafts
                 </span>
                 <p className="text-slate-600 dark:text-slate-300">
-                  Two competing draft emails generated for human review before sending to our air-freight rate partners.
+                  Three competing draft emails generated for human review before sending to our air-freight rate partners.
                 </p>
+
+                {/* Resolved Airport Displays */}
+                {(parseResult.origin_display || parseResult.destination_display) && (
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-mono">
+                    {parseResult.origin_display && (
+                      <span className="px-2.5 py-1 bg-sky-500/20 rounded-lg border border-sky-500/30 text-sky-900 dark:text-sky-100 font-semibold">
+                        📍 POL Airport: {parseResult.origin_display}
+                      </span>
+                    )}
+                    {parseResult.destination_display && (
+                      <span className="px-2.5 py-1 bg-sky-500/20 rounded-lg border border-sky-500/30 text-sky-900 dark:text-sky-100 font-semibold">
+                        🏁 POD Airport: {parseResult.destination_display}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
+
 
             {/* Dangerous Goods Alert */}
             {parseResult.is_dangerous_goods && (

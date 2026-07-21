@@ -79,6 +79,76 @@ def _load_port_aliases_config() -> dict[str, str]:
     }
 
 
+def _load_airports_iata_config() -> dict[str, dict]:
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "airports_iata.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[RFQ Agent] Warning loading airports_iata.json: {e}")
+    return {}
+
+
+def _load_airport_aliases_config() -> dict[str, str]:
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "airport_aliases.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[RFQ Agent] Warning loading airport_aliases.json: {e}")
+    return {
+        "changi": "SIN",
+        "singapore airport": "SIN",
+        "kl": "KUL",
+        "klia": "KUL"
+    }
+
+
+def resolve_airport_alias(airport_str: Optional[str]) -> tuple[Optional[dict], Optional[str], bool]:
+    """
+    Resolves an Air-RFQ origin/destination string against OpenFlights airports_iata.json (6,072 entries)
+    and non-standard airport_aliases.json.
+    Returns (airport_dict, display_str, requires_clarification).
+    Display format: "Singapore Changi Airport, Singapore (SIN)"
+    - Step 1: Try airport_aliases.json first ('changi' -> 'SIN', 'kl' -> 'KUL')
+    - Step 2: Exact IATA lookup ('SIN' -> { iata: 'SIN', name: 'Singapore Changi Airport', city: 'Singapore', country: 'Singapore' })
+    - Step 3: Exact city / airport name match
+    - Step 4: If unresolvable, returns (None, f"Unknown airport '{airport_str}'", True) -> triggers needs_clarification. Never guess!
+    """
+    if not airport_str or not airport_str.strip():
+        return None, None, False
+
+    clean_str = airport_str.strip()
+    key_lower = clean_str.lower()
+
+    aliases_map = _load_airport_aliases_config()
+    airports_map = _load_airports_iata_config()
+
+    # 1. Try shorthand aliases first
+    target_iata = aliases_map.get(key_lower)
+    if not target_iata and len(clean_str) == 3 and clean_str.isalpha():
+        target_iata = clean_str.upper()
+
+    # 2. Exact IATA lookup
+    if target_iata and target_iata.upper() in airports_map:
+        info = airports_map[target_iata.upper()]
+        display = f"{info['name']}, {info['city']} ({info['iata']})"
+        if clean_str.upper() != info['iata']:
+            display += f" [from '{clean_str}']"
+        return info, display, False
+
+    # 3. Match by city or airport name
+    for code, info in airports_map.items():
+        if info.get("city", "").lower() == key_lower or info.get("name", "").lower() == key_lower:
+            display = f"{info['name']}, {info['city']} ({info['iata']})"
+            return info, display, False
+
+    # 4. Return needs_clarification if unresolved. Never guess!
+    return None, f"Unknown airport '{clean_str}'", True
+
+
 def resolve_port_alias(port_str: Optional[str], mode: str = "sea") -> tuple[Optional[str], Optional[str], bool]:
     """
     Deterministically resolves a port string against ports_aliases.json.
@@ -110,6 +180,7 @@ def resolve_port_alias(port_str: Optional[str], mode: str = "sea") -> tuple[Opti
         return clean_str, f"Unknown code '{clean_str}'", True
 
     return clean_str, clean_str, False
+
 
 
 
@@ -694,9 +765,54 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
 
         # 1. Handle AIR Mode
         if mode == "air":
+            air_resolved_origins = []
+            air_origin_displays = []
+            for o in raw_origins:
+                air_info_o, disp_o, unmapped_o = resolve_airport_alias(o)
+                if unmapped_o:
+                    msg = f"Origin airport code/name '{o}' → Unknown airport. Please confirm airport name or 3-letter IATA code."
+                    return RFQParseResult(
+                        status="needs_clarification",
+                        mode="air",
+                        confidence=confidence,
+                        parsed_fields=None,
+                        clarification_question=msg,
+                        missing_fields=["origin"]
+                    )
+                if air_info_o:
+                    air_resolved_origins.append(f"{air_info_o['name']}, {air_info_o['city']} ({air_info_o['iata']})")
+                else:
+                    air_resolved_origins.append(disp_o or o)
+                if disp_o:
+                    air_origin_displays.append(disp_o)
+
+            air_resolved_destinations = []
+            air_dest_displays = []
+            for d in raw_destinations:
+                air_info_d, disp_d, unmapped_d = resolve_airport_alias(d)
+                if unmapped_d:
+                    msg = f"Destination airport code/name '{d}' → Unknown airport. Please confirm airport name or 3-letter IATA code."
+                    return RFQParseResult(
+                        status="needs_clarification",
+                        mode="air",
+                        confidence=confidence,
+                        parsed_fields=None,
+                        clarification_question=msg,
+                        missing_fields=["destination"]
+                    )
+                if air_info_d:
+                    air_resolved_destinations.append(f"{air_info_d['name']}, {air_info_d['city']} ({air_info_d['iata']})")
+                else:
+                    air_resolved_destinations.append(disp_d or d)
+                if disp_d:
+                    air_dest_displays.append(disp_d)
+
+            orig_str = air_origin_displays[0] if air_origin_displays else (air_resolved_origins[0] if air_resolved_origins else raw_origin)
+            dest_str = air_dest_displays[0] if air_dest_displays else (air_resolved_destinations[0] if air_resolved_destinations else raw_destination)
+
             drafts = generate_dual_air_drafts(
-                origin=resolved_origins[0] if resolved_origins else raw_origin,
-                destination=resolved_destinations[0] if resolved_destinations else raw_destination,
+                origin=orig_str,
+                destination=dest_str,
                 commodity=extracted_data.get("commodity") or "General Cargo",
                 dimensions=dims_str,
                 weight_info=weight_str,
@@ -710,6 +826,8 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
                 mode="air",
                 confidence=confidence,
                 matched_keywords=matched_keywords,
+                origin_display=air_origin_displays[0] if air_origin_displays else None,
+                destination_display=air_dest_displays[0] if air_dest_displays else None,
                 is_dangerous_goods=is_dg,
                 compliance_notes=compliance_notes,
                 hs_code=hs_code,
@@ -722,6 +840,7 @@ async def parse_rfq(raw_text: str) -> RFQParseResult:
                 default_injected_fields=[],
                 debug_raw_llm_response=raw_llm_json
             )
+
 
         # 2. Handle SEA Mode
         c_types = extracted_data.get("container_types") or ["DRY 40H"]
