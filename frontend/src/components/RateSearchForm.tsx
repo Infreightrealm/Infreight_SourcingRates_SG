@@ -12,9 +12,10 @@ interface RateSearchFormProps {
 }
 
 export default function RateSearchForm({ onSubmit, isLoading, initialValues }: RateSearchFormProps) {
-  const [carriers, setCarriers] = useState<string[]>(["ALL"]);
-  const [origin, setOrigin] = useState("Singapore");
-  const [destination, setDestination] = useState("Hamburg");
+  const [carriers, setCarriers] = useState<string[]>(initialValues?.carriers || ["ALL"]);
+  const [origin, setOrigin] = useState(initialValues?.origin || "Singapore");
+  const [destination, setDestination] = useState(initialValues?.destination || "Hamburg");
+
   const [serviceTerm, setServiceTerm] = useState("CY/CY");
   const [containerTypes, setContainerTypes] = useState<string[]>(["DRY 40H"]);
   const [weight, setWeight] = useState(20000);

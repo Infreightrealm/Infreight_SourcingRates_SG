@@ -54,9 +54,37 @@ function HomeContent() {
       getRateSearchResults(id)
         .then(data => {
           setSearchResult(data);
+          if (data.origin && data.destination) {
+            setParsedRfqFields((prev) => ({
+              carriers: prev?.carriers || ["ALL"],
+              origin: data.origin!,
+              destination: data.destination!,
+              container_types: data.container_types || (data.container_type ? [data.container_type] : ["DRY 40H"]),
+              container_quantity: 1,
+              weight_per_container_kg: prev?.weight_per_container_kg || 20000,
+              commodity: "Furniture",
+              departure_date: "tomorrow",
+              search_window_days: 14,
+              service_term: "CY/CY"
+            }));
+          }
           if (!["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status)) {
             pollRateSearch(id, (updatedData) => {
               setSearchResult(updatedData);
+              if (updatedData.origin && updatedData.destination) {
+                setParsedRfqFields((prev) => ({
+                  carriers: prev?.carriers || ["ALL"],
+                  origin: updatedData.origin!,
+                  destination: updatedData.destination!,
+                  container_types: updatedData.container_types || (updatedData.container_type ? [updatedData.container_type] : ["DRY 40H"]),
+                  container_quantity: 1,
+                  weight_per_container_kg: prev?.weight_per_container_kg || 20000,
+                  commodity: "Furniture",
+                  departure_date: "tomorrow",
+                  search_window_days: 14,
+                  service_term: "CY/CY"
+                }));
+              }
             }).finally(() => setIsLoading(false));
           } else {
             setIsLoading(false);
@@ -72,6 +100,7 @@ function HomeContent() {
   const handleSearch = async (request: RateSearchRequest) => {
     setIsLoading(true);
     setSearchResult(null);
+    setParsedRfqFields(request); // Retain searched origin & destination in form
     
     // Check if it's an "All Carrier" search or many carriers
     if (request.carriers.includes("ALL") || request.carriers.length > 3) {
@@ -94,6 +123,20 @@ function HomeContent() {
       // Poll for results
       await pollRateSearch(search_id, (data) => {
         setSearchResult(data);
+        if (data.origin && data.destination) {
+          setParsedRfqFields((prev) => ({
+            carriers: prev?.carriers || request.carriers,
+            origin: data.origin!,
+            destination: data.destination!,
+            container_types: data.container_types || (data.container_type ? [data.container_type] : ["DRY 40H"]),
+            container_quantity: 1,
+            weight_per_container_kg: prev?.weight_per_container_kg || request.weight_per_container_kg,
+            commodity: "Furniture",
+            departure_date: "tomorrow",
+            search_window_days: 14,
+            service_term: "CY/CY"
+          }));
+        }
       });
       toast.success("Rate search finished!");
     } catch (err: unknown) {
@@ -103,6 +146,7 @@ function HomeContent() {
       setIsLoading(false);
     }
   };
+
 
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
