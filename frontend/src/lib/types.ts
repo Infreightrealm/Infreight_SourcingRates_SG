@@ -97,8 +97,18 @@ export interface RFQParseResult {
   unsupported_equipment_type?: string;
   is_lcl?: boolean;
   unsupported_reason?: string;
+  origin_display?: string;
+
+  destination_display?: string;
+  sales_notes?: {
+    future_volume?: string;
+    competitive_pressure?: string;
+    urgency?: string;
+    target_rate?: string;
+  };
   air_drafts?: AirDraftEmail[];
   parsed_fields?: RateSearchRequest;
+
   all_parsed_pairs?: any[];
   total_pairs_found?: number;
   pairs_omitted_count?: number;

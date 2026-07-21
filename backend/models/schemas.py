@@ -137,6 +137,9 @@ class RFQParseResult(BaseModel):
     unsupported_equipment_type: Optional[str] = Field(default=None, description="Type of unsupported equipment detected")
     is_lcl: bool = Field(default=False, description="True if LCL / Less than Container Load is detected")
     unsupported_reason: Optional[str] = Field(default=None, description="Explanation message if shipment uses unsupported equipment or LCL mode")
+    origin_display: Optional[str] = Field(default=None, description="Resolved origin string e.g. Port Klang (from 'PK')")
+    destination_display: Optional[str] = Field(default=None, description="Resolved destination string e.g. Jakarta (from 'JKT')")
+    sales_notes: Optional[dict] = Field(default=None, description="Extracted commercial signals (future_volume, competitive_pressure, urgency, target_rate)")
     air_drafts: Optional[list[dict]] = Field(default=None, description="Dual draft emails for AWOT (Glenn) and ASPAC (Jing Hui)")
     parsed_fields: Optional[RateSearchRequest] = Field(default=None, description="Primary RateSearchRequest if successful")
     all_parsed_pairs: Optional[list[dict]] = Field(default=None, description="All parsed POL-POD pairs for multi-pair RFQs")
@@ -147,6 +150,7 @@ class RFQParseResult(BaseModel):
     extracted_fields: list[str] = Field(default_factory=list, description="Fields explicitly extracted from raw text")
     default_injected_fields: list[str] = Field(default_factory=list, description="Fields populated from system defaults")
     debug_raw_llm_response: Optional[str] = Field(default=None, description="Raw response returned by Gemini LLM")
+
 
 
 

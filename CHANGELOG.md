@@ -5,12 +5,22 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
-## [2026-07-21] — Guardrails for Special Equipment (Reefer, Open Top, Flat Rack, ISO Tank, Hard Top) & LCL Shipments
+## [2026-07-21] — Curated Port Alias Resolution, Unknown Abbreviation Guardrails & Sales Desk Intelligence
 
-### RFQ Agent & UI Guardrails
-- **Unsupported Special Equipment Guardrail**: Detects special container equipment requests (`Reefer`, `Open Top`, `Flat Rack`, `ISO Tank`, `Hard Top`) and intercepts automated search execution with an explicit notice explaining that rate scraping currently supports **Standard FCL Dry Containers (20GP, 40GP, 40HQ)** only.
-- **FCL-Only (LCL Guardrail)**: Detects Less than Container Load (`LCL`), `Groupage`, or `Consolidation` requests and alerts the user that rate automation is supported for **Full Container Load (FCL)** only.
-- **Frontend Warning Banners & Presets**: Added preset demo buttons for Reefer & LCL guardrails and styled warning boxes in `RfqInputSection.tsx`.
+### Deterministic Port Alias Resolver (`ports_aliases.json`)
+- **Curated Alias Map**: Added `backend/config/ports_aliases.json` mapping common abbreviations (`PK` → `Port Klang`, `JKT` → `Jakarta`, `PGU` → `Pasir Gudang`, `TP` → `Tanjung Pelepas`, `SIN`/`SG` → `Singapore`, `HKG` → `Hong Kong`, `PVG` → `Shanghai`, `HPH` → `Haiphong`, `SGN` → `Ho Chi Minh`, etc.).
+- **Unmapped Abbreviation Guardrail**: If an extracted port code (2-3 chars) is NOT in the map, the agent **never guesses freely** — it proposes an expansion and returns `status: "needs_clarification"` to prevent wrong quotes.
+- **UI Port Displays**: Displays resolved full name + original code (e.g., `Port Klang (from 'PK')`, `Jakarta (from 'JKT')`) in the UI.
+
+### Commercial Sales Desk Intelligence (`sales_notes`)
+- **Sales Signal Extraction**: Extracts non-routing commercial context into `sales_notes`:
+  - 📈 **Follow-Up Volume**: `another 15x20 and 10x20 coming up next week`
+  - ⚔️ **Competitive Pressure**: `Using 2 forwarders currently`
+  - ⏰ **Urgency**: `Urgent for this week`
+  - 🎯 **Target Rate**: `try USD 70-80 target rate`
+- **UI Sales Intelligence Card**: Surfaces a styled Sales Desk Intelligence card in `RfqInputSection.tsx`.
+- **Pak Shaun Email Fixture**: Test fixture added to `test_rfq_agent.py` and UI Preset 4.
+
 
 ---
 

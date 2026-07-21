@@ -23,11 +23,15 @@ const DEMO_EXAMPLES = [
     text: "Hi Toby, Shona and Bethy.\nGood day.\nPlease compile rates from ex Pasir Gudang / Tanjung Pelepas for 20' & 40' as follows.\nCommodity: Steel Plate, Steel Coil.\n1) Koper, Slovenia\n2) Nagoya, Japan\n4) Thessaloniki, Greece\n5) Liverpool, England\n6) Colombo, Sri Lanka\n7) Chiba, Japan\n8) Montreal, Canada\n9) Baltimore, US\n10) Toronto (Halifax), Canada\n11) Toronto (Vancouver), Canada\n12) Winnipeg, Canada\n13) Vancouver, Canada\n14) Houston, US\n15) Kaohsiung, Taiwan\n16) Chattogram, Bangladesh\n17) Manzanillo, Mexico\n18) Bourges, France"
   },
   {
-    title: "4. Guardrail: Reefer Container",
+    title: "4. Ocean: Pak Shaun (PK → JKT)",
+    text: "Hi team, need rate for 10x20GP from PK to JKT. Urgent for this week. Also have another 15x20 and 10x20 coming up next week. Using 2 forwarders currently, please try USD 70-80 target rate if possible. Thanks, Pak Shaun."
+  },
+  {
+    title: "5. Guardrail: Reefer Container",
     text: "Hi team, please check ocean freight rate for 1x40' Reefer container from Singapore to Hamburg. Weight 18,000 kg."
   },
   {
-    title: "5. Guardrail: LCL Shipment",
+    title: "6. Guardrail: LCL Shipment",
     text: "Hi team, please quote rate for 4 CBM LCL consolidation shipment from Singapore to Hamburg."
   }
 ];
@@ -326,7 +330,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                 <p>{parseResult.clarification_question || "Some required fields are missing or ambiguous."}</p>
                 {parseResult.missing_fields && parseResult.missing_fields.length > 0 && (
                   <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                    <span className="font-medium text-amber-600 dark:text-amber-400">Missing:</span>
+                    <span className="font-medium text-amber-600 dark:text-amber-400">Missing / Unmapped:</span>
                     {parseResult.missing_fields.map((f) => (
                       <span key={f} className="px-1.5 py-0.5 bg-amber-500/20 rounded font-mono text-[11px]">
                         {f}
@@ -342,7 +346,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                 type="text"
                 value={clarificationInput}
                 onChange={(e) => setClarificationInput(e.target.value)}
-                placeholder="Type missing info (e.g. 'Destination is Rotterdam') and hit Enter…"
+                placeholder="Type missing info (e.g. 'Origin is Port Klang') and hit Enter…"
                 className="flex-1 px-3 py-2 bg-white/80 dark:bg-black/40 border border-amber-500/30 rounded-lg text-slate-900 dark:text-white text-xs focus:outline-none focus:border-amber-500"
               />
               <button
@@ -356,7 +360,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
           </div>
         )}
 
-        {/* Ocean Success Banner & Multi-Pair Omission Banner */}
+        {/* Ocean Success Banner */}
         {parseResult && parseResult.status === "success" && (
           <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs space-y-3 backdrop-blur-md animate-fade-in-up">
             <div className="flex items-start gap-2.5">
@@ -366,8 +370,59 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                   Ocean RFQ Parsed Successfully (FCL Dry)
                 </span>
                 Search parameters pre-filled below. Review before submitting rate search.
+                
+                {/* Resolved Port Displays */}
+                {(parseResult.origin_display || parseResult.destination_display) && (
+                  <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] font-mono">
+                    {parseResult.origin_display && (
+                      <span className="px-2 py-0.5 bg-emerald-500/20 rounded border border-emerald-500/30 text-emerald-900 dark:text-emerald-100">
+                        📍 POL: {parseResult.origin_display}
+                      </span>
+                    )}
+                    {parseResult.destination_display && (
+                      <span className="px-2 py-0.5 bg-emerald-500/20 rounded border border-emerald-500/30 text-emerald-900 dark:text-emerald-100">
+                        🏁 POD: {parseResult.destination_display}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Sales Desk Intelligence Alert Box */}
+            {parseResult.sales_notes && (
+              <div className="p-3 bg-purple-500/15 border border-purple-500/30 rounded-xl text-purple-900 dark:text-purple-200 text-xs space-y-2">
+                <div className="font-bold flex items-center gap-1.5 text-purple-800 dark:text-purple-300">
+                  <span>💼 Sales Desk Intelligence (Commercial Signals Extracted):</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                  {parseResult.sales_notes.target_rate && (
+                    <div className="p-2 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                      <span className="font-bold text-purple-700 dark:text-purple-300 block">🎯 Target Rate:</span>
+                      {parseResult.sales_notes.target_rate}
+                    </div>
+                  )}
+                  {parseResult.sales_notes.future_volume && (
+                    <div className="p-2 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                      <span className="font-bold text-purple-700 dark:text-purple-300 block">📈 Follow-up Volume:</span>
+                      {parseResult.sales_notes.future_volume}
+                    </div>
+                  )}
+                  {parseResult.sales_notes.urgency && (
+                    <div className="p-2 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                      <span className="font-bold text-purple-700 dark:text-purple-300 block">⏰ Urgency:</span>
+                      {parseResult.sales_notes.urgency}
+                    </div>
+                  )}
+                  {parseResult.sales_notes.competitive_pressure && (
+                    <div className="p-2 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                      <span className="font-bold text-purple-700 dark:text-purple-300 block">⚔️ Competitive Pressure:</span>
+                      {parseResult.sales_notes.competitive_pressure}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Multi-Pair Destination Routing Summary Banner & Selector */}
             {parseResult.total_pairs_found && parseResult.total_pairs_found > 1 && (
