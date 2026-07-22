@@ -90,6 +90,35 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
     };
 
     window.addEventListener("paste", handlePaste);
+
+    // Restore persisted RFQ session state if available
+    try {
+      const savedText = sessionStorage.getItem("rfq_input_text");
+      const savedResult = sessionStorage.getItem("rfq_parse_result");
+      const savedPairIndex = sessionStorage.getItem("rfq_selected_pair_index");
+
+      if (savedText) {
+        setRfqText(savedText);
+      }
+      if (savedResult) {
+        const parsed: RFQParseResult = JSON.parse(savedResult);
+        setParseResult(parsed);
+        const idx = savedPairIndex ? parseInt(savedPairIndex, 10) : 0;
+        setSelectedPairIndex(idx);
+        if (parsed.status === "success" && parsed.all_parsed_pairs && parsed.all_parsed_pairs[idx] && parsed.parsed_fields) {
+          const p = parsed.all_parsed_pairs[idx];
+          onParsedSuccess({
+            ...parsed.parsed_fields,
+            origin: p.origin,
+            destination: p.destination,
+            container_types: p.container_types || parsed.parsed_fields.container_types
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Failed to restore RFQ session state", e);
+    }
+
     return () => window.removeEventListener("paste", handlePaste);
   }, []);
 
@@ -122,6 +151,13 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
       const result = await parseRfq(textToParse, imgB64 || undefined, imgMime || undefined);
       setParseResult(result);
 
+      // Save to sessionStorage to prevent wiping on search or page navigation
+      try {
+        if (textToParse) sessionStorage.setItem("rfq_input_text", textToParse);
+        sessionStorage.setItem("rfq_parse_result", JSON.stringify(result));
+        sessionStorage.setItem("rfq_selected_pair_index", "0");
+      } catch (e) {}
+
       if (result.status === "air_draft_generated") {
         toast.info("✈️ Air freight enquiry detected! Partner email drafts generated below.");
       } else if (result.status === "unsupported_cargo") {
@@ -151,6 +187,10 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
 
   const handlePairSelect = (index: number) => {
     setSelectedPairIndex(index);
+    try {
+      sessionStorage.setItem("rfq_selected_pair_index", index.toString());
+    } catch (e) {}
+
     if (!parseResult || !parseResult.all_parsed_pairs || !parseResult.parsed_fields) return;
 
     const pair = parseResult.all_parsed_pairs[index];
@@ -162,9 +202,24 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
         container_types: pair.container_types || parseResult.parsed_fields.container_types
       };
       onParsedSuccess(updatedReq);
-      toast.info(`Updated search route to: ${pair.origin} ➔ ${pair.destination}`);
+      toast.info(`Pre-filled search form for Pair #${index + 1}: ${pair.origin} ➔ ${pair.destination}`);
     }
   };
+
+  const handleClear = () => {
+    setRfqText("");
+    setImageBase64(null);
+    setImageMime(null);
+    setImagePreview(null);
+    setParseResult(null);
+    setSelectedPairIndex(0);
+    try {
+      sessionStorage.removeItem("rfq_input_text");
+      sessionStorage.removeItem("rfq_parse_result");
+      sessionStorage.removeItem("rfq_selected_pair_index");
+    } catch (e) {}
+  };
+
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -333,19 +388,13 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             )}
           </button>
 
-          {(rfqText || imageBase64) && (
+          {(rfqText || imageBase64 || parseResult) && (
             <button
               type="button"
-              onClick={() => {
-                setRfqText("");
-                setImageBase64(null);
-                setImageMime(null);
-                setImagePreview(null);
-                setParseResult(null);
-              }}
-              className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 py-2 sm:py-0 text-center"
+              onClick={handleClear}
+              className="text-xs text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 py-2 sm:py-0 text-center flex items-center gap-1"
             >
-              Clear
+              <span>✕</span> Clear Enquiry
             </button>
           )}
         </div>
@@ -587,24 +636,70 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               </div>
             )}
 
-            {/* Multi-Pair Destination Routing Summary Banner & Selector */}
+            {/* Multi-Pair Destination Routing Summary Banner & Interactive Chips Selector */}
             {parseResult.total_pairs_found && parseResult.total_pairs_found > 1 && (
-              <div className="p-3.5 bg-blue-500/15 border border-blue-500/30 rounded-xl text-blue-800 dark:text-blue-200 text-xs space-y-2.5">
-                <div className="font-bold flex items-center justify-between flex-wrap gap-2">
-                  <span>📍 Multi-Destination Routing Summary ({parseResult.total_pairs_found} pairs total):</span>
-                  <span className="px-2 py-0.5 bg-blue-500/20 rounded-full font-mono text-[10px]">
+              <div className="p-4 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 border border-blue-500/30 rounded-2xl text-blue-900 dark:text-blue-100 text-xs space-y-3 backdrop-blur-md shadow-sm">
+                <div className="font-bold flex items-center justify-between flex-wrap gap-2 border-b border-blue-500/20 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">📍</span>
+                    <span className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+                      Multi-Destination Routing Summary ({parseResult.total_pairs_found} pairs total)
+                    </span>
+                  </div>
+                  <span className="px-2.5 py-0.5 bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30 rounded-full font-mono text-[10px] font-semibold">
                     Showing 10 pairs ({parseResult.pairs_omitted_count} omitted due to search cap)
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <label className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 whitespace-nowrap">
-                    Select Pair to Pre-fill Form:
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    Click any route below to pre-fill search form:
+                  </span>
+                  {parseResult.all_parsed_pairs && parseResult.all_parsed_pairs[selectedPairIndex] && (
+                    <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/30">
+                      Active Form Route: Pair #{selectedPairIndex + 1} ({parseResult.all_parsed_pairs[selectedPairIndex].origin} ➔ {parseResult.all_parsed_pairs[selectedPairIndex].destination})
+                    </span>
+                  )}
+                </div>
+
+                {/* Interactive Route Pill Badges */}
+                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1 py-1">
+                  {parseResult.all_parsed_pairs?.slice(0, 10).map((pair, idx) => {
+                    const isSelected = selectedPairIndex === idx;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handlePairSelect(idx)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-mono transition-all flex items-center gap-1.5 select-none cursor-pointer ${
+                          isSelected
+                            ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold shadow-md shadow-blue-500/25 scale-[1.02] border border-blue-400"
+                            : "bg-white/80 dark:bg-white/5 hover:bg-blue-500/10 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10"
+                        }`}
+                      >
+                        <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                          isSelected ? "bg-white text-blue-600" : "bg-slate-200 dark:bg-white/15 text-slate-600 dark:text-slate-300"
+                        }`}>
+                          {idx + 1}
+                        </span>
+                        <span>{pair.origin}</span>
+                        <span className="opacity-60">➔</span>
+                        <span>{pair.destination}</span>
+                        {isSelected && <span className="text-[10px] ml-0.5">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Dropdown Selector */}
+                <div className="pt-2 border-t border-blue-500/15 flex items-center gap-2">
+                  <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    Dropdown Selector:
                   </label>
                   <select
                     value={selectedPairIndex}
-                    onChange={(e) => handlePairSelect(parseInt(e.target.value))}
-                    className="flex-1 px-3 py-1.5 bg-white/90 dark:bg-black/60 border border-blue-500/40 rounded-lg text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                    onChange={(e) => handlePairSelect(parseInt(e.target.value, 10))}
+                    className="flex-1 px-3 py-1 bg-white/90 dark:bg-black/60 border border-blue-500/30 rounded-lg text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-blue-500"
                   >
                     {parseResult.all_parsed_pairs?.slice(0, 10).map((pair, idx) => (
                       <option key={idx} value={idx}>
@@ -618,6 +713,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
 
             {/* Extracted vs Injected Defaults Tracking */}
             <div className="pt-2 border-t border-emerald-500/20 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+
               <div>
                 <span className="font-semibold text-emerald-800 dark:text-emerald-200 block mb-1">
                   🔍 Extracted fields ({parseResult.extracted_fields?.length || 0}):
