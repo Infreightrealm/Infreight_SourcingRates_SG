@@ -342,6 +342,28 @@ def _detect_unsupported_cargo(raw_text: str) -> tuple[bool, Optional[str], bool,
     return False, None, False, None
 
 
+def _extract_20gp_weight_priority(raw_text: str) -> Optional[float]:
+    """
+    Extracts weight specifically associated with 20GP / 20' containers from raw text if present.
+    In ocean freight, 20GP weight > 16-18 MT triggers heavy weight surcharges (HWS).
+    Returns weight in KG.
+    """
+    text_lower = raw_text.lower()
+    # Match patterns like "2 x 20GP (machinery, 18 MT each)" or "20GP: 18 MT" or "20' ... 18 tons"
+    patterns = [
+        r'20(?:gp|\'|ft)?\b[^\n]*?(\d+(?:\.\d+)?)\s*(?:mt|tons|ton|t|kgs|kg)\b',
+        r'(\d+(?:\.\d+)?)\s*(?:mt|tons|ton|t|kgs|kg)\b[^\n]*?20(?:gp|\'|ft)?\b',
+    ]
+    for pat in patterns:
+        match = re.search(pat, text_lower)
+        if match:
+            val = float(match.group(1))
+            return val * 1000.0 if val < 100.0 else val
+    return None
+
+
+
+
 
 # ────────────────────────────────────────────
 # Gemini Extraction Schema
@@ -405,9 +427,12 @@ REQUIRED FIELDS BY MODE:
   4. `dimensions_display_str` / `package_count_str`: Dimensions or piece count
 
 WEIGHT AND QUANTITY CALCULATION RULES:
-- `container_quantity`: Number of containers (e.g. "3 x 20'FCL" -> container_quantity = 3, container_types = ["DRY 20"]).
+- `container_quantity`: Total sum of all containers across all container types (e.g. "2 x 20GP, 1 x 40HQ, 1 x 40GP" -> container_quantity = 4).
 - `total_weight_kg`: Total gross weight of the shipment across all containers (e.g. "Total gross weight 45,000 kgs" -> total_weight_kg = 45000).
-- `weight_per_container_kg`: Weight PER CONTAINER. If total gross weight (e.g. 45,000 kg) is specified across N containers (e.g. 3 containers), divide total weight by container quantity: 45,000 / 3 = 15,000 kg per container!
+- `weight_per_container_kg`: Weight PER CONTAINER (in KG).
+  CRITICAL 20GP OVERWEIGHT SURCHARGE PRIORITY:
+  In ocean rate searching, 20GP containers are subject to Heavy Weight Surcharges (HWS / OWCS) if cargo gross weight exceeds 16-18 MT (16,000 - 18,000 kg).
+  When individual weights are specified for different container sizes (e.g. 20GP: 18 MT, 40HQ: 8 MT, 40GP: 12 MT), ALWAYS prioritize and set `weight_per_container_kg` to the 20GP container's weight (e.g. 18,000 kg / 18 MT) so that the 20GP overweight surcharge threshold is evaluated accurately in ocean rate quotes!
 
 SALES DESK INTELLIGENCE (NON-ROUTING SIGNALS):
 Extract commercial notes into fields if present (do not alter routing execution — just surface them for sales):
@@ -419,10 +444,12 @@ Extract commercial notes into fields if present (do not alter routing execution 
 PORT CODES & ABBREVIATIONS:
 Extract exact port strings or codes (e.g. "PK", "JKT", "PGU", "TP", "Singapore", "Hamburg", "Chennai").
 
-CONTAINER TYPES:
-- Normalize container types: "10x20GP", "3 x 20'FCL" or "20'" -> "DRY 20", "40HQ" -> "DRY 40H", "40'" -> "DRY 40".
+CONTAINER TYPES & MULTI-CONTAINER RULES:
+- Normalize container types: "10x20GP", "3 x 20'FCL" or "20'" -> "DRY 20", "40HQ" -> "DRY 40H", "40'" or "40GP" -> "DRY 40".
+- MULTI-CONTAINER TYPES: Extract ALL container types explicitly mentioned in the enquiry into `container_types` list (e.g. "2 x 20GP, 1 x 40HQ, 1 x 40GP" -> container_types = ["DRY 20", "DRY 40H", "DRY 40"]).
 - CRITICAL: If NO container size (e.g. 20', 40', 20GP, 40GP, 40HQ, 40HC) is explicitly specified in the enquiry text, set `container_types` to `[]` (empty list) and set `is_complete` to `false`. DO NOT default silently or guess 20' or 40'! Add "container_types" to `missing_fields`.
 """
+
 
 
 
@@ -586,7 +613,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
             debug_raw_llm_response="[MOCK SEA MULTI-PAIR RESPONSE]"
         )
 
-    # Check for Ocean FCL Enquiry Fixtures (e.g. Singapore to Chennai / 3 x 20'FCL / Rubber Compound / 45,000 kg)
+    # Check for Ocean FCL Enquiry Fixtures (e.g. Singapore to Chennai / Singapore to Melbourne / 3 x 20'FCL / Rubber Compound / 45,000 kg)
     raw_origin = "Singapore"
     if "from pk" in text_lower or "pk to" in text_lower or re.search(r'\bpk\b', text_lower):
         raw_origin = "PK"
@@ -598,6 +625,8 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         raw_dest = "JKT"
     elif "chennai" in text_lower:
         raw_dest = "Chennai"
+    elif "melbourne" in text_lower:
+        raw_dest = "Melbourne"
 
     orig_full, orig_disp, orig_unmapped = resolve_port_alias(raw_origin)
     dest_full, dest_disp, dest_unmapped = resolve_port_alias(raw_dest)
@@ -628,22 +657,39 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
             debug_raw_llm_response="[MOCK MISSING CONTAINER SIZE RESPONSE]"
         )
 
-    c_types = ["DRY 20"] if ("10x20" in text_lower or "20gp" in text_lower or "20'" in text_lower) else ["DRY 40H"]
+    c_types = []
+    if "20gp" in text_lower or "20'" in text_lower or "20 fcl" in text_lower or "10x20" in text_lower:
+        c_types.append("DRY 20")
+    if "40hq" in text_lower or "40hc" in text_lower:
+        c_types.append("DRY 40H")
+    if "40gp" in text_lower or ("40'" in text_lower and "40hq" not in text_lower and "40hc" not in text_lower):
+        c_types.append("DRY 40")
+    
+    # Deduplicate preserving order
+    c_types = list(dict.fromkeys(c_types))
+    if not c_types:
+        c_types = ["DRY 20"]
 
     container_qty = 1
     if "3 x" in text_lower or "3x" in text_lower or "3 containers" in text_lower:
         container_qty = 3
+    elif "2 x 20gp" in text_lower and "1 x 40hq" in text_lower and "1 x 40gp" in text_lower:
+        container_qty = 4
 
-    wt_per_container = 20000.0
-    if "45,000" in text_lower or "45000" in text_lower:
+    wt_20gp = _extract_20gp_weight_priority(raw_text)
+    if wt_20gp is not None and wt_20gp > 0:
+        wt_per_container = wt_20gp
+    elif "45,000" in text_lower or "45000" in text_lower:
         wt_per_container = round(45000.0 / container_qty, 2)
+    else:
+        wt_per_container = 20000.0
 
-    commodity = "rubber compound" if "rubber compound" in text_lower else ("PVC resin" if "pvc resin" in text_lower else "Furniture")
+    commodity = "machinery, packing materials, spare parts" if "machinery" in text_lower else ("rubber compound" if "rubber compound" in text_lower else ("PVC resin" if "pvc resin" in text_lower else "Furniture"))
 
     req = RateSearchRequest(
         carriers=["ALL"],
         origin=orig_full or ("Singapore" if raw_origin == "Singapore" else "Port Klang"),
-        destination=dest_full or ("Chennai" if raw_dest == "Chennai" else "Jakarta"),
+        destination=dest_full or ("Melbourne" if raw_dest == "Melbourne" else ("Chennai" if raw_dest == "Chennai" else "Jakarta")),
         service_term="CY/CY",
         container_type=c_types[0],
         container_types=c_types,
@@ -653,6 +699,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         departure_date=tomorrow_str,
         search_window_days=14
     )
+
 
     return RFQParseResult(
         status="success",
@@ -1100,27 +1147,39 @@ async def parse_rfq(
         omitted_count = max(0, total_pairs - 10)
         capped_pairs = all_pairs[:10]
 
-        # Total-vs-Per-Container Weight Split Calculations
+        # Total-vs-Per-Container Weight Split & 20GP Overweight Priority Calculations
         raw_weight_per_container = extracted_data.get("weight_per_container_kg")
         raw_total_weight = extracted_data.get("total_weight_kg")
 
-        if raw_total_weight is not None and float(raw_total_weight) > 0:
+        # In ocean FCL, 20GP weight > 16-18 MT triggers Heavy Weight Surcharges (HWS). Prioritize 20GP weight if present.
+        wt_20gp = _extract_20gp_weight_priority(raw_text) if any(ct in ["DRY 20", "20GP"] for ct in c_types) else None
+
+        if wt_20gp is not None and wt_20gp > 0:
+            weight = wt_20gp
+            if "weight_per_container_kg" not in extracted_fields:
+                extracted_fields.append("weight_per_container_kg")
+        elif raw_total_weight is not None and float(raw_total_weight) > 0:
             total_wt = float(raw_total_weight)
-            # If weight_per_container is provided, valid, and distinct from total_weight (or container_qty == 1), use it
             if (raw_weight_per_container is not None and 
                 float(raw_weight_per_container) > 0 and 
                 (float(raw_weight_per_container) != total_wt or container_qty == 1)):
                 weight = float(raw_weight_per_container)
             else:
-                # 45,000 kg total across 3 containers yields 15,000 kg per container
                 weight = round(total_wt / container_qty, 2)
-            extracted_fields.append("weight_per_container_kg")
+            if "weight_per_container_kg" not in extracted_fields:
+                extracted_fields.append("weight_per_container_kg")
         elif raw_weight_per_container is not None and float(raw_weight_per_container) > 0:
             weight = float(raw_weight_per_container)
-            extracted_fields.append("weight_per_container_kg")
+            if "weight_per_container_kg" not in extracted_fields:
+                extracted_fields.append("weight_per_container_kg")
         else:
             weight = 20000.0
             default_injected_fields.append("weight_per_container_kg")
+
+        # Attach weight_per_container_kg to all_parsed_pairs
+        for pair in all_pairs:
+            pair["weight_per_container_kg"] = weight
+
 
         primary_req = RateSearchRequest(
             carriers=["ALL"],

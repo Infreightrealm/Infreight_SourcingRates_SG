@@ -199,8 +199,10 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
         ...parseResult.parsed_fields,
         origin: pair.origin,
         destination: pair.destination,
-        container_types: pair.container_types || parseResult.parsed_fields.container_types
+        container_types: pair.container_types || parseResult.parsed_fields.container_types,
+        weight_per_container_kg: pair.weight_per_container_kg || parseResult.parsed_fields.weight_per_container_kg,
       };
+
       onParsedSuccess(updatedReq);
       toast.info(`Pre-filled search form for Pair #${index + 1}: ${pair.origin} ➔ ${pair.destination}`);
     }

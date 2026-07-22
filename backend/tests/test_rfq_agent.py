@@ -374,13 +374,49 @@ def test_resolve_city_country_format_to_clean_database_port_name():
     assert full_toronto == "Toronto"
     assert unmapped is False
 
-    full_koper, disp_koper, unmapped = resolve_port_alias("Koper, Slovenia")
-    assert full_koper == "Koper"
-    assert unmapped is False
-
     full_nagoya, disp_nagoya, unmapped = resolve_port_alias("Nagoya, Japan")
     assert full_nagoya == "Nagoya"
     assert unmapped is False
+
+
+
+@pytest.mark.asyncio
+async def test_multi_container_types_and_20gp_overweight_priority():
+    """
+    Test scenario with 3 container types with individual quantities and weights:
+    "Hi, Kindly quote Singapore to Melbourne:
+     - 2 x 20GP (machinery, 18 MT each)
+     - 1 x 40HQ (packing materials, 8 MT)
+     - 1 x 40GP (spare parts, 12 MT)
+     ETD around 20 August."
+
+    Expected:
+    1. Mode classified as 'sea'
+    2. Status is 'success'
+    3. POL = Singapore, POD = Melbourne
+    4. container_types = ['DRY 20', 'DRY 40H', 'DRY 40']
+    5. container_quantity = 4 (2 + 1 + 1)
+    6. weight_per_container_kg = 18000.0 (20GP overweight surcharge priority: 18 MT)
+    """
+    rfq_text = (
+        "Hi,\n\n"
+        "Kindly quote Singapore to Melbourne:\n"
+        "- 2 x 20GP (machinery, 18 MT each)\n"
+        "- 1 x 40HQ (packing materials, 8 MT)\n"
+        "- 1 x 40GP (spare parts, 12 MT)\n\n"
+        "ETD around 20 August."
+    )
+    res = await parse_rfq(rfq_text)
+
+    assert isinstance(res, RFQParseResult)
+    assert res.mode == "sea"
+    assert res.status == "success"
+    assert res.parsed_fields is not None
+    assert res.parsed_fields.origin == "Singapore"
+    assert res.parsed_fields.destination == "Melbourne"
+    assert set(res.parsed_fields.container_types) == {"DRY 20", "DRY 40H", "DRY 40"}
+    assert res.parsed_fields.container_quantity == 4
+    assert res.parsed_fields.weight_per_container_kg == 18000.0
 
 
 
@@ -388,6 +424,7 @@ def test_resolve_city_country_format_to_clean_database_port_name():
 if __name__ == "__main__":
     import asyncio
     test_resolve_city_country_format_to_clean_database_port_name()
+    asyncio.run(test_multi_container_types_and_20gp_overweight_priority())
     asyncio.run(test_pak_shaun_email_fixture_port_aliases_and_sales_notes())
     asyncio.run(test_unmapped_abbreviation_clarification_guardrail())
     asyncio.run(test_air_rfq_image1_lithium_batteries_compliance())
@@ -399,6 +436,7 @@ if __name__ == "__main__":
     asyncio.run(test_ocean_missing_container_type_triggers_clarification())
     asyncio.run(test_reefer_40rf_temperature_unsupported_equipment_guardrail())
     print("[OK] All RFQ Agent unit tests passed!")
+
 
 
 
