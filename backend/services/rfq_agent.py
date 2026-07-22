@@ -360,9 +360,29 @@ Today's current date is: {current_date}
 MODE CLASSIFICATION RULES:
 1. `mode`: "air" or "sea".
    - AIR SIGNALS: "air rate", "airfreight", "flight schedule", "EXW airfreight", "Singapore Airport", airport IATA codes (e.g. KUL, SIN, LHR, ORD), "cm", "crates", "pkgs", "gross weight: ... kgs".
-   - SEA SIGNALS: "ocean", "sailing", "20'", "40'", "40HQ", "40HC", "20GP", "40GP", "vessel", "ETD", "Pasir Gudang", "Tanjung Pelepas", "ex Pasir Gudang", "PK", "JKT".
+   - SEA SIGNALS: "ocean", "sailing", "20'", "40'", "40HQ", "40HC", "20GP", "40GP", "FCL", "vessel", "ETD", "Pasir Gudang", "Tanjung Pelepas", "ex Pasir Gudang", "PK", "JKT".
 2. `confidence`: Float 0.0 to 1.0.
 3. `matched_keywords`: List of key terms found.
+
+REQUIRED FIELDS BY MODE:
+- OCEAN / SEA MODE REQUIRED FIELDS:
+  1. `origin`: POL port/location
+  2. `destination`: POD port/location
+  3. `container_types`: Container size e.g. ["DRY 20"], ["DRY 40"], ["DRY 40H"]
+  4. `container_quantity`: Quantity of containers e.g. 3
+  * CRITICAL FOR OCEAN MODE: Weight is OPTIONAL for Ocean FCL. Dimensions (dimensions_display_str), package count (package_count_str), HS code (hs_code), and dangerous goods notes are AIR freight fields and are NOT required for Ocean FCL.
+  * `is_complete`: Set to `true` if origin, destination, container_types, and container_quantity are present. Do NOT mark incomplete or add missing fields for dimensions, package_count, or hs_code in ocean mode!
+
+- AIR MODE REQUIRED FIELDS:
+  1. `origin`: POL airport
+  2. `destination`: POD airport
+  3. `total_weight_kg` / `weight_display_str`: Cargo weight
+  4. `dimensions_display_str` / `package_count_str`: Dimensions or piece count
+
+WEIGHT AND QUANTITY CALCULATION RULES:
+- `container_quantity`: Number of containers (e.g. "3 x 20'FCL" -> container_quantity = 3, container_types = ["DRY 20"]).
+- `total_weight_kg`: Total gross weight of the shipment across all containers (e.g. "Total gross weight 45,000 kgs" -> total_weight_kg = 45000).
+- `weight_per_container_kg`: Weight PER CONTAINER. If total gross weight (e.g. 45,000 kg) is specified across N containers (e.g. 3 containers), divide total weight by container quantity: 45,000 / 3 = 15,000 kg per container!
 
 SALES DESK INTELLIGENCE (NON-ROUTING SIGNALS):
 Extract commercial notes into fields if present (do not alter routing execution — just surface them for sales):
@@ -372,11 +392,12 @@ Extract commercial notes into fields if present (do not alter routing execution 
 - `target_rate`: Mention of customer target price (e.g. "try USD 70-80 target rate").
 
 PORT CODES & ABBREVIATIONS:
-Extract exact port strings or codes (e.g. "PK", "JKT", "PGU", "TP", "Singapore", "Hamburg").
+Extract exact port strings or codes (e.g. "PK", "JKT", "PGU", "TP", "Singapore", "Hamburg", "Chennai").
 
 CONTAINER TYPES:
-Normalize container types: "10x20GP" or "20'" -> "DRY 20", "40HQ" -> "DRY 40H", "40'" -> "DRY 40".
+Normalize container types: "10x20GP", "3 x 20'FCL" or "20'" -> "DRY 20", "40HQ" -> "DRY 40H", "40'" -> "DRY 40".
 """
+
 
 
 def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
@@ -538,9 +559,18 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
             debug_raw_llm_response="[MOCK SEA MULTI-PAIR RESPONSE]"
         )
 
-    # Check for Pak Shaun Email Fixture
-    raw_origin = "PK" if ("from pk" in text_lower or "pk to" in text_lower or re.search(r'\bpk\b', text_lower)) else "Singapore"
-    raw_dest = "JKT" if ("to jkt" in text_lower or re.search(r'\bjkt\b', text_lower)) else "Hamburg"
+    # Check for Ocean FCL Enquiry Fixtures (e.g. Singapore to Chennai / 3 x 20'FCL / Rubber Compound / 45,000 kg)
+    raw_origin = "Singapore"
+    if "from pk" in text_lower or "pk to" in text_lower or re.search(r'\bpk\b', text_lower):
+        raw_origin = "PK"
+    elif "pasir gudang" in text_lower:
+        raw_origin = "Pasir Gudang"
+
+    raw_dest = "Hamburg"
+    if "to jkt" in text_lower or re.search(r'\bjkt\b', text_lower):
+        raw_dest = "JKT"
+    elif "chennai" in text_lower:
+        raw_dest = "Chennai"
 
     orig_full, orig_disp, orig_unmapped = resolve_port_alias(raw_origin)
     dest_full, dest_disp, dest_unmapped = resolve_port_alias(raw_dest)
@@ -557,16 +587,26 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
     c_types = ["DRY 20"] if ("10x20" in text_lower or "20gp" in text_lower or "20'" in text_lower) else ["DRY 40H"]
 
+    container_qty = 1
+    if "3 x" in text_lower or "3x" in text_lower or "3 containers" in text_lower:
+        container_qty = 3
+
+    wt_per_container = 20000.0
+    if "45,000" in text_lower or "45000" in text_lower:
+        wt_per_container = round(45000.0 / container_qty, 2)
+
+    commodity = "rubber compound" if "rubber compound" in text_lower else "Furniture"
+
     req = RateSearchRequest(
         carriers=["ALL"],
-        origin=orig_full or "Port Klang",
-        destination=dest_full or "Jakarta",
+        origin=orig_full or ("Singapore" if raw_origin == "Singapore" else "Port Klang"),
+        destination=dest_full or ("Chennai" if raw_dest == "Chennai" else "Jakarta"),
         service_term="CY/CY",
         container_type=c_types[0],
         container_types=c_types,
-        container_quantity=1,
-        weight_per_container_kg=20000.0,
-        commodity="Furniture",
+        container_quantity=container_qty,
+        weight_per_container_kg=wt_per_container,
+        commodity=commodity,
         departure_date=tomorrow_str,
         search_window_days=14
     )
@@ -580,13 +620,13 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         destination_display=dest_disp,
         sales_notes=sales_notes if sales_notes else None,
         parsed_fields=req,
-        all_parsed_pairs=[{"origin": orig_full, "destination": dest_full, "container_types": c_types}],
+        all_parsed_pairs=[{"origin": req.origin, "destination": req.destination, "container_types": c_types, "container_quantity": container_qty, "weight_per_container_kg": wt_per_container, "commodity": commodity}],
         total_pairs_found=1,
         pairs_omitted_count=0,
         clarification_question=None,
         missing_fields=[],
-        extracted_fields=["origin", "destination", "container_types"],
-        default_injected_fields=["weight_per_container_kg", "departure_date"],
+        extracted_fields=["origin", "destination", "container_types", "container_quantity", "weight_per_container_kg"],
+        default_injected_fields=["departure_date"],
         debug_raw_llm_response="[MOCK RESPONSE]"
     )
 
@@ -764,7 +804,6 @@ async def parse_rfq(
         raw_destination = extracted_data.get("destination")
         raw_destinations = extracted_data.get("destinations") or ([raw_destination] if raw_destination else [])
 
-        commodity = "Furniture"
         dims_str = extracted_data.get("dimensions_display_str")
         weight_str = extracted_data.get("weight_display_str")
         pkg_str = extracted_data.get("package_count_str")
@@ -893,29 +932,27 @@ async def parse_rfq(
 
         # 2. Handle SEA Mode
         c_types = extracted_data.get("container_types") or ["DRY 40H"]
-        is_complete = extracted_data.get("is_complete", True)
-        missing = extracted_data.get("missing_fields", [])
         clarification_q = extracted_data.get("clarification_question")
 
         extracted_fields = []
         default_injected_fields = ["service_term", "search_window_days", "carriers"]
 
         if resolved_origins: extracted_fields.append("origin")
-        else: missing.append("origin")
-
         if resolved_destinations: extracted_fields.append("destination")
-        else: missing.append("destination")
+        if c_types and len(c_types) > 0: extracted_fields.append("container_types")
 
-        if c_types and len(c_types) > 0:
-            extracted_fields.append("container_types")
-        else:
-            c_types = ["DRY 40H"]
-            missing.append("container_types")
+        # Mode-Branching Required Fields Check (OCEAN = POL, POD, container_type/container_types)
+        sea_missing = []
+        if not resolved_origins:
+            sea_missing.append("origin")
+        if not resolved_destinations:
+            sea_missing.append("destination")
+        if not c_types or len(c_types) == 0:
+            sea_missing.append("container_types")
 
-        if not resolved_origins or not resolved_destinations or not is_complete or missing:
-            missing = list(set(missing))
+        if sea_missing:
             if not clarification_q:
-                missing_names = " and ".join(missing)
+                missing_names = " and ".join(sea_missing)
                 clarification_q = f"Could you please specify the missing {missing_names} for this ocean shipment?"
 
             return RFQParseResult(
@@ -925,11 +962,23 @@ async def parse_rfq(
                 matched_keywords=matched_keywords,
                 parsed_fields=None,
                 clarification_question=clarification_q,
-                missing_fields=missing,
+                missing_fields=sea_missing,
                 extracted_fields=extracted_fields,
                 default_injected_fields=default_injected_fields,
                 debug_raw_llm_response=raw_llm_json
             )
+
+        # Container Quantity & Commodity
+        raw_qty = extracted_data.get("container_quantity")
+        if raw_qty is not None and int(raw_qty) > 0:
+            container_qty = int(raw_qty)
+            extracted_fields.append("container_quantity")
+        else:
+            container_qty = 1
+
+        commodity = extracted_data.get("commodity") or "Furniture"
+        if extracted_data.get("commodity"):
+            extracted_fields.append("commodity")
 
         # Multi-Origin x Multi-Destination Expansion
         all_pairs = []
@@ -939,22 +988,31 @@ async def parse_rfq(
                     "origin": o,
                     "destination": d,
                     "container_types": c_types,
-                    "commodity": "Furniture"
+                    "container_quantity": container_qty,
+                    "commodity": commodity
                 })
 
         total_pairs = len(all_pairs)
         omitted_count = max(0, total_pairs - 10)
         capped_pairs = all_pairs[:10]
 
-        # Weight Calculations
+        # Total-vs-Per-Container Weight Split Calculations
         raw_weight_per_container = extracted_data.get("weight_per_container_kg")
         raw_total_weight = extracted_data.get("total_weight_kg")
 
-        if raw_weight_per_container is not None and raw_weight_per_container > 0:
-            weight = float(raw_weight_per_container)
+        if raw_total_weight is not None and float(raw_total_weight) > 0:
+            total_wt = float(raw_total_weight)
+            # If weight_per_container is provided, valid, and distinct from total_weight (or container_qty == 1), use it
+            if (raw_weight_per_container is not None and 
+                float(raw_weight_per_container) > 0 and 
+                (float(raw_weight_per_container) != total_wt or container_qty == 1)):
+                weight = float(raw_weight_per_container)
+            else:
+                # 45,000 kg total across 3 containers yields 15,000 kg per container
+                weight = round(total_wt / container_qty, 2)
             extracted_fields.append("weight_per_container_kg")
-        elif raw_total_weight is not None and raw_total_weight > 0:
-            weight = float(raw_total_weight)
+        elif raw_weight_per_container is not None and float(raw_weight_per_container) > 0:
+            weight = float(raw_weight_per_container)
             extracted_fields.append("weight_per_container_kg")
         else:
             weight = 20000.0
@@ -967,9 +1025,9 @@ async def parse_rfq(
             service_term="CY/CY",
             container_type=c_types[0],
             container_types=c_types,
-            container_quantity=1,
+            container_quantity=container_qty,
             weight_per_container_kg=weight,
-            commodity="Furniture",
+            commodity=commodity,
             departure_date=tomorrow_str,
             search_window_days=14
         )

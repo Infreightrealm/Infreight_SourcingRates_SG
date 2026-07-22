@@ -262,6 +262,43 @@ async def test_multimodal_image_rfq_parsing_and_guardrails():
     assert res.status in ["success", "needs_clarification", "air_draft_generated"]
 
 
+@pytest.mark.asyncio
+async def test_ocean_fcl_mode_branching_required_fields_and_weight_split():
+    """
+    Test Stress Test Scenario:
+    "Dear Sir, Pls quote 3 x 20'FCL Singapore to Chennai. Commodity: rubber compound Total gross weight 45,000 kgs. Shipment ready 15 Aug."
+    
+    Assertions:
+    1. Mode classified as 'sea'
+    2. Status is 'success' (no clarification requested for dimensions, hs_code, or package count)
+    3. POL = Singapore, POD = Chennai
+    4. Container Type = DRY 20, Quantity = 3
+    5. Weight per container = 15,000 kg (45,000 kg total / 3 containers)
+    6. Commodity = rubber compound
+    """
+    rfq_text = (
+        "Dear Sir,\n\n"
+        "Pls quote 3 x 20'FCL Singapore to Chennai.\n"
+        "Commodity: rubber compound\n"
+        "Total gross weight 45,000 kgs.\n"
+        "Shipment ready 15 Aug."
+    )
+    res = await parse_rfq(rfq_text)
+
+    assert isinstance(res, RFQParseResult)
+    assert res.mode == "sea"
+    assert res.status == "success", f"Expected success but got {res.status}: {res.clarification_question}"
+    assert res.parsed_fields is not None
+    assert res.parsed_fields.origin == "Singapore"
+    assert res.parsed_fields.destination == "Chennai"
+    assert res.parsed_fields.container_type == "DRY 20"
+    assert res.parsed_fields.container_types == ["DRY 20"]
+    assert res.parsed_fields.container_quantity == 3
+    assert res.parsed_fields.weight_per_container_kg == 15000.0
+    assert res.parsed_fields.commodity == "rubber compound"
+    assert res.missing_fields == []
+
+
 
 
 if __name__ == "__main__":
@@ -273,4 +310,6 @@ if __name__ == "__main__":
     asyncio.run(test_sea_rfq_image4_steel_plate_multi_origin_gappy_list())
     asyncio.run(test_unsupported_reefer_equipment_guardrail())
     asyncio.run(test_unsupported_lcl_guardrail())
+    asyncio.run(test_ocean_fcl_mode_branching_required_fields_and_weight_split())
     print("[OK] All RFQ Agent unit tests passed!")
+
