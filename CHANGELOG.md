@@ -28,7 +28,14 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
   1. Added `sessionStorage` persistence for `rfqText`, `parseResult`, and `selectedPairIndex`. Submitting searches or navigating between routes never wipes out the RFQ email or extracted multi-destination list.
   2. Designed an interactive Multi-Destination Route Chips Selector bar displaying clickable badges (`[ #1 Pasir Gudang ➔ Koper ]`, `[ #2 Pasir Gudang ➔ Nagoya ]`, ...).
   3. Clicking any route badge instantly pre-fills `Search Parameters` with that route's origin & destination while highlighting the active pill badge with `✓ Active Form Route`.
-- **Result**: Users can seamlessly search Pair #1 ➔ view results ➔ click Pair #2 ➔ search ➔ view results ➔ click Pair #3 without re-pasting text.
+### Clean Search Dropdown Port Name Resolution (`rfq_agent.py` & `port_manager.py`)
+- **Bug**: When the RFQ parser extracted location strings containing country names or parenthetical notes (e.g., `"Montreal, Canada"`, `"Toronto (Halifax), Canada"`, `"Nagoya, Japan"`), it pre-filled `Destination` with the verbatim string `"Montreal, Canada"`. When submitted, the extra `", Canada"` suffix failed to match carrier autocomplete dropdowns.
+- **Fix**:
+  1. `resolve_port_alias` now queries the `port_manager` database and strips country/state/parenthetical suffixes (`"Montreal, Canada"` ➔ `"Montreal"`, `"Toronto (Halifax), Canada"` ➔ `"Toronto"`, `"Koper, Slovenia"` ➔ `"Koper"`).
+  2. `port_manager.search_port` now automatically strips `, Country` suffixes during database lookups.
+- **Result**: The RFQ parser pre-fills `Search Parameters` with the clean, proven port name matching the search autocomplete dropdown (`Montreal`, `Toronto`, `Koper`, `Nagoya`), ensuring 100% smooth carrier scraping execution.
+- **Verification**: `test_resolve_city_country_format_to_clean_database_port_name` added to `backend/tests/test_rfq_agent.py` and passed 13/13.
+
 
 
 
