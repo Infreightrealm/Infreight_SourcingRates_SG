@@ -548,12 +548,40 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
               </div>
             </div>
 
+            {/* Quick Action Buttons for Dual-Mode Enquiry */}
+            {parseResult.is_dual_mode && (
+              <div className="pt-2 border-t border-amber-500/20 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updatedText = `${rfqText}\nClarification update: Air`;
+                    setRfqText(updatedText);
+                    handleParse(updatedText, imageBase64, imageMime);
+                  }}
+                  className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                >
+                  ✈️ Rate-Search Airfreight Request
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updatedText = `${rfqText}\nClarification update: Ocean`;
+                    setRfqText(updatedText);
+                    handleParse(updatedText, imageBase64, imageMime);
+                  }}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                >
+                  🚢 Rate-Search Ocean Freight Request
+                </button>
+              </div>
+            )}
+
             <form onSubmit={handleClarifySubmit} className="flex gap-2">
               <input
                 type="text"
                 value={clarificationInput}
                 onChange={(e) => setClarificationInput(e.target.value)}
-                placeholder="Type missing info (e.g. 'Origin is Port Klang') and hit Enter…"
+                placeholder="Type missing info (e.g. 'Air' or 'Ocean') and hit Enter…"
                 className="flex-1 px-3 py-2 bg-white/80 dark:bg-black/40 border border-amber-500/30 rounded-lg text-slate-900 dark:text-white text-xs focus:outline-none focus:border-amber-500"
               />
               <button
@@ -566,6 +594,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             </form>
           </div>
         )}
+
 
         {/* Ocean Success Banner */}
         {parseResult && parseResult.status === "success" && (

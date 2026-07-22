@@ -419,12 +419,62 @@ async def test_multi_container_types_and_20gp_overweight_priority():
     assert res.parsed_fields.weight_per_container_kg == 18000.0
 
 
+@pytest.mark.asyncio
+async def test_dual_mode_air_and_ocean_in_one_email_guardrail():
+    """
+    Test scenario where email contains both Air freight and Ocean freight requests:
+    "Hi, Two enquiries please:
+     1) Airfreight — Singapore to Hong Kong, 250 kgs, 3 cartons, electronics
+     2) Ocean — Singapore to Hong Kong, 1x40HQ, general cargo, 18 MT
+     Please advise both."
+
+    Expected:
+    1. Status is 'needs_clarification' (must not crash with list object error or silently drop one mode)
+    2. is_dual_mode is True
+    3. missing_fields contains 'mode'
+    4. clarification_question details both requests and asks user to specify which to process
+    5. Follow-up clarification "Air" resolves to Air freight draft emails
+    """
+    rfq_text = (
+        "Hi,\n\n"
+        "Two enquiries please:\n"
+        "1) Airfreight — Singapore to Hong Kong, 250 kgs, 3 cartons, electronics\n"
+        "2) Ocean — Singapore to Hong Kong, 1x40HQ, general cargo, 18 MT\n\n"
+        "Please advise both."
+    )
+    res = await parse_rfq(rfq_text)
+
+    assert isinstance(res, RFQParseResult)
+    assert res.status == "needs_clarification"
+    assert res.is_dual_mode is True
+    assert "mode" in res.missing_fields
+    assert "Dual-Mode Enquiry Detected" in res.clarification_question
+
+    # Test user selecting Air choice
+    air_choice_text = f"{rfq_text}\nClarification update: Air"
+    air_res = await parse_rfq(air_choice_text)
+    assert isinstance(air_res, RFQParseResult)
+    assert air_res.mode == "air"
+    assert air_res.status == "air_draft_generated"
+    assert air_res.air_drafts is not None and len(air_res.air_drafts) > 0
+
+    # Test user selecting Ocean choice
+    ocean_choice_text = f"{rfq_text}\nClarification update: Ocean"
+    ocean_res = await parse_rfq(ocean_choice_text)
+    assert isinstance(ocean_res, RFQParseResult)
+    assert ocean_res.mode == "sea"
+    assert ocean_res.status == "success"
+    assert ocean_res.parsed_fields is not None
+    assert ocean_res.parsed_fields.destination == "Hong Kong"
+
+
 
 
 if __name__ == "__main__":
     import asyncio
     test_resolve_city_country_format_to_clean_database_port_name()
     asyncio.run(test_multi_container_types_and_20gp_overweight_priority())
+    asyncio.run(test_dual_mode_air_and_ocean_in_one_email_guardrail())
     asyncio.run(test_pak_shaun_email_fixture_port_aliases_and_sales_notes())
     asyncio.run(test_unmapped_abbreviation_clarification_guardrail())
     asyncio.run(test_air_rfq_image1_lithium_batteries_compliance())
@@ -436,6 +486,7 @@ if __name__ == "__main__":
     asyncio.run(test_ocean_missing_container_type_triggers_clarification())
     asyncio.run(test_reefer_40rf_temperature_unsupported_equipment_guardrail())
     print("[OK] All RFQ Agent unit tests passed!")
+
 
 
 

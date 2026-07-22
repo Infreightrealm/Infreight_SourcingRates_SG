@@ -33,12 +33,16 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 - **Fix**:
   1. `resolve_port_alias` now queries the `port_manager` database and strips country/state/parenthetical suffixes (`"Montreal, Canada"` ➔ `"Montreal"`, `"Toronto (Halifax), Canada"` ➔ `"Toronto"`, `"Koper, Slovenia"` ➔ `"Koper"`).
   2. `port_manager.search_port` now automatically strips `, Country` suffixes during database lookups.
-### Multi-Container Type Extraction & 20GP Overweight Surcharge Priority (`rfq_agent.py`)
-- **Requirement**: Enquiries specifying multiple container types with individual quantities and weights (e.g. `2 x 20GP @ 18 MT`, `1 x 40HQ @ 8 MT`, `1 x 40GP @ 12 MT`).
+### Dual-Mode (Air + Ocean) Enquiry Guardrail (`rfq_agent.py` & `RfqInputSection.tsx`)
+- **Issue**: Emails containing both Air freight and Ocean freight requests (e.g. `1) Airfreight — Singapore to HK...` and `2) Ocean — Singapore to HK...`) previously caused a JSON parsing crash (`'list' object has no attribute 'get'`) when Gemini returned a list of enquiries, or silently classified the entire email as a single mode and dropped the other.
 - **Fix**:
-  1. **Multi-Container Extraction**: `container_types` extracts all container sizes mentioned into a unified array (`["DRY 20", "DRY 40H", "DRY 40"]`) and sums total container quantity ($2 + 1 + 1 = 4$).
-  2. **20GP Overweight Priority**: In ocean rate searching, 20GP containers are subject to Heavy Weight Surcharges (HWS / OWCS) if cargo gross weight exceeds 16–18 MT (16,000–18,000 kg). When individual container weights are given, `weight_per_container_kg` automatically prioritizes the 20GP weight (`18,000 kg` / 18 MT) so carrier rate APIs evaluate the 20GP overweight surcharge threshold accurately.
-- **Verification**: `test_multi_container_types_and_20gp_overweight_priority` added to `backend/tests/test_rfq_agent.py` and passed 14/14.
+  1. **Safe List Parsing**: `json.loads(raw_llm_json)` now inspects lists of objects gracefully without throwing `'list' object has no attribute 'get'`.
+  2. **Dual-Mode Intercept & Guardrail**: `_detect_dual_mode_enquiry` pre-checks raw text (and parsed JSON items) for dual-mode signals (`1) Air... 2) Ocean...`). If both modes are present, it returns `status: "needs_clarification"`, `is_dual_mode: true`, and `missing_fields: ["mode"]`.
+  3. **Interactive Quick Choice Buttons**: Added 2 quick action buttons directly in the Clarification Banner:
+     - **`[ ✈️ Rate-Search Airfreight Request ]`**: Pre-fills & generates dual partner drafts for the Air enquiry.
+     - **`[ 🚢 Rate-Search Ocean Freight Request ]`**: Pre-fills Search Parameters for the Ocean FCL enquiry.
+- **Verification**: Added `test_dual_mode_air_and_ocean_in_one_email_guardrail` in `backend/tests/test_rfq_agent.py` (passed 15/15).
+
 
 
 

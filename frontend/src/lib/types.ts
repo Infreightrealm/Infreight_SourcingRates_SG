@@ -96,7 +96,9 @@ export interface RFQParseResult {
   is_unsupported_equipment?: boolean;
   unsupported_equipment_type?: string;
   is_lcl?: boolean;
+  is_dual_mode?: boolean;
   unsupported_reason?: string;
+
   origin_display?: string;
 
   destination_display?: string;

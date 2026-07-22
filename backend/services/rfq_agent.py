@@ -362,6 +362,41 @@ def _extract_20gp_weight_priority(raw_text: str) -> Optional[float]:
     return None
 
 
+def _detect_dual_mode_enquiry(raw_text: str) -> tuple[bool, Optional[str]]:
+    """
+    Detects if raw_text contains both Air freight and Ocean freight requests in a single email.
+    Returns (is_dual_mode, clarification_question).
+    """
+    if not raw_text:
+        return False, None
+
+    text_lower = raw_text.lower()
+
+    # Check if user already provided a clarification choice
+    if any(choice in text_lower for choice in ["clarification update: air", "clarification update: 1", "process air", "quote air", "only air", "air mode"]):
+        return False, None
+    if any(choice in text_lower for choice in ["clarification update: ocean", "clarification update: sea", "clarification update: 2", "process ocean", "process sea", "quote ocean", "quote sea", "ocean mode"]):
+        return False, None
+
+    # Check for explicit air indicators
+    has_air = bool(re.search(r'\b(?:1\)|1\.\s*air|airfreight|air freight|by air)\b', text_lower) or ("air" in text_lower and any(k in text_lower for k in ["cartons", "kgs", "kg", "crates", "hong kong", "singapore"])))
+
+    # Check for explicit ocean indicators
+    has_ocean = bool(re.search(r'\b(?:2\)|2\.\s*ocean|ocean|seafreight|sea freight|by sea|1x40hq|20gp|40gp|40hq|fcl)\b', text_lower) or ("ocean" in text_lower and any(k in text_lower for k in ["40hq", "20gp", "40gp", "fcl", "mt", "containers"])))
+
+    if has_air and has_ocean:
+        msg = (
+            "🔀 Dual-Mode Enquiry Detected: This email contains both Air Freight and Ocean Freight requests:\n\n"
+            "1️⃣ Airfreight Request (e.g. Singapore to Hong Kong, 250 kgs, 3 cartons, electronics)\n"
+            "2️⃣ Ocean Freight Request (e.g. Singapore to Hong Kong, 1x40HQ, 18 MT, general cargo)\n\n"
+            "Please specify which enquiry you would like to rate-search first (click a button below or reply 'Air' or 'Ocean')."
+        )
+        return True, msg
+
+    return False, None
+
+
+
 
 
 
@@ -462,6 +497,30 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     now = datetime.now()
     tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
+    # Check for Dual-Mode (Air + Ocean in one email)
+    is_dual, dual_msg = _detect_dual_mode_enquiry(raw_text)
+    if is_dual:
+        return RFQParseResult(
+            status="needs_clarification",
+            mode="sea",
+            confidence=1.0,
+            is_dual_mode=True,
+            parsed_fields=None,
+            clarification_question=dual_msg,
+            missing_fields=["mode"],
+            extracted_fields=[],
+            default_injected_fields=[],
+            debug_raw_llm_response="[MOCK DUAL MODE INTERCEPTED]"
+        )
+
+    # Honor user clarification choice
+    forced_mode = None
+    if re.search(r'clarification update:\s*air\b', text_lower) or "process air" in text_lower:
+        forced_mode = "air"
+    elif re.search(r'clarification update:\s*(?:ocean|sea)\b', text_lower) or "process ocean" in text_lower or "process sea" in text_lower:
+        forced_mode = "sea"
+
+
     # Air vs Sea detection
     air_keywords = ["air rate", "airfreight", "flight schedule", "exw airfreight", "singapore airport", "kul", "hitachi printers"]
     sea_keywords = ["ocean", "sailing", "20'", "40'", "40hq", "40hc", "pasir gudang", "tanjung pelepas", "steel plate", "jkt"]
@@ -471,9 +530,10 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     matched_air = [k for k in air_keywords if k in text_lower]
     matched_sea = [k for k in sea_keywords if k in text_lower]
 
-    mode = "air" if len(matched_air) > len(matched_sea) else "sea"
-    confidence = 0.95 if (matched_air or matched_sea) else 0.5
+    mode = forced_mode or ("air" if len(matched_air) > len(matched_sea) else "sea")
+    confidence = 0.95 if (matched_air or matched_sea or forced_mode) else 0.5
     matched_keywords = matched_air if mode == "air" else matched_sea
+
 
     # Dangerous Goods / Compliance (for Air Mode)
     is_dg = "lithium" in text_lower or "pi 970" in text_lower or "hs code" in text_lower
@@ -627,6 +687,9 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         raw_dest = "Chennai"
     elif "melbourne" in text_lower:
         raw_dest = "Melbourne"
+    elif "hong kong" in text_lower:
+        raw_dest = "Hong Kong"
+
 
     orig_full, orig_disp, orig_unmapped = resolve_port_alias(raw_origin)
     dest_full, dest_disp, dest_unmapped = resolve_port_alias(raw_dest)
@@ -847,6 +910,24 @@ async def parse_rfq(
             "Please configure GEMINI_API_KEY in your environment or set RFQ_AGENT_MOCK=true for testing."
         )
 
+    # Pre-parse check for Dual-Mode (AIR + OCEAN in one email)
+    if has_text:
+        is_dual, dual_msg = _detect_dual_mode_enquiry(raw_text)
+        if is_dual:
+            print("[RFQ Agent Guardrail Activated] Dual-Mode Enquiry Detected (Air + Ocean)")
+            return RFQParseResult(
+                status="needs_clarification",
+                mode="sea",
+                confidence=1.0,
+                is_dual_mode=True,
+                parsed_fields=None,
+                clarification_question=dual_msg,
+                missing_fields=["mode"],
+                extracted_fields=[],
+                default_injected_fields=[],
+                debug_raw_llm_response="[DUAL MODE INTERCEPTED]"
+            )
+
     # Pre-parse check for unsupported special equipment or LCL guardrails
     is_equip, equip_type, is_lcl, warn_msg = _detect_unsupported_cargo(raw_text)
     if is_equip or is_lcl:
@@ -882,7 +963,32 @@ async def parse_rfq(
     try:
         extracted_data = json.loads(raw_llm_json)
 
+        # Handle list responses safely (e.g. Gemini returned multiple items for dual mode or multi-route)
+        if isinstance(extracted_data, list):
+            modes = [item.get("mode", "").lower() for item in extracted_data if isinstance(item, dict)]
+            if "air" in modes and "sea" in modes:
+                dual_msg = (
+                    "🔀 Dual-Mode Enquiry Detected: This email contains both Air Freight and Ocean Freight requests:\n\n"
+                    "1️⃣ Airfreight Request (e.g. Singapore to Hong Kong, 250 kgs, 3 cartons, electronics)\n"
+                    "2️⃣ Ocean Freight Request (e.g. Singapore to Hong Kong, 1x40HQ, 18 MT, general cargo)\n\n"
+                    "Please specify which enquiry you would like to rate-search first (click a button below or reply 'Air' or 'Ocean')."
+                )
+                return RFQParseResult(
+                    status="needs_clarification",
+                    mode="sea",
+                    confidence=1.0,
+                    is_dual_mode=True,
+                    parsed_fields=None,
+                    clarification_question=dual_msg,
+                    missing_fields=["mode"]
+                )
+            extracted_data = extracted_data[0] if (len(extracted_data) > 0 and isinstance(extracted_data[0], dict)) else {}
+
+        if not isinstance(extracted_data, dict):
+            extracted_data = {}
+
         mode = extracted_data.get("mode", "sea").lower()
+
         confidence = float(extracted_data.get("confidence", 0.9))
         matched_keywords = extracted_data.get("matched_keywords", [])
         is_dg = bool(extracted_data.get("is_dangerous_goods", False))

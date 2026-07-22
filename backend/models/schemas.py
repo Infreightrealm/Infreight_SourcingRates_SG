@@ -139,7 +139,9 @@ class RFQParseResult(BaseModel):
     is_unsupported_equipment: bool = Field(default=False, description="True if special equipment like Reefer, Open Top, Flat Rack, ISO Tank, Hard Top is detected")
     unsupported_equipment_type: Optional[str] = Field(default=None, description="Type of unsupported equipment detected")
     is_lcl: bool = Field(default=False, description="True if LCL / Less than Container Load is detected")
+    is_dual_mode: bool = Field(default=False, description="True if email contains both Air freight and Ocean freight requests")
     unsupported_reason: Optional[str] = Field(default=None, description="Explanation message if shipment uses unsupported equipment or LCL mode")
+
     origin_display: Optional[str] = Field(default=None, description="Resolved origin string e.g. Port Klang (from 'PK')")
     destination_display: Optional[str] = Field(default=None, description="Resolved destination string e.g. Jakarta (from 'JKT')")
     sales_notes: Optional[dict] = Field(default=None, description="Extracted commercial signals (future_volume, competitive_pressure, urgency, target_rate)")
