@@ -325,6 +325,36 @@ async def test_ocean_missing_container_type_triggers_clarification():
     assert "container size" in (res.clarification_question or "").lower()
 
 
+@pytest.mark.asyncio
+async def test_reefer_40rf_temperature_unsupported_equipment_guardrail():
+    """
+    Test 40RF / temperature / frozen seafood reefer guardrail:
+    "Please quote 1 x 40RF Singapore to Sydney, frozen seafood, temperature -18C, 22 MT, ETD early September."
+    
+    Expected:
+    1. Mode classified as 'sea'
+    2. Status is 'unsupported_cargo'
+    3. is_unsupported_equipment is True
+    4. unsupported_equipment_type contains 'Reefer'
+    5. unsupported_reason explains Standard FCL Dry Containers only (20GP, 40GP, 40HQ)
+    """
+    rfq_text = (
+        "Please quote 1 x 40RF Singapore to Sydney, frozen seafood,\n"
+        "temperature -18C, 22 MT, ETD early September.\n\n"
+        "Best Regards,\n\n"
+        "Michael Tan\n"
+        "Director – Logistics\n"
+        "Global Trade Pte Ltd"
+    )
+    res = await parse_rfq(rfq_text)
+
+    assert isinstance(res, RFQParseResult)
+    assert res.status == "unsupported_cargo"
+    assert res.is_unsupported_equipment is True
+    assert "Reefer" in (res.unsupported_equipment_type or "")
+    assert "Standard FCL Dry Containers" in (res.unsupported_reason or "")
+
+
 
 
 if __name__ == "__main__":
@@ -338,6 +368,8 @@ if __name__ == "__main__":
     asyncio.run(test_unsupported_lcl_guardrail())
     asyncio.run(test_ocean_fcl_mode_branching_required_fields_and_weight_split())
     asyncio.run(test_ocean_missing_container_type_triggers_clarification())
+    asyncio.run(test_reefer_40rf_temperature_unsupported_equipment_guardrail())
     print("[OK] All RFQ Agent unit tests passed!")
+
 
 

@@ -263,24 +263,24 @@ def generate_dual_air_drafts(
 # Guardrails for Special Equipment & LCL
 # ────────────────────────────────────────────
 
-UNSUPPORTED_EQUIPMENT_MAP = {
-    "reefer": "Reefer (Refrigerated Container)",
-    "rf": "Reefer (Refrigerated Container)",
-    "refrigerated": "Reefer (Refrigerated Container)",
-    "open top": "Open Top Container",
-    "open-top": "Open Top Container",
-    "ot container": "Open Top Container",
-    "flat rack": "Flat Rack Container",
-    "flat-rack": "Flat Rack Container",
-    "flatrack": "Flat Rack Container",
-    "fr container": "Flat Rack Container",
-    "iso tank": "ISO Tank Container",
-    "isotank": "ISO Tank Container",
-    "tank container": "ISO Tank Container",
-    "hard top": "Hard Top Container",
-    "hard-top": "Hard Top Container",
-    "ht container": "Hard Top Container"
-}
+UNSUPPORTED_EQUIPMENT_PATTERNS = [
+    # Reefer Patterns (40RF, 20RF, 40'RF, 40RH, 20RH, Reefer, Refrigerated, Frozen, Chilled, Temperature)
+    (r'(?:\b|\d)(?:20|40|45)?(?:\'|\s|-)?(?:rf|rh|reefer|reefers|refrigerated)\b', "Reefer (Refrigerated Container)"),
+    (r'\b(?:frozen|chilled)\b', "Reefer (Refrigerated Container)"),
+    (r'\b(?:temperature|temp)\b\s*-?\d+', "Reefer (Refrigerated Container)"),
+    
+    # Open Top Patterns (40OT, 20OT, Open Top)
+    (r'(?:\b|\d)(?:20|40|45)?(?:\'|\s|-)?(?:ot|open\s*top)\b', "Open Top Container"),
+    
+    # Flat Rack Patterns (40FR, 20FR, Flat Rack)
+    (r'(?:\b|\d)(?:20|40|45)?(?:\'|\s|-)?(?:fr|flat\s*rack|flatrack)\b', "Flat Rack Container"),
+    
+    # ISO Tank Patterns
+    (r'\b(?:iso\s*tank|isotank|tank\s*container|tk\s*container)\b', "ISO Tank Container"),
+    
+    # Hard Top Patterns
+    (r'(?:\b|\d)(?:20|40|45)?(?:\'|\s|-)?(?:ht|hard\s*top|hardtop)\b', "Hard Top Container")
+]
 
 LCL_KEYWORDS = ["lcl", "less than container load", "less than a container load", "groupage", "consolidation"]
 
@@ -289,8 +289,8 @@ def _detect_unsupported_cargo(raw_text: str) -> tuple[bool, Optional[str], bool,
     text_lower = raw_text.lower()
 
     detected_equip = None
-    for kw, label in UNSUPPORTED_EQUIPMENT_MAP.items():
-        if re.search(r'\b' + re.escape(kw) + r'\b', text_lower):
+    for pattern, label in UNSUPPORTED_EQUIPMENT_PATTERNS:
+        if re.search(pattern, text_lower):
             detected_equip = label
             break
 
@@ -316,6 +316,7 @@ def _detect_unsupported_cargo(raw_text: str) -> tuple[bool, Optional[str], bool,
         return False, None, True, msg
 
     return False, None, False, None
+
 
 
 # ────────────────────────────────────────────
@@ -956,10 +957,63 @@ async def parse_rfq(
                 if c and isinstance(c, str) and c.strip():
                     c_types.append(c.strip())
 
+        # Post-LLM Guardrail Check for Special Equipment container types (e.g. 40RF, 40RH, Reefer, OT, FR)
+        llm_unsupported_equip = extracted_data.get("unsupported_equipment_type")
+        if extracted_data.get("is_unsupported_equipment") or llm_unsupported_equip:
+            equip_name = llm_unsupported_equip or "Reefer / Special Equipment"
+            msg = (
+                f"⚠️ Special Equipment Notice: Our automated ocean rate engine currently supports "
+                f"Standard FCL Dry Containers only (20GP, 40GP, 40HQ). Automated rate scraping for "
+                f"{equip_name} is not supported."
+            )
+            return RFQParseResult(
+                status="unsupported_cargo",
+                mode="sea",
+                confidence=confidence,
+                matched_keywords=[equip_name],
+                is_unsupported_equipment=True,
+                unsupported_equipment_type=equip_name,
+                is_lcl=False,
+                unsupported_reason=msg,
+                parsed_fields=None,
+                clarification_question=msg,
+                missing_fields=[],
+                extracted_fields=[],
+                default_injected_fields=[],
+                debug_raw_llm_response=raw_llm_json
+            )
+
+        for c in c_types:
+            c_up = c.upper()
+            if any(k in c_up for k in ["RF", "RH", "REEFER", "REFRIGERATED", "OT", "OPEN TOP", "FR", "FLAT RACK", "TANK", "HT", "HARD TOP"]):
+                equip_name = f"Reefer / Special Equipment ({c})" if any(r in c_up for r in ["RF", "RH", "REEFER"]) else f"Special Equipment ({c})"
+                msg = (
+                    f"⚠️ Special Equipment Notice: Our automated ocean rate engine currently supports "
+                    f"Standard FCL Dry Containers only (20GP, 40GP, 40HQ). Automated rate scraping for "
+                    f"{equip_name} is not supported."
+                )
+                return RFQParseResult(
+                    status="unsupported_cargo",
+                    mode="sea",
+                    confidence=confidence,
+                    matched_keywords=[c],
+                    is_unsupported_equipment=True,
+                    unsupported_equipment_type=equip_name,
+                    is_lcl=False,
+                    unsupported_reason=msg,
+                    parsed_fields=None,
+                    clarification_question=msg,
+                    missing_fields=[],
+                    extracted_fields=[],
+                    default_injected_fields=[],
+                    debug_raw_llm_response=raw_llm_json
+                )
+
         clarification_q = extracted_data.get("clarification_question")
 
         extracted_fields = []
         default_injected_fields = ["service_term", "search_window_days", "carriers"]
+
 
         if resolved_origins: extracted_fields.append("origin")
         if resolved_destinations: extracted_fields.append("destination")
