@@ -33,8 +33,13 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 - **Fix**:
   1. `resolve_port_alias` now queries the `port_manager` database and strips country/state/parenthetical suffixes (`"Montreal, Canada"` ➔ `"Montreal"`, `"Toronto (Halifax), Canada"` ➔ `"Toronto"`, `"Koper, Slovenia"` ➔ `"Koper"`).
   2. `port_manager.search_port` now automatically strips `, Country` suffixes during database lookups.
-- **Result**: The RFQ parser pre-fills `Search Parameters` with the clean, proven port name matching the search autocomplete dropdown (`Montreal`, `Toronto`, `Koper`, `Nagoya`), ensuring 100% smooth carrier scraping execution.
-- **Verification**: `test_resolve_city_country_format_to_clean_database_port_name` added to `backend/tests/test_rfq_agent.py` and passed 13/13.
+### Multi-Container Type Extraction & 20GP Overweight Surcharge Priority (`rfq_agent.py`)
+- **Requirement**: Enquiries specifying multiple container types with individual quantities and weights (e.g. `2 x 20GP @ 18 MT`, `1 x 40HQ @ 8 MT`, `1 x 40GP @ 12 MT`).
+- **Fix**:
+  1. **Multi-Container Extraction**: `container_types` extracts all container sizes mentioned into a unified array (`["DRY 20", "DRY 40H", "DRY 40"]`) and sums total container quantity ($2 + 1 + 1 = 4$).
+  2. **20GP Overweight Priority**: In ocean rate searching, 20GP containers are subject to Heavy Weight Surcharges (HWS / OWCS) if cargo gross weight exceeds 16–18 MT (16,000–18,000 kg). When individual container weights are given, `weight_per_container_kg` automatically prioritizes the 20GP weight (`18,000 kg` / 18 MT) so carrier rate APIs evaluate the 20GP overweight surcharge threshold accurately.
+- **Verification**: `test_multi_container_types_and_20gp_overweight_priority` added to `backend/tests/test_rfq_agent.py` and passed 14/14.
+
 
 
 
