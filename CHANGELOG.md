@@ -22,7 +22,14 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 - **Fix**: Upgraded special equipment regex patterns (`UNSUPPORTED_EQUIPMENT_PATTERNS`) to match `40RF`, `20RF`, `40RH`, `20RH`, `40'RF`, `40-RF`, `frozen`, `chilled`, and `temperature -XXC`. Added post-LLM extraction check for reefer container sizes (`40RF`, `20RF`, `40RH`).
 - **Result**: `40RF` enquiries are intercepted up front with `status: "unsupported_cargo"` and display the clear UI Notice:
   > *"⚠️ Special Equipment Notice: Our automated ocean rate engine currently supports Standard FCL Dry Containers only (20GP, 40GP, 40HQ). Automated rate scraping for Reefer (Refrigerated Container) is not supported."*
-- **Verification**: `test_reefer_40rf_temperature_unsupported_equipment_guardrail` added to `backend/tests/test_rfq_agent.py` and passed 12/12.
+### Multi-Destination Routing Persistence & Interactive Route Chips (`RfqInputSection.tsx`)
+- **Bug**: When searching a route from a multi-destination email (e.g. 18/34 pairs), submitting a rate search updated the URL query parameters (`?id=...`), which unmounted/wiped out the top RFQ Reader card and erased the extracted 18 pairs. To search Pair #2, the user had to re-paste the 34-pair email from scratch.
+- **Fix**: 
+  1. Added `sessionStorage` persistence for `rfqText`, `parseResult`, and `selectedPairIndex`. Submitting searches or navigating between routes never wipes out the RFQ email or extracted multi-destination list.
+  2. Designed an interactive Multi-Destination Route Chips Selector bar displaying clickable badges (`[ #1 Pasir Gudang ➔ Koper ]`, `[ #2 Pasir Gudang ➔ Nagoya ]`, ...).
+  3. Clicking any route badge instantly pre-fills `Search Parameters` with that route's origin & destination while highlighting the active pill badge with `✓ Active Form Route`.
+- **Result**: Users can seamlessly search Pair #1 ➔ view results ➔ click Pair #2 ➔ search ➔ view results ➔ click Pair #3 without re-pasting text.
+
 
 
 
