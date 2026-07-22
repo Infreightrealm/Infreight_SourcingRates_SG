@@ -151,12 +151,12 @@ def resolve_airport_alias(airport_str: Optional[str]) -> tuple[Optional[dict], O
 
 def resolve_port_alias(port_str: Optional[str], mode: str = "sea") -> tuple[Optional[str], Optional[str], bool]:
     """
-    Deterministically resolves a port string against ports_aliases.json.
+    Deterministically resolves a port string against ports_aliases.json and the port_manager database.
     Returns (resolved_full_name, display_str_with_orig_code, requires_clarification).
     - If port_str is in ports_aliases.json: returns ("Port Klang", "Port Klang (from 'PK')", False)
     - If mode == 'air' and port_str is 3-letter IATA airport code: returns (port_str.upper(), f"{port_str.upper()} Airport", False)
-    - If port_str is 2-3 letters NOT in ports_aliases.json (sea mode): returns (port_str, None, True)
-    - Otherwise: returns (port_str, port_str, False)
+    - If port_str is 2-3 letters NOT in ports_aliases.json (sea mode): returns (port_str, f"Unknown code '{port_str}'", True)
+    - Automatically resolves "City, Country" (e.g. "Montreal, Canada" -> "Montreal") against port_manager database to match proven search dropdowns!
     """
     if not port_str or not port_str.strip():
         return None, None, False
@@ -179,7 +179,31 @@ def resolve_port_alias(port_str: Optional[str], mode: str = "sea") -> tuple[Opti
     if len(clean_str) <= 3 and clean_str.isalpha():
         return clean_str, f"Unknown code '{clean_str}'", True
 
-    return clean_str, clean_str, False
+    # Search database for proven clean port name (matching search autocomplete dropdown)
+    from services.port_manager import search_port
+    
+    # Clean city name if "City, Country" format is present (e.g. "Montreal, Canada" -> "Montreal")
+    search_term = clean_str
+    if "," in clean_str:
+        city_part = clean_str.split(",")[0].strip()
+        city_part_clean = re.sub(r'\s*\([^)]*\)', '', city_part).strip()
+        if city_part_clean:
+            search_term = city_part_clean
+
+    db_results = search_port(search_term)
+    if db_results:
+        raw_db_name = db_results[0]["name"]
+        clean_name = re.sub(r'\s*\([^)]*\)', '', raw_db_name).split(',')[0].strip()
+        display = f"{clean_name} (from '{clean_str}')" if clean_name.lower() != clean_str.lower() else clean_name
+        return clean_name, display, False
+
+
+
+
+    # Fallback if database search returned no matches
+    fallback_name = re.sub(r'\s*\([^)]*\)', '', clean_str.split(",")[0]).strip()
+    return fallback_name or clean_str, clean_str, False
+
 
 
 

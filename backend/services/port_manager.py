@@ -601,8 +601,17 @@ class PortManager:
         if not query:
             return []
 
+        # If query contains comma (e.g. "Montreal, Canada"), try searching city part first
+        if "," in query:
+            city_part = query.split(",")[0].strip()
+            if city_part and city_part != query:
+                city_results = self.search_port(city_part, country=country)
+                if city_results:
+                    return city_results
+
         query_raw = re.sub(r'\s+', ' ', query.lower()).strip()
         query_norm = self.normalize_port_input(query)
+
         
         # If query_norm is empty, fallback to query_raw
         if not query_norm:

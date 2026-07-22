@@ -355,10 +355,39 @@ async def test_reefer_40rf_temperature_unsupported_equipment_guardrail():
     assert "Standard FCL Dry Containers" in (res.unsupported_reason or "")
 
 
+def test_resolve_city_country_format_to_clean_database_port_name():
+    """
+    Test that resolve_port_alias cleans 'City, Country' and parenthetical notes
+    to match the exact proven port name in search autocomplete dropdowns:
+    - 'Montreal, Canada' -> 'Montreal'
+    - 'Toronto (Halifax), Canada' -> 'Toronto'
+    - 'Koper, Slovenia' -> 'Koper'
+    - 'Nagoya, Japan' -> 'Nagoya'
+    """
+    from services.rfq_agent import resolve_port_alias
+
+    full_montreal, disp_montreal, unmapped = resolve_port_alias("Montreal, Canada")
+    assert full_montreal == "Montreal"
+    assert unmapped is False
+
+    full_toronto, disp_toronto, unmapped = resolve_port_alias("Toronto (Halifax), Canada")
+    assert full_toronto == "Toronto"
+    assert unmapped is False
+
+    full_koper, disp_koper, unmapped = resolve_port_alias("Koper, Slovenia")
+    assert full_koper == "Koper"
+    assert unmapped is False
+
+    full_nagoya, disp_nagoya, unmapped = resolve_port_alias("Nagoya, Japan")
+    assert full_nagoya == "Nagoya"
+    assert unmapped is False
+
+
 
 
 if __name__ == "__main__":
     import asyncio
+    test_resolve_city_country_format_to_clean_database_port_name()
     asyncio.run(test_pak_shaun_email_fixture_port_aliases_and_sales_notes())
     asyncio.run(test_unmapped_abbreviation_clarification_guardrail())
     asyncio.run(test_air_rfq_image1_lithium_batteries_compliance())
@@ -370,6 +399,7 @@ if __name__ == "__main__":
     asyncio.run(test_ocean_missing_container_type_triggers_clarification())
     asyncio.run(test_reefer_40rf_temperature_unsupported_equipment_guardrail())
     print("[OK] All RFQ Agent unit tests passed!")
+
 
 
 
