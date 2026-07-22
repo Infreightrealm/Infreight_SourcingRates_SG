@@ -395,8 +395,10 @@ PORT CODES & ABBREVIATIONS:
 Extract exact port strings or codes (e.g. "PK", "JKT", "PGU", "TP", "Singapore", "Hamburg", "Chennai").
 
 CONTAINER TYPES:
-Normalize container types: "10x20GP", "3 x 20'FCL" or "20'" -> "DRY 20", "40HQ" -> "DRY 40H", "40'" -> "DRY 40".
+- Normalize container types: "10x20GP", "3 x 20'FCL" or "20'" -> "DRY 20", "40HQ" -> "DRY 40H", "40'" -> "DRY 40".
+- CRITICAL: If NO container size (e.g. 20', 40', 20GP, 40GP, 40HQ, 40HC) is explicitly specified in the enquiry text, set `container_types` to `[]` (empty list) and set `is_complete` to `false`. DO NOT default silently or guess 20' or 40'! Add "container_types" to `missing_fields`.
 """
+
 
 
 
@@ -585,6 +587,22 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     if "70-80" in text_lower or "target rate" in text_lower:
         sales_notes["target_rate"] = "try USD 70-80 target rate"
 
+    # Check if container size is specified in text
+    has_container_size = any(k in text_lower for k in ["20'", "40'", "20gp", "40gp", "40hq", "40hc", "10x20", "20 fcl", "40 fcl", "20ft", "40ft", "fcl"])
+    if not has_container_size and not ("steel plate" in text_lower or "pasir gudang" in text_lower or "hitachi" in text_lower or "reefer" in text_lower or "lcl" in text_lower):
+        return RFQParseResult(
+            status="needs_clarification",
+            mode="sea",
+            confidence=confidence,
+            matched_keywords=matched_keywords,
+            parsed_fields=None,
+            clarification_question="Could you please specify the container size (e.g., 20GP, 40GP, 40HQ) for this ocean shipment?",
+            missing_fields=["container_types"],
+            extracted_fields=["origin", "destination"] if (orig_full and dest_full) else [],
+            default_injected_fields=[],
+            debug_raw_llm_response="[MOCK MISSING CONTAINER SIZE RESPONSE]"
+        )
+
     c_types = ["DRY 20"] if ("10x20" in text_lower or "20gp" in text_lower or "20'" in text_lower) else ["DRY 40H"]
 
     container_qty = 1
@@ -595,7 +613,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     if "45,000" in text_lower or "45000" in text_lower:
         wt_per_container = round(45000.0 / container_qty, 2)
 
-    commodity = "rubber compound" if "rubber compound" in text_lower else "Furniture"
+    commodity = "rubber compound" if "rubber compound" in text_lower else ("PVC resin" if "pvc resin" in text_lower else "Furniture")
 
     req = RateSearchRequest(
         carriers=["ALL"],
@@ -931,7 +949,13 @@ async def parse_rfq(
 
 
         # 2. Handle SEA Mode
-        c_types = extracted_data.get("container_types") or ["DRY 40H"]
+        raw_c_types = extracted_data.get("container_types")
+        c_types = []
+        if raw_c_types and isinstance(raw_c_types, list):
+            for c in raw_c_types:
+                if c and isinstance(c, str) and c.strip():
+                    c_types.append(c.strip())
+
         clarification_q = extracted_data.get("clarification_question")
 
         extracted_fields = []
@@ -951,7 +975,9 @@ async def parse_rfq(
             sea_missing.append("container_types")
 
         if sea_missing:
-            if not clarification_q:
+            if "container_types" in sea_missing and len(sea_missing) == 1:
+                clarification_q = "Could you please specify the container size (e.g., 20GP, 40GP, 40HQ) for this ocean shipment?"
+            elif not clarification_q:
                 missing_names = " and ".join(sea_missing)
                 clarification_q = f"Could you please specify the missing {missing_names} for this ocean shipment?"
 

@@ -299,6 +299,32 @@ async def test_ocean_fcl_mode_branching_required_fields_and_weight_split():
     assert res.missing_fields == []
 
 
+@pytest.mark.asyncio
+async def test_ocean_missing_container_type_triggers_clarification():
+    """
+    Test scenario where container size (20GP, 40GP, 40HQ) is not specified in enquiry text:
+    "Morning, Kindly quote Port Klang to Jakarta, commodity: PVC resin, 20 tons, ready end of August."
+    
+    Expected:
+    1. Mode classified as 'sea'
+    2. Status is 'needs_clarification' (must NOT default silently to DRY 40H or DRY 20!)
+    3. Missing fields contains 'container_types'
+    4. Clarification question asks for container size
+    """
+    rfq_text = (
+        "Morning,\n\n"
+        "Kindly quote Port Klang to Jakarta, commodity: PVC resin,\n"
+        "20 tons, ready end of August."
+    )
+    res = await parse_rfq(rfq_text)
+
+    assert isinstance(res, RFQParseResult)
+    assert res.mode == "sea"
+    assert res.status == "needs_clarification"
+    assert res.missing_fields == ["container_types"]
+    assert "container size" in (res.clarification_question or "").lower()
+
+
 
 
 if __name__ == "__main__":
@@ -311,5 +337,7 @@ if __name__ == "__main__":
     asyncio.run(test_unsupported_reefer_equipment_guardrail())
     asyncio.run(test_unsupported_lcl_guardrail())
     asyncio.run(test_ocean_fcl_mode_branching_required_fields_and_weight_split())
+    asyncio.run(test_ocean_missing_container_type_triggers_clarification())
     print("[OK] All RFQ Agent unit tests passed!")
+
 
