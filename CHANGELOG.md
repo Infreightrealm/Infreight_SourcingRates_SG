@@ -34,14 +34,15 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
   1. `resolve_port_alias` now queries the `port_manager` database and strips country/state/parenthetical suffixes (`"Montreal, Canada"` ➔ `"Montreal"`, `"Toronto (Halifax), Canada"` ➔ `"Toronto"`, `"Koper, Slovenia"` ➔ `"Koper"`).
   2. `port_manager.search_port` now automatically strips `, Country` suffixes during database lookups.
 ### Dual-Mode (Air + Ocean) Enquiry Guardrail (`rfq_agent.py` & `RfqInputSection.tsx`)
-- **Issue**: Emails containing both Air freight and Ocean freight requests (e.g. `1) Airfreight — Singapore to HK...` and `2) Ocean — Singapore to HK...`) previously caused a JSON parsing crash (`'list' object has no attribute 'get'`) when Gemini returned a list of enquiries, or silently classified the entire email as a single mode and dropped the other.
+- **Issue**: Emails containing both Air freight and Ocean freight requests (e.g. `1) Airfreight — Singapore to HK...` and `2) Ocean — Singapore to HK...`) previously caused a JSON parsing crash (`'list' object has no attribute 'get'`) or re-triggered `needs_clarification` even after typing `Air`.
 - **Fix**:
-  1. **Safe List Parsing**: `json.loads(raw_llm_json)` now inspects lists of objects gracefully without throwing `'list' object has no attribute 'get'`.
-  2. **Dual-Mode Intercept & Guardrail**: `_detect_dual_mode_enquiry` pre-checks raw text (and parsed JSON items) for dual-mode signals (`1) Air... 2) Ocean...`). If both modes are present, it returns `status: "needs_clarification"`, `is_dual_mode: true`, and `missing_fields: ["mode"]`.
+  1. **Safe List Parsing & `forced_mode` Override**: Added `forced_mode` detection (`Clarification update: Air` / `Clarification update: Ocean`). When the user clicks a mode button or types `Air`/`Ocean`, `forced_mode` instructs Gemini to extract ONLY the requested mode and forces `mode = "air"` or `mode = "sea"`, bypassing multi-item list re-triggers.
+  2. **Dual-Mode Intercept & Guardrail**: `_detect_dual_mode_enquiry` pre-checks raw text for dual-mode signals (`1) Air... 2) Ocean...`). If both modes are present and no choice is made, it returns `status: "needs_clarification"`, `is_dual_mode: true`, and `missing_fields: ["mode"]`.
   3. **Interactive Quick Choice Buttons**: Added 2 quick action buttons directly in the Clarification Banner:
      - **`[ ✈️ Rate-Search Airfreight Request ]`**: Pre-fills & generates dual partner drafts for the Air enquiry.
      - **`[ 🚢 Rate-Search Ocean Freight Request ]`**: Pre-fills Search Parameters for the Ocean FCL enquiry.
 - **Verification**: Added `test_dual_mode_air_and_ocean_in_one_email_guardrail` in `backend/tests/test_rfq_agent.py` (passed 15/15).
+
 
 
 

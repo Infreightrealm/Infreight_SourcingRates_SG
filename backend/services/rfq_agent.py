@@ -791,7 +791,8 @@ async def _call_native_gemini_api(
     tomorrow_str: str,
     gemini_key: str,
     image_b64: Optional[str] = None,
-    image_mime: Optional[str] = None
+    image_mime: Optional[str] = None,
+    forced_mode: Optional[str] = None
 ) -> str:
     import httpx
     
@@ -820,9 +821,17 @@ async def _call_native_gemini_api(
             }
         })
     
+    forced_instruction = ""
+    if forced_mode:
+        forced_instruction = (
+            f"\n\nCRITICAL USER SELECTION: The user has selected to process ONLY the {forced_mode.upper()} freight request from this enquiry. "
+            f"Extract ONLY the {forced_mode.upper()} freight routing and cargo details (origin, destination, weight, dimensions, packages, commodity, container_types) "
+            f"and set `mode` to '{forced_mode}'."
+        )
+
     prompt_text = (
         f"{formatted_system_prompt}\n\nOUTPUT FORMAT:\n"
-        f"Return a single JSON object with these keys: mode ('air'|'sea'), confidence (float), matched_keywords (list), origin, origins (list), destination, destinations (list), container_types (list), container_quantity (int/null), weight_per_container_kg (float/null), total_weight_kg (float/null), weight_display_str, dimensions_display_str, package_count_str, is_dangerous_goods (bool), compliance_notes, hs_code, commodity, departure_date, future_volume, competitive_pressure, urgency, target_rate, is_complete (bool), missing_fields (list), clarification_question.\n\n"
+        f"Return a single JSON object with these keys: mode ('air'|'sea'), confidence (float), matched_keywords (list), origin, origins (list), destination, destinations (list), container_types (list), container_quantity (int/null), weight_per_container_kg (float/null), total_weight_kg (float/null), weight_display_str, dimensions_display_str, package_count_str, is_dangerous_goods (bool), compliance_notes, hs_code, commodity, departure_date, future_volume, competitive_pressure, urgency, target_rate, is_complete (bool), missing_fields (list), clarification_question.{forced_instruction}\n\n"
         f"RFQ ENQUIRY TO PARSE:\n{raw_text.strip() if raw_text else 'Extract and parse details directly from the attached screenshot image.'}"
     )
     parts.append({"text": prompt_text})
@@ -895,6 +904,16 @@ async def parse_rfq(
     current_date_str = now.strftime("%Y-%m-%d")
     tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
+    # Detect forced mode choice (e.g. from clarification update)
+    forced_mode = None
+    if has_text:
+        text_lower = raw_text.lower()
+        update_part = text_lower.split("clarification update:")[-1] if "clarification update:" in text_lower else text_lower
+        if re.search(r'\b(?:air|1)\b', update_part) or "process air" in text_lower or "quote air" in text_lower:
+            forced_mode = "air"
+        elif re.search(r'\b(?:ocean|sea|2)\b', update_part) or "process ocean" in text_lower or "process sea" in text_lower:
+            forced_mode = "sea"
+
     # Environment & API Key Check
     is_mock_env = os.getenv("RFQ_AGENT_MOCK", "false").lower() in ("true", "1", "yes")
     is_test_env = "PYTEST_CURRENT_TEST" in os.environ or os.getenv("USE_MOCK_CARRIERS", "false").lower() in ("true", "1", "yes")
@@ -911,7 +930,7 @@ async def parse_rfq(
         )
 
     # Pre-parse check for Dual-Mode (AIR + OCEAN in one email)
-    if has_text:
+    if has_text and not forced_mode:
         is_dual, dual_msg = _detect_dual_mode_enquiry(raw_text)
         if is_dual:
             print("[RFQ Agent Guardrail Activated] Dual-Mode Enquiry Detected (Air + Ocean)")
@@ -949,10 +968,10 @@ async def parse_rfq(
             debug_raw_llm_response="[GUARDRAIL INTERCEPTED]"
         )
 
-    print(f"[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash)...")
+    print(f"[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash)... (forced_mode={forced_mode})")
     
     try:
-        raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key, image_b64=image_b64, image_mime=image_mime)
+        raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key, image_b64=image_b64, image_mime=image_mime, forced_mode=forced_mode)
     except Exception as e:
 
         print(f"[RFQ Agent] Native Gemini API call failed: {e}")
@@ -966,7 +985,10 @@ async def parse_rfq(
         # Handle list responses safely (e.g. Gemini returned multiple items for dual mode or multi-route)
         if isinstance(extracted_data, list):
             modes = [item.get("mode", "").lower() for item in extracted_data if isinstance(item, dict)]
-            if "air" in modes and "sea" in modes:
+            if forced_mode:
+                matching_items = [item for item in extracted_data if isinstance(item, dict) and item.get("mode", "").lower() == forced_mode]
+                extracted_data = matching_items[0] if matching_items else extracted_data[0]
+            elif "air" in modes and "sea" in modes:
                 dual_msg = (
                     "🔀 Dual-Mode Enquiry Detected: This email contains both Air Freight and Ocean Freight requests:\n\n"
                     "1️⃣ Airfreight Request (e.g. Singapore to Hong Kong, 250 kgs, 3 cartons, electronics)\n"
@@ -982,12 +1004,14 @@ async def parse_rfq(
                     clarification_question=dual_msg,
                     missing_fields=["mode"]
                 )
-            extracted_data = extracted_data[0] if (len(extracted_data) > 0 and isinstance(extracted_data[0], dict)) else {}
+            else:
+                extracted_data = extracted_data[0] if (len(extracted_data) > 0 and isinstance(extracted_data[0], dict)) else {}
 
         if not isinstance(extracted_data, dict):
             extracted_data = {}
 
-        mode = extracted_data.get("mode", "sea").lower()
+        mode = forced_mode or extracted_data.get("mode", "sea").lower()
+
 
         confidence = float(extracted_data.get("confidence", 0.9))
         matched_keywords = extracted_data.get("matched_keywords", [])
