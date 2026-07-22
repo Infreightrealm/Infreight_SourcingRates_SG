@@ -468,6 +468,61 @@ async def test_dual_mode_air_and_ocean_in_one_email_guardrail():
     assert ocean_res.parsed_fields.destination == "Hong Kong"
 
 
+@pytest.mark.asyncio
+async def test_g2_booking_confirmation_guardrail():
+    """
+    G2 Stress Test:
+    "Hi, Please book the below as per your quote ref INF-2026-0842:
+     2x40HQ Singapore to Rotterdam, ETD 12 Aug, vessel MSC CARMELITA.
+     Shipper: ABC Trading. Consignee: XYZ GmbH."
+
+    Expected:
+    1. Intercepted as booking confirmation (status == 'booking_confirmation')
+    2. is_booking_confirmation is True
+    3. No rate search pre-filled (parsed_fields is None)
+    4. Quote ref INF-2026-0842 highlighted in message
+    """
+    booking_text = (
+        "Hi,\n\n"
+        "Please book the below as per your quote ref INF-2026-0842:\n"
+        "2x40HQ Singapore to Rotterdam, ETD 12 Aug, vessel MSC CARMELITA.\n"
+        "Shipper: ABC Trading. Consignee: XYZ GmbH."
+    )
+    res = await parse_rfq(booking_text)
+
+    assert isinstance(res, RFQParseResult)
+    assert res.status == "booking_confirmation"
+    assert res.is_booking_confirmation is True
+    assert res.parsed_fields is None
+    assert "INF-2026-0842" in res.clarification_question
+
+
+@pytest.mark.asyncio
+async def test_h1_table_deduplication_two_pairs():
+    """
+    H1 Stress Test:
+    Table with 2 distinct rows:
+    Row 1: POL Singapore, POD Jakarta, QTY 2, TYPE 40HQ, WEIGHT 18000 kg
+    Row 2: POL Singapore, POD Surabaya, QTY 1, TYPE 20GP, WEIGHT 14000 kg
+
+    Expected:
+    1. Exactly 2 pairs generated in all_parsed_pairs (Singapore->Jakarta, Singapore->Surabaya)
+    2. Zero duplicate pairs (#3 and #4 must NOT exist)
+    """
+    rfq_text = (
+        "POL Singapore, POD Jakarta, 2x40HQ, 18000 kg\n"
+        "POL Singapore, POD Surabaya, 1x20GP, 14000 kg"
+    )
+    res = await parse_rfq(rfq_text)
+
+    assert isinstance(res, RFQParseResult)
+    assert res.status == "success"
+    assert res.all_parsed_pairs is not None
+    assert len(res.all_parsed_pairs) == 2
+    destinations = [p["destination"] for p in res.all_parsed_pairs]
+    assert set(destinations) == {"Jakarta", "Surabaya"}
+
+
 
 
 if __name__ == "__main__":
@@ -475,6 +530,8 @@ if __name__ == "__main__":
     test_resolve_city_country_format_to_clean_database_port_name()
     asyncio.run(test_multi_container_types_and_20gp_overweight_priority())
     asyncio.run(test_dual_mode_air_and_ocean_in_one_email_guardrail())
+    asyncio.run(test_g2_booking_confirmation_guardrail())
+    asyncio.run(test_h1_table_deduplication_two_pairs())
     asyncio.run(test_pak_shaun_email_fixture_port_aliases_and_sales_notes())
     asyncio.run(test_unmapped_abbreviation_clarification_guardrail())
     asyncio.run(test_air_rfq_image1_lithium_batteries_compliance())
@@ -486,6 +543,7 @@ if __name__ == "__main__":
     asyncio.run(test_ocean_missing_container_type_triggers_clarification())
     asyncio.run(test_reefer_40rf_temperature_unsupported_equipment_guardrail())
     print("[OK] All RFQ Agent unit tests passed!")
+
 
 
 

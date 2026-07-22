@@ -525,8 +525,29 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
           </div>
         )}
 
+        {/* Booking Confirmation / Instructions Intercept Banner */}
+        {parseResult && (parseResult.status === "booking_confirmation" || parseResult.is_booking_confirmation) && (
+          <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-purple-700 dark:text-purple-300 text-xs space-y-3 backdrop-blur-md animate-fade-in-up">
+            <div className="flex items-start gap-2.5">
+              <span className="text-base flex-shrink-0">📌</span>
+              <div>
+                <span className="font-semibold block text-sm mb-1 text-purple-900 dark:text-purple-200">
+                  Booking Confirmation Detected
+                </span>
+                <p className="leading-relaxed font-medium">
+                  {parseResult.clarification_question || "This email appears to be a booking instruction rather than a rate request. No new carrier rate search will be triggered."}
+                </p>
+                <div className="mt-2 p-2 bg-purple-500/15 rounded-lg border border-purple-500/20 text-[11px] font-mono">
+                  💡 Note: To search for new rates, please paste a fresh rate request email.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Needs Clarification Banner */}
         {parseResult && parseResult.status === "needs_clarification" && (
+
           <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-700 dark:text-amber-300 text-xs space-y-3 backdrop-blur-md animate-fade-in-up">
             <div className="flex items-start gap-2.5">
               <span className="text-base flex-shrink-0">❓</span>

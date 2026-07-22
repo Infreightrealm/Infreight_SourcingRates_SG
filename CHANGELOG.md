@@ -33,15 +33,22 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 - **Fix**:
   1. `resolve_port_alias` now queries the `port_manager` database and strips country/state/parenthetical suffixes (`"Montreal, Canada"` ➔ `"Montreal"`, `"Toronto (Halifax), Canada"` ➔ `"Toronto"`, `"Koper, Slovenia"` ➔ `"Koper"`).
   2. `port_manager.search_port` now automatically strips `, Country` suffixes during database lookups.
-### Dual-Mode (Air + Ocean) Enquiry Guardrail (`rfq_agent.py` & `RfqInputSection.tsx`)
-- **Issue**: Emails containing both Air freight and Ocean freight requests (e.g. `1) Airfreight — Singapore to HK...` and `2) Ocean — Singapore to HK...`) previously caused a JSON parsing crash (`'list' object has no attribute 'get'`) or re-triggered `needs_clarification` even after typing `Air`.
+### Booking Confirmation / Instructions Intercept Guardrail G2 (`rfq_agent.py` & `RfqInputSection.tsx`)
+- **Issue**: Booking confirmation emails (e.g. `Please book the below as per your quote ref INF-2026-0842... vessel MSC CARMELITA. Shipper: ABC...`) were previously misclassified as new rate enquiries and pre-filled the search form for a fresh carrier search.
 - **Fix**:
-  1. **Safe List Parsing & `forced_mode` Override**: Added `forced_mode` detection (`Clarification update: Air` / `Clarification update: Ocean`). When the user clicks a mode button or types `Air`/`Ocean`, `forced_mode` instructs Gemini to extract ONLY the requested mode and forces `mode = "air"` or `mode = "sea"`, bypassing multi-item list re-triggers.
-  2. **Dual-Mode Intercept & Guardrail**: `_detect_dual_mode_enquiry` pre-checks raw text for dual-mode signals (`1) Air... 2) Ocean...`). If both modes are present and no choice is made, it returns `status: "needs_clarification"`, `is_dual_mode: true`, and `missing_fields: ["mode"]`.
-  3. **Interactive Quick Choice Buttons**: Added 2 quick action buttons directly in the Clarification Banner:
-     - **`[ ✈️ Rate-Search Airfreight Request ]`**: Pre-fills & generates dual partner drafts for the Air enquiry.
-     - **`[ 🚢 Rate-Search Ocean Freight Request ]`**: Pre-fills Search Parameters for the Ocean FCL enquiry.
-- **Verification**: Added `test_dual_mode_air_and_ocean_in_one_email_guardrail` in `backend/tests/test_rfq_agent.py` (passed 15/15).
+  1. **Booking Signal Detection**: Created `_detect_booking_confirmation(raw_text)` helper to check for booking action phrases (`please book`, `confirm booking`, `pls book`) combined with existing deal context (`quote ref INF-...`, named vessel `MSC CARMELITA`, `shipper:`, `consignee:`).
+  2. **Search Pre-fill Halt**: When detected, the parser halts rate-search pre-fill, sets `status: "booking_confirmation"`, and sets `is_booking_confirmation: true`.
+  3. **UI Notice Banner**: Renders a dedicated **📌 Booking Confirmation Banner** surfacing: *"This email appears to be a booking instruction (Quote Ref: INF-2026-0842) rather than a rate request. No new carrier rate search will be triggered."*
+- **Verification**: `test_g2_booking_confirmation_guardrail` added to `backend/tests/test_rfq_agent.py` and passed.
+
+### Table Row Multi-Route Pair Deduplication H1 (`rfq_agent.py`)
+- **Issue**: When extracting a 2-row table (e.g. Row 1: `Singapore ➔ Jakarta 2x40HQ`, Row 2: `Singapore ➔ Surabaya 1x20GP`), duplicate POL entries (`["Singapore", "Singapore"]`) caused Cartesian product expansion ($2 \times 2 = 4$ pairs) with pairs #3 and #4 duplicating #1 and #2.
+- **Fix**:
+  1. **Structured `routes` Extraction**: Updated Gemini extraction schema to parse line-by-line `routes` items from tables.
+  2. **1-to-N & 1-to-1 Parallel Route Expansion**: Deduplicates origin lists when all POL entries are identical (`["Singapore", "Singapore"]` ➔ `["Singapore"]`) to expand 1 POL to N PODs (`Singapore ➔ Jakarta`, `Singapore ➔ Surabaya` = 2 pairs total).
+  3. **Strict Deduplication Pass**: Enforces a strict deduplication check on `(origin, destination, container_types)` tuples to guarantee 0 duplicate pairs are returned.
+- **Verification**: `test_h1_table_deduplication_two_pairs` added to `backend/tests/test_rfq_agent.py` and passed (17/17 tests passing).
+
 
 
 

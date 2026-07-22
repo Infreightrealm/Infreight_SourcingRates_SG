@@ -362,7 +362,51 @@ def _extract_20gp_weight_priority(raw_text: str) -> Optional[float]:
     return None
 
 
+BOOKING_ACTION_KEYWORDS = [
+    "please book", "pls book", "kindly book", "book the below", "confirm booking", 
+    "booking confirmation", "booking instruction", "booking request", "book this shipment",
+    "issue b/l", "issue bl", "release booking", "booking order"
+]
+
+BOOKING_CONTEXT_KEYWORDS = [
+    "quote ref", "quote reference", "inf-2026-", "inf-2025-", "q-202",
+    "vessel", "msc carmelita", "mv ", "voyage", "shipper:", "consignee:"
+]
+
+def _detect_booking_confirmation(raw_text: str) -> tuple[bool, Optional[str]]:
+    """
+    Detects if raw_text is a booking confirmation/instruction email rather than a rate enquiry.
+    Signals include:
+    - Explicit booking action ("please book", "confirm booking", "pls book")
+    - AND booking context (quote reference INF-2026-..., vessel name, shipper/consignee details).
+    Returns (is_booking, message).
+    """
+    if not raw_text:
+        return False, None
+
+    text_lower = raw_text.lower()
+
+    # Check for explicit booking action language
+    has_booking_action = any(kw in text_lower for kw in BOOKING_ACTION_KEYWORDS)
+
+    # Check for booking context signals
+    has_booking_context = any(kw in text_lower for kw in BOOKING_CONTEXT_KEYWORDS) or bool(re.search(r'\bref[:\s]', text_lower))
+
+    if has_booking_action and has_booking_context:
+        ref_match = re.search(r'(?:quote\s*ref(?:erence)?|ref)[:\s]*([a-zA-Z0-9\-_]+)', text_lower, re.IGNORECASE)
+        ref_str = f" (Quote Ref: {ref_match.group(1).upper()})" if ref_match else ""
+
+        msg = (
+            f"📌 Booking Confirmation Detected: This email appears to be a booking instruction{ref_str} "
+            f"rather than a rate request. No new carrier rate search will be triggered."
+        )
+        return True, msg
+
+    return False, None
+
+
 def _detect_dual_mode_enquiry(raw_text: str) -> tuple[bool, Optional[str]]:
+
     """
     Detects if raw_text contains both Air freight and Ocean freight requests in a single email.
     Returns (is_dual_mode, clarification_question).
@@ -497,6 +541,22 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     now = datetime.now()
     tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
+    # Check for Booking Confirmation / Instructions
+    is_booking, booking_msg = _detect_booking_confirmation(raw_text)
+    if is_booking:
+        return RFQParseResult(
+            status="booking_confirmation",
+            mode="sea",
+            confidence=1.0,
+            is_booking_confirmation=True,
+            parsed_fields=None,
+            clarification_question=booking_msg,
+            missing_fields=[],
+            extracted_fields=[],
+            default_injected_fields=[],
+            debug_raw_llm_response="[MOCK BOOKING CONFIRMATION INTERCEPTED]"
+        )
+
     # Check for Dual-Mode (Air + Ocean in one email)
     is_dual, dual_msg = _detect_dual_mode_enquiry(raw_text)
     if is_dual:
@@ -512,6 +572,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
             default_injected_fields=[],
             debug_raw_llm_response="[MOCK DUAL MODE INTERCEPTED]"
         )
+
 
     # Honor user clarification choice
     forced_mode = None
@@ -680,19 +741,29 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     elif "pasir gudang" in text_lower:
         raw_origin = "Pasir Gudang"
 
-    raw_dest = "Hamburg"
+    raw_destinations = []
     if "to jkt" in text_lower or re.search(r'\bjkt\b', text_lower):
-        raw_dest = "JKT"
-    elif "chennai" in text_lower:
-        raw_dest = "Chennai"
-    elif "melbourne" in text_lower:
-        raw_dest = "Melbourne"
-    elif "hong kong" in text_lower:
-        raw_dest = "Hong Kong"
+        raw_destinations.append("JKT")
+    elif "jakarta" in text_lower:
+        raw_destinations.append("Jakarta")
 
+    if "surabaya" in text_lower:
+        raw_destinations.append("Surabaya")
+    if "chennai" in text_lower:
+        raw_destinations.append("Chennai")
+    if "melbourne" in text_lower:
+        raw_destinations.append("Melbourne")
+    if "hong kong" in text_lower:
+        raw_destinations.append("Hong Kong")
+
+    if not raw_destinations:
+        raw_destinations = ["Hamburg"]
+
+    raw_dest = raw_destinations[0]
 
     orig_full, orig_disp, orig_unmapped = resolve_port_alias(raw_origin)
     dest_full, dest_disp, dest_unmapped = resolve_port_alias(raw_dest)
+
 
     sales_notes = {}
     if "another 15x20" in text_lower or "10x20" in text_lower:
@@ -764,6 +835,18 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     )
 
 
+    mock_pairs = []
+    for d in raw_destinations:
+        d_full, _, _ = resolve_port_alias(d)
+        mock_pairs.append({
+            "origin": orig_full or ("Singapore" if raw_origin == "Singapore" else "Port Klang"),
+            "destination": d_full or d,
+            "container_types": c_types,
+            "container_quantity": container_qty,
+            "weight_per_container_kg": wt_per_container,
+            "commodity": commodity
+        })
+
     return RFQParseResult(
         status="success",
         mode="sea",
@@ -773,8 +856,8 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         destination_display=dest_disp,
         sales_notes=sales_notes if sales_notes else None,
         parsed_fields=req,
-        all_parsed_pairs=[{"origin": req.origin, "destination": req.destination, "container_types": c_types, "container_quantity": container_qty, "weight_per_container_kg": wt_per_container, "commodity": commodity}],
-        total_pairs_found=1,
+        all_parsed_pairs=mock_pairs,
+        total_pairs_found=len(mock_pairs),
         pairs_omitted_count=0,
         clarification_question=None,
         missing_fields=[],
@@ -782,6 +865,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         default_injected_fields=["departure_date"],
         debug_raw_llm_response="[MOCK RESPONSE]"
     )
+
 
 
 
@@ -899,13 +983,13 @@ async def parse_rfq(
         if approx_size_bytes > 5 * 1024 * 1024:
             raise ValueError("Image file size exceeds 5MB limit. Please upload a smaller screenshot.")
 
-
     now = datetime.now()
     current_date_str = now.strftime("%Y-%m-%d")
     tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
     # Detect forced mode choice (e.g. from clarification update)
     forced_mode = None
+
     if has_text:
         text_lower = raw_text.lower()
         update_part = text_lower.split("clarification update:")[-1] if "clarification update:" in text_lower else text_lower
@@ -913,6 +997,24 @@ async def parse_rfq(
             forced_mode = "air"
         elif re.search(r'\b(?:ocean|sea|2)\b', update_part) or "process ocean" in text_lower or "process sea" in text_lower:
             forced_mode = "sea"
+
+    # Pre-parse check for Booking Confirmation / Instructions
+    if has_text:
+        is_booking, booking_msg = _detect_booking_confirmation(raw_text)
+        if is_booking:
+            print("[RFQ Agent Guardrail Activated] Booking Confirmation Detected")
+            return RFQParseResult(
+                status="booking_confirmation",
+                mode="sea",
+                confidence=1.0,
+                is_booking_confirmation=True,
+                parsed_fields=None,
+                clarification_question=booking_msg,
+                missing_fields=[],
+                extracted_fields=[],
+                default_injected_fields=[],
+                debug_raw_llm_response="[BOOKING CONFIRMATION INTERCEPTED]"
+            )
 
     # Environment & API Key Check
     is_mock_env = os.getenv("RFQ_AGENT_MOCK", "false").lower() in ("true", "1", "yes")
@@ -1011,7 +1113,6 @@ async def parse_rfq(
             extracted_data = {}
 
         mode = forced_mode or extracted_data.get("mode", "sea").lower()
-
 
         confidence = float(extracted_data.get("confidence", 0.9))
         matched_keywords = extracted_data.get("matched_keywords", [])
@@ -1261,22 +1362,6 @@ async def parse_rfq(
         if extracted_data.get("commodity"):
             extracted_fields.append("commodity")
 
-        # Multi-Origin x Multi-Destination Expansion
-        all_pairs = []
-        for o in resolved_origins:
-            for d in resolved_destinations:
-                all_pairs.append({
-                    "origin": o,
-                    "destination": d,
-                    "container_types": c_types,
-                    "container_quantity": container_qty,
-                    "commodity": commodity
-                })
-
-        total_pairs = len(all_pairs)
-        omitted_count = max(0, total_pairs - 10)
-        capped_pairs = all_pairs[:10]
-
         # Total-vs-Per-Container Weight Split & 20GP Overweight Priority Calculations
         raw_weight_per_container = extracted_data.get("weight_per_container_kg")
         raw_total_weight = extracted_data.get("total_weight_kg")
@@ -1306,10 +1391,82 @@ async def parse_rfq(
             weight = 20000.0
             default_injected_fields.append("weight_per_container_kg")
 
-        # Attach weight_per_container_kg to all_parsed_pairs
-        for pair in all_pairs:
-            pair["weight_per_container_kg"] = weight
+        # Multi-Origin / Multi-Destination Pair Construction & Deduplication
+        raw_routes = extracted_data.get("routes")
+        all_pairs = []
 
+        if raw_routes and isinstance(raw_routes, list) and len(raw_routes) > 0:
+            for item in raw_routes:
+                if isinstance(item, dict) and item.get("origin") and item.get("destination"):
+                    orig_f, _, _ = resolve_port_alias(item["origin"], mode)
+                    dest_f, _, _ = resolve_port_alias(item["destination"], mode)
+                    r_ctypes = item.get("container_types") or c_types
+                    r_qty = int(item.get("container_quantity") or container_qty or 1)
+                    r_commodity = item.get("commodity") or commodity
+                    r_weight = float(item.get("weight_per_container_kg") or item.get("total_weight_kg") or weight)
+
+                    all_pairs.append({
+                        "origin": orig_f or item["origin"],
+                        "destination": dest_f or item["destination"],
+                        "container_types": r_ctypes,
+                        "container_quantity": r_qty,
+                        "commodity": r_commodity,
+                        "weight_per_container_kg": r_weight
+                    })
+
+        if not all_pairs:
+            # Deduplicate origin entries if POL is identical across rows (e.g. ["Singapore", "Singapore"] -> ["Singapore"])
+            unique_origins = list(dict.fromkeys(resolved_origins))
+            unique_destinations = list(dict.fromkeys(resolved_destinations))
+
+            if len(resolved_origins) == len(resolved_destinations) and len(resolved_origins) > 1 and len(unique_origins) == 1:
+                # Single POL to N different PODs (1-to-N list: e.g. Singapore -> Jakarta, Singapore -> Surabaya)
+                for d in unique_destinations:
+                    all_pairs.append({
+                        "origin": unique_origins[0],
+                        "destination": d,
+                        "container_types": c_types,
+                        "container_quantity": container_qty,
+                        "commodity": commodity,
+                        "weight_per_container_kg": weight
+                    })
+            elif len(resolved_origins) == len(resolved_destinations) and len(resolved_origins) > 1:
+                # Parallel 1-to-1 routes (POL[i] -> POD[i])
+                for o, d in zip(resolved_origins, resolved_destinations):
+                    all_pairs.append({
+                        "origin": o,
+                        "destination": d,
+                        "container_types": c_types,
+                        "container_quantity": container_qty,
+                        "commodity": commodity,
+                        "weight_per_container_kg": weight
+                    })
+            else:
+                # Cartesian Product for distinct multi-origin x multi-destination matrix
+                for o in unique_origins:
+                    for d in unique_destinations:
+                        all_pairs.append({
+                            "origin": o,
+                            "destination": d,
+                            "container_types": c_types,
+                            "container_quantity": container_qty,
+                            "commodity": commodity,
+                            "weight_per_container_kg": weight
+                        })
+
+        # Strict Deduplication Pass on all_pairs (ensures zero duplicate pairs are returned)
+        deduped_pairs = []
+        seen_keys = set()
+        for p in all_pairs:
+            key = (p["origin"].lower(), p["destination"].lower(), tuple(sorted(p.get("container_types") or [])))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                deduped_pairs.append(p)
+
+        all_pairs = deduped_pairs
+        total_pairs = len(all_pairs)
+        omitted_count = max(0, total_pairs - 10)
+        capped_pairs = all_pairs[:10]
 
         primary_req = RateSearchRequest(
             carriers=["ALL"],
@@ -1346,6 +1503,7 @@ async def parse_rfq(
             default_injected_fields=list(set(default_injected_fields)),
             debug_raw_llm_response=raw_llm_json
         )
+
 
     except Exception as e:
         print(f"[RFQ Agent] Parsing extracted json failed: {e}")

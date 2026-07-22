@@ -86,7 +86,7 @@ export interface AirDraftEmail {
 }
 
 export interface RFQParseResult {
-  status: "success" | "air_draft_generated" | "needs_clarification" | "unsupported_cargo";
+  status: "success" | "air_draft_generated" | "needs_clarification" | "unsupported_cargo" | "booking_confirmation";
   mode?: "air" | "sea";
   confidence?: number;
   matched_keywords?: string[];
@@ -97,7 +97,9 @@ export interface RFQParseResult {
   unsupported_equipment_type?: string;
   is_lcl?: boolean;
   is_dual_mode?: boolean;
+  is_booking_confirmation?: boolean;
   unsupported_reason?: string;
+
 
   origin_display?: string;
 
