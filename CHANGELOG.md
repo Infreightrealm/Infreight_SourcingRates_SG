@@ -17,11 +17,13 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 ### Total vs. Per-Container Weight Split Math
 - **Calculation Rule**: When a total gross weight across $N$ containers is provided (e.g., 45,000 kg total across 3 containers), the parser automatically computes the per-container weight:
   $$\text{weight\_per\_container\_kg} = \frac{\text{total\_weight\_kg}}{\text{container\_quantity}} = \frac{45,000}{3} = 15,000\text{ kg/container}$$
-### Non-Defaulting Container Size Guardrail (`rfq_agent.py`)
-- **Bug**: When an enquiry text specified origin, destination, commodity, and weight, but omitted the container size (e.g. `"Morning, Kindly quote Port Klang to Jakarta, commodity: PVC resin, 20 tons, ready end of August."`), the parser previously defaulted silently to `DRY 40H`.
-- **Fix**: Removed silent fallback. If no container size (e.g., `20'`, `40'`, `20GP`, `40GP`, `40HQ`, `40HC`) is mentioned in the enquiry text, `container_types` is treated as missing (`[]`) and the agent returns `status: "needs_clarification"` with:
-  > *"Could you please specify the container size (e.g., 20GP, 40GP, 40HQ) for this ocean shipment?"*
-- **Verification**: `test_ocean_missing_container_type_triggers_clarification` added to `backend/tests/test_rfq_agent.py` and passed 11/11.
+### Reefer (40RF / 20RF / 40RH) Special Equipment Intercept (`rfq_agent.py`)
+- **Bug**: An enquiry specifying `"1 x 40RF Singapore to Sydney, frozen seafood, temperature -18C"` was not intercepted as Reefer equipment because regex `\brf\b` failed to match `40RF` (due to missing word boundary between `0` and `R`).
+- **Fix**: Upgraded special equipment regex patterns (`UNSUPPORTED_EQUIPMENT_PATTERNS`) to match `40RF`, `20RF`, `40RH`, `20RH`, `40'RF`, `40-RF`, `frozen`, `chilled`, and `temperature -XXC`. Added post-LLM extraction check for reefer container sizes (`40RF`, `20RF`, `40RH`).
+- **Result**: `40RF` enquiries are intercepted up front with `status: "unsupported_cargo"` and display the clear UI Notice:
+  > *"⚠️ Special Equipment Notice: Our automated ocean rate engine currently supports Standard FCL Dry Containers only (20GP, 40GP, 40HQ). Automated rate scraping for Reefer (Refrigerated Container) is not supported."*
+- **Verification**: `test_reefer_40rf_temperature_unsupported_equipment_guardrail` added to `backend/tests/test_rfq_agent.py` and passed 12/12.
+
 
 
 ---
