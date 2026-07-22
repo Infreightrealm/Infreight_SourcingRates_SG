@@ -17,7 +17,12 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 ### Total vs. Per-Container Weight Split Math
 - **Calculation Rule**: When a total gross weight across $N$ containers is provided (e.g., 45,000 kg total across 3 containers), the parser automatically computes the per-container weight:
   $$\text{weight\_per\_container\_kg} = \frac{\text{total\_weight\_kg}}{\text{container\_quantity}} = \frac{45,000}{3} = 15,000\text{ kg/container}$$
-- **Verification**: `test_ocean_fcl_mode_branching_required_fields_and_weight_split` added to `backend/tests/test_rfq_agent.py` and passed 10/10.
+### Non-Defaulting Container Size Guardrail (`rfq_agent.py`)
+- **Bug**: When an enquiry text specified origin, destination, commodity, and weight, but omitted the container size (e.g. `"Morning, Kindly quote Port Klang to Jakarta, commodity: PVC resin, 20 tons, ready end of August."`), the parser previously defaulted silently to `DRY 40H`.
+- **Fix**: Removed silent fallback. If no container size (e.g., `20'`, `40'`, `20GP`, `40GP`, `40HQ`, `40HC`) is mentioned in the enquiry text, `container_types` is treated as missing (`[]`) and the agent returns `status: "needs_clarification"` with:
+  > *"Could you please specify the container size (e.g., 20GP, 40GP, 40HQ) for this ocean shipment?"*
+- **Verification**: `test_ocean_missing_container_type_triggers_clarification` added to `backend/tests/test_rfq_agent.py` and passed 11/11.
+
 
 ---
 
