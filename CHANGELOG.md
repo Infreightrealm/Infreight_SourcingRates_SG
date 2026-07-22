@@ -5,7 +5,22 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
-## [2026-07-21] — Curated Port Alias Resolution, Unknown Abbreviation Guardrails & Sales Desk Intelligence
+## [2026-07-22] — Mode-Branching Required Field Validation & Total Weight Division Split
+
+### Mode-Branching Required Fields Guardrail Fix (`rfq_agent.py`)
+- **Bug**: An Ocean FCL enquiry (`"3 x 20'FCL Singapore to Chennai, total gross weight 45,000 kgs"`) correctly classified as `mode: "sea"`, but was incorrectly flagged with `needs_clarification` asking for `dimensions_display_str`, `hs_code`, and `package_count_str` (which are Air freight fields, not required for Ocean FCL).
+- **Fix**: Required-field validation now strictly branches by detected mode:
+  - **OCEAN (SEA)**: POL (`origin`), POD (`destination`), `container_type` / `container_types`, `container_quantity` (weight optional). Dimensions, package count, and HS code are ignored during Ocean FCL completeness checks.
+  - **AIR**: POL (`origin`), POD (`destination`), weight, pieces/dimensions.
+- **Result**: Valid Ocean FCL enquiries with all 4 required fields present parse instantly to `status: "success"` with zero clarification popups.
+
+### Total vs. Per-Container Weight Split Math
+- **Calculation Rule**: When a total gross weight across $N$ containers is provided (e.g., 45,000 kg total across 3 containers), the parser automatically computes the per-container weight:
+  $$\text{weight\_per\_container\_kg} = \frac{\text{total\_weight\_kg}}{\text{container\_quantity}} = \frac{45,000}{3} = 15,000\text{ kg/container}$$
+- **Verification**: `test_ocean_fcl_mode_branching_required_fields_and_weight_split` added to `backend/tests/test_rfq_agent.py` and passed 10/10.
+
+---
+
 
 ### Deterministic Port Alias Resolver (`ports_aliases.json`)
 - **Curated Alias Map**: Added `backend/config/ports_aliases.json` mapping common abbreviations (`PK` → `Port Klang`, `JKT` → `Jakarta`, `PGU` → `Pasir Gudang`, `TP` → `Tanjung Pelepas`, `SIN`/`SG` → `Singapore`, `HKG` → `Hong Kong`, `PVG` → `Shanghai`, `HPH` → `Haiphong`, `SGN` → `Ho Chi Minh`, etc.).
