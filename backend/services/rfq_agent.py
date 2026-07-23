@@ -472,8 +472,6 @@ class RFQExtractionSchema(BaseModel):
     # Sales Desk Intelligence Fields
     future_volume: Optional[str] = Field(default=None, description="Future or repeat volume mentions e.g. 'another 15x20 and 10x20'.")
     competitive_pressure: Optional[str] = Field(default=None, description="Competitive pressure mentions e.g. 'using 2 forwarders'.")
-    urgency: Optional[str] = Field(default=None, description="Urgency mentions e.g. 'Urgent for this week'.")
-    target_rate: Optional[str] = Field(default=None, description="Target rate mentions e.g. 'try USD 70-80'.")
     is_complete: bool = Field(..., description="True if mandatory fields are present.")
     missing_fields: list[str] = Field(default_factory=list, description="List of missing mandatory fields.")
     clarification_question: Optional[str] = Field(default=None, description="Targeted question if mandatory fields are missing.")
@@ -484,14 +482,20 @@ Your job is to classify raw RFQs as either AIR or SEA freight, extract routing p
 
 Today's current date is: {current_date}
 
-MODE CLASSIFICATION RULES:
-1. `mode`: "air" or "sea".
-   - AIR SIGNALS: "air rate", "airfreight", "flight schedule", "EXW airfreight", "Singapore Airport", airport IATA codes (e.g. KUL, SIN, LHR, ORD, FRA, JFK), "cm", "crates", "pkgs", "gross weight: ... kgs".
-   - SEA SIGNALS: "ocean", "sailing", "20'", "40'", "40HQ", "40HC", "20GP", "40GP", "FCL", "vessel", "ETD", "Pasir Gudang", "Tanjung Pelepas", "PTP", "PGU", "MYPGU", "MYPTP", "Port Klang", "MYPKG", "Northport", "Westport", "Penang", "MYPEN", "Kuantan", "MYKUA", "Singapore Port", "SGSIN", "Jakarta", "IDJKT", "Tanjung Priok", "Surabaya", "IDSUB", "Rotterdam", "NLRTM", "Hamburg", "DEHAM", "Antwerp", "BEANR", "Shanghai", "CNSHA", "Ningbo", "CNNGB", "Shenzhen", "CNSZX", "Qingdao", "CNTAO", "Busan", "KRPUS", "Laem Chabang", "THLCH", "Ho Chi Minh", "VNSGN", "Steel Plate", "Steel Coil", "PK", "JKT".
-   * MANDATORY: Any reference to ocean ports/terminals like Pasir Gudang, Tanjung Pelepas, Port Klang, Westport, Northport, Singapore Port, Tanjung Priok, etc. MUST be classified as 'sea' mode unless explicitly requested as air freight.
+MODE CLASSIFICATION PRIORITY HIERARCHY:
 
-2. `confidence`: Float 0.0 to 1.0.
-3. `matched_keywords`: List of key terms found.
+1. PRIORITY 1 (Decisive, Overrides Everything): Explicit mode words
+   - AIR SIGNALS: "airfreight", "air rate", "air cargo", "flight schedule", "AWB", "uplift", "by air", "via air".
+   - SEA SIGNALS: "ocean freight", "sea freight", "sailing", "vessel", "FCL", "LCL", "B/L", "bill of lading", "ocean rate", "by sea", "by ocean", "ocean".
+2. PRIORITY 2 (Strong Implicit): Cargo unit type
+   - SEA SIGNALS: Container references (20', 40', 40HQ, 40HC, 20GP, 40GP, 40RF, TEU, FEU, x20, x40, 20ft, 40ft, 20 FCL, 40 FCL).
+   - AIR SIGNALS: Air units (skids, ULD, chargeable weight, kg/kgs with piece dimensions/crates AND NO container reference).
+   * Note: Dimensions/CBM alone are NOT decisive (ocean LCL uses CBM/dims); treat dimensions as air signal ONLY when NO container reference is present.
+3. PRIORITY 3 (Weak, Tie-Breaker Only): Unambiguous Location Names
+   - SEA SIGNALS: Seaport-only terminals (Pasir Gudang, Tanjung Pelepas, Northport, Westport).
+   - AIR SIGNALS: Airport-only names/IATA codes (Singapore Airport, Changi Airport, KUL Airport, Heathrow, JFK Airport).
+   * CRITICAL MANDATORY RULE: DUAL-MODE CITIES (Shanghai, Hamburg, Singapore, Ho Chi Minh, Busan, Rotterdam, Antwerp, Jakarta, etc.) MUST NEVER BE USED AS MODE SIGNALS.
+4. CONFLICT & AMBIGUITY: If Priority 1 and Priority 2 conflict, or neither P1/P2/P3 is present for dual-mode cities, set mode to null/ambiguous requiring clarification.
 
 REQUIRED FIELDS BY MODE:
 - OCEAN / SEA MODE REQUIRED FIELDS:
@@ -533,7 +537,102 @@ CONTAINER TYPES & MULTI-CONTAINER RULES:
 """
 
 
+def _detect_mode_by_hierarchy(raw_text: str, forced_mode: str | None = None) -> tuple[str | None, float, list[str], bool]:
+    """
+    Evaluates RFQ text against strict Priority Hierarchy for Mode Classification:
 
+    PRIORITY 1 (Decisive, Overrides Everything): Explicit Mode Words
+      - AIR: 'airfreight', 'air rate', 'air cargo', 'flight schedule', 'awb', 'uplift', 'by air', 'via air'
+      - SEA: 'ocean freight', 'ocean', 'sea freight', 'sailing', 'vessel', 'fcl', 'lcl', 'b/l', 'bill of lading', 'ocean rate', 'by sea', 'by ocean'
+
+    PRIORITY 2 (Strong Implicit): Cargo Unit Type
+      - SEA: Container references (20', 40', 40hq, 40hc, 20gp, 40gp, 40rf, teu, feu, x20, x40, 20ft, 40ft, 20 fcl, 40 fcl)
+      - AIR: Air units (skids, uld, chargeable weight, kgs/kg with piece dimensions/crates AND NO container reference)
+
+    PRIORITY 3 (Weak, Tie-Breaker Only): Location Names (Unambiguous Seaport-Only or Airport-Only Only)
+      - SEA: Pasir Gudang, Tanjung Pelepas, Northport, Westport
+      - AIR: Singapore Airport, Changi Airport, KUL Airport, Heathrow, JFK Airport, etc.
+      * DUAL-MODE CITIES (Shanghai, Hamburg, Singapore, Ho Chi Minh, Busan, Rotterdam, Antwerp, Jakarta, etc.) ARE NEVER USED AS MODE SIGNALS.
+
+    CONFLICT & AMBIGUITY:
+      If P1 and P2 conflict, or neither P1/P2/P3 is decisive, returns mode=None, is_ambiguous=True.
+    """
+    if forced_mode in ["air", "sea"]:
+        return forced_mode, 1.0, [f"user specified {forced_mode}"], False
+
+    text_lower = raw_text.lower()
+
+    # --- PRIORITY 1: Explicit Mode Words ---
+    p1_air_terms = ["airfreight", "air rate", "air cargo", "flight schedule", "awb", "uplift", "by air", "via air"]
+    p1_sea_terms = ["ocean freight", "sea freight", "sailing", "vessel", "fcl", "lcl", "b/l", "bill of lading", "ocean rate", "by sea", "by ocean", "ocean"]
+
+    matched_p1_air = [t for t in p1_air_terms if re.search(r'\b' + re.escape(t) + r'\b', text_lower)]
+    matched_p1_sea = [t for t in p1_sea_terms if re.search(r'\b' + re.escape(t) + r'\b', text_lower)]
+
+    p1_mode = None
+    if matched_p1_air and not matched_p1_sea:
+        p1_mode = "air"
+    elif matched_p1_sea and not matched_p1_air:
+        p1_mode = "sea"
+    elif matched_p1_air and matched_p1_sea:
+        return None, 1.0, matched_p1_air + matched_p1_sea, True
+
+    # --- PRIORITY 2: Cargo Unit Type ---
+    p2_sea_patterns = [
+        r"\b\d*\s*x?\s*20'\b", r"\b\d*\s*x?\s*40'\b", r"\b\d*\s*x?\s*40hq\b", r"\b\d*\s*x?\s*40hc\b",
+        r"\b\d*\s*x?\s*20gp\b", r"\b\d*\s*x?\s*40gp\b", r"\b\d*\s*x?\s*40rf\b", r"\bteu\b", r"\bfeu\b",
+        r"\b\d*\s*x20\b", r"\b\d*\s*x40\b", r"\b20ft\b", r"\b40ft\b", r"\b20 fcl\b", r"\b40 fcl\b"
+    ]
+    has_container_ref = any(re.search(pat, text_lower) for pat in p2_sea_patterns)
+
+    p2_air_terms = ["skids", "uld", "chargeable weight"]
+    has_air_unit = any(re.search(r'\b' + re.escape(t) + r'\b', text_lower) for t in p2_air_terms)
+
+    # Note: treat dimensions/kgs as air signal ONLY when no container reference is present
+    has_air_dims_only = (
+        bool(re.search(r'\b(?:kg|kgs|kilo|kilos|gross weight)\b', text_lower)) and
+        bool(re.search(r'\b(?:\d+\s*x\s*\d+\s*x\s*\d+|\d+\s*cm|\d+\s*crates|\d+\s*sets)\b', text_lower)) and
+        not has_container_ref
+    )
+
+    p2_mode = None
+    matched_p2 = []
+    if has_container_ref:
+        p2_mode = "sea"
+        matched_p2.append("container reference")
+    elif has_air_unit or has_air_dims_only:
+        p2_mode = "air"
+        matched_p2.append("air cargo unit/dimensions")
+
+    # --- EVALUATE P1 vs P2 ---
+    if p1_mode and p2_mode:
+        if p1_mode != p2_mode:
+            # Conflict between Priority 1 and Priority 2! E.g. 'airfreight' + '20GP'
+            return None, 1.0, (matched_p1_air or matched_p1_sea) + matched_p2, True
+        return p1_mode, 1.0, (matched_p1_air or matched_p1_sea) + matched_p2, False
+    elif p1_mode:
+        return p1_mode, 1.0, (matched_p1_air or matched_p1_sea), False
+    elif p2_mode:
+        return p2_mode, 0.95, matched_p2, False
+
+    # --- PRIORITY 3: Location Names (Unambiguous Seaport-Only or Airport-Only Only) ---
+    unambiguous_sea_locations = [
+        "pasir gudang", "tanjung pelepas", "northport", "westport", "port klang",
+        "mypkg", "pgu", "mypgu", "ptp", "myptp", "tanjung priok"
+    ]
+    unambiguous_air_locations = ["singapore airport", "changi airport", "kul airport", "heathrow", "jfk airport", "ord airport", "fra airport", "lhr airport"]
+
+
+    matched_p3_sea = [loc for loc in unambiguous_sea_locations if loc in text_lower]
+    matched_p3_air = [loc for loc in unambiguous_air_locations if loc in text_lower]
+
+    if matched_p3_sea and not matched_p3_air:
+        return "sea", 0.9, matched_p3_sea, False
+    elif matched_p3_air and not matched_p3_sea:
+        return "air", 0.9, matched_p3_air, False
+
+    # No decisive signal or dual-mode city tie-breaker -> Needs Clarification!
+    return None, 0.5, [], True
 
 
 def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
@@ -585,29 +684,28 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         forced_mode = "sea"
 
 
-    # Air vs Sea detection
-    air_keywords = ["air rate", "airfreight", "flight schedule", "exw airfreight", "singapore airport", "kul", "hitachi printers"]
-    sea_keywords = [
-        "ocean", "sailing", "20'", "40'", "40hq", "40hc", "20gp", "40gp", "fcl", "vessel", "etd", "eta",
-        "pasir gudang", "tanjung pelepas", "ptp", "pgu", "mypgu", "myptp", "port klang", "mypkg", "northport",
-        "westport", "penang", "mypen", "kuantan", "mykua", "steel plate", "steel coil", "jkt", "idjkt",
-        "tanjung priok", "surabaya", "idsub", "rotterdam", "nlrtm", "hamburg", "deham", "antwerp", "beanr",
-        "shanghai", "cnsha", "ningbo", "cnngb", "shenzhen", "cnszx", "qingdao", "cntao", "busan", "krpus",
-        "laem chabang", "thlch", "ho chi minh", "vnsgn", "koper"
-    ]
+    # Air vs Sea detection using Priority Hierarchy
+    mode, confidence, matched_keywords, is_ambiguous = _detect_mode_by_hierarchy(raw_text, forced_mode=forced_mode)
 
-    if re.search(r'\bpk\b', text_lower) and "pkgs" not in text_lower:
-        sea_keywords.append("pk")
-
-    matched_air = [k for k in air_keywords if k in text_lower]
-    matched_sea = [k for k in sea_keywords if k in text_lower]
-
-    mode = forced_mode or ("air" if len(matched_air) > len(matched_sea) else "sea")
-    confidence = 0.95 if (matched_air or matched_sea or forced_mode) else 0.5
-    matched_keywords = matched_air if mode == "air" else matched_sea
+    if is_ambiguous or mode is None:
+        clarification_msg = (
+            "🔀 Freight Mode Required: Your enquiry does not specify whether this is an Air Freight or Ocean Freight request. "
+            "Please select a mode below (click 'Process Air' or 'Process Ocean') to proceed."
+        )
+        return RFQParseResult(
+            status="needs_clarification",
+            mode="sea",
+            confidence=0.5,
+            parsed_fields=None,
+            clarification_question=clarification_msg,
+            missing_fields=["mode"],
+            extracted_fields=[],
+            default_injected_fields=[],
+            )
 
 
     # Dangerous Goods / Compliance (for Air Mode)
+
     is_dg = "lithium" in text_lower or "pi 970" in text_lower or "hs code" in text_lower
     compliance_notes = None
     if "lithium metal batteries" in text_lower or "pi 970" in text_lower:
@@ -1141,26 +1239,27 @@ async def parse_rfq(
         if not isinstance(extracted_data, dict):
             extracted_data = {}
 
-        mode = forced_mode or extracted_data.get("mode", "sea").lower()
+        detected_h_mode, h_conf, h_kw, h_ambiguous = _detect_mode_by_hierarchy(raw_text, forced_mode=forced_mode)
 
-        # Deterministic Keyword Mode Guardrail: Override LLM mode if explicit sea or air keywords exist
-        if not forced_mode:
-            air_keywords = ["air rate", "airfreight", "flight schedule", "exw airfreight", "singapore airport", "kul", "hitachi printers"]
-            sea_keywords = [
-                "ocean", "sailing", "20'", "40'", "40hq", "40hc", "20gp", "40gp", "fcl", "vessel", "etd", "eta",
-                "pasir gudang", "tanjung pelepas", "ptp", "pgu", "mypgu", "myptp", "port klang", "mypkg", "northport",
-                "westport", "penang", "mypen", "kuantan", "mykua", "steel plate", "steel coil", "jkt", "idjkt",
-                "tanjung priok", "surabaya", "idsub", "rotterdam", "nlrtm", "hamburg", "deham", "antwerp", "beanr",
-                "shanghai", "cnsha", "ningbo", "cnngb", "shenzhen", "cnszx", "qingdao", "cntao", "busan", "krpus",
-                "laem chabang", "thlch", "ho chi minh", "vnsgn", "koper"
-            ]
+        if h_ambiguous or detected_h_mode is None:
+            clarification_msg = (
+                "🔀 Freight Mode Required: Your enquiry does not specify whether this is an Air Freight or Ocean Freight request. "
+                "Please select a mode below (click 'Process Air' or 'Process Ocean') to proceed."
+            )
+            return RFQParseResult(
+                status="needs_clarification",
+                mode="sea",
+                confidence=0.5,
+                parsed_fields=None,
+                clarification_question=clarification_msg,
+                missing_fields=["mode"],
+                extracted_fields=[],
+                default_injected_fields=[],
+                debug_raw_llm_response=raw_llm_json
+            )
 
-            matched_air = [k for k in air_keywords if k in text_lower]
-            matched_sea = [k for k in sea_keywords if k in text_lower]
-            if matched_sea and len(matched_sea) > len(matched_air):
-                mode = "sea"
-            elif matched_air and len(matched_air) > len(matched_sea):
-                mode = "air"
+        mode = detected_h_mode
+
 
 
         confidence = float(extracted_data.get("confidence", 0.9))

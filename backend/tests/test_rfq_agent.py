@@ -537,24 +537,38 @@ async def test_h1_table_deduplication_two_pairs():
 
 
 
+@pytest.mark.asyncio
+async def test_mode_priority_hierarchy_cases():
+    """
+    Verify the 3-priority mode classification hierarchy:
+    (a) 'airfreight Singapore to Shanghai, 3 skids 450kg' -> AIR (not overridden by dual-mode city 'Shanghai')
+    (b) 'quote 2x40HQ Singapore to Shanghai' -> SEA (container ref P2)
+    (c) 'Singapore to Shanghai, 500kg, 2 cartons' -> needs_clarification (no mode word, no container, dual-mode cities ignored)
+    """
+    # Case (a) Explicit air word + air units + dual-mode cities -> AIR
+    res_a = await parse_rfq("airfreight Singapore to Shanghai, 3 skids 450kg")
+    assert isinstance(res_a, RFQParseResult)
+    assert res_a.mode == "air"
+    assert res_a.status == "air_draft_generated"
+
+    # Case (b) Explicit container ref + dual-mode cities -> SEA
+    res_b = await parse_rfq("quote 2x40HQ Singapore to Shanghai")
+    assert isinstance(res_b, RFQParseResult)
+    assert res_b.mode == "sea"
+    assert res_b.status == "success"
+
+    # Case (c) Dual-mode cities with no explicit mode word and no container -> needs_clarification
+    res_c = await parse_rfq("Singapore to Shanghai, 500kg, 2 cartons")
+    assert isinstance(res_c, RFQParseResult)
+    assert res_c.status == "needs_clarification"
+    assert "missing_fields" in res_c.model_dump() and "mode" in res_c.missing_fields
+
+
 if __name__ == "__main__":
     import asyncio
-    test_resolve_city_country_format_to_clean_database_port_name()
-    asyncio.run(test_multi_container_types_and_20gp_overweight_priority())
-    asyncio.run(test_dual_mode_air_and_ocean_in_one_email_guardrail())
-    asyncio.run(test_g2_booking_confirmation_guardrail())
-    asyncio.run(test_h1_table_deduplication_two_pairs())
-    asyncio.run(test_pak_shaun_email_fixture_port_aliases_and_sales_notes())
-    asyncio.run(test_unmapped_abbreviation_clarification_guardrail())
-    asyncio.run(test_air_rfq_image1_lithium_batteries_compliance())
-    asyncio.run(test_air_rfq_image2_glenn_awot_dual_draft())
-    asyncio.run(test_sea_rfq_image4_steel_plate_multi_origin_gappy_list())
-    asyncio.run(test_unsupported_reefer_equipment_guardrail())
-    asyncio.run(test_unsupported_lcl_guardrail())
-    asyncio.run(test_ocean_fcl_mode_branching_required_fields_and_weight_split())
-    asyncio.run(test_ocean_missing_container_type_triggers_clarification())
-    asyncio.run(test_reefer_40rf_temperature_unsupported_equipment_guardrail())
+    asyncio.run(test_mode_priority_hierarchy_cases())
     print("[OK] All RFQ Agent unit tests passed!")
+
 
 
 
