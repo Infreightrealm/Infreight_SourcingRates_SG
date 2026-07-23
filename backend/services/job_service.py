@@ -14,9 +14,93 @@ from models.rate_search import RateSearch, CarrierSearchResult
 from models.quote import Quote, QuoteCharge
 from models.schemas import RateSearchRequest, CarrierResultStatus, SearchStatus
 from carriers.registry import get_connector
-from services.queue_manager import queue_manager
+import re
+import difflib
+from services.port_manager import search_port, COUNTRY_CODE_TO_NAME
+
+def _detect_port_mismatch(
+
+    resolved_name: str | None,
+    resolved_locode: str | None,
+    matched_port_str: str | None,
+) -> bool | None:
+    """
+    Detects port mismatch for origin or destination.
+    Returns:
+    - True if verified mismatch (matched_port_str exists and differs from target port)
+    - False if verified match (matched_port_str matches target UN/LOCODE or City Name + Country Code)
+    - None if unknown / could not verify (matched_port_str is null or empty)
+    """
+    if not matched_port_str or not matched_port_str.strip():
+        return None  # UNKNOWN / Could Not Verify
+
+    matched_clean = matched_port_str.strip().lower()
+
+    # 1. Direct 5-letter UN/LOCODE extraction from matched_port_str if present
+    locode_match = re.search(r'\b([A-Za-z]{5})\b', matched_port_str)
+    if locode_match:
+        extracted_code = locode_match.group(1).upper()
+        if resolved_locode:
+            if extracted_code == resolved_locode.upper():
+                return False
+            else:
+                return True
+
+    # 2. Extract 2-letter ISO Country Code from LOCODE (e.g. SGSIN -> SG, DEHAM -> DE, MYPKG -> MY)
+    country_code = resolved_locode[:2].lower() if (resolved_locode and len(resolved_locode) >= 2) else None
+    country_name = COUNTRY_CODE_TO_NAME.get(country_code.upper(), "").lower() if country_code else None
+
+    # 3. City Name & Country Code check
+    if resolved_name:
+        name_clean = resolved_name.strip().lower()
+        
+        # Split into significant words (excluding generic logistics noise)
+        city_keywords = [
+            w for w in re.split(r'[\s,()/\-]+', name_clean)
+            if len(w) > 2 and w not in ["port", "the", "and", "city", "pat"]
+        ]
+        
+        has_city_match = False
+        if city_keywords:
+            for kw in city_keywords:
+                if kw in matched_clean:
+                    has_city_match = True
+                    break
+                for matched_word in re.split(r'[\s,()/\-]+', matched_clean):
+                    if len(matched_word) > 2:
+                        ratio = difflib.SequenceMatcher(None, kw, matched_word).ratio()
+                        if ratio >= 0.75:
+                            has_city_match = True
+                            break
+        else:
+            has_city_match = (name_clean in matched_clean)
+
+        has_country_match = True
+        if country_code:
+            country_pattern = r'\b' + re.escape(country_code) + r'\b'
+            if re.search(country_pattern, matched_clean) or (country_name and country_name in matched_clean):
+                has_country_match = True
+            else:
+                other_country_matches = [
+                    code.lower() for code, name in COUNTRY_CODE_TO_NAME.items()
+                    if code.lower() != country_code and (
+                        re.search(r'\b' + re.escape(code.lower()) + r'\b', matched_clean) or
+                        (len(name) > 3 and name.lower() in matched_clean)
+                    )
+                ]
+                if other_country_matches:
+                    has_country_match = False
+
+        if has_city_match and has_country_match:
+            return False
+
+    return True
+
+
+
 
 active_search_tasks: dict[str, list[asyncio.Task]] = {}
+
 
 
 async def run_carrier_search(
@@ -109,14 +193,60 @@ async def run_carrier_search(
                     # Keep existing final_status if it's already successful/partially successful
                     pass
 
-            # Update carrier result status
+            # Update carrier result status and completed timestamp
             db_result.status = final_status.value
             db_result.completed_at = datetime.utcnow()
+
+            # Resolve system-level ports for observability
+            orig_matches = search_port(request.origin)
+            res_orig_name = orig_matches[0]["name"] if orig_matches else request.origin
+            res_orig_locode = orig_matches[0]["code"] if orig_matches else None
+
+            dest_matches = search_port(request.destination)
+            res_dest_name = dest_matches[0]["name"] if dest_matches else request.destination
+            res_dest_locode = dest_matches[0]["code"] if dest_matches else None
+
+            submitted_orig = getattr(connector, "submitted_origin", None) or request.origin
+            submitted_dest = getattr(connector, "submitted_destination", None) or request.destination
+            matched_orig = getattr(connector, "matched_origin", None)
+            matched_dest = getattr(connector, "matched_destination", None)
+
+            orig_mismatch = _detect_port_mismatch(res_orig_name, res_orig_locode, matched_orig)
+            dest_mismatch = _detect_port_mismatch(res_dest_name, res_dest_locode, matched_dest)
+
+            if orig_mismatch is True or dest_mismatch is True:
+                has_port_mismatch = True
+                warnings = []
+                if orig_mismatch is True:
+                    warnings.append(f"Origin mismatch: carrier matched '{matched_orig}' vs requested '{res_orig_name}' ({res_orig_locode or 'no LOCODE'})")
+                if dest_mismatch is True:
+                    warnings.append(f"Destination mismatch: carrier matched '{matched_dest}' vs requested '{res_dest_name}' ({res_dest_locode or 'no LOCODE'})")
+                mismatch_warning = "⚠️ " + "; ".join(warnings)
+            elif orig_mismatch is False and dest_mismatch is False:
+                has_port_mismatch = False
+                mismatch_warning = None
+            else:
+                has_port_mismatch = None  # UNKNOWN / Could Not Verify
+                mismatch_warning = "Port match status: Could not verify (matched port string not returned by carrier)"
+
+            db_result.raw_origin_input = request.origin
+            db_result.raw_destination_input = request.destination
+            db_result.resolved_origin_name = res_orig_name
+            db_result.resolved_origin_locode = res_orig_locode
+            db_result.resolved_destination_name = res_dest_name
+            db_result.resolved_destination_locode = res_dest_locode
+            db_result.submitted_origin = submitted_orig
+            db_result.submitted_destination = submitted_dest
+            db_result.matched_origin = matched_orig
+            db_result.matched_destination = matched_dest
+            db_result.has_port_mismatch = has_port_mismatch
+            db_result.mismatch_warning = mismatch_warning
 
             if final_status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
                 db_result.error_message = f"Connector for {carrier_code} is not yet implemented"
             elif final_status == CarrierResultStatus.SERVICE_UNAVAILABLE:
                 db_result.error_message = f"Carrier service/website for {carrier_code} is currently unavailable (maintenance or downtime)"
+
 
             # Persist quotes
             for q in all_quotes:

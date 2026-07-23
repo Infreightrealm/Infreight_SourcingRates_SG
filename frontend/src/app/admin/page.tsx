@@ -24,7 +24,30 @@ export default function AdminDashboard() {
   const [popularPorts, setPopularPorts] = useState<string[]>([]);
   const [boostedCountries, setBoostedCountries] = useState<string[]>([]);
   const [countriesMap, setCountriesMap] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<"users" | "ports">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "ports" | "route_health">("users");
+  const [routeHealth, setRouteHealth] = useState<{ carriers: string[]; routes: any[] } | null>(null);
+  const [loadingHealth, setLoadingHealth] = useState(false);
+
+  const fetchRouteHealth = async () => {
+    setLoadingHealth(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/route-health`);
+      if (res.ok) {
+        setRouteHealth(await res.json());
+      }
+    } catch (e) {
+      console.error("Failed to fetch route health matrix", e);
+    } finally {
+      setLoadingHealth(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authenticated && activeTab === "route_health") {
+      fetchRouteHealth();
+    }
+  }, [authenticated, activeTab]);
+
   const [savingConfig, setSavingConfig] = useState(false);
   const [newPortInput, setNewPortInput] = useState("");
   const [selectedCountry, setSelectedCountry] = useState("");
@@ -261,7 +284,21 @@ export default function AdminDashboard() {
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
             )}
           </button>
+          <button
+            onClick={() => setActiveTab("route_health")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
+              activeTab === "route_health"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+            }`}
+          >
+            Route Reliability Matrix
+            {activeTab === "route_health" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
         </div>
+
 
         {activeTab === "users" ? (
           <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden">
@@ -333,9 +370,9 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
-          </div>
-        ) : (
+        ) : activeTab === "ports" ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
             {/* Column 1: Boosted Ports */}
             <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-6 flex flex-col justify-between min-h-[500px]">
               <div className="space-y-6">
@@ -494,9 +531,118 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
+        </div>
+        ) : (
+
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden p-6">
+
+
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-indigo-500" />
+                  Route Reliability & Port Match Matrix
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">
+                  Historical search outcomes and port resolution health per carrier.
+                </p>
+              </div>
+              <button
+                onClick={fetchRouteHealth}
+                disabled={loadingHealth}
+                className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold rounded-lg hover:bg-indigo-100 transition-colors"
+              >
+                {loadingHealth ? "Refreshing..." : "Refresh Matrix"}
+              </button>
+            </div>
+
+            {loadingHealth && !routeHealth ? (
+              <div className="py-12 text-center text-slate-500 dark:text-gray-400 text-sm">
+                Loading route reliability matrix...
+              </div>
+            ) : !routeHealth || routeHealth.routes.length === 0 ? (
+              <div className="py-12 text-center text-slate-500 dark:text-gray-400 text-sm">
+                No route health logs recorded yet. Run carrier searches to populate route health metrics.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-black/40 text-slate-500 dark:text-gray-400">
+                      <th className="px-4 py-3 font-semibold">Origin -&gt; Destination Route</th>
+
+                      {routeHealth.carriers.map((carrier) => (
+                        <th key={carrier} className="px-3 py-3 font-semibold text-center">
+                          {carrier}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-gray-800/60">
+                    {routeHealth.routes.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors">
+
+                        <td className="px-4 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">
+                          {row.route_key}
+                        </td>
+                        {routeHealth.carriers.map((carrier) => {
+                          const health = row.carrier_health[carrier];
+                          if (!health) {
+                            return (
+                              <td key={carrier} className="px-3 py-3 text-center text-slate-400 dark:text-gray-600">
+                                -
+                              </td>
+                            );
+                          }
+                          const isSuccess = health.status === "SUCCESS";
+                          const isNoQuotes = health.status === "NO_QUOTES_AVAILABLE";
+                          const isMismatch = health.has_port_mismatch === true;
+                          const isUnknownMismatch = health.has_port_mismatch === null;
+
+                          return (
+                            <td key={carrier} className="px-3 py-3 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                {isMismatch ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30 flex items-center gap-1" title={health.mismatch_warning || "Port Mismatch"}>
+                                    {"⚠️ Mismatch"}
+                                  </span>
+                                ) : isSuccess ? (
+
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
+                                    SUCCESS
+                                  </span>
+                                ) : isNoQuotes ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-gray-300">
+                                    NO QUOTES
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300" title={health.error_message || health.status}>
+                                    FAILED
+                                  </span>
+                                )}
+
+                                {isUnknownMismatch && !isMismatch && (
+                                  <span className="text-[9px] text-gray-400 dark:text-gray-500" title="Carrier port string not returned">
+                                    (Unverified)
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
 
       </div>
     </div>
   );
 }
+
+
+

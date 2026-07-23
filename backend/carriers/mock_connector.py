@@ -232,7 +232,13 @@ class MockCarrierConnector(BaseCarrierConnector):
         """
         Override to return mock data through the normalizer pipeline.
         """
+        self.submitted_origin = request.origin
+        self.submitted_destination = request.destination
+        self.matched_origin = request.origin
+        self.matched_destination = request.destination
+
         # Select mock data based on carrier
+
         if self.carrier_code == "MAERSK":
             mock_data = _generate_maersk_mock_quotes(request)
         elif self.carrier_code == "ONE":

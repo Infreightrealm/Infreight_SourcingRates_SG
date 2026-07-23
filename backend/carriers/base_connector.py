@@ -22,6 +22,11 @@ class BaseCarrierConnector(ABC):
         self.context = None
         self.captcha_detected = False
         self.status_update_callback = None
+        self.submitted_origin: Optional[str] = None
+        self.submitted_destination: Optional[str] = None
+        self.matched_origin: Optional[str] = None
+        self.matched_destination: Optional[str] = None
+
 
     @abstractmethod
     async def login(self) -> bool:

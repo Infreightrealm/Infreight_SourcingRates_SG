@@ -32,6 +32,9 @@ class RateSearch(Base):
     carrier_results = relationship("CarrierSearchResult", back_populates="rate_search", cascade="all, delete-orphan")
 
 
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, JSON, Text, Uuid, Boolean
+
+
 class CarrierSearchResult(Base):
     """Tracks the result of searching a specific carrier for a rate search."""
     __tablename__ = "carrier_search_results"
@@ -44,6 +47,21 @@ class CarrierSearchResult(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
+    # Port Search Reliability Observability & Mismatch Detection
+    raw_origin_input = Column(String(255), nullable=True)
+    raw_destination_input = Column(String(255), nullable=True)
+    resolved_origin_name = Column(String(255), nullable=True)
+    resolved_origin_locode = Column(String(50), nullable=True)
+    resolved_destination_name = Column(String(255), nullable=True)
+    resolved_destination_locode = Column(String(50), nullable=True)
+    submitted_origin = Column(String(255), nullable=True)
+    submitted_destination = Column(String(255), nullable=True)
+    matched_origin = Column(String(255), nullable=True)
+    matched_destination = Column(String(255), nullable=True)
+    has_port_mismatch = Column(Boolean, nullable=True)  # None = Unknown / Could Not Verify, False = Verified Match, True = Mismatch
+    mismatch_warning = Column(Text, nullable=True)
+
     # Relationships
+
     rate_search = relationship("RateSearch", back_populates="carrier_results")
     quotes = relationship("Quote", back_populates="carrier_result", cascade="all, delete-orphan")

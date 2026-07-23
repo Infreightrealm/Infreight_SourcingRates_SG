@@ -166,7 +166,20 @@ async def get_rate_search(
             status=cr.status,
             error_message=cr.error_message,
             quotes=quotes,
+            raw_origin_input=cr.raw_origin_input,
+            raw_destination_input=cr.raw_destination_input,
+            resolved_origin_name=cr.resolved_origin_name,
+            resolved_origin_locode=cr.resolved_origin_locode,
+            resolved_destination_name=cr.resolved_destination_name,
+            resolved_destination_locode=cr.resolved_destination_locode,
+            submitted_origin=cr.submitted_origin,
+            submitted_destination=cr.submitted_destination,
+            matched_origin=cr.matched_origin,
+            matched_destination=cr.matched_destination,
+            has_port_mismatch=cr.has_port_mismatch,
+            mismatch_warning=cr.mismatch_warning,
         ))
+
 
     # Get queue status
     queue_status = await queue_manager.get_queue_status(str(search.id))
@@ -289,3 +302,63 @@ async def force_stop_searches():
     await queue_manager.force_clear_all()
     await cancel_all_active_searches()
     return {"status": "SUCCESS", "message": "Search Queue forcefully cleared and all active searches cancelled."}
+
+
+@router.get("/admin/route-health")
+async def get_route_health(session: AsyncSession = Depends(get_session)):
+    """
+    Get carrier search reliability & route health matrix across origin-destination pairs.
+    """
+    stmt = (
+        select(CarrierSearchResult, RateSearch)
+        .join(RateSearch, CarrierSearchResult.search_id == RateSearch.id)
+        .order_by(RateSearch.created_at.desc())
+    )
+
+    res = await session.execute(stmt)
+    records = res.all()
+
+    CARRIERS = ["MAERSK", "CMA", "ONE", "HAPAG", "MSC", "OOCL", "GREENX"]
+    routes_map = {}
+
+    for csr, rs in records:
+        origin = csr.resolved_origin_name or rs.origin or "Unknown"
+        dest = csr.resolved_destination_name or rs.destination or "Unknown"
+        orig_code = csr.resolved_origin_locode or ""
+        dest_code = csr.resolved_destination_locode or ""
+
+        route_key = f"{origin} ({orig_code}) -> {dest} ({dest_code})" if orig_code and dest_code else f"{origin} -> {dest}"
+
+
+        if route_key not in routes_map:
+            routes_map[route_key] = {
+                "route_key": route_key,
+                "origin_name": origin,
+                "origin_locode": orig_code,
+                "destination_name": dest,
+                "destination_locode": dest_code,
+                "carrier_health": {c: None for c in CARRIERS}
+            }
+
+        carrier = (csr.carrier or "").upper()
+        if carrier in CARRIERS and routes_map[route_key]["carrier_health"][carrier] is None:
+            routes_map[route_key]["carrier_health"][carrier] = {
+                "status": csr.status,
+                "last_searched_at": csr.completed_at.isoformat() if csr.completed_at else (csr.started_at.isoformat() if csr.started_at else None),
+
+                "raw_origin_input": csr.raw_origin_input or rs.origin,
+                "raw_destination_input": csr.raw_destination_input or rs.destination,
+                "submitted_origin": csr.submitted_origin,
+                "submitted_destination": csr.submitted_destination,
+                "matched_origin": csr.matched_origin,
+                "matched_destination": csr.matched_destination,
+                "has_port_mismatch": csr.has_port_mismatch,
+                "mismatch_warning": csr.mismatch_warning,
+                "error_message": csr.error_message
+            }
+
+    return {
+        "carriers": CARRIERS,
+        "routes": list(routes_map.values())
+    }
+

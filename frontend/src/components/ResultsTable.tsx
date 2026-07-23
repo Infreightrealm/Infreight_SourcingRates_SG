@@ -68,7 +68,15 @@ export default function ResultsTable({ data }: ResultsTableProps) {
   if (!data) return null;
 
   // Flatten all quotes from all carriers into one table
-  const allRows: { carrier: string; carrierColor: string; status: string; error?: string; quote?: QuoteSchema }[] = [];
+  const allRows: {
+    carrier: string;
+    carrierColor: string;
+    status: string;
+    error?: string;
+    quote?: QuoteSchema;
+    hasPortMismatch?: boolean | null;
+    mismatchWarning?: string;
+  }[] = [];
 
   for (const cr of data.results) {
     const carrierInfo = CARRIERS.find((c) => c.code === cr.carrier);
@@ -78,16 +86,31 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     const status = (cr.carrier === "MSC" && cr.status === "TIMEOUT") ? "NO_QUOTES_AVAILABLE" : cr.status;
 
     if (cr.quotes.length === 0) {
-      allRows.push({ carrier: cr.carrier, carrierColor: color, status: status, error: cr.error_message });
+      allRows.push({
+        carrier: cr.carrier,
+        carrierColor: color,
+        status: status,
+        error: cr.error_message,
+        hasPortMismatch: cr.has_port_mismatch,
+        mismatchWarning: cr.mismatch_warning,
+      });
     } else {
       for (const q of cr.quotes) {
-        allRows.push({ carrier: cr.carrier, carrierColor: color, status: status, quote: q });
+        allRows.push({
+          carrier: cr.carrier,
+          carrierColor: color,
+          status: status,
+          quote: q,
+          hasPortMismatch: cr.has_port_mismatch,
+          mismatchWarning: cr.mismatch_warning,
+        });
       }
     }
   }
 
   const quoteRows = allRows.filter((r) => r.quote);
   const nonQuoteRows = allRows.filter((r) => !r.quote);
+
 
   const uniqueContainerTypes = Array.from(
     new Set(
@@ -491,6 +514,24 @@ export default function ResultsTable({ data }: ResultsTableProps) {
           </div>
         </div>
 
+        {/* Mismatch Warning Banner */}
+        {data.results.some((cr) => cr.has_port_mismatch === true) && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-amber-900 dark:text-amber-300 text-xs flex items-start gap-3 shadow-sm animate-in fade-in duration-300">
+            <span className="text-lg leading-none">⚠️</span>
+            <div className="space-y-1">
+              <p className="font-bold text-sm">Port Selection Mismatch Warning</p>
+              <p className="text-slate-600 dark:text-amber-400/90">The carrier matched a port that differs from your requested port location. Please review:</p>
+              <div className="mt-2 space-y-1">
+                {data.results.filter((cr) => cr.has_port_mismatch === true).map((cr) => (
+                  <div key={cr.carrier} className="font-mono text-[11px] bg-amber-500/10 px-2.5 py-1 rounded-lg">
+                    <strong className="font-semibold">{cr.carrier.replace("_", " ")}:</strong> {cr.mismatch_warning || "Carrier matched a different port than requested."}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Table / Empty State */}
         {sortedRows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 bg-white/50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-2xl">
@@ -538,8 +579,16 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
                     {/* Status */}
                     <td className="px-1 py-2">
-                      <StatusBadge status={row.status} />
+                      <div className="flex flex-col gap-1">
+                        <StatusBadge status={row.status} />
+                        {row.hasPortMismatch === true && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-1.5 py-0.5 rounded" title={row.mismatchWarning || "Port Mismatch"}>
+                            ⚠️ Mismatch
+                          </span>
+                        )}
+                      </div>
                     </td>
+
 
                     {row.quote ? (
                       <>

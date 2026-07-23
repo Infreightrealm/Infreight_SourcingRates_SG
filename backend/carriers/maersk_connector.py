@@ -1308,9 +1308,12 @@ class MaerskConnector(BaseCarrierConnector):
 
                 origin_query = prepare_maersk_query(request.origin)
                 destination_query = prepare_maersk_query(request.destination)
+                self.submitted_origin = origin_query
+                self.submitted_destination = destination_query
                 
                 print(f"[MAERSK] Origin prepared query: '{origin_query}' (input: '{request.origin}')")
                 print(f"[MAERSK] Destination prepared query: '{destination_query}' (input: '{request.destination}')")
+
 
                 # 1. Origin Port input (From)
                 origin_selectors = [
@@ -1481,8 +1484,10 @@ class MaerskConnector(BaseCarrierConnector):
                                     await suggestion.click(force=True)
                                     print(f"[MAERSK] Clicked autocomplete suggestion element at index {target_idx}: '{selected_text}'")
                                     clicked = True
+                                    self.matched_origin = selected_text
                                     if origin_locode:
                                         set_cached_carrier_port("maersk", origin_locode, selected_text)
+
                         else:
                             print("[MAERSK] No valid suggestions found in the dropdown list.")
                     except Exception as e:
@@ -1550,9 +1555,11 @@ class MaerskConnector(BaseCarrierConnector):
                             if js_result:
                                 print(f"[MAERSK] JS shadow-DOM exact match click succeeded: '{js_result}'")
                                 clicked = True
+                                self.matched_origin = js_result
                                 if origin_locode:
                                     set_cached_carrier_port("maersk", origin_locode, js_result)
                                 await self.page.wait_for_timeout(400)
+
                             else:
                                 print(f"[MAERSK] JS shadow-DOM found no EXACT match for '{origin_query}'.")
                         except Exception as js_e:
@@ -1740,8 +1747,10 @@ class MaerskConnector(BaseCarrierConnector):
                                     await suggestion.click(force=True)
                                     print(f"[MAERSK] Clicked autocomplete suggestion element at index {target_idx}: '{selected_text}'")
                                     clicked = True
+                                    self.matched_destination = selected_text
                                     if destination_locode:
                                         set_cached_carrier_port("maersk", destination_locode, selected_text)
+
                         else:
                             print("[MAERSK] No valid suggestions found in the dropdown list.")
                     except Exception as e:
@@ -1809,9 +1818,11 @@ class MaerskConnector(BaseCarrierConnector):
                             if js_result:
                                 print(f"[MAERSK] JS shadow-DOM exact match click succeeded: '{js_result}'")
                                 clicked = True
+                                self.matched_destination = js_result
                                 if destination_locode:
                                     set_cached_carrier_port("maersk", destination_locode, js_result)
                                 await self.page.wait_for_timeout(400)
+
                             else:
                                 print(f"[MAERSK] JS shadow-DOM found no EXACT match for '{destination_query}'.")
                         except Exception as js_e:

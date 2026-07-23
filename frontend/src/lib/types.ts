@@ -38,7 +38,22 @@ export interface CarrierResultSchema {
   status: string;
   error_message?: string;
   quotes: QuoteSchema[];
+
+  // Port Search Reliability Observability & Mismatch Detection
+  raw_origin_input?: string;
+  raw_destination_input?: string;
+  resolved_origin_name?: string;
+  resolved_origin_locode?: string;
+  resolved_destination_name?: string;
+  resolved_destination_locode?: string;
+  submitted_origin?: string;
+  submitted_destination?: string;
+  matched_origin?: string;
+  matched_destination?: string;
+  has_port_mismatch?: boolean | null;
+  mismatch_warning?: string;
 }
+
 
 export interface RateSearchCreateResponse {
   search_id: string;

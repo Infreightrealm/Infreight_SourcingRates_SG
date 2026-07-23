@@ -204,6 +204,21 @@ class CarrierResultSchema(BaseModel):
     status: str
     error_message: Optional[str] = None
     quotes: list[QuoteSchema] = []
+    
+    # Port Search Reliability Observability & Mismatch Detection
+    raw_origin_input: Optional[str] = None
+    raw_destination_input: Optional[str] = None
+    resolved_origin_name: Optional[str] = None
+    resolved_origin_locode: Optional[str] = None
+    resolved_destination_name: Optional[str] = None
+    resolved_destination_locode: Optional[str] = None
+    submitted_origin: Optional[str] = None
+    submitted_destination: Optional[str] = None
+    matched_origin: Optional[str] = None
+    matched_destination: Optional[str] = None
+    has_port_mismatch: Optional[bool] = None  # None = Unknown / Could Not Verify, False = Verified Match, True = Mismatch
+    mismatch_warning: Optional[str] = None
+
 
 
 class RateSearchCreateResponse(BaseModel):

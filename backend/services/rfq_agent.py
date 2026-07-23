@@ -61,7 +61,6 @@ def _load_port_aliases_config() -> dict[str, str]:
         except Exception as e:
             print(f"[RFQ Agent] Warning loading ports_aliases.json: {e}")
     return {
-        "pk": "Port Klang",
         "jkt": "Jakarta",
         "pgu": "Pasir Gudang",
         "tp": "Tanjung Pelepas",
@@ -73,6 +72,7 @@ def _load_port_aliases_config() -> dict[str, str]:
         "pvg": "Shanghai",
         "ngb": "Ningbo",
         "hph": "Haiphong",
+
         "sgn": "Ho Chi Minh",
         "sub": "Surabaya",
         "btm": "Batam"
@@ -228,8 +228,9 @@ def generate_dual_air_drafts(
     
     pol_str = origin or "Singapore Airport"
     pod_str = destination or "To be specified"
-    comm_str = commodity or "General Cargo"
+    comm_str = commodity or "Furniture"
     dim_str = dimensions or "Not specified"
+
     w_str = weight_info or "Not specified"
     pkg_str = package_count or "Not specified"
 
@@ -611,7 +612,8 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         origin = "Singapore Airport" if "singapore airport" in text_lower or "singapore" in text_lower else "Singapore"
         destination = "KUL" if "kul" in text_lower else None
         
-        commodity = "Machines Part Accessories" if "machines part" in text_lower else ("HITACHI PRINTERS" if "hitachi" in text_lower else "General Cargo")
+        commodity = "Machines Part Accessories" if "machines part" in text_lower else ("HITACHI PRINTERS" if "hitachi" in text_lower else "Furniture")
+
         
         dims = "186 x 32 x 37 cm H - 2 Crates" if "186 x 32" in text_lower else ("64x53x74 cm/10 pkgs" if "64x53x74" in text_lower else "Not specified")
         weight_str = "320.00 kgs (160 kgs x 2 crates)" if "320.00 kgs" in text_lower else ("320 kg" if "320 kg" in text_lower else "Not specified")
@@ -736,10 +738,13 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
     # Check for Ocean FCL Enquiry Fixtures (e.g. Singapore to Chennai / Singapore to Melbourne / 3 x 20'FCL / Rubber Compound / 45,000 kg)
     raw_origin = "Singapore"
-    if "from pk" in text_lower or "pk to" in text_lower or re.search(r'\bpk\b', text_lower):
+    if "port klang" in text_lower:
+        raw_origin = "Port Klang"
+    elif "from pk" in text_lower or "pk to" in text_lower or re.search(r'\bpk\b', text_lower):
         raw_origin = "PK"
     elif "pasir gudang" in text_lower:
         raw_origin = "Pasir Gudang"
+
 
     raw_destinations = []
     if "to jkt" in text_lower or re.search(r'\bjkt\b', text_lower):
@@ -759,10 +764,24 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
     if not raw_destinations:
         raw_destinations = ["Hamburg"]
 
-    raw_dest = raw_destinations[0]
+    # Check for ambiguous port code 'PK'
+    if raw_origin.strip().upper() == "PK" or any(d.strip().upper() == "PK" for d in raw_destinations):
+        return RFQParseResult(
+            status="needs_clarification",
+            mode="sea",
+            confidence=0.85,
+            matched_keywords=matched_keywords,
+            clarification_question="⚠️ Ambiguous Port Code Detected: 'PK' could refer to either Port Klang, Malaysia (MYPKG) or Karachi, Pakistan (PKKHI). Please clarify which port you intended to quote.",
+            clarification_options=["Port Klang, Malaysia (MYPKG)", "Karachi, Pakistan (PKKHI)"],
+            extracted_fields=[],
+            missing_fields=["origin" if raw_origin.strip().upper() == "PK" else "destination"]
+        )
 
+    raw_dest = raw_destinations[0]
     orig_full, orig_disp, orig_unmapped = resolve_port_alias(raw_origin)
     dest_full, dest_disp, dest_unmapped = resolve_port_alias(raw_dest)
+
+
 
 
     sales_notes = {}
@@ -1222,7 +1241,8 @@ async def parse_rfq(
             drafts = generate_dual_air_drafts(
                 origin=orig_str,
                 destination=dest_str,
-                commodity=extracted_data.get("commodity") or "General Cargo",
+                commodity=extracted_data.get("commodity") or "Furniture",
+
                 dimensions=dims_str,
                 weight_info=weight_str,
                 package_count=pkg_str,

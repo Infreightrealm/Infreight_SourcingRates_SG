@@ -35,7 +35,7 @@ async def test_pak_shaun_email_fixture_port_aliases_and_sales_notes():
     - sales_notes captures follow-up volume, target rate, urgency, and competitive pressure.
     """
     rfq_text = (
-        "Hi team, need rate for 10x20GP from PK to JKT. Urgent for this week. "
+        "Hi team, need rate for 10x20GP from Port Klang to JKT. Urgent for this week. "
         "Also have another 15x20 and 10x20 coming up next week. Using 2 forwarders currently, "
         "please try USD 70-80 target rate if possible. Thanks, Pak Shaun."
     )
@@ -49,8 +49,6 @@ async def test_pak_shaun_email_fixture_port_aliases_and_sales_notes():
     # Check Deterministic Port Alias Resolution
     assert result.parsed_fields.origin == "Port Klang"
     assert result.parsed_fields.destination == "Jakarta"
-    assert result.origin_display == "Port Klang (from 'PK')"
-    assert result.destination_display == "Jakarta (from 'JKT')"
     assert result.parsed_fields.container_types == ["DRY 20"]
 
     # Check Sales Desk Intelligence Extraction
@@ -63,6 +61,20 @@ async def test_pak_shaun_email_fixture_port_aliases_and_sales_notes():
     assert "Urgent" in result.sales_notes["urgency"]
     assert "target_rate" in result.sales_notes
     assert "70-80" in result.sales_notes["target_rate"]
+
+
+@pytest.mark.asyncio
+async def test_pk_ambiguous_port_code_clarification():
+    """Test that ambiguous 2-letter port code 'PK' triggers needs_clarification prompt."""
+    rfq_text = "Hi team, need rate for 10x20GP from PK to JKT."
+    result = await parse_rfq(rfq_text)
+
+    assert isinstance(result, RFQParseResult)
+    assert result.status == "needs_clarification"
+    assert "Ambiguous Port Code Detected: 'PK'" in result.clarification_question
+    assert "Port Klang, Malaysia (MYPKG)" in result.clarification_question
+    assert "Karachi, Pakistan (PKKHI)" in result.clarification_question
+
 
 
 @pytest.mark.asyncio

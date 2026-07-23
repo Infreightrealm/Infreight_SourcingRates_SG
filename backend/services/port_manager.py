@@ -601,6 +601,23 @@ class PortManager:
         if not query:
             return []
 
+        # Ambiguous 2-letter code handling for PK (Port Klang MYPKG vs Karachi PKKHI)
+        if query.upper() == "PK":
+            port_klang = self.get_port_by_code("MYPKG")
+            karachi = self.get_port_by_code("PKKHI")
+            res_pk = []
+            if port_klang:
+                pk_copy = dict(port_klang)
+                pk_copy["is_ambiguous_match"] = True
+                res_pk.append(pk_copy)
+            if karachi:
+                khi_copy = dict(karachi)
+                khi_copy["is_ambiguous_match"] = True
+                res_pk.append(khi_copy)
+            if res_pk:
+                return res_pk
+
+
         # If query contains comma (e.g. "Montreal, Canada"), try searching city part first
         if "," in query:
             city_part = query.split(",")[0].strip()
