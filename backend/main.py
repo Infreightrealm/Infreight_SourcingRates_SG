@@ -23,6 +23,10 @@ from api.rate_search_routes import router as rate_search_router
 from api.port_routes import router as port_router
 from api.user_routes import router as user_router, admin_router
 from api.rfq_routes import router as rfq_router
+from services.monitoring import init_sentry, start_heartbeat, send_telegram
+
+# Initialise error tracking as early as possible (no-op without SENTRY_DSN).
+init_sentry()
 
 
 @asynccontextmanager
@@ -31,6 +35,10 @@ async def lifespan(app: FastAPI):
     print("[*] Starting Infreight Rate Automation API...")
     await init_db()
     print("[OK] Database tables created/verified")
+
+    # Start the "is the laptop alive?" heartbeat (no-op without HEALTHCHECK_URL).
+    heartbeat_task = start_heartbeat()
+    send_telegram("🟢 Backend started")
     
     # Self-healing clean up of stuck statuses on server startup
     try:
@@ -65,6 +73,8 @@ async def lifespan(app: FastAPI):
     print("[VERSION] RFQ Agent Version: 2.1.0-gemini-headeronly (native httpx x-goog-api-key header-only)")
     yield
     print("[*] Shutting down...")
+    if heartbeat_task:
+        heartbeat_task.cancel()
 
 
 app = FastAPI(
