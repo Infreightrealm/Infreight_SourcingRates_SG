@@ -1133,6 +1133,18 @@ async def parse_rfq(
 
         mode = forced_mode or extracted_data.get("mode", "sea").lower()
 
+        # Deterministic Keyword Mode Guardrail: Override LLM mode if explicit sea or air keywords exist
+        if not forced_mode:
+            air_keywords = ["air rate", "airfreight", "flight schedule", "exw airfreight", "singapore airport", "kul", "hitachi printers"]
+            sea_keywords = ["ocean", "sailing", "20'", "40'", "40hq", "40hc", "20gp", "40gp", "fcl", "vessel", "etd", "pasir gudang", "tanjung pelepas", "steel plate", "jkt"]
+            matched_air = [k for k in air_keywords if k in text_lower]
+            matched_sea = [k for k in sea_keywords if k in text_lower]
+            if matched_sea and len(matched_sea) > len(matched_air):
+                mode = "sea"
+            elif matched_air and len(matched_air) > len(matched_sea):
+                mode = "air"
+
+
         confidence = float(extracted_data.get("confidence", 0.9))
         matched_keywords = extracted_data.get("matched_keywords", [])
         is_dg = bool(extracted_data.get("is_dangerous_goods", False))
