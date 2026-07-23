@@ -486,8 +486,10 @@ Today's current date is: {current_date}
 
 MODE CLASSIFICATION RULES:
 1. `mode`: "air" or "sea".
-   - AIR SIGNALS: "air rate", "airfreight", "flight schedule", "EXW airfreight", "Singapore Airport", airport IATA codes (e.g. KUL, SIN, LHR, ORD), "cm", "crates", "pkgs", "gross weight: ... kgs".
-   - SEA SIGNALS: "ocean", "sailing", "20'", "40'", "40HQ", "40HC", "20GP", "40GP", "FCL", "vessel", "ETD", "Pasir Gudang", "Tanjung Pelepas", "ex Pasir Gudang", "PK", "JKT".
+   - AIR SIGNALS: "air rate", "airfreight", "flight schedule", "EXW airfreight", "Singapore Airport", airport IATA codes (e.g. KUL, SIN, LHR, ORD, FRA, JFK), "cm", "crates", "pkgs", "gross weight: ... kgs".
+   - SEA SIGNALS: "ocean", "sailing", "20'", "40'", "40HQ", "40HC", "20GP", "40GP", "FCL", "vessel", "ETD", "Pasir Gudang", "Tanjung Pelepas", "PTP", "PGU", "MYPGU", "MYPTP", "Port Klang", "MYPKG", "Northport", "Westport", "Penang", "MYPEN", "Kuantan", "MYKUA", "Singapore Port", "SGSIN", "Jakarta", "IDJKT", "Tanjung Priok", "Surabaya", "IDSUB", "Rotterdam", "NLRTM", "Hamburg", "DEHAM", "Antwerp", "BEANR", "Shanghai", "CNSHA", "Ningbo", "CNNGB", "Shenzhen", "CNSZX", "Qingdao", "CNTAO", "Busan", "KRPUS", "Laem Chabang", "THLCH", "Ho Chi Minh", "VNSGN", "Steel Plate", "Steel Coil", "PK", "JKT".
+   * MANDATORY: Any reference to ocean ports/terminals like Pasir Gudang, Tanjung Pelepas, Port Klang, Westport, Northport, Singapore Port, Tanjung Priok, etc. MUST be classified as 'sea' mode unless explicitly requested as air freight.
+
 2. `confidence`: Float 0.0 to 1.0.
 3. `matched_keywords`: List of key terms found.
 
@@ -585,7 +587,15 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
     # Air vs Sea detection
     air_keywords = ["air rate", "airfreight", "flight schedule", "exw airfreight", "singapore airport", "kul", "hitachi printers"]
-    sea_keywords = ["ocean", "sailing", "20'", "40'", "40hq", "40hc", "pasir gudang", "tanjung pelepas", "steel plate", "jkt"]
+    sea_keywords = [
+        "ocean", "sailing", "20'", "40'", "40hq", "40hc", "20gp", "40gp", "fcl", "vessel", "etd", "eta",
+        "pasir gudang", "tanjung pelepas", "ptp", "pgu", "mypgu", "myptp", "port klang", "mypkg", "northport",
+        "westport", "penang", "mypen", "kuantan", "mykua", "steel plate", "steel coil", "jkt", "idjkt",
+        "tanjung priok", "surabaya", "idsub", "rotterdam", "nlrtm", "hamburg", "deham", "antwerp", "beanr",
+        "shanghai", "cnsha", "ningbo", "cnngb", "shenzhen", "cnszx", "qingdao", "cntao", "busan", "krpus",
+        "laem chabang", "thlch", "ho chi minh", "vnsgn", "koper"
+    ]
+
     if re.search(r'\bpk\b', text_lower) and "pkgs" not in text_lower:
         sea_keywords.append("pk")
 
@@ -1136,7 +1146,15 @@ async def parse_rfq(
         # Deterministic Keyword Mode Guardrail: Override LLM mode if explicit sea or air keywords exist
         if not forced_mode:
             air_keywords = ["air rate", "airfreight", "flight schedule", "exw airfreight", "singapore airport", "kul", "hitachi printers"]
-            sea_keywords = ["ocean", "sailing", "20'", "40'", "40hq", "40hc", "20gp", "40gp", "fcl", "vessel", "etd", "pasir gudang", "tanjung pelepas", "steel plate", "jkt"]
+            sea_keywords = [
+                "ocean", "sailing", "20'", "40'", "40hq", "40hc", "20gp", "40gp", "fcl", "vessel", "etd", "eta",
+                "pasir gudang", "tanjung pelepas", "ptp", "pgu", "mypgu", "myptp", "port klang", "mypkg", "northport",
+                "westport", "penang", "mypen", "kuantan", "mykua", "steel plate", "steel coil", "jkt", "idjkt",
+                "tanjung priok", "surabaya", "idsub", "rotterdam", "nlrtm", "hamburg", "deham", "antwerp", "beanr",
+                "shanghai", "cnsha", "ningbo", "cnngb", "shenzhen", "cnszx", "qingdao", "cntao", "busan", "krpus",
+                "laem chabang", "thlch", "ho chi minh", "vnsgn", "koper"
+            ]
+
             matched_air = [k for k in air_keywords if k in text_lower]
             matched_sea = [k for k in sea_keywords if k in text_lower]
             if matched_sea and len(matched_sea) > len(matched_air):
