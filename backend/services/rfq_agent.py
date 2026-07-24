@@ -1128,11 +1128,11 @@ async def parse_rfq(
 
     if has_text:
         text_lower = raw_text.lower()
-        update_part = text_lower.split("clarification update:")[-1] if "clarification update:" in text_lower else text_lower
-        if re.search(r'\b(?:air|1)\b', update_part) or "process air" in text_lower or "quote air" in text_lower:
+        if re.search(r'clarification update:\s*air\b', text_lower) or "process air" in text_lower or "mode: air" in text_lower:
             forced_mode = "air"
-        elif re.search(r'\b(?:ocean|sea|2)\b', update_part) or "process ocean" in text_lower or "process sea" in text_lower:
+        elif re.search(r'clarification update:\s*(?:ocean|sea)\b', text_lower) or "process ocean" in text_lower or "process sea" in text_lower or "mode: sea" in text_lower:
             forced_mode = "sea"
+
 
     # Pre-parse check for Booking Confirmation / Instructions
     if has_text:
