@@ -903,7 +903,7 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         sales_notes["target_rate"] = "try USD 70-80 target rate"
 
     # Check if container size is specified in text
-    has_container_size = any(k in text_lower for k in ["20'", "40'", "20gp", "40gp", "40hq", "40hc", "10x20", "20 fcl", "40 fcl", "20ft", "40ft", "fcl"])
+    has_container_size = any(k in text_lower for k in ["20'", "40'", "20gp", "40gp", "20'gp", "40'gp", "40hq", "40hc", "10x20", "20 fcl", "40 fcl", "20ft", "40ft", "fcl"])
     if not has_container_size and not ("steel plate" in text_lower or "pasir gudang" in text_lower or "hitachi" in text_lower or "reefer" in text_lower or "lcl" in text_lower):
         return RFQParseResult(
             status="needs_clarification",
@@ -919,12 +919,13 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         )
 
     c_types = []
-    if "20gp" in text_lower or "20'" in text_lower or "20 fcl" in text_lower or "10x20" in text_lower:
+    if "20gp" in text_lower or "20'gp" in text_lower or "20'" in text_lower or "20 fcl" in text_lower or "10x20" in text_lower:
         c_types.append("DRY 20")
     if "40hq" in text_lower or "40hc" in text_lower:
         c_types.append("DRY 40H")
-    if "40gp" in text_lower or ("40'" in text_lower and "40hq" not in text_lower and "40hc" not in text_lower):
+    if "40gp" in text_lower or "40'gp" in text_lower or ("40'" in text_lower and "40hq" not in text_lower and "40hc" not in text_lower):
         c_types.append("DRY 40")
+
     
     # Deduplicate preserving order
     c_types = list(dict.fromkeys(c_types))
