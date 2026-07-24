@@ -475,24 +475,11 @@ async def run_all_carrier_searches(
         await asyncio.shield(do_cleanup())
         if isinstance(e, asyncio.CancelledError):
             raise
+    finally:
+        # Guarantee queue lock is released the moment scraping completes or fails
+        await queue_manager.release_lock(search_str_id)
 
-    # 3. Mark search completed in the queue manager to start the auto-release timeout
-    await queue_manager.mark_search_completed(search_str_id)
 
-    # 4. Start a background auto-release poller (300 seconds = 5 minutes timeout)
-    async def auto_release_poller():
-        while True:
-            await asyncio.sleep(10)
-            released = await queue_manager.auto_release_check(search_str_id, timeout_seconds=300)
-            if released:
-                print(f"[QUEUE] Auto-released lock for search {search_str_id} due to timeout.")
-                break
-            # Stop polling if the search is no longer active
-            status = await queue_manager.get_queue_status(search_str_id)
-            if status["position"] != 0:
-                break
-
-    asyncio.create_task(auto_release_poller())
 
 
 async def cancel_all_active_searches():
