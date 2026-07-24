@@ -7,7 +7,9 @@ import { toast } from "sonner";
 
 interface RfqInputSectionProps {
   onParsedSuccess: (parsedFields: RateSearchRequest) => void;
+  onBatchRunAll?: (allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>) => void;
 }
+
 
 const DEMO_EXAMPLES = [
   {
@@ -36,7 +38,8 @@ const DEMO_EXAMPLES = [
   }
 ];
 
-export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProps) {
+export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqInputSectionProps) {
+
   const [rfqText, setRfqText] = useState("");
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageMime, setImageMime] = useState<string | null>(null);
@@ -732,17 +735,24 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                   <div className="flex items-center gap-2">
                     <span className="text-base">📍</span>
                     <span className="text-sm font-semibold text-blue-900 dark:text-blue-100">
-                      Multi-Destination Routing Summary ({parseResult.total_pairs_found} pairs total)
+                      Multi-Destination Routing Summary ({parseResult.all_parsed_pairs?.length || parseResult.total_pairs_found} pairs found)
                     </span>
                   </div>
-                  <span className="px-2.5 py-0.5 bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30 rounded-full font-mono text-[10px] font-semibold">
-                    Showing 10 pairs ({parseResult.pairs_omitted_count} omitted due to search cap)
-                  </span>
+
+                  {onBatchRunAll && (
+                    <button
+                      type="button"
+                      onClick={() => onBatchRunAll(parseResult.all_parsed_pairs || [])}
+                      className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer"
+                    >
+                      ⚡ Run All {parseResult.all_parsed_pairs?.length || parseResult.total_pairs_found} Routes Continuously
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                    Click any route below to pre-fill search form:
+                    Click any route below to pre-fill search form, or click green button above to run all continuously:
                   </span>
                   {parseResult.all_parsed_pairs && parseResult.all_parsed_pairs[selectedPairIndex] && (
                     <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/30">
@@ -751,9 +761,9 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                   )}
                 </div>
 
-                {/* Interactive Route Pill Badges */}
-                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1 py-1">
-                  {parseResult.all_parsed_pairs?.slice(0, 10).map((pair, idx) => {
+                {/* Interactive Route Pill Badges (Renders all parsed route pairs) */}
+                <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto pr-1 py-1">
+                  {parseResult.all_parsed_pairs?.map((pair, idx) => {
                     const isSelected = selectedPairIndex === idx;
                     return (
                       <button
@@ -779,6 +789,7 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
                     );
                   })}
                 </div>
+
 
                 {/* Dropdown Selector */}
                 <div className="pt-2 border-t border-blue-500/15 flex items-center gap-2">

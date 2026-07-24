@@ -14,6 +14,7 @@ import { SearchCompletionModal } from "@/components/SearchCompletionModal";
 import LoginModal from "@/components/LoginModal";
 import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, registerUrlSwitchCallback, releaseRateSearch } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
+import { exportMultiRouteResultsToExcel, type BatchRouteResult } from "@/lib/excelExport";
 import { toast } from "sonner";
 
 function HomeContent() {
@@ -27,6 +28,12 @@ function HomeContent() {
   const [isClient, setIsClient] = useState(false);
   const [backendUrl, setBackendUrl] = useState(getApiUrl());
   const [parsedRfqFields, setParsedRfqFields] = useState<RateSearchRequest | undefined>(undefined);
+
+  // Continuous Batch Multi-Route Execution State
+  const [batchResults, setBatchResults] = useState<BatchRouteResult[]>([]);
+  const [isBatchRunning, setIsBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+
 
 
   // Check backend health on mount
@@ -147,6 +154,65 @@ function HomeContent() {
     }
   };
 
+  const handleBatchRunAll = async (allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>) => {
+    if (!allPairs || allPairs.length === 0) return;
+
+    setIsBatchRunning(true);
+    setBatchProgress({ current: 0, total: allPairs.length });
+
+    const initialBatch: BatchRouteResult[] = allPairs.map(p => ({
+      origin: p.origin,
+      destination: p.destination,
+      status: "pending"
+    }));
+    setBatchResults(initialBatch);
+
+    toast.info(`🚀 Starting continuous batch search for ${allPairs.length} port-to-port routes...`);
+
+    for (let i = 0; i < allPairs.length; i++) {
+      const pair = allPairs[i];
+      setBatchProgress({ current: i + 1, total: allPairs.length });
+
+      setBatchResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: "running" } : item));
+
+      const request: RateSearchRequest = {
+        carriers: ["MAERSK", "HAPAG_LLOYD"],
+        origin: pair.origin,
+        destination: pair.destination,
+        service_term: "CY/CY",
+        container_types: pair.container_types || ["DRY 20", "DRY 40"],
+        container_quantity: 1,
+        weight_per_container_kg: pair.weight_per_container_kg || 25000,
+        commodity: "Furniture",
+        departure_date: "tomorrow",
+        search_window_days: 14
+      };
+
+      try {
+        const { search_id } = await createRateSearch({ ...request, user_name: userName || undefined });
+        setSearchId(search_id);
+        let resultData: RateSearchResultResponse | null = null;
+        await pollRateSearch(search_id, (data) => {
+          resultData = data;
+          setSearchResult(data);
+        });
+
+        setBatchResults(prev => prev.map((item, idx) => 
+          idx === i ? { ...item, status: "completed", searchResult: resultData } : item
+        ));
+      } catch (err: any) {
+        console.error(`Batch search failed for route #${i+1} (${pair.origin} -> ${pair.destination}):`, err);
+        setBatchResults(prev => prev.map((item, idx) => 
+          idx === i ? { ...item, status: "failed" } : item
+        ));
+      }
+    }
+
+    setIsBatchRunning(false);
+    toast.success(`🎉 Continuous batch search completed! All ${allPairs.length} routes processed. Click 'Export to Excel' to download.`);
+  };
+
+
 
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
@@ -257,7 +323,63 @@ function HomeContent() {
         <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
 
         {/* AI RFQ Front Door */}
-        <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} />
+        <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} onBatchRunAll={handleBatchRunAll} />
+
+        {/* Batch Progress & Excel Export Panel */}
+        {batchResults.length > 0 && (
+          <section className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-6 backdrop-blur-md animate-fade-in-up space-y-4 shadow-sm">
+            <div className="flex items-center justify-between flex-wrap gap-3 border-b border-emerald-500/20 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-2">
+                  <span>⚡ Batch Continuous Search Execution</span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                    {batchProgress.current} / {batchProgress.total} Routes Processed
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                  Running sequential searches across all {batchResults.length} port-to-port routes for Maersk & Hapag-Lloyd.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => exportMultiRouteResultsToExcel(batchResults)}
+                className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-500/25 transition-all flex items-center gap-2 btn-interactive cursor-pointer"
+              >
+                <span>📥</span> Export Batch to Excel (.xlsx) [Different Sheet Per Port]
+              </button>
+            </div>
+
+            {/* Batch Progress Bar */}
+            <div className="w-full bg-slate-200 dark:bg-black/30 rounded-full h-3 overflow-hidden border border-emerald-500/20">
+              <div
+                className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-300 rounded-full"
+                style={{ width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%` }}
+              />
+            </div>
+
+            {/* Batch Item Status Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-56 overflow-y-auto pr-1">
+              {batchResults.map((item, idx) => {
+                let badgeStyle = "bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500";
+                if (item.status === "running") badgeStyle = "bg-blue-500/20 border-blue-500/40 text-blue-600 dark:text-blue-300 font-bold animate-pulse";
+                if (item.status === "completed") badgeStyle = "bg-emerald-500/20 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold";
+                if (item.status === "failed") badgeStyle = "bg-rose-500/20 border-rose-500/40 text-rose-600 dark:text-rose-400";
+
+                return (
+                  <div key={idx} className={`p-2 rounded-xl border text-[11px] font-mono flex flex-col gap-0.5 ${badgeStyle}`}>
+                    <div className="flex items-center justify-between text-[10px] opacity-70">
+                      <span>#{idx + 1}</span>
+                      <span>{item.status.toUpperCase()}</span>
+                    </div>
+                    <div className="truncate font-semibold text-slate-900 dark:text-white">{item.destination}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
 
         {/* Search Form Card */}
         <section className="bg-white/60 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 backdrop-blur-sm transition-colors shadow-sm">

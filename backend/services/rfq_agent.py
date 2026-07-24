@@ -1623,8 +1623,10 @@ async def parse_rfq(
 
         all_pairs = deduped_pairs
         total_pairs = len(all_pairs)
-        omitted_count = max(0, total_pairs - 10)
-        capped_pairs = all_pairs[:10]
+        max_pair_cap = 300
+        omitted_count = max(0, total_pairs - max_pair_cap)
+        capped_pairs = all_pairs[:max_pair_cap]
+
 
         primary_req = RateSearchRequest(
             carriers=["ALL"],
