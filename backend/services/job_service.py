@@ -17,6 +17,8 @@ from carriers.registry import get_connector
 import re
 import difflib
 from services.port_manager import search_port, COUNTRY_CODE_TO_NAME
+from services.queue_manager import queue_manager
+
 
 def _detect_port_mismatch(
 
