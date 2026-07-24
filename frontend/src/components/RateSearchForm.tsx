@@ -178,21 +178,38 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
         </div>
       </div>
 
-      {/* Submit */}
-      <button
-        type="submit"
-        disabled={isLoading || carriers.length === 0}
-        className="w-full py-3.5 px-6 min-h-[44px] rounded-xl font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 btn-interactive btn-gradient shine-on-hover flex items-center justify-center"
-      >
-        {isLoading ? (
-          <span className="flex items-center justify-center gap-2">
-            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Searching…
-          </span>
-        ) : (
-          "🔍 Search Rates"
-        )}
-      </button>
+      {/* Submit & Clear Buttons */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <button
+          type="submit"
+          disabled={isLoading || carriers.length === 0}
+          className="flex-1 py-3.5 px-6 min-h-[44px] rounded-xl font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 btn-interactive btn-gradient shine-on-hover flex items-center justify-center"
+        >
+          {isLoading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Searching…
+            </span>
+          ) : (
+            "🔍 Search Rates"
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setOrigin("");
+            setDestination("");
+            setWeight(20000);
+            setContainerTypes(["DRY 40H"]);
+            toast.info("Cleared search fields (Origin, Destination, Weight, Container Types). RFQ text preserved.");
+          }}
+          className="px-4 py-3.5 min-h-[44px] rounded-xl font-medium text-xs text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 transition-all flex items-center justify-center gap-1.5"
+        >
+          🧹 Clear Search Fields
+        </button>
+      </div>
+
 
     </form>
   );

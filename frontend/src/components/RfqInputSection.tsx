@@ -208,7 +208,29 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
     }
   };
 
-  const handleClear = () => {
+  const handleClearSearchFields = () => {
+    setParseResult(null);
+    setSelectedPairIndex(0);
+    try {
+      sessionStorage.removeItem("rfq_parse_result");
+      sessionStorage.removeItem("rfq_selected_pair_index");
+    } catch (e) {}
+    onParsedSuccess({
+      carriers: ["ALL"],
+      origin: "",
+      destination: "",
+      service_term: "CY/CY",
+      container_types: ["DRY 40H"],
+      container_quantity: 1,
+      weight_per_container_kg: 20000,
+      commodity: "Furniture",
+      departure_date: "tomorrow",
+      search_window_days: 14
+    });
+    toast.info("Cleared pre-filled search fields (Origin, Destination, Weight, Container Types). RFQ text preserved.");
+  };
+
+  const handleClearAllText = () => {
     setRfqText("");
     setImageBase64(null);
     setImageMime(null);
@@ -220,7 +242,9 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
       sessionStorage.removeItem("rfq_parse_result");
       sessionStorage.removeItem("rfq_selected_pair_index");
     } catch (e) {}
+    toast.info("Cleared enquiry text and search fields.");
   };
+
 
 
   const copyToClipboard = (text: string, label: string) => {
@@ -390,15 +414,28 @@ export default function RfqInputSection({ onParsedSuccess }: RfqInputSectionProp
             )}
           </button>
 
-          {(rfqText || imageBase64 || parseResult) && (
+          {parseResult && (
             <button
               type="button"
-              onClick={handleClear}
-              className="text-xs text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 py-2 sm:py-0 text-center flex items-center gap-1"
+              onClick={handleClearSearchFields}
+              className="text-xs font-medium text-slate-500 hover:text-amber-600 dark:text-slate-400 dark:hover:text-amber-300 py-2 sm:py-0 text-center flex items-center gap-1 transition-colors"
+              title="Clear pre-filled search form fields (Origin, Destination, Weight, Container Types) while preserving pasted enquiry text"
             >
-              <span>✕</span> Clear Enquiry
+              <span>🧹</span> Clear Search Fields
             </button>
           )}
+
+          {(rfqText || imageBase64) && (
+            <button
+              type="button"
+              onClick={handleClearAllText}
+              className="text-xs text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 py-2 sm:py-0 text-center flex items-center gap-1 transition-colors"
+              title="Clear pasted enquiry text from the text area"
+            >
+              <span>✕</span> Clear Text
+            </button>
+          )}
+
         </div>
 
         {/* Mode Indicator & Plain Caption Banner */}
