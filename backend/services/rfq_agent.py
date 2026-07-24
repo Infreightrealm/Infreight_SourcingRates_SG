@@ -622,17 +622,25 @@ def _detect_mode_by_hierarchy(raw_text: str, forced_mode: str | None = None) -> 
     ]
     unambiguous_air_locations = ["singapore airport", "changi airport", "kul airport", "heathrow", "jfk airport", "ord airport", "fra airport", "lhr airport"]
 
-
     matched_p3_sea = [loc for loc in unambiguous_sea_locations if loc in text_lower]
     matched_p3_air = [loc for loc in unambiguous_air_locations if loc in text_lower]
 
     if matched_p3_sea and not matched_p3_air:
+
         return "sea", 0.9, matched_p3_sea, False
     elif matched_p3_air and not matched_p3_sea:
         return "air", 0.9, matched_p3_air, False
 
+    # Multi-line bulk port/destination list check (e.g. GDYNIA USD \n GDANSK USD ...)
+    # If text has 3+ lines or numbered destinations and no explicit air terms, default to sea
+    line_count = len([l for l in text_lower.split("\n") if l.strip()])
+    has_numbered_list = bool(re.search(r'\b[1-9]\d?[\.\)]\s*[a-z]+', text_lower))
+    if (line_count >= 3 or has_numbered_list) and not matched_p1_air:
+        return "sea", 0.85, ["multi-destination list"], False
+
     # No decisive signal or dual-mode city tie-breaker -> Needs Clarification!
     return None, 0.5, [], True
+
 
 
 def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
