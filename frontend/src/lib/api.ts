@@ -33,19 +33,16 @@ export function registerUrlSwitchCallback(cb: (url: string) => void) {
   onUrlSwitchCallback = cb;
 }
 
-// Custom fetch wrapper with automatic failover
+// Custom fetch wrapper with automatic failover (handles network errors & HTTP 5xx server errors)
 async function failoverFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const headers = {
     ...defaultHeaders,
     ...options.headers,
   };
 
-  try {
-    const res = await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
-    return res;
-  } catch (primaryErr) {
+  const doSwitch = (reason: string): boolean => {
     if (backupApiUrl && currentActiveUrl !== backupApiUrl) {
-      console.warn(`[API] Primary URL ${currentActiveUrl} failed: ${primaryErr}. Switching to backup: ${backupApiUrl}`);
+      console.warn(`[API] Primary URL ${currentActiveUrl} failed (${reason}). Switching to backup: ${backupApiUrl}`);
       currentActiveUrl = backupApiUrl;
       API_URL = backupApiUrl;
       if (onUrlSwitchCallback) {
@@ -55,9 +52,29 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
           console.error("Error in URL switch callback:", cbErr);
         }
       }
+      return true;
+    }
+    return false;
+  };
+
+  try {
+    const res = await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
+    if (!res.ok && res.status >= 500 && currentActiveUrl !== backupApiUrl) {
+      const switched = doSwitch(`HTTP ${res.status} Server Error`);
+      if (switched) {
+        try {
+          return await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
+        } catch (backupErr) {
+          console.error(`[API] Backup URL ${backupApiUrl} also failed: ${backupErr}`);
+        }
+      }
+    }
+    return res;
+  } catch (primaryErr) {
+    const switched = doSwitch(String(primaryErr));
+    if (switched) {
       try {
-        const res = await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
-        return res;
+        return await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
       } catch (backupErr) {
         console.error(`[API] Backup URL ${backupApiUrl} also failed: ${backupErr}`);
         throw backupErr;
@@ -66,6 +83,7 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
     throw primaryErr;
   }
 }
+
 
 export async function createRateSearch(request: RateSearchRequest): Promise<RateSearchCreateResponse> {
   const res = await failoverFetch(`/api/rate-search`, {

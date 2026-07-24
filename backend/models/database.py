@@ -70,16 +70,43 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-        # Self-healing migration for existing databases: check if validity_till column exists
+        # Self-healing migration for existing databases: check if missing columns exist
         from sqlalchemy import inspect, text
-        def check_and_add_column(sync_conn):
+        def check_and_add_columns(sync_conn):
             inspector = inspect(sync_conn)
             if 'quotes' in inspector.get_table_names():
                 columns = [c['name'] for c in inspector.get_columns('quotes')]
                 if 'validity_till' not in columns:
-                    sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN validity_till VARCHAR(50)"))
-                    
-        await conn.run_sync(check_and_add_column)
+                    try:
+                        sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN validity_till VARCHAR(50)"))
+                    except Exception:
+                        pass
+
+            if 'carrier_search_results' in inspector.get_table_names():
+                columns = [c['name'] for c in inspector.get_columns('carrier_search_results')]
+                new_cols = {
+                    "raw_origin_input": "VARCHAR(255)",
+                    "raw_destination_input": "VARCHAR(255)",
+                    "resolved_origin_name": "VARCHAR(255)",
+                    "resolved_origin_locode": "VARCHAR(10)",
+                    "resolved_destination_name": "VARCHAR(255)",
+                    "resolved_destination_locode": "VARCHAR(10)",
+                    "submitted_origin": "VARCHAR(255)",
+                    "submitted_destination": "VARCHAR(255)",
+                    "matched_origin": "VARCHAR(255)",
+                    "matched_destination": "VARCHAR(255)",
+                    "has_port_mismatch": "BOOLEAN",
+                    "mismatch_warning": "TEXT",
+                }
+                for col_name, col_type in new_cols.items():
+                    if col_name not in columns:
+                        try:
+                            sync_conn.execute(text(f"ALTER TABLE carrier_search_results ADD COLUMN {col_name} {col_type}"))
+                        except Exception:
+                            pass
+
+        await conn.run_sync(check_and_add_columns)
+
 
 
 
