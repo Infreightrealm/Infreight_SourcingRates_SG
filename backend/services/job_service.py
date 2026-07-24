@@ -38,15 +38,17 @@ def _detect_port_mismatch(
 
     matched_clean = matched_port_str.strip().lower()
 
-    # 1. Direct 5-letter UN/LOCODE extraction from matched_port_str if present
-    locode_match = re.search(r'\b([A-Za-z]{5})\b', matched_port_str)
-    if locode_match:
-        extracted_code = locode_match.group(1).upper()
-        if resolved_locode:
-            if extracted_code == resolved_locode.upper():
-                return False
-            else:
-                return True
+    # 1. Direct 5-letter UN/LOCODE extraction from matched_port_str if present (e.g. MYPGU, SGSIN)
+    # Must be uppercase 5-letter code with valid ISO country prefix to avoid matching words like 'Pasir' or 'Johor'
+    locode_matches = re.findall(r'\b([A-Z]{5})\b', matched_port_str)
+    for extracted_code in locode_matches:
+        if extracted_code[:2] in COUNTRY_CODE_TO_NAME:
+            if resolved_locode:
+                if extracted_code == resolved_locode.upper():
+                    return False
+                else:
+                    return True
+
 
     # 2. Extract 2-letter ISO Country Code from LOCODE (e.g. SGSIN -> SG, DEHAM -> DE, MYPKG -> MY)
     country_code = resolved_locode[:2].lower() if (resolved_locode and len(resolved_locode) >= 2) else None
@@ -83,9 +85,11 @@ def _detect_port_mismatch(
             if re.search(country_pattern, matched_clean) or (country_name and country_name in matched_clean):
                 has_country_match = True
             else:
+                # Exclude 2-letter codes that collide with common English words / abbreviations
+                common_prepositions = {"in", "or", "is", "at", "so", "to", "by", "no", "me", "it", "an", "as", "do"}
                 other_country_matches = [
                     code.lower() for code, name in COUNTRY_CODE_TO_NAME.items()
-                    if code.lower() != country_code and (
+                    if code.lower() != country_code and code.lower() not in common_prepositions and (
                         re.search(r'\b' + re.escape(code.lower()) + r'\b', matched_clean) or
                         (len(name) > 3 and name.lower() in matched_clean)
                     )
@@ -97,6 +101,7 @@ def _detect_port_mismatch(
             return False
 
     return True
+
 
 
 

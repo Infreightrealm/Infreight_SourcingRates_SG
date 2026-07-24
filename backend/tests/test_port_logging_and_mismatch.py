@@ -25,6 +25,8 @@ def test_detect_port_mismatch_verified_match():
     # 2. City + Country match (Port Klang / Port Kelang, MY)
     assert _detect_port_mismatch("Port Klang", "MYPKG", "Port Kelang, MY") is False
     assert _detect_port_mismatch("Hamburg", "DEHAM", "Hamburg, Germany (DEHAM)") is False
+    assert _detect_port_mismatch("Pasir Gudang, Johor", "MYPGU", "Pasir Gudang (Johor), Malaysia") is False
+
 
 
 def test_detect_port_mismatch_verified_mismatch():
