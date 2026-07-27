@@ -1763,18 +1763,32 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                     const cardText = (card.textContent || "").replace(/\s+/g, " ");
 
-                    const dateRegex = /\d{4}-\d{2}-\d{2}/g;
-                    const dates = cardText.match(dateRegex) || [];
+                    const docCutoffMatch = cardText.match(/Doc Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
+                    const fclCutoffMatch = cardText.match(/FCL Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
+                    const vgmCutoffMatch = cardText.match(/VGM Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
 
-                    if (dates.length < 2) return;
-                    const etd = dates[0];
-                    const eta = dates[1];
+                    const doc_cutoff = docCutoffMatch ? docCutoffMatch[1] : "";
+                    const fcl_cutoff = fclCutoffMatch ? fclCutoffMatch[1] : "";
+                    const vgm_cutoff = vgmCutoffMatch ? vgmCutoffMatch[1] : "";
+
+                    const cutoffDates = new Set([doc_cutoff, fcl_cutoff, vgm_cutoff].filter(Boolean));
+
+                    const dateRegex = /\d{4}-\d{2}-\d{2}/g;
+                    const allDates = cardText.match(dateRegex) || [];
+                    const sailingDates = allDates.filter(d => !cutoffDates.has(d));
+                    const activeDates = sailingDates.length >= 2 ? sailingDates : allDates;
+
+                    if (activeDates.length < 2) return;
+                    const etd = activeDates[0];
+                    const eta = activeDates[activeDates.length - 1];
 
                     let routing = "Direct";
                     const viaMatch = cardText.match(/via:\s*(.*?)(?=Terminal|Doc Cut-off|FCL Cut-off|$)/i);
                     if (viaMatch) {
                         const ports = viaMatch[1].replace(/Terminal.*$/i, "").trim();
                         routing = "Transshipment via " + ports.replace(/\s+/g, " ");
+                    } else if (activeDates.length > 2) {
+                        routing = "Transshipment";
                     }
 
                     const voyageMatch = cardText.match(/Voyage no\s*\.?\s*:\s*(\S+)/i);
@@ -1800,21 +1814,19 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
                     }
 
-                    const docCutoffMatch = cardText.match(/Doc Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
-                    const fclCutoffMatch = cardText.match(/FCL Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
-                    const vgmCutoffMatch = cardText.match(/VGM Cut-off\s+(\d{4}-\d{2}-\d{2})/i);
-
-                    const doc_cutoff = docCutoffMatch ? docCutoffMatch[1] : "";
-                    const fcl_cutoff = fclCutoffMatch ? fclCutoffMatch[1] : "";
-                    const vgm_cutoff = vgmCutoffMatch ? vgmCutoffMatch[1] : "";
-
                     let transit = null;
-                    try {
-                        const d1 = new Date(etd);
-                        const d2 = new Date(eta);
-                        const diffTime = Math.abs(d2 - d1);
-                        transit = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    } catch (e) {}
+                    const transitBadgeMatch = cardText.match(/\b(\d+)\s*days?\b/i);
+                    if (transitBadgeMatch) {
+                        transit = parseInt(transitBadgeMatch[1], 10);
+                    } else {
+                        try {
+                            const d1 = new Date(etd);
+                            const d2 = new Date(eta);
+                            const diffTime = Math.abs(d2 - d1);
+                            transit = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        } catch (e) {}
+                    }
+
 
                     results.push({
                         etd: etd,
