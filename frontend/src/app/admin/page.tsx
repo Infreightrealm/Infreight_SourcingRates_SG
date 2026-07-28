@@ -74,7 +74,9 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (authenticated) {
-      if (activeTab === "route_health") {
+      if (activeTab === "users") {
+        fetchUsers();
+      } else if (activeTab === "route_health") {
         fetchRouteHealth();
       } else if (activeTab === "overrides") {
         fetchOverrides();
@@ -106,13 +108,9 @@ export default function AdminDashboard() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/users`, {
-        headers: { "x-admin-password": password },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUsers(data);
-      }
+      const { getUsers } = await import("@/lib/api");
+      const data = await getUsers(password);
+      setUsers(data || []);
     } catch (e) {
       console.error("Failed to fetch users", e);
     }
@@ -416,13 +414,22 @@ export default function AdminDashboard() {
           <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-200 dark:border-gray-800 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">Registered Users</h2>
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input 
-                  type="text" 
-                  placeholder="Search users..." 
-                  className="pl-9 pr-4 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 w-64"
-                />
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={fetchUsers}
+                  className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Refresh Users
+                </button>
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Search users..." 
+                    className="pl-9 pr-4 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 w-64"
+                  />
+                </div>
               </div>
             </div>
             

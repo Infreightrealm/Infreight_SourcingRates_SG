@@ -256,6 +256,18 @@ export async function deleteCarrierOverride(
   return res.json();
 }
 
+export async function getUsers(adminPassword?: string): Promise<any[]> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/users`, { headers });
+  if (!res.ok) {
+    throw new Error(`Failed to load users: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function parseRfq(
   text?: string,
   image_b64?: string,
