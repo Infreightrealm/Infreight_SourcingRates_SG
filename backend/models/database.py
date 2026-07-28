@@ -114,27 +114,11 @@ async def init_db():
                     except Exception:
                         pass
 
-    async def _seed_default_users():
-        try:
-            async_session_maker = _get_session_maker()
-            async with async_session_maker() as session:
-                res = await session.execute(select(User))
-                existing_users = res.scalars().all()
-                if not existing_users:
-                    default_names = ["Shaun", "Brian", "Pak", "Operations", "Sales", "Pricing", "Admin"]
-                    for name in default_names:
-                        session.add(User(name=name))
-                    await session.commit()
-                    print(f"[DATABASE] Seeded {len(default_names)} default team users.")
-        except Exception as seed_err:
-            print(f"[DATABASE WARNING] Failed to seed default users: {seed_err}")
-
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             await conn.run_sync(check_and_add_columns)
             print("[DATABASE] Successfully initialized database schema.")
-        await _seed_default_users()
     except Exception as err:
         url = os.getenv("DATABASE_URL", "")
         if url and "sqlite" not in url:
@@ -146,7 +130,6 @@ async def init_db():
                 await conn.run_sync(Base.metadata.create_all)
                 await conn.run_sync(check_and_add_columns)
             print("[DATABASE] Local SQLite fallback database initialized successfully.")
-            await _seed_default_users()
         else:
             raise err
 

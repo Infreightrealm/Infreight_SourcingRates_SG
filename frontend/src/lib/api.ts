@@ -281,6 +281,35 @@ export async function loginUser(name: string): Promise<any> {
   return res.json();
 }
 
+export async function validateSession(name: string): Promise<any> {
+  const res = await failoverFetch(`/api/users/validate-session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Session invalid: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function resetAllUsers(adminPassword?: string): Promise<{ status: string; message: string }> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/users/reset-all`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to reset users: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getSearchHistory(userName?: string): Promise<any[]> {
   const query = userName ? `?user_name=${encodeURIComponent(userName)}` : "";
   const res = await failoverFetch(`/api/rate-search/admin/search-history${query}`);

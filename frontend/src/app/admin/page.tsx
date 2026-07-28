@@ -128,6 +128,20 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleResetAllUsers = async () => {
+    if (!confirm("Are you sure you want to kick all users and reset the database list to 0 for a fresh start? All active browser sessions will be logged out.")) {
+      return;
+    }
+    try {
+      const { resetAllUsers } = await import("@/lib/api");
+      await resetAllUsers(password);
+      toast.success("All user sessions and database records have been reset to 0!");
+      fetchUsers();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to reset user sessions");
+    }
+  };
+
   const fetchUsers = async () => {
     try {
       const { getUsers } = await import("@/lib/api");
@@ -456,6 +470,13 @@ export default function AdminDashboard() {
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Refresh Users
+                </button>
+                <button
+                  onClick={handleResetAllUsers}
+                  className="px-3 py-1.5 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Reset All Sessions (Fresh Start)
                 </button>
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />

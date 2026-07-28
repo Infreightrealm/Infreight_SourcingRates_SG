@@ -38,14 +38,6 @@ async def list_users(session: AsyncSession = Depends(get_session)):
     result = await session.execute(query)
     users = result.scalars().all()
     
-    if not users:
-        default_names = ["Shaun", "Brian", "Pak", "Operations", "Sales", "Pricing", "Admin"]
-        for name in default_names:
-            session.add(User(name=name))
-        await session.commit()
-        result = await session.execute(query)
-        users = result.scalars().all()
-    
     return [
         UserSchema(
             id=str(u.id),
@@ -54,6 +46,37 @@ async def list_users(session: AsyncSession = Depends(get_session)):
             created_at=u.created_at.isoformat() if u.created_at else ""
         ) for u in users
     ]
+
+@router.delete("/reset-all")
+async def reset_all_users(session: AsyncSession = Depends(get_session)):
+    """Delete all registered users for a complete fresh start."""
+    from sqlalchemy import delete
+    await session.execute(delete(User))
+    await session.commit()
+    return {"status": "SUCCESS", "message": "All user sessions reset successfully."}
+
+@router.post("/validate-session", response_model=UserSchema)
+async def validate_session(request: UserCreateRequest, session: AsyncSession = Depends(get_session)):
+    """Validate if an existing browser session user still exists in DB."""
+    name = request.name.strip()
+    if not name:
+        raise HTTPException(400, "Name cannot be empty")
+        
+    query = select(User).where(User.name == name)
+    user = (await session.execute(query)).scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(404, "Session reset. Please log in fresh.")
+        
+    if not user.is_active:
+        raise HTTPException(403, "This user account has been deactivated.")
+        
+    return UserSchema(
+        id=str(user.id),
+        name=user.name,
+        is_active=user.is_active,
+        created_at=user.created_at.isoformat() if user.created_at else ""
+    )
 
 @router.post("/login", response_model=UserSchema)
 async def login_user(request: UserCreateRequest, session: AsyncSession = Depends(get_session)):

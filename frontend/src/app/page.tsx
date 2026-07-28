@@ -42,14 +42,12 @@ function HomeContent() {
     const savedName = localStorage.getItem("userName");
     if (savedName) {
       setUserName(savedName);
-      import("@/lib/api").then(({ loginUser }) => {
-        loginUser(savedName).catch((err: any) => {
-          console.warn("Failed to auto-sync user with backend:", err);
-          if (err?.message?.includes("deactivated") || err?.message?.includes("403")) {
-            localStorage.removeItem("userName");
-            setUserName("");
-            toast.error("Your user account has been deactivated.");
-          }
+      import("@/lib/api").then(({ validateSession }) => {
+        validateSession(savedName).catch((err: any) => {
+          console.warn("Failed to validate user session:", err);
+          localStorage.removeItem("userName");
+          setUserName("");
+          toast.info("User sessions were reset by admin. Please enter your name to log in.");
         });
       });
     }
