@@ -362,3 +362,60 @@ async def get_route_health(session: AsyncSession = Depends(get_session)):
         "routes": list(routes_map.values())
     }
 
+
+from sqlalchemy.orm import selectinload
+
+@router.get("/admin/search-history")
+async def get_user_search_history(
+    user_name: Optional[str] = None,
+    limit: int = 100,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Get detailed historical rate searches per user including timestamps, routes, cargo specs, and carrier results.
+    """
+    stmt = (
+        select(RateSearch)
+        .options(selectinload(RateSearch.carrier_results).selectinload(CarrierSearchResult.quotes))
+        .order_by(RateSearch.created_at.desc())
+        .limit(min(limit, 500))
+    )
+    if user_name:
+        stmt = stmt.where(RateSearch.user_name.ilike(f"%{user_name.strip()}%"))
+
+    res = await session.execute(stmt)
+    searches = res.scalars().all()
+
+    history = []
+    for rs in searches:
+        carrier_summaries = []
+        total_quotes = 0
+        for csr in rs.carrier_results:
+            q_count = len(csr.quotes) if csr.quotes else 0
+            total_quotes += q_count
+            carrier_summaries.append({
+                "carrier": csr.carrier,
+                "status": csr.status,
+                "error_message": csr.error_message,
+                "quotes_count": q_count
+            })
+
+        history.append({
+            "id": str(rs.id),
+            "user_name": rs.user_name or "Guest User",
+            "created_at": rs.created_at.isoformat() if rs.created_at else "",
+            "origin": rs.origin,
+            "destination": rs.destination,
+            "container_type": rs.container_type,
+            "container_quantity": rs.container_quantity,
+            "weight_per_container_kg": rs.weight_per_container_kg,
+            "commodity": rs.commodity,
+            "departure_date": rs.departure_date,
+            "selected_carriers": rs.selected_carriers or [],
+            "status": rs.status,
+            "total_quotes": total_quotes,
+            "carrier_results": carrier_summaries
+        })
+
+    return history
+

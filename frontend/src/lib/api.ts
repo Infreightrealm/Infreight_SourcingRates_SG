@@ -268,6 +268,15 @@ export async function getUsers(adminPassword?: string): Promise<any[]> {
   return res.json();
 }
 
+export async function getSearchHistory(userName?: string): Promise<any[]> {
+  const query = userName ? `?user_name=${encodeURIComponent(userName)}` : "";
+  const res = await failoverFetch(`/api/rate-search/admin/search-history${query}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load search history: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function parseRfq(
   text?: string,
   image_b64?: string,

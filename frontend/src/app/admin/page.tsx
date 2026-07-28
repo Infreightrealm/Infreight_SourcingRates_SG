@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, Building2, Save, Sliders, RefreshCw } from "lucide-react";
+import { User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, Building2, Save, Sliders, RefreshCw, Clock } from "lucide-react";
 import { API_URL } from "@/lib/api";
 import PortAutocomplete from "@/components/PortAutocomplete";
 import { toast } from "sonner";
@@ -21,7 +21,7 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"users" | "ports" | "overrides" | "route_health">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "ports" | "overrides" | "history" | "route_health">("users");
 
   // Ports config state
   const [popularPorts, setPopularPorts] = useState<string[]>([]);
@@ -44,6 +44,26 @@ export default function AdminDashboard() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [newPortInput, setNewPortInput] = useState("");
   const [selectedCountry, setSelectedCountry] = useState("");
+
+  // User Search History state
+  const [searchHistory, setSearchHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyUserFilter, setHistoryUserFilter] = useState("all");
+  const [historyQuery, setHistoryQuery] = useState("");
+
+  const fetchSearchHistory = async (userFilter?: string) => {
+    setLoadingHistory(true);
+    try {
+      const { getSearchHistory } = await import("@/lib/api");
+      const targetUser = (userFilter || historyUserFilter) === "all" ? undefined : (userFilter || historyUserFilter);
+      const data = await getSearchHistory(targetUser);
+      setSearchHistory(data || []);
+    } catch (e) {
+      console.error("Failed to fetch search history", e);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   const fetchRouteHealth = async () => {
     setLoadingHealth(true);
@@ -80,6 +100,8 @@ export default function AdminDashboard() {
         fetchRouteHealth();
       } else if (activeTab === "overrides") {
         fetchOverrides();
+      } else if (activeTab === "history") {
+        fetchSearchHistory();
       }
     }
   }, [authenticated, activeTab]);
@@ -391,6 +413,19 @@ export default function AdminDashboard() {
           >
             Carrier Port Overrides
             {activeTab === "overrides" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("history")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              activeTab === "history"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+            }`}
+          >
+            User Search History
+            {activeTab === "history" && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
             )}
           </button>
@@ -822,6 +857,177 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* TAB: USER SEARCH HISTORY */}
+        {activeTab === "history" && (
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-gray-800 pb-5">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-indigo-500" />
+                  User Search History Log
+                </h2>
+                <p className="text-sm text-slate-500 dark:text-gray-400">
+                  Track what each individual team member searched, on what day, and at what exact time.
+                </p>
+              </div>
+              <button
+                onClick={() => fetchSearchHistory()}
+                disabled={loadingHistory}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-2 self-start sm:self-auto"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? "animate-spin" : ""}`} />
+                Refresh History
+              </button>
+            </div>
+
+            {/* Filter Pills & Search */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 dark:text-gray-400 uppercase tracking-wider mr-1">Filter User:</span>
+                <button
+                  onClick={() => { setHistoryUserFilter("all"); fetchSearchHistory("all"); }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    historyUserFilter === "all"
+                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                      : "bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300 hover:bg-slate-200"
+                  }`}
+                >
+                  All Users
+                </button>
+                {users.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={() => { setHistoryUserFilter(u.name); fetchSearchHistory(u.name); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      historyUserFilter === u.name
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                        : "bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300 hover:bg-slate-200"
+                    }`}
+                  >
+                    {u.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Filter by route, port, commodity..."
+                  value={historyQuery}
+                  onChange={(e) => setHistoryQuery(e.target.value)}
+                  className="pl-9 pr-4 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 w-full sm:w-64"
+                />
+              </div>
+            </div>
+
+            {/* History Table */}
+            {loadingHistory ? (
+              <div className="py-16 text-center text-slate-400 dark:text-gray-500 flex flex-col items-center gap-3">
+                <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
+                <p className="text-sm font-medium">Loading search history logs...</p>
+              </div>
+            ) : searchHistory.length === 0 ? (
+              <div className="py-16 text-center text-slate-400 dark:text-gray-500 bg-slate-50 dark:bg-black/20 rounded-2xl border border-dashed border-slate-200 dark:border-gray-800">
+                <Clock className="w-10 h-10 mx-auto text-slate-300 dark:text-gray-600 mb-2" />
+                <p className="text-base font-semibold text-slate-700 dark:text-gray-300">No search logs found</p>
+                <p className="text-xs text-slate-400 dark:text-gray-500 max-w-md mx-auto mt-1">
+                  When team members run rate searches on the main platform, their exact queries, timestamps, and carrier results will be logged here.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-gray-800">
+                <table className="w-full text-left text-sm text-slate-600 dark:text-gray-300">
+                  <thead className="bg-slate-50 dark:bg-[#18181b] text-xs uppercase text-slate-500 dark:text-gray-400 font-semibold">
+                    <tr>
+                      <th className="px-5 py-3.5">User</th>
+                      <th className="px-5 py-3.5">Date & Time</th>
+                      <th className="px-5 py-3.5">Route</th>
+                      <th className="px-5 py-3.5">Cargo Specs</th>
+                      <th className="px-5 py-3.5">Carriers Searched</th>
+                      <th className="px-5 py-3.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-gray-800">
+                    {searchHistory
+                      .filter((item) => {
+                        if (!historyQuery.trim()) return true;
+                        const q = historyQuery.toLowerCase();
+                        return (
+                          item.user_name.toLowerCase().includes(q) ||
+                          item.origin.toLowerCase().includes(q) ||
+                          item.destination.toLowerCase().includes(q) ||
+                          (item.commodity && item.commodity.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((item) => {
+                        const dateObj = item.created_at ? new Date(item.created_at) : null;
+                        const formattedDate = dateObj
+                          ? dateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                          : "N/A";
+                        const formattedTime = dateObj
+                          ? dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
+                          : "";
+
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/40 transition-colors">
+                            <td className="px-5 py-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                              <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
+                                <Users className="w-3.5 h-3.5" />
+                                {item.user_name}
+                              </span>
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <div className="text-xs font-semibold text-slate-900 dark:text-gray-200">{formattedDate}</div>
+                              <div className="text-[11px] text-slate-400 dark:text-gray-500 font-mono">{formattedTime}</div>
+                            </td>
+                            <td className="px-5 py-4">
+                              <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 text-xs">
+                                <span className="truncate max-w-[120px]">{item.origin}</span>
+                                <span className="text-indigo-500 font-bold">➔</span>
+                                <span className="truncate max-w-[120px]">{item.destination}</span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <div className="text-xs font-medium text-slate-800 dark:text-gray-300">
+                                {item.container_quantity}x {item.container_type}
+                              </div>
+                              <div className="text-[11px] text-slate-400 dark:text-gray-500">
+                                {item.weight_per_container_kg ? item.weight_per_container_kg.toLocaleString() : "0"} KG • {item.commodity}
+                              </div>
+                            </td>
+                            <td className="px-5 py-4">
+                              <div className="flex flex-wrap gap-1">
+                                {(item.selected_carriers || []).map((c: string) => (
+                                  <span key={c} className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-300">
+                                    {c}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase ${
+                                  item.status === "COMPLETED"
+                                    ? "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                                    : item.status === "FAILED"
+                                    ? "bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400"
+                                    : "bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                                }`}
+                              >
+                                {item.status} ({item.total_quotes} {item.total_quotes === 1 ? "quote" : "quotes"})
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
