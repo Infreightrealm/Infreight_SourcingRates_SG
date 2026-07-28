@@ -312,7 +312,7 @@ export async function resetAllUsers(adminPassword?: string): Promise<{ status: s
 
 export async function getSearchHistory(userName?: string): Promise<any[]> {
   const query = userName ? `?user_name=${encodeURIComponent(userName)}` : "";
-  const res = await failoverFetch(`/api/rate-search/admin/search-history${query}`);
+  const res = await failoverFetch(`/api/admin/search-history${query}`);
   if (!res.ok) {
     throw new Error(`Failed to load search history: ${res.status}`);
   }
