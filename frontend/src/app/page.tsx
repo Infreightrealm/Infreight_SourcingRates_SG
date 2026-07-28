@@ -36,11 +36,23 @@ function HomeContent() {
 
 
 
-  // Check backend health on mount
+  // Check backend health and sync user session on mount
   useEffect(() => {
     setIsClient(true);
     const savedName = localStorage.getItem("userName");
-    if (savedName) setUserName(savedName);
+    if (savedName) {
+      setUserName(savedName);
+      import("@/lib/api").then(({ loginUser }) => {
+        loginUser(savedName).catch((err: any) => {
+          console.warn("Failed to auto-sync user with backend:", err);
+          if (err?.message?.includes("deactivated") || err?.message?.includes("403")) {
+            localStorage.removeItem("userName");
+            setUserName("");
+            toast.error("Your user account has been deactivated.");
+          }
+        });
+      });
+    }
 
     registerUrlSwitchCallback((newUrl) => {
       setBackendUrl(newUrl);

@@ -268,6 +268,19 @@ export async function getUsers(adminPassword?: string): Promise<any[]> {
   return res.json();
 }
 
+export async function loginUser(name: string): Promise<any> {
+  const res = await failoverFetch(`/api/users/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Login failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getSearchHistory(userName?: string): Promise<any[]> {
   const query = userName ? `?user_name=${encodeURIComponent(userName)}` : "";
   const res = await failoverFetch(`/api/rate-search/admin/search-history${query}`);
