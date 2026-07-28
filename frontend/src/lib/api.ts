@@ -201,6 +201,61 @@ export async function savePortsConfig(
   return res.json();
 }
 
+export async function getCarrierOverrides(adminPassword?: string): Promise<Record<string, Record<string, string>>> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/admin/carrier-overrides`, { headers });
+  if (!res.ok) {
+    throw new Error(`Failed to load carrier overrides: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function addCarrierOverride(
+  carrier: string,
+  key: string,
+  overrideText: string,
+  adminPassword?: string
+): Promise<{ status: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/admin/carrier-overrides`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ carrier, key, override_text: overrideText }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to add carrier override: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteCarrierOverride(
+  carrier: string,
+  key: string,
+  adminPassword?: string
+): Promise<{ status: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/admin/carrier-overrides`, {
+    method: "DELETE",
+    headers,
+    body: JSON.stringify({ carrier, key }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to delete carrier override: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function parseRfq(
   text?: string,
   image_b64?: string,

@@ -491,6 +491,49 @@ class PortManager:
         except Exception as e:
             print(f"Error loading popular ports config: {e}")
 
+        # Load dynamic carrier overrides config
+        self._dynamic_carrier_overrides = {}
+        overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_overrides.json")
+        try:
+            if os.path.exists(overrides_path):
+                with open(overrides_path, 'r', encoding='utf-8') as f:
+                    self._dynamic_carrier_overrides = json.load(f)
+        except Exception as e:
+            print(f"Error loading carrier overrides: {e}")
+            self._dynamic_carrier_overrides = {}
+
+    def _save_carrier_overrides(self):
+        overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_overrides.json")
+        try:
+            os.makedirs(os.path.dirname(overrides_path), exist_ok=True)
+            with open(overrides_path, 'w', encoding='utf-8') as f:
+                json.dump(self._dynamic_carrier_overrides, f, indent=2)
+        except Exception as e:
+            print(f"Error saving carrier overrides: {e}")
+
+    def get_carrier_overrides(self, carrier: Optional[str] = None) -> Dict:
+        if carrier:
+            carrier_key = carrier.strip().lower()
+            return self._dynamic_carrier_overrides.get(carrier_key, {})
+        return self._dynamic_carrier_overrides
+
+    def add_carrier_override(self, carrier: str, key: str, override_text: str) -> None:
+        carrier_key = carrier.strip().lower()
+        key_clean = key.strip().lower()
+        if not carrier_key or not key_clean or not override_text:
+            return
+        if carrier_key not in self._dynamic_carrier_overrides:
+            self._dynamic_carrier_overrides[carrier_key] = {}
+        self._dynamic_carrier_overrides[carrier_key][key_clean] = override_text.strip()
+        self._save_carrier_overrides()
+
+    def delete_carrier_override(self, carrier: str, key: str) -> None:
+        carrier_key = carrier.strip().lower()
+        key_clean = key.strip().lower()
+        if carrier_key in self._dynamic_carrier_overrides:
+            self._dynamic_carrier_overrides[carrier_key].pop(key_clean, None)
+            self._save_carrier_overrides()
+
     def _save_config(self):
         config_path = os.path.join(os.path.dirname(__file__), "..", "data", "popular_ports_config.json")
         config = {
@@ -805,8 +848,21 @@ class PortManager:
             return ""
 
         carrier_key = carrier.strip().lower()
-
         text_lower = text.lower().strip()
+
+        # 0. Check dynamic carrier overrides FIRST
+        if hasattr(self, '_dynamic_carrier_overrides') and carrier_key in self._dynamic_carrier_overrides:
+            carrier_dict = self._dynamic_carrier_overrides[carrier_key]
+            if text_lower in carrier_dict:
+                return carrier_dict[text_lower]
+            paren_match = re.search(r'\(\s*([A-Za-z]{5})\s*\)', text)
+            if paren_match:
+                locode_key = paren_match.group(1).lower()
+                if locode_key in carrier_dict:
+                    return carrier_dict[locode_key]
+            clean_word = text.strip().lower()
+            if clean_word in carrier_dict:
+                return carrier_dict[clean_word]
         if "dallas" in text_lower or text_lower == "usdal":
             if carrier_key == "maersk":
                 return "Dallas (Texas), United States"
@@ -1069,3 +1125,12 @@ def get_popular_ports_config():
 
 def update_popular_ports_config(popular_ports: List[str], boosted_countries: List[str]):
     return PortManager().update_popular_ports_config(popular_ports, boosted_countries)
+
+def get_carrier_overrides(carrier: Optional[str] = None):
+    return PortManager().get_carrier_overrides(carrier)
+
+def add_carrier_override(carrier: str, key: str, override_text: str):
+    return PortManager().add_carrier_override(carrier, key, override_text)
+
+def delete_carrier_override(carrier: str, key: str):
+    return PortManager().delete_carrier_override(carrier, key)

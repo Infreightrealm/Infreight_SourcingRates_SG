@@ -1219,7 +1219,20 @@ class MaerskConnector(BaseCarrierConnector):
                     if not raw_input:
                         return ""
                     
-                    # 0. Hardcoded overrides for problematic cities to bypass autocomplete overlaps
+                    # 0. Check dynamic overrides from PortManager
+                    try:
+                        from services.port_manager import get_carrier_overrides
+                        maersk_dyn_overrides = get_carrier_overrides("maersk")
+                        raw_lower_clean = raw_input.strip().lower()
+                        if raw_lower_clean in maersk_dyn_overrides:
+                            return maersk_dyn_overrides[raw_lower_clean]
+                        paren_match = re.search(r'\(\s*([A-Za-z]{5})\s*\)', raw_input)
+                        if paren_match and paren_match.group(1).lower() in maersk_dyn_overrides:
+                            return maersk_dyn_overrides[paren_match.group(1).lower()]
+                    except Exception as e:
+                        print(f"[MAERSK] Warning checking dynamic overrides: {e}")
+
+                    # 0b. Hardcoded fallback overrides for problematic cities
                     raw_lower = raw_input.lower()
                     if "dekheila" in raw_lower or "egedk" in raw_lower:
                         return "Alexandria Dekheila, Egypt"

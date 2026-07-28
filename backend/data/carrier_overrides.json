@@ -1,0 +1,37 @@
+{
+  "maersk": {
+    "egedk": "Alexandria Dekheila, Egypt",
+    "el dekheila": "Alexandria Dekheila, Egypt",
+    "dekheila": "Alexandria Dekheila, Egypt",
+    "usdal": "Dallas (Texas), United States",
+    "dallas": "Dallas (Texas), United States",
+    "yeade": "Aden, Yemen",
+    "aden": "Aden, Yemen",
+    "pkkhi": "Karachi, Pakistan",
+    "karachi": "Karachi, Pakistan",
+    "nlrtm": "Rotterdam",
+    "rotterdam": "Rotterdam",
+    "aumel": "Melbourne, Australia",
+    "melbourne": "Melbourne, Australia",
+    "ausyd": "Sydney (New South Wales), Australia",
+    "sydney": "Sydney (New South Wales), Australia",
+    "sajed": "Jeddah, Saudi Arabia",
+    "jeddah": "Jeddah, Saudi Arabia",
+    "cnszx": "Shenzhen (Guangdong), China",
+    "shenzhen": "Shenzhen (Guangdong), China",
+    "cnngb": "Ningbo (Zhejiang), China",
+    "ningbo": "Ningbo (Zhejiang), China",
+    "innsa": "Jawaharlal Nehru (MAHARASHTRA), India",
+    "nhava sheva": "Jawaharlal Nehru (MAHARASHTRA), India",
+    "thbkk": "Bangkok PAT, Thailand",
+    "bangkok": "Bangkok PAT, Thailand"
+  },
+  "cma": {},
+  "one": {
+    "egais": "EGALY"
+  },
+  "hapag": {},
+  "msc": {},
+  "greenx": {},
+  "oocl": {}
+}

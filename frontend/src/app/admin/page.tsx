@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, Building2, Save } from "lucide-react";
+import { User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, Building2, Save, Sliders, RefreshCw } from "lucide-react";
 import { API_URL } from "@/lib/api";
 import PortAutocomplete from "@/components/PortAutocomplete";
 import { toast } from "sonner";
@@ -20,13 +20,30 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Tabs
+  const [activeTab, setActiveTab] = useState<"users" | "ports" | "overrides" | "route_health">("users");
+
   // Ports config state
   const [popularPorts, setPopularPorts] = useState<string[]>([]);
   const [boostedCountries, setBoostedCountries] = useState<string[]>([]);
   const [countriesMap, setCountriesMap] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<"users" | "ports" | "route_health">("users");
+
+  // Route health matrix state
   const [routeHealth, setRouteHealth] = useState<{ carriers: string[]; routes: any[] } | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
+
+  // Carrier Overrides state
+  const [carrierOverrides, setCarrierOverrides] = useState<Record<string, Record<string, string>>>({});
+  const [loadingOverrides, setLoadingOverrides] = useState(false);
+  const [selectedCarrier, setSelectedCarrier] = useState("maersk");
+  const [overrideKey, setOverrideKey] = useState("");
+  const [overrideText, setOverrideText] = useState("");
+  const [carrierFilter, setCarrierFilter] = useState("all");
+  const [overrideSearch, setOverrideSearch] = useState("");
+
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [newPortInput, setNewPortInput] = useState("");
+  const [selectedCountry, setSelectedCountry] = useState("");
 
   const fetchRouteHealth = async () => {
     setLoadingHealth(true);
@@ -42,15 +59,28 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchOverrides = async () => {
+    setLoadingOverrides(true);
+    try {
+      const { getCarrierOverrides } = await import("@/lib/api");
+      const data = await getCarrierOverrides(password);
+      setCarrierOverrides(data || {});
+    } catch (e) {
+      console.error("Failed to fetch carrier overrides", e);
+    } finally {
+      setLoadingOverrides(false);
+    }
+  };
+
   useEffect(() => {
-    if (authenticated && activeTab === "route_health") {
-      fetchRouteHealth();
+    if (authenticated) {
+      if (activeTab === "route_health") {
+        fetchRouteHealth();
+      } else if (activeTab === "overrides") {
+        fetchOverrides();
+      }
     }
   }, [authenticated, activeTab]);
-
-  const [savingConfig, setSavingConfig] = useState(false);
-  const [newPortInput, setNewPortInput] = useState("");
-  const [selectedCountry, setSelectedCountry] = useState("");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,10 +96,25 @@ export default function AdminDashboard() {
       setAuthenticated(true);
       fetchUsers();
       fetchPortsConfig();
+      fetchOverrides();
     } catch (err) {
       setError("Incorrect admin password.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/users`, {
+        headers: { "x-admin-password": password },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch users", e);
     }
   };
 
@@ -87,6 +132,24 @@ export default function AdminDashboard() {
     }
   };
 
+  const deleteUser = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete user '${name}'?`)) return;
+    try {
+      const res = await fetch(`${API_URL}/api/users/${id}`, {
+        method: "DELETE",
+        headers: { "x-admin-password": password },
+      });
+      if (res.ok) {
+        toast.success(`User ${name} deleted.`);
+        fetchUsers();
+      } else {
+        toast.error("Failed to delete user.");
+      }
+    } catch (e) {
+      toast.error("Error deleting user.");
+    }
+  };
+
   const handleAddPort = () => {
     const match = newPortInput.match(/\(\s*([A-Za-z]{5})\s*\)/);
     let code = "";
@@ -98,105 +161,114 @@ export default function AdminDashboard() {
         code = clean;
       }
     }
-    
+
     if (!code) {
-      alert("Please select or type a valid 5-letter port code.");
+      toast.error("Please select a valid port from the autocomplete or enter a 5-letter UN/LOCODE.");
       return;
     }
-    
+
     if (popularPorts.includes(code)) {
-      alert("This port is already boosted.");
+      toast.error(`Port ${code} is already in the boosted ports list.`);
       return;
     }
-    
+
     setPopularPorts([...popularPorts, code]);
     setNewPortInput("");
+    toast.success(`Added port ${code} to boosted list.`);
   };
 
   const handleRemovePort = (code: string) => {
     setPopularPorts(popularPorts.filter((p) => p !== code));
+    toast.success(`Removed port ${code}.`);
   };
 
   const handleAddCountry = () => {
     if (!selectedCountry) {
-      alert("Please select a country to add.");
+      toast.error("Please select a country to add.");
       return;
     }
-    
-    if (boostedCountries.includes(selectedCountry)) {
-      alert("This country is already boosted.");
+
+    const clean = selectedCountry.trim().toUpperCase();
+    if (boostedCountries.includes(clean)) {
+      toast.error(`Country ${clean} is already in the boosted list.`);
       return;
     }
-    
-    setBoostedCountries([...boostedCountries, selectedCountry]);
+
+    setBoostedCountries([...boostedCountries, clean]);
     setSelectedCountry("");
+    toast.success(`Added country ${countriesMap[clean] || clean} to boosted list.`);
   };
 
   const handleRemoveCountry = (code: string) => {
     setBoostedCountries(boostedCountries.filter((c) => c !== code));
+    toast.success(`Removed country ${code}.`);
   };
 
   const handleSaveConfig = async () => {
     setSavingConfig(true);
     try {
       const { savePortsConfig } = await import("@/lib/api");
-      await savePortsConfig(
-        {
-          popular_ports: popularPorts,
-          boosted_countries: boostedCountries,
-        },
-        password
-      );
-      toast.success("Port ranking configuration saved successfully!");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to save configuration.");
+      await savePortsConfig({ popular_ports: popularPorts, boosted_countries: boostedCountries }, password);
+      toast.success("Ports & Countries configuration saved successfully!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save configuration.");
     } finally {
       setSavingConfig(false);
     }
   };
 
-  const fetchUsers = async () => {
+  const handleAddOverride = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!overrideKey.trim() || !overrideText.trim()) {
+      toast.error("Please enter both a trigger keyword/code and target search text.");
+      return;
+    }
     try {
-      const res = await fetch(`${API_URL}/api/users`);
-      if (res.ok) {
-        setUsers(await res.json());
-      }
-    } catch (e) {
-      console.error("Failed to fetch users");
+      const { addCarrierOverride } = await import("@/lib/api");
+      await addCarrierOverride(selectedCarrier, overrideKey.trim(), overrideText.trim(), password);
+      toast.success(`Override saved for ${selectedCarrier.toUpperCase()}!`);
+      setOverrideKey("");
+      setOverrideText("");
+      fetchOverrides();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save carrier override.");
     }
   };
 
-  const deleteUser = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete user: ${name}?`)) return;
+  const handleDeleteOverride = async (carrier: string, key: string) => {
+    if (!confirm(`Remove override for ${carrier.toUpperCase()}: '${key}'?`)) return;
     try {
-      await fetch(`${API_URL}/api/users/${id}`, { method: "DELETE" });
-      setUsers(users.filter((u) => u.id !== id));
-    } catch (e) {
-      alert("Failed to delete user.");
+      const { deleteCarrierOverride } = await import("@/lib/api");
+      await deleteCarrierOverride(carrier, key, password);
+      toast.success(`Removed override '${key}' from ${carrier.toUpperCase()}`);
+      fetchOverrides();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete carrier override.");
     }
   };
 
   if (!authenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0A0A0A]">
-        <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl w-full max-w-md p-8 shadow-2xl mx-4">
-          <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-slate-800 flex items-center justify-center text-white shadow-xl">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#0A0A0A] flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-8 shadow-xl">
+          <div className="flex flex-col items-center text-center mb-8">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 border border-indigo-100 dark:border-indigo-500/20">
               <ShieldCheck className="w-8 h-8" />
             </div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Admin Dashboard</h1>
+            <p className="text-slate-500 dark:text-gray-400 text-sm mt-1">Enter password to access registry management</p>
           </div>
-          <h2 className="text-2xl font-bold text-center text-slate-900 dark:text-white mb-2">Admin Dashboard</h2>
-          <p className="text-center text-slate-500 dark:text-gray-400 mb-8">Enter master password to access user registry.</p>
-          
+
           <form onSubmit={handleLogin} className="space-y-4">
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Master Password"
-              autoFocus
-              className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <div>
+              <input
+                type="password"
+                placeholder="Admin Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm"
+              />
+            </div>
             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
             <button
               type="submit"
@@ -211,6 +283,18 @@ export default function AdminDashboard() {
     );
   }
 
+  // Flatten carrier overrides for search & filtering
+  const allOverrideList: { carrier: string; key: string; text: string }[] = [];
+  Object.entries(carrierOverrides).forEach(([carrier, kvMap]) => {
+    if (carrierFilter === "all" || carrierFilter === carrier) {
+      Object.entries(kvMap || {}).forEach(([key, text]) => {
+        if (!overrideSearch || key.toLowerCase().includes(overrideSearch.toLowerCase()) || text.toLowerCase().includes(overrideSearch.toLowerCase())) {
+          allOverrideList.push({ carrier, key, text });
+        }
+      });
+    }
+  });
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0A0A0A] p-8">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -221,7 +305,7 @@ export default function AdminDashboard() {
               <ShieldCheck className="w-8 h-8 text-indigo-500" />
               Admin Registry
             </h1>
-            <p className="text-slate-500 dark:text-gray-400 mt-1">Manage user access and registry across the platform.</p>
+            <p className="text-slate-500 dark:text-gray-400 mt-1">Manage platform user access, port ranking, and live carrier search overrides.</p>
           </div>
           <button 
             onClick={() => { setAuthenticated(false); setPassword(""); }}
@@ -232,6 +316,7 @@ export default function AdminDashboard() {
           </button>
         </header>
 
+        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
             <div className="flex items-center gap-4">
@@ -255,9 +340,23 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                <Sliders className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-500 dark:text-gray-400">Carrier Port Overrides</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {Object.values(carrierOverrides).reduce((acc, obj) => acc + Object.keys(obj || {}).length, 0)}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex gap-4 border-b border-slate-200 dark:border-gray-800 pb-px">
+        {/* Tab Navigation */}
+        <div className="flex gap-4 border-b border-slate-200 dark:border-gray-800 pb-px flex-wrap">
           <button
             onClick={() => setActiveTab("users")}
             className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
@@ -285,6 +384,19 @@ export default function AdminDashboard() {
             )}
           </button>
           <button
+            onClick={() => setActiveTab("overrides")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              activeTab === "overrides"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+            }`}
+          >
+            Carrier Port Overrides
+            {activeTab === "overrides" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab("route_health")}
             className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
               activeTab === "route_health"
@@ -299,8 +411,8 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-
-        {activeTab === "users" ? (
+        {/* TAB 1: USER REGISTRY */}
+        {activeTab === "users" && (
           <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-200 dark:border-gray-800 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">Registered Users</h2>
@@ -370,7 +482,11 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
-        ) : activeTab === "ports" ? (
+          </div>
+        )}
+
+        {/* TAB 2: PORT RANKING CONFIG */}
+        {activeTab === "ports" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
             {/* Column 1: Boosted Ports */}
@@ -458,17 +574,19 @@ export default function AdminDashboard() {
                 {/* Add Country Form */}
                 <div className="flex items-end gap-3 bg-slate-50 dark:bg-black/40 p-4 rounded-2xl border border-slate-100 dark:border-gray-800">
                   <div className="flex-1 space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-700 dark:text-white/80">Select Country to Add</label>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300">
+                      Select Country to Add
+                    </label>
                     <select
                       value={selectedCountry}
                       onChange={(e) => setSelectedCountry(e.target.value)}
-                      className="w-full px-4 py-2 bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500/50 transition-all h-[42px]"
+                      className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[42px]"
                     >
-                      <option value="" className="text-slate-500 dark:bg-[#121212]">-- Select Country --</option>
+                      <option value="">-- Select Country --</option>
                       {Object.entries(countriesMap)
                         .sort((a, b) => a[1].localeCompare(b[1]))
                         .map(([code, name]) => (
-                          <option key={code} value={code} className="dark:bg-[#121212] text-slate-900 dark:text-white">
+                          <option key={code} value={code}>
                             {name} ({code})
                           </option>
                         ))}
@@ -484,8 +602,8 @@ export default function AdminDashboard() {
                   </button>
                 </div>
 
-                {/* List of Countries */}
-                <div className="max-h-[250px] overflow-y-auto space-y-2 pr-1">
+                {/* List of Boosted Countries */}
+                <div className="max-h-[350px] overflow-y-auto space-y-2 pr-1">
                   {boostedCountries.length === 0 ? (
                     <p className="text-sm text-slate-500 dark:text-gray-400 text-center py-8">
                       No custom countries boosted yet.
@@ -531,17 +649,184 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
-        </div>
-        ) : (
+        )}
 
+        {/* TAB 3: CARRIER PORT OVERRIDES (NEW!) */}
+        {activeTab === "overrides" && (
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-gray-800 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-indigo-500" />
+                  Carrier Port Overrides
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+                  Dynamically map city keywords and LOCODEs to exact carrier autocomplete search strings (e.g. Maersk: &apos;El Dekheila&apos; &rarr; &apos;Alexandria Dekheila, Egypt&apos;). Applied live without code redeployment!
+                </p>
+              </div>
+              <button
+                onClick={fetchOverrides}
+                disabled={loadingOverrides}
+                className="px-3.5 py-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors flex items-center gap-2"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingOverrides ? "animate-spin" : ""}`} />
+                {loadingOverrides ? "Refreshing..." : "Refresh Overrides"}
+              </button>
+            </div>
+
+            {/* Add New Override Form */}
+            <form onSubmit={handleAddOverride} className="bg-slate-50 dark:bg-black/40 p-5 rounded-2xl border border-slate-200 dark:border-gray-800 space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300 flex items-center gap-1.5">
+                <Plus className="w-4 h-4 text-indigo-500" />
+                Add / Update Carrier Port Override
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                    Select Target Carrier
+                  </label>
+                  <select
+                    value={selectedCarrier}
+                    onChange={(e) => setSelectedCarrier(e.target.value)}
+                    className="w-full bg-white dark:bg-black/60 border border-slate-300 dark:border-gray-700 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="maersk">Maersk</option>
+                    <option value="one">ONE (Ocean Network Express)</option>
+                    <option value="cma">CMA CGM</option>
+                    <option value="hapag">Hapag-Lloyd</option>
+                    <option value="msc">MSC</option>
+                    <option value="greenx">GreenX</option>
+                    <option value="oocl">OOCL</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                    Trigger Keyword / LOCODE
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. El Dekheila or EGEDK"
+                    value={overrideKey}
+                    onChange={(e) => setOverrideKey(e.target.value)}
+                    className="w-full bg-white dark:bg-black/60 border border-slate-300 dark:border-gray-700 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                    Target Autocomplete Search Text
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Alexandria Dekheila, Egypt"
+                    value={overrideText}
+                    onChange={(e) => setOverrideText(e.target.value)}
+                    className="w-full bg-white dark:bg-black/60 border border-slate-300 dark:border-gray-700 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-all shadow-md flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  Save Override
+                </button>
+              </div>
+            </form>
+
+            {/* Filter and Search Bar */}
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between pt-2">
+              <div className="flex flex-wrap gap-2">
+                {["all", "maersk", "one", "cma", "hapag", "msc", "greenx", "oocl"].map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setCarrierFilter(c)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${
+                      carrierFilter === c
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/10"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full md:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search overrides..."
+                  value={overrideSearch}
+                  onChange={(e) => setOverrideSearch(e.target.value)}
+                  className="pl-9 pr-4 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 w-full"
+                />
+              </div>
+            </div>
+
+            {/* Overrides Table */}
+            <div className="overflow-x-auto border border-slate-200 dark:border-gray-800 rounded-2xl">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-black/40 text-slate-500 dark:text-gray-400 text-xs font-semibold">
+                    <th className="px-4 py-3">Carrier</th>
+                    <th className="px-4 py-3">Trigger Keyword / Code</th>
+                    <th className="px-4 py-3">Target Autocomplete Search Text</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-gray-800/80">
+                  {allOverrideList.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-8 text-center text-slate-500 dark:text-gray-400 text-sm">
+                        No carrier port overrides match your current filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    allOverrideList.map(({ carrier, key, text }) => (
+                      <tr key={`${carrier}-${key}`} className="hover:bg-slate-50/70 dark:hover:bg-white/[0.02] transition-colors">
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold font-mono uppercase bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
+                            {carrier}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white font-mono">
+                          {key}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-gray-200 font-medium">
+                          {text}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleDeleteOverride(carrier, key)}
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="Delete Override"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: ROUTE RELIABILITY MATRIX */}
+        {activeTab === "route_health" && (
           <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden p-6">
-
 
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Activity className="w-5 h-5 text-indigo-500" />
-                  Route Reliability & Port Match Matrix
+                  Route Reliability &amp; Port Match Matrix
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">
                   Historical search outcomes and port resolution health per carrier.
@@ -550,7 +835,7 @@ export default function AdminDashboard() {
               <button
                 onClick={fetchRouteHealth}
                 disabled={loadingHealth}
-                className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold rounded-lg hover:bg-indigo-100 transition-colors"
+                className="px-3.5 py-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold rounded-xl hover:bg-indigo-100 transition-colors"
               >
                 {loadingHealth ? "Refreshing..." : "Refresh Matrix"}
               </button>
@@ -643,6 +928,3 @@ export default function AdminDashboard() {
     </div>
   );
 }
-
-
-

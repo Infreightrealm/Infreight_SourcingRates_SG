@@ -107,3 +107,35 @@ async def save_ports_config(request: PortsConfigUpdateRequest, x_admin_password:
     from services.port_manager import update_popular_ports_config
     update_popular_ports_config(request.popular_ports, request.boosted_countries)
     return {"status": "SUCCESS"}
+
+class CarrierOverrideRequest(BaseModel):
+    carrier: str
+    key: str
+    override_text: Optional[str] = None
+
+@admin_router.get("/carrier-overrides")
+async def fetch_carrier_overrides(carrier: Optional[str] = None, x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    from services.port_manager import get_carrier_overrides
+    return get_carrier_overrides(carrier)
+
+@admin_router.post("/carrier-overrides")
+async def save_carrier_override(request: CarrierOverrideRequest, x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not request.carrier or not request.key or not request.override_text:
+        raise HTTPException(status_code=400, detail="carrier, key, and override_text are required")
+    from services.port_manager import add_carrier_override
+    add_carrier_override(request.carrier, request.key, request.override_text)
+    return {"status": "SUCCESS"}
+
+@admin_router.delete("/carrier-overrides")
+async def delete_carrier_override_endpoint(request: CarrierOverrideRequest, x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not request.carrier or not request.key:
+        raise HTTPException(status_code=400, detail="carrier and key are required")
+    from services.port_manager import delete_carrier_override
+    delete_carrier_override(request.carrier, request.key)
+    return {"status": "SUCCESS"}
