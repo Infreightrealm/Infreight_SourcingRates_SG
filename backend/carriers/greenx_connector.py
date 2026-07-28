@@ -625,13 +625,26 @@ class GreenXConnector(BaseCarrierConnector):
                 eta_date = None
                 service_name = None
                 vessel_voyage = None
+
+                # Extract dates from card text (e.g. 07/31/2026 ... 08/25/2026)
+                dates_in_card = re.findall(r'\b\d{2}/\d{2}/\d{4}\b', card_text)
+                if dates_in_card:
+                    etd_date = dates_in_card[0]
+                    if len(dates_in_card) > 1:
+                        eta_date = dates_in_card[-1]
                 
                 for idx, line in enumerate(lines):
                     line_upper = line.upper()
-                    if line_upper == "ETD" and idx + 1 < len(lines):
-                        etd_date = lines[idx + 1]
-                    elif line_upper == "ETA" and idx + 1 < len(lines):
-                        eta_date = lines[idx + 1]
+                    if line_upper == "ETD":
+                        if idx + 1 < len(lines) and re.search(r'\d{2}/\d{2}/\d{4}', lines[idx + 1]):
+                            etd_date = lines[idx + 1]
+                        elif idx - 1 >= 0 and re.search(r'\d{2}/\d{2}/\d{4}', lines[idx - 1]):
+                            etd_date = lines[idx - 1]
+                    elif line_upper == "ETA":
+                        if idx + 1 < len(lines) and re.search(r'\d{2}/\d{2}/\d{4}', lines[idx + 1]):
+                            eta_date = lines[idx + 1]
+                        elif idx - 1 >= 0 and re.search(r'\d{2}/\d{2}/\d{4}', lines[idx - 1]):
+                            eta_date = lines[idx - 1]
                     elif line_upper == "SERVICES" and idx + 1 < len(lines):
                         service_name = lines[idx + 1]
                     elif (line_upper == "VESSEL VOYAGE" or line_upper == "VESSEL/VOYAGE") and idx + 1 < len(lines):
@@ -817,32 +830,26 @@ class GreenXConnector(BaseCarrierConnector):
 
             # 3. Free Time
             print(f"[GreenX] Opening Free Time details for card {quote_ref['index']}...")
-            if await self._click_detail_tab(card, "Free Time", verify_text="Tariff Free Time"):
+            if await self._click_detail_tab(card, "Free Time", verify_text="Free Time"):
                 free_time_text = await card.inner_text()
+                dest_part = free_time_text
                 if "Tariff Free Time at Destination" in free_time_text:
                     dest_part = free_time_text.split("Tariff Free Time at Destination")[1]
-                    # We report DESTINATION free time only — never origin. Cut off any
-                    # "Tariff Free Time at Origin" section that might follow so origin
-                    # components (e.g. PSA Singapore's Detention/Demurrage) can't leak in.
-                    dest_part = re.split(r"Tariff Free Time at Origin", dest_part, flags=re.IGNORECASE)[0]
-                    # Preference: use "Container Detention" when the terminal lists it.
-                    # If there is no Detention line (e.g. GATEWAY TERMINALS INDIA at Nhava
-                    # Sheva only shows "Container Usage"), fall back to the COMBINED days —
-                    # the sum of the other free-time components shown at destination.
-                    det = re.search(
-                        r"Container\s+Detention\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days",
-                        dest_part, re.IGNORECASE)
-                    if det:
-                        quote_ref["free_time"] = int(det.group(1))
-                    else:
-                        others = re.findall(
-                            r"Container\s+(?:Usage|Demurrage|Storage|Combined)\s*[\r\n]*\s*(\d+)\s+Calendar\s+Days",
-                            dest_part, re.IGNORECASE)
-                        if others:
-                            quote_ref["free_time"] = sum(int(x) for x in others)
-                    if quote_ref.get("free_time") is not None and os.getenv("GREENX_DEBUG", "").lower() == "true":
-                        print(f"[GreenX] Extracted destination free time: {quote_ref['free_time']} days "
-                              f"({'detention' if det else 'combined'})")
+                elif "Destination" in free_time_text:
+                    dest_part = free_time_text.split("Destination")[1]
+                
+                dest_part = re.split(r"Tariff Free Time at Origin|Origin", dest_part, flags=re.IGNORECASE)[0]
+                
+                det = re.search(r"(?:Container\s+Detention|Detention|Free\s+Time)\s*[\r\n]*\s*(\d+)\s*(?:Calendar\s+)?Days", dest_part, re.IGNORECASE)
+                if det:
+                    quote_ref["free_time"] = int(det.group(1))
+                else:
+                    others = re.findall(r"(\d+)\s*(?:Calendar\s+)?Days", dest_part, re.IGNORECASE)
+                    if others:
+                        quote_ref["free_time"] = int(others[0])
+                
+                if quote_ref.get("free_time") is not None:
+                    print(f"[GreenX] Extracted destination free time for card {quote_ref['index']}: {quote_ref['free_time']} days")
             
             return True
         except Exception as e:
@@ -972,12 +979,15 @@ class GreenXConnector(BaseCarrierConnector):
             raw_ref = local_raw_quote.get("raw_reference", "GREENX")
             unique_ref = f"{raw_ref}-{std_ct.replace(' ', '_')}"
 
+            ft_val = local_raw_quote.get("free_time")
+            free_time_int = int(ft_val) if (ft_val is not None and str(ft_val).isdigit()) else None
+
             quote_schema = QuoteSchema(
                 etd=local_raw_quote.get("etd_standardized"),
                 eta=local_raw_quote.get("eta_standardized"),
                 transit_time_days=local_raw_quote.get("transit_time_days"),
                 routing=local_raw_quote.get("routing", "Direct"),
-                free_time=local_raw_quote.get("free_time"),
+                free_time=free_time_int,
                 service_name=local_raw_quote.get("service_name"),
                 vessel=vessel,
                 currency=local_raw_quote.get("currency", "USD"),
