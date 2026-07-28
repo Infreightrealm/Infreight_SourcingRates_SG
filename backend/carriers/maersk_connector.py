@@ -1172,7 +1172,9 @@ class MaerskConnector(BaseCarrierConnector):
             autofill_success = False
             try:
                 # Resolve origin locode
-                if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
+                if request.origin and ("dekheila" in request.origin.lower() or request.origin.strip().upper() == "EGEDK"):
+                    origin_locode = "EGEDK"
+                elif request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
                     origin_locode = "NLRTM"
                 else:
                     origin_locode, _ = extract_locode_and_country(request.origin)
@@ -1187,7 +1189,9 @@ class MaerskConnector(BaseCarrierConnector):
                                 origin_locode = ports[0]['code']
 
                 # Resolve destination locode
-                if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
+                if request.destination and ("dekheila" in request.destination.lower() or request.destination.strip().upper() == "EGEDK"):
+                    destination_locode = "EGEDK"
+                elif request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
                     destination_locode = "NLRTM"
                 else:
                     destination_locode, _ = extract_locode_and_country(request.destination)
@@ -1217,6 +1221,8 @@ class MaerskConnector(BaseCarrierConnector):
                     
                     # 0. Hardcoded overrides for problematic cities to bypass autocomplete overlaps
                     raw_lower = raw_input.lower()
+                    if "dekheila" in raw_lower or "egedk" in raw_lower:
+                        return "Alexandria Dekheila, Egypt"
                     if "dallas" in raw_lower or "usdal" in raw_lower:
                         return "Dallas (Texas), United States"
                     if "aden" in raw_lower or "yeade" in raw_lower:
@@ -1245,7 +1251,7 @@ class MaerskConnector(BaseCarrierConnector):
                         return "Lagos, Nigeria"
                     if "dili" in raw_lower or "tldil" in raw_lower:
                         return "Dili, Timor Leste"
-                    if "alexandria" in raw_lower or "egalx" in raw_lower or "egaly" in raw_lower:
+                    if ("alexandria" in raw_lower or "egalx" in raw_lower or "egaly" in raw_lower) and "dekheila" not in raw_lower:
                         return "Alexandria, Egypt"
                     # 1. Remove parentheses (e.g. "Singapore (SGSIN)" -> "Singapore")
                     cleaned = re.sub(r'\s*\([^)]*\)', '', raw_input).strip()

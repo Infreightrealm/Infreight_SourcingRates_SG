@@ -44,6 +44,7 @@ CARRIER_PORT_OVERRIDES = {
         "AEJEA": "Jebel Ali, United Arab Emirates",
         "OMSOH": "Sohar, Oman",
         "EGSOK": "Sokhna, Egypt",
+        "EGEDK": "Alexandria Dekheila, Egypt",
         "IDSRG": "Semarang, Indonesia",
         "THLKR": "Lat Krabang, Thailand",
         "KNPNH": "Phnom Penh, Cambodia",
@@ -152,6 +153,9 @@ PORT_NAME_KEYWORD_MAP = {
     "sohar": "OMSOH",
     "sokhna": "EGSOK",
     "alexandria": "EGALY",
+    "el dekheila": "EGEDK",
+    "dekheila": "EGEDK",
+    "alexandria dekheila": "EGEDK",
     "el iskandariya": "EGALY",
     "iskandariya": "EGALY",
     "al iskandariyah": "EGALY",
@@ -814,6 +818,12 @@ class PortManager:
                 return "Rotterdam"
             else:
                 return "NLRTM"
+
+        if "dekheila" in text_lower or text_lower == "egedk":
+            if carrier_key == "maersk":
+                return "Alexandria Dekheila, Egypt"
+            else:
+                return "EGEDK"
 
         # Rule for GreenX and MSC: autocomplete field accepts the raw LOCODE (e.g. SGSIN, DEHAM)
         if carrier_key in ("greenx", "msc"):
