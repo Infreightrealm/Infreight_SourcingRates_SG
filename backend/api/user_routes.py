@@ -38,6 +38,14 @@ async def list_users(session: AsyncSession = Depends(get_session)):
     result = await session.execute(query)
     users = result.scalars().all()
     
+    if not users:
+        default_names = ["Shaun", "Brian", "Pak", "Operations", "Sales", "Pricing", "Admin"]
+        for name in default_names:
+            session.add(User(name=name))
+        await session.commit()
+        result = await session.execute(query)
+        users = result.scalars().all()
+    
     return [
         UserSchema(
             id=str(u.id),
