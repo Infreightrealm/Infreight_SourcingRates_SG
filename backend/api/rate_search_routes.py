@@ -7,6 +7,7 @@ GET  /api/rate-search/{search_id} — Get status and results
 import asyncio
 from uuid import UUID
 from datetime import datetime
+from typing import Optional, List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
