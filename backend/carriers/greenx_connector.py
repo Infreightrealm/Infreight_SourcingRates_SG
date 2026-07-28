@@ -534,16 +534,24 @@ class GreenXConnector(BaseCarrierConnector):
             return CarrierResultStatus.UNKNOWN_ERROR
 
     async def _get_card_container(self, route_details_el):
+        """Find the outer quote card container encompassing dates, rates, USD total, and Book button."""
+        try:
+            card_ancestor = route_details_el.locator('xpath=ancestor::*[.//button[contains(text(),"Book")] or .//*[contains(text(),"USD")] or .//*[contains(text(),"Basic Ocean Freight")]][1]')
+            if await card_ancestor.count() > 0:
+                return card_ancestor
+        except Exception:
+            pass
+
         parent = route_details_el
-        for _ in range(6):
+        for _ in range(12):
             try:
                 parent = parent.locator('..')
-                if await parent.locator('button:has-text("Book"), [class*="book" i]').count() > 0:
-                    # Go up one more level to wrap both header and collapsed/expanded detail panel
-                    return parent.locator('..')
-            except:
+                txt = await parent.inner_text()
+                if "USD" in txt or "Book" in txt:
+                    return parent
+            except Exception:
                 break
-        return route_details_el.locator('xpath=../../..')
+        return route_details_el.locator('xpath=../../../../../../../../..')
 
     def standardize_date_smart(self, date_str: str) -> str:
         if not date_str:
