@@ -494,9 +494,9 @@ class GreenXConnector(BaseCarrierConnector):
             print("[GreenX] Clicking Search...")
             await search_btn.click()
 
-            # 5. Poll dynamically for results page elements (up to 30 seconds)
+            # 5. Poll dynamically for results page elements (up to 35 seconds)
             print("[GreenX] Waiting for results page to load...")
-            for attempt in range(30):
+            for attempt in range(35):
                 await self.page.wait_for_timeout(1000)
                 
                 # Check for cookie overlay on first few attempts
@@ -506,7 +506,8 @@ class GreenXConnector(BaseCarrierConnector):
                 # Check if Route Details is present
                 route_details = self.page.locator('button:has-text("Route Details"), a:has-text("Route Details")')
                 if await route_details.count() > 0:
-                    print(f"[GreenX] Route Details found after {attempt + 1}s. Results loaded successfully.")
+                    print(f"[GreenX] Route Details found after {attempt + 1}s. Waiting 8s loading buffer for all rates & cards to fully render...")
+                    await self.page.wait_for_timeout(8000)  # Buffer to allow GreenX AJAX price cards & details to fully populate
                     break
                 
                 # Check for no-results indicators
@@ -1051,4 +1052,10 @@ class GreenXConnector(BaseCarrierConnector):
         return QuoteSchema()
 
     async def close(self):
+        try:
+            if hasattr(self, "page") and self.page and not self.page.is_closed():
+                print("[GreenX] Graceful buffer delay before closing browser context...")
+                await self.page.wait_for_timeout(3000)
+        except Exception:
+            pass
         await super().close()
