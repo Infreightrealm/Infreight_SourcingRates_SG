@@ -534,23 +534,25 @@ class GreenXConnector(BaseCarrierConnector):
             return CarrierResultStatus.UNKNOWN_ERROR
 
     async def _get_card_container(self, route_details_el):
-        """Find the outer quote card container encompassing dates, rates, USD total, and Book button."""
+        """Find the exact individual quote card container row encompassing dates, rates, USD total, and Book button."""
+        curr = route_details_el
+        for depth in range(1, 15):
+            try:
+                curr = curr.locator('..')
+                book_cnt = await curr.locator('button:has-text("Book"), a:has-text("Book")').count()
+                if book_cnt == 1:
+                    return curr
+            except Exception:
+                break
+
+        # Fallback XPath targeting ancestor with exactly 1 Book button
         try:
-            card_ancestor = route_details_el.locator('xpath=ancestor::*[.//button[contains(text(),"Book")] or .//*[contains(text(),"USD")] or .//*[contains(text(),"Basic Ocean Freight")]][1]')
-            if await card_ancestor.count() > 0:
-                return card_ancestor
+            anc = route_details_el.locator('xpath=ancestor::*[count(.//button[contains(text(),"Book")] | .//a[contains(text(),"Book")]) = 1][1]')
+            if await anc.count() > 0:
+                return anc
         except Exception:
             pass
 
-        parent = route_details_el
-        for _ in range(12):
-            try:
-                parent = parent.locator('..')
-                txt = await parent.inner_text()
-                if "USD" in txt or "Book" in txt:
-                    return parent
-            except Exception:
-                break
         return route_details_el.locator('xpath=../../../../../../../../..')
 
     def standardize_date_smart(self, date_str: str) -> str:
@@ -782,7 +784,7 @@ class GreenXConnector(BaseCarrierConnector):
             
             # 1. Route Details
             print(f"[GreenX] Opening Route Details for card {quote_ref['index']}...")
-            if await self._click_detail_tab(card, "Route Details", verify_text="POL"):
+            if await self._click_detail_tab(card, "Route Details"):
                 route_text = await card.inner_text()
                 # Find voyages (3 digits followed by direction letter, e.g. 037W)
                 voyage_matches = re.findall(r'\b\d{3}[A-Z]\b', route_text)
@@ -793,40 +795,46 @@ class GreenXConnector(BaseCarrierConnector):
                     quote_ref["detailed_vessel"] = vessel_match.group(1).strip()
                     
                 unique_voyages = list(set(voyage_matches))
-                # If multiple legs/vessels are found, it's Transit. Otherwise, Direct.
                 if len(unique_voyages) > 1:
                     quote_ref["routing"] = "Transit"
                 else:
                     quote_ref["routing"] = "Direct"
-                if os.getenv("GREENX_DEBUG", "").lower() == "true":
-                    print(f"[GreenX] Extracted routing: {quote_ref['routing']}")
 
             # 2. Price Details
             print(f"[GreenX] Opening Price Details for card {quote_ref['index']}...")
-            if await self._click_detail_tab(card, "Price Details", verify_text="Prepaid Charges"):
-                price_text = await card.inner_text()
-                charges = []
-                
-                # Regex for matching line item charge name, its container type, and its price
-                pattern = r"(.+?)\s+(20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube|Per\s*B/L|20'\s*SD|40'\s*SD|40'\s*SH)\s+x\s*\d+\s+USD\s*([\d,]+\.\d{2})"
-                matches = re.findall(pattern, price_text)
-                
-                for name_raw, type_raw, amount_str in matches:
-                    name = name_raw.strip()
-                    name = re.sub(r'^\s*\d+\s+', '', name) # Strip numbers
-                    ct_type = type_raw.strip()
-                    amount = float(amount_str.replace(",", ""))
+            await self._click_detail_tab(card, "Price Details")
+            price_text = await card.inner_text()
+            charges = []
+            
+            # Regex for matching line item charge name, its container type, and its price
+            pattern = r"(.+?)\s+(20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube|Per\s*B/L|20'\s*SD|40'\s*SD|40'\s*SH)\s+x\s*\d+\s+USD\s*([\d,]+\.\d{2})"
+            matches = re.findall(pattern, price_text)
+            
+            for name_raw, type_raw, amount_str in matches:
+                name = name_raw.strip()
+                name = re.sub(r'^\s*\d+\s+', '', name) # Strip numbers
+                ct_type = type_raw.strip()
+                amount = float(amount_str.replace(",", ""))
+                charges.append({
+                    "name": name,
+                    "container_type": ct_type,
+                    "amount": amount,
+                    "currency": "USD"
+                })
+            
+            # Fallback: Extract Basic Ocean Freight directly from card header text if not found in breakdown tab
+            if not any(c["name"].upper() == "BASIC OCEAN FREIGHT" for c in charges):
+                bof_matches = re.findall(r"(20'\s*SD|40'\s*SD|40'\s*SH|20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube)\s*([\d,]+\.\d{2})", price_text)
+                for ct_type, amount_str in bof_matches:
                     charges.append({
-                        "name": name,
-                        "container_type": ct_type,
-                        "amount": amount,
+                        "name": "Basic Ocean Freight",
+                        "container_type": ct_type.strip(),
+                        "amount": float(amount_str.replace(",", "")),
                         "currency": "USD"
                     })
-                    if os.getenv("GREENX_DEBUG", "").lower() == "true":
-                        print(f"[GreenX] Parsed charge row: {name} ({ct_type}) = USD {amount}")
-                
-                quote_ref["charges"] = charges
-                self.current_charges = charges
+
+            quote_ref["charges"] = charges
+            self.current_charges = charges
 
             # 3. Free Time
             print(f"[GreenX] Opening Free Time details for card {quote_ref['index']}...")
