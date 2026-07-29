@@ -858,26 +858,47 @@ class GreenXConnector(BaseCarrierConnector):
 
             # 3. Free Time
             print(f"[GreenX] Opening Free Time details for card {quote_ref['index']}...")
-            if await self._click_detail_tab(card, "Free Time", verify_text="Free Time"):
+            ft_btn = card.locator('button:has-text("Free Time"), a:has-text("Free Time"), :text("Free Time")').first
+            ft_target_id = None
+            try:
+                ft_target_id = await ft_btn.evaluate("el => el.getAttribute('data-bs-target') || el.getAttribute('href') || el.getAttribute('aria-controls')")
+            except Exception:
+                pass
+
+            await self._click_detail_tab(card, "Free Time")
+            await self.page.wait_for_timeout(600)
+            
+            free_time_text = ""
+            if ft_target_id:
+                try:
+                    ft_target_sel = ft_target_id if ft_target_id.startswith('#') else f'#{ft_target_id}'
+                    ft_target_el = self.page.locator(ft_target_sel)
+                    if await ft_target_el.count() > 0:
+                        free_time_text = await ft_target_el.inner_text()
+                except Exception:
+                    pass
+
+            if not free_time_text:
                 free_time_text = await card.inner_text()
-                dest_part = free_time_text
-                if "Tariff Free Time at Destination" in free_time_text:
-                    dest_part = free_time_text.split("Tariff Free Time at Destination")[1]
-                elif "Destination" in free_time_text:
-                    dest_part = free_time_text.split("Destination")[1]
-                
-                dest_part = re.split(r"Tariff Free Time at Origin|Origin", dest_part, flags=re.IGNORECASE)[0]
-                
-                det = re.search(r"(?:Container\s+Detention|Detention|Free\s+Time)\s*[\r\n]*\s*(\d+)\s*(?:Calendar\s+)?Days", dest_part, re.IGNORECASE)
-                if det:
-                    quote_ref["free_time"] = int(det.group(1))
-                else:
-                    others = re.findall(r"(\d+)\s*(?:Calendar\s+)?Days", dest_part, re.IGNORECASE)
-                    if others:
-                        quote_ref["free_time"] = int(others[0])
-                
-                if quote_ref.get("free_time") is not None:
-                    print(f"[GreenX] Extracted destination free time for card {quote_ref['index']}: {quote_ref['free_time']} days")
+            
+            dest_part = free_time_text
+            if "Tariff Free Time at Destination" in free_time_text:
+                dest_part = free_time_text.split("Tariff Free Time at Destination")[1]
+            elif "Destination" in free_time_text:
+                dest_part = free_time_text.split("Destination")[1]
+            
+            dest_part = re.split(r"Tariff Free Time at Origin", dest_part, flags=re.IGNORECASE)[0]
+            
+            det_match = re.search(r"Container\s+Detention\s*[\r\n\t]*\s*(\d+)\s*Calendar\s+Days", dest_part, re.IGNORECASE)
+            if det_match:
+                quote_ref["free_time"] = int(det_match.group(1))
+            else:
+                fallback_match = re.search(r"Container\s+(?:Demurrage|Usage|Storage|Combined)\s*[\r\n\t]*\s*(\d+)\s*Calendar\s+Days", dest_part, re.IGNORECASE)
+                if fallback_match:
+                    quote_ref["free_time"] = int(fallback_match.group(1))
+            
+            if quote_ref.get("free_time") is not None:
+                print(f"[GreenX] Extracted destination free time for card {quote_ref['index']}: {quote_ref['free_time']} days")
             
             return True
         except Exception as e:
