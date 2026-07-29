@@ -341,7 +341,20 @@ async def get_route_health(session: AsyncSession = Depends(get_session)):
                 "carrier_health": {c: None for c in CARRIERS}
             }
 
-        carrier = (csr.carrier or "").upper()
+        carrier_raw = (csr.carrier or "").upper()
+        carrier_code_map = {
+            "CMA_CGM": "CMA",
+            "CMA": "CMA",
+            "HAPAG_LLOYD": "HAPAG",
+            "HAPAG": "HAPAG",
+            "MAERSK": "MAERSK",
+            "ONE": "ONE",
+            "MSC": "MSC",
+            "OOCL": "OOCL",
+            "GREENX": "GREENX"
+        }
+        carrier = carrier_code_map.get(carrier_raw, carrier_raw)
+
         if carrier in CARRIERS and routes_map[route_key]["carrier_health"][carrier] is None:
             routes_map[route_key]["carrier_health"][carrier] = {
                 "status": csr.status,

@@ -68,10 +68,9 @@ export default function AdminDashboard() {
   const fetchRouteHealth = async () => {
     setLoadingHealth(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/route-health`);
-      if (res.ok) {
-        setRouteHealth(await res.json());
-      }
+      const { getRouteHealth } = await import("@/lib/api");
+      const data = await getRouteHealth();
+      setRouteHealth(data || { carriers: [], routes: [] });
     } catch (e) {
       console.error("Failed to fetch route health matrix", e);
     } finally {

@@ -319,6 +319,14 @@ export async function getSearchHistory(userName?: string): Promise<any[]> {
   return res.json();
 }
 
+export async function getRouteHealth(): Promise<any> {
+  const res = await failoverFetch(`/api/admin/route-health`);
+  if (!res.ok) {
+    throw new Error(`Failed to load route health: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function parseRfq(
   text?: string,
   image_b64?: string,
