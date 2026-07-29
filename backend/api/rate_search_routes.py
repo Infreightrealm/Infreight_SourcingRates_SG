@@ -404,7 +404,7 @@ async def get_user_search_history(
         history.append({
             "id": str(rs.id),
             "user_name": rs.user_name or "Guest User",
-            "created_at": rs.created_at.isoformat() if rs.created_at else "",
+            "created_at": (rs.created_at.isoformat() + ("Z" if not rs.created_at.isoformat().endswith("Z") else "")) if rs.created_at else "",
             "origin": rs.origin,
             "destination": rs.destination,
             "container_type": rs.container_type,

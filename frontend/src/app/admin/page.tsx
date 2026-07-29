@@ -985,7 +985,8 @@ export default function AdminDashboard() {
                         );
                       })
                       .map((item) => {
-                        const dateObj = item.created_at ? new Date(item.created_at) : null;
+                        const dateStr = item.created_at ? (item.created_at.endsWith("Z") || item.created_at.includes("+") ? item.created_at : item.created_at + "Z") : null;
+                        const dateObj = dateStr ? new Date(dateStr) : null;
                         const formattedDate = dateObj
                           ? dateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
                           : "N/A";
