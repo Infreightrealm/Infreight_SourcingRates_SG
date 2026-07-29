@@ -315,7 +315,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'ED7D31' } // Warm orange
+        fgColor: { argb: 'FA8C3C' } // Brand orange #FA8C3C
       };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = getThinBorder();
