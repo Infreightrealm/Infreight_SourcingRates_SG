@@ -327,19 +327,19 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     for (let r = 2; r <= 1 + groupedExcelRows.length; r++) {
       // POL (Col 1)
       const cellA = sheet.getCell(r, 1);
-      cellA.font = { name: 'Arial', size: 11, bold: true, color: { argb: '1F4E78' } };
+      cellA.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296 (RGB 50,50,150)
       cellA.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellA.border = getThinBorder();
 
       // POD (Col 2)
       const cellB = sheet.getCell(r, 2);
-      cellB.font = { name: 'Arial', size: 11, bold: true, color: { argb: '1F4E78' } };
+      cellB.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
       cellB.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellB.border = getThinBorder();
 
       // Carrier (Col 3)
       const cellC = sheet.getCell(r, 3);
-      cellC.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } }; // Soft navy blue
+      cellC.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
       cellC.alignment = { horizontal: 'center', vertical: 'middle' };
       cellC.border = getThinBorder();
 
@@ -350,7 +350,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
           cellRate.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'C00000' } }; // Bold red
           cellRate.alignment = { horizontal: 'center', vertical: 'middle' };
         } else {
-          cellRate.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+          cellRate.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
           cellRate.alignment = { horizontal: 'center', vertical: 'middle' };
           cellRate.numFmt = '#,##0'; // format as integer
         }
@@ -365,37 +365,37 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
       // Free time
       const cellFreetime = sheet.getCell(r, 5 + numRateCols);
-      cellFreetime.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellFreetime.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
       cellFreetime.alignment = { horizontal: 'center', vertical: 'middle' };
       cellFreetime.border = getThinBorder();
 
       // Validity
       const cellValidity = sheet.getCell(r, 6 + numRateCols);
-      cellValidity.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellValidity.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
       cellValidity.alignment = { horizontal: 'center', vertical: 'middle' };
       cellValidity.border = getThinBorder();
 
       // ETA
       const cellETA = sheet.getCell(r, 7 + numRateCols);
-      cellETA.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellETA.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
       cellETA.alignment = { horizontal: 'center', vertical: 'middle' };
       cellETA.border = getThinBorder();
 
       // Validity Till
       const cellValidityTill = sheet.getCell(r, 8 + numRateCols);
-      cellValidityTill.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellValidityTill.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
       cellValidityTill.alignment = { horizontal: 'center', vertical: 'middle' };
       cellValidityTill.border = getThinBorder();
 
       // Routing
       const cellRouting = sheet.getCell(r, 9 + numRateCols);
-      cellRouting.font = { name: 'Arial', size: 11, bold: true, color: { argb: '2F5597' } };
+      cellRouting.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
       cellRouting.alignment = { horizontal: 'center', vertical: 'middle' };
       cellRouting.border = getThinBorder();
 
       // Remark
       const cellRemark = sheet.getCell(r, 10 + numRateCols);
-      cellRemark.font = { name: 'Arial', size: 10, bold: true, color: { argb: '2F5597' } }; // Bold navy #2F5597
+      cellRemark.font = { name: 'Arial', size: 10, bold: true, color: { argb: '323296' } }; // Official Blue #323296
       cellRemark.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellRemark.border = getThinBorder();
 
