@@ -311,7 +311,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     const headerRow = sheet.getRow(1);
     headerRow.height = 32;
     headerRow.eachCell((cell) => {
-      cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFF' } };
+      cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: '000000' } }; // Automatic black
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
@@ -327,22 +327,12 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     for (let r = 2; r <= 1 + groupedExcelRows.length; r++) {
       // POL (Col 1)
       const cellA = sheet.getCell(r, 1);
-      cellA.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'F4B183' } // Light peach
-      };
       cellA.font = { name: 'Arial', size: 11, bold: true, color: { argb: '1F4E78' } };
       cellA.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellA.border = getThinBorder();
 
       // POD (Col 2)
       const cellB = sheet.getCell(r, 2);
-      cellB.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'F4B183' } // Light peach
-      };
       cellB.font = { name: 'Arial', size: 11, bold: true, color: { argb: '1F4E78' } };
       cellB.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellB.border = getThinBorder();
@@ -405,7 +395,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
       // Remark
       const cellRemark = sheet.getCell(r, 10 + numRateCols);
-      cellRemark.font = { name: 'Arial', size: 10, bold: false, color: { argb: '000000' } };
+      cellRemark.font = { name: 'Arial', size: 10, bold: true, color: { argb: '2F5597' } }; // Bold navy #2F5597
       cellRemark.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cellRemark.border = getThinBorder();
 
