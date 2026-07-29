@@ -802,12 +802,31 @@ class GreenXConnector(BaseCarrierConnector):
 
             # 2. Price Details
             print(f"[GreenX] Opening Price Details for card {quote_ref['index']}...")
+            price_btn = card.locator('button:has-text("Price Details"), a:has-text("Price Details"), :text("Price Details")').first
+            target_id = None
+            try:
+                target_id = await price_btn.evaluate("el => el.getAttribute('data-bs-target') || el.getAttribute('href') || el.getAttribute('aria-controls')")
+            except Exception:
+                pass
+
             await self._click_detail_tab(card, "Price Details")
-            price_text = await card.inner_text()
-            charges = []
+            await self.page.wait_for_timeout(600)
             
-            # Regex for matching line item charge name, its container type, and its price
-            pattern = r"(.+?)\s+(20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube|Per\s*B/L|20'\s*SD|40'\s*SD|40'\s*SH)\s+x\s*\d+\s+USD\s*([\d,]+\.\d{2})"
+            price_text = ""
+            if target_id:
+                try:
+                    target_sel = target_id if target_id.startswith('#') else f'#{target_id}'
+                    target_el = self.page.locator(target_sel)
+                    if await target_el.count() > 0:
+                        price_text = await target_el.inner_text()
+                except Exception:
+                    pass
+
+            if not price_text:
+                price_text = await card.inner_text()
+            
+            charges = []
+            pattern = r"(.+?)\t+(20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube|Per\s*B/L|20'\s*SD|40'\s*SD|40'\s*SH)\t+x\s*\d+[\s\S]*?USD\s*([\d,]+\.\d{2})"
             matches = re.findall(pattern, price_text)
             
             for name_raw, type_raw, amount_str in matches:
@@ -824,7 +843,8 @@ class GreenXConnector(BaseCarrierConnector):
             
             # Fallback: Extract Basic Ocean Freight directly from card header text if not found in breakdown tab
             if not any(c["name"].upper() == "BASIC OCEAN FREIGHT" for c in charges):
-                bof_matches = re.findall(r"(20'\s*SD|40'\s*SD|40'\s*SH|20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube)\s*([\d,]+\.\d{2})", price_text)
+                header_text = await card.inner_text()
+                bof_matches = re.findall(r"(20'\s*SD|40'\s*SD|40'\s*SH|20'\s*Standard\s*Dry|40'\s*Standard\s*Dry|40'\s*High\s*Cube)\s*([\d,]+\.\d{2})", header_text)
                 for ct_type, amount_str in bof_matches:
                     charges.append({
                         "name": "Basic Ocean Freight",
