@@ -184,19 +184,25 @@ export default function AdminDashboard() {
   };
 
   const handleAddPort = () => {
-    const match = newPortInput.match(/\(\s*([A-Za-z]{5})\s*\)/);
     let code = "";
-    if (match) {
-      code = match[1].toUpperCase();
+    // Match [INKCH] or (INKCH)
+    const bracketMatch = newPortInput.match(/[\[\(]\s*([A-Za-z]{5})\s*[\]\)]/);
+    if (bracketMatch) {
+      code = bracketMatch[1].toUpperCase();
     } else {
-      const clean = newPortInput.trim().toUpperCase();
-      if (clean.length === 5 && /^[A-Z]+$/.test(clean)) {
-        code = clean;
+      // Find 5-letter UN/LOCODE word
+      const words = newPortInput.trim().split(/[\s,]+/);
+      for (const w of words) {
+        const cleanW = w.replace(/[^A-Za-z]/g, "").toUpperCase();
+        if (cleanW.length === 5) {
+          code = cleanW;
+          break;
+        }
       }
     }
 
     if (!code) {
-      toast.error("Please select a valid port from the autocomplete or enter a 5-letter UN/LOCODE.");
+      toast.error("Please select a valid port from the autocomplete or enter a 5-letter UN/LOCODE (e.g. INKCH).");
       return;
     }
 
