@@ -1266,9 +1266,23 @@ class MaerskConnector(BaseCarrierConnector):
                         return "Dili, Timor Leste"
                     if ("alexandria" in raw_lower or "egalx" in raw_lower or "egaly" in raw_lower) and "dekheila" not in raw_lower:
                         return "Alexandria, Egypt"
-                    # 1. Remove parentheses (e.g. "Singapore (SGSIN)" -> "Singapore")
-                    cleaned = re.sub(r'\s*\([^)]*\)', '', raw_input).strip()
-                    # 2. Strip country suffix if present in the user input (e.g., "Singapore, Singapore" -> "Singapore")
+                    # 1. Extract LOCODE from square brackets [INCOK] or parentheses (INCOK)
+                    bracket_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', raw_input)
+                    if bracket_match:
+                        locode_upper = bracket_match.group(1).upper()
+                        from services.port_manager import CARRIER_PORT_OVERRIDES, PortManager
+                        maersk_overrides = CARRIER_PORT_OVERRIDES.get("maersk", {})
+                        if locode_upper in maersk_overrides:
+                            return maersk_overrides[locode_upper]
+                        cached_val = get_cached_carrier_port("maersk", locode_upper)
+                        if cached_val:
+                            return cached_val
+                        port_obj = PortManager().get_port_by_code(locode_upper)
+                        if port_obj and port_obj.get("name"):
+                            return port_obj["name"]
+
+                    # 1b. Remove parentheses & square brackets for clean string processing
+                    cleaned = re.sub(r'\s*[\[\(][^\]\)]*[\]\)]', '', raw_input).strip()
                     if ',' in cleaned:
                         cleaned = cleaned.split(',')[0].strip()
                     
@@ -1278,24 +1292,24 @@ class MaerskConnector(BaseCarrierConnector):
                         return "Ho Chi Minh"
                     if "haiphong" in cleaned_lower or "hai phong" in cleaned_lower:
                         return "Haiphong"
+                    if "cochin" in cleaned_lower or "kochi" in cleaned_lower:
+                        return "Cochin"
+                    if "surabaya" in cleaned_lower:
+                        return "Surabaya"
                     
                     # 4. Check if it is a pure 5-letter LOCODE
                     if len(cleaned) == 5 and cleaned.isalpha():
                         locode_upper = cleaned.upper()
-                        # Use clean minimal spelling overrides for Maersk
                         from services.port_manager import CARRIER_PORT_OVERRIDES, PortManager
                         maersk_overrides = CARRIER_PORT_OVERRIDES.get("maersk", {})
                         if locode_upper in maersk_overrides:
                             return maersk_overrides[locode_upper]
-                        # Use cached name if available
                         cached_val = get_cached_carrier_port("maersk", locode_upper)
                         if cached_val:
-                            return prepare_maersk_query(cached_val)
-                        # Use database name
+                            return cached_val
                         port_obj = PortManager().get_port_by_code(locode_upper)
-                        if port_obj:
-                            name = port_obj.get("name", "")
-                            return prepare_maersk_query(name)
+                        if port_obj and port_obj.get("name"):
+                            return port_obj["name"]
                         return cleaned
                     
                     # 5. Clean common trailing noise words and country names for friendly inputs
