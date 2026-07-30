@@ -126,6 +126,8 @@ PORT_NAME_KEYWORD_MAP = {
     "haiphong": "VNHPH",
     "karachi": "PKKHI",
     "nhava sheva": "INNSA",
+    "cochin": "INCOK",
+    "kochi": "INCOK",
     "jeddah": "SAJED",
     "ain sukhna": "EGAIS",
     "ainsukhna": "EGAIS",

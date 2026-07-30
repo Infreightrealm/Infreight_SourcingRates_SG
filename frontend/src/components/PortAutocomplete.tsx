@@ -50,8 +50,9 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
   }, []);
 
   const handleSelect = (port: any) => {
-    // Format: Only the clean name (e.g. 'Singapore') to avoid strict LOCODE in input fields
-    const displayValue = port.name;
+    // Format: 'Kochi, India [INCOK]' to lock in exact port and country
+    const country = port.country_name || port.country;
+    const displayValue = country ? `${port.name}, ${country} [${port.code}]` : `${port.name} [${port.code}]`;
     onChange(displayValue);
     setShowDropdown(false);
   };
