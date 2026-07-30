@@ -58,11 +58,27 @@ def _detect_port_mismatch(
     if resolved_name:
         name_clean = resolved_name.strip().lower()
         
+        # Known city name synonyms (e.g. Kochi <-> Cochin, Nhava Sheva <-> Jawaharlal Nehru)
+        SYNONYMS = {
+            "kochi": ["cochin", "kerala"],
+            "cochin": ["kochi", "kerala"],
+            "nhava sheva": ["jawaharlal", "nehru"],
+            "jawaharlal nehru": ["nhava sheva"],
+            "haiphong": ["hai phong"],
+            "hai phong": ["haiphong"],
+            "ho chi minh": ["sai gon"],
+        }
+        
         # Split into significant words (excluding generic logistics noise)
         city_keywords = [
             w for w in re.split(r'[\s,()/\-]+', name_clean)
             if len(w) > 2 and w not in ["port", "the", "and", "city", "pat"]
         ]
+        
+        # Add synonyms to keywords list
+        for kw in list(city_keywords):
+            if kw in SYNONYMS:
+                city_keywords.extend(SYNONYMS[kw])
         
         has_city_match = False
         if city_keywords:
