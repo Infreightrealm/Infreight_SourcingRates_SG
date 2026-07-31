@@ -23,13 +23,14 @@ const backupApiUrl = formatUrl(process.env.NEXT_PUBLIC_API_URL_BACKUP || "");
 export let API_URL = primaryApiUrl;
 
 let currentActiveUrl = primaryApiUrl;
-let onUrlSwitchCallback: ((url: string) => void) | null = null;
+type UrlSwitchCallback = (url: string, isRestored?: boolean, reason?: string) => void;
+let onUrlSwitchCallback: UrlSwitchCallback | null = null;
 
 export function getApiUrl(): string {
   return currentActiveUrl;
 }
 
-export function registerUrlSwitchCallback(cb: (url: string) => void) {
+export function registerUrlSwitchCallback(cb: UrlSwitchCallback) {
   onUrlSwitchCallback = cb;
 }
 
@@ -67,7 +68,7 @@ export async function tryRestorePrimaryIfNeeded(): Promise<boolean> {
     API_URL = primaryApiUrl;
     if (onUrlSwitchCallback) {
       try {
-        onUrlSwitchCallback(primaryApiUrl);
+        onUrlSwitchCallback(primaryApiUrl, true);
       } catch (cbErr) {
         console.error("Error in URL switch callback:", cbErr);
       }
@@ -105,7 +106,7 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
       API_URL = backupApiUrl;
       if (onUrlSwitchCallback) {
         try {
-          onUrlSwitchCallback(backupApiUrl);
+          onUrlSwitchCallback(backupApiUrl, false, reason);
         } catch (cbErr) {
           console.error("Error in URL switch callback:", cbErr);
         }

@@ -52,9 +52,18 @@ function HomeContent() {
       });
     }
 
-    registerUrlSwitchCallback((newUrl) => {
+    registerUrlSwitchCallback((newUrl, isRestored, reason) => {
       setBackendUrl(newUrl);
-      toast.warning("Primary backend unreachable. Auto-switched to online backup backend!");
+      if (isRestored) {
+        toast.success(`Primary Local Backend is BACK ONLINE! Restored connection: ${newUrl}`, {
+          duration: 6000,
+        });
+      } else {
+        toast.warning(`Primary backend unreachable. Auto-switched to Cloud Backup: ${newUrl}`, {
+          duration: 6000,
+          description: reason ? `Reason: ${reason}` : undefined,
+        });
+      }
     });
 
     healthCheck()
