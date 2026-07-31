@@ -12,7 +12,7 @@ import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchCompletionModal } from "@/components/SearchCompletionModal";
 import LoginModal from "@/components/LoginModal";
-import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
+import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, type BatchRouteResult } from "@/lib/excelExport";
 import BackendConfigModal from "@/components/BackendConfigModal";
@@ -312,14 +312,26 @@ function HomeContent() {
               </span>
             )}
             
-            <button
-              onClick={() => setIsBackendModalOpen(true)}
-              className="px-3 py-1 rounded-full border border-blue-200 dark:border-blue-500/30 bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-xs font-medium transition-all duration-200 flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="Click to configure backend URL or reconnect to Local/ngrok Backend"
-            >
-              <span className={`w-2 h-2 rounded-full ${!backendUrl.includes("railway") ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
-              {!backendUrl.includes("railway") ? (backendUrl.includes("localhost") ? "Local Backend" : "Local ngrok Tunnel") : "Cloud Backup (Configure Server)"}
-            </button>
+            {(() => {
+              const isPrimaryActive = backendUrl.toLowerCase().trim() === getPrimaryApiUrl().toLowerCase().trim();
+              return (
+                <button
+                  onClick={() => setIsBackendModalOpen(true)}
+                  className={`px-3 py-1 rounded-full border text-xs font-medium transition-all duration-200 flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                    isPrimaryActive
+                      ? "border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                      : "border-amber-200 dark:border-amber-500/30 bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                  }`}
+                  title="Click to configure backend URL or reconnect to Local/Tunnel Backend"
+                >
+                  <span className={`w-2 h-2 rounded-full ${isPrimaryActive ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
+                  {isPrimaryActive
+                    ? (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1") ? "Local Backend" : "Local Tunnel Relay")
+                    : "Cloud Backup (Configure Server)"
+                  }
+                </button>
+              );
+            })()}
             {searchId && <StatusBadge status={searchResult?.status || "QUEUED"} size="md" />}
             
             <div className="w-px h-6 bg-slate-200 dark:bg-white/10 mx-1"></div>
