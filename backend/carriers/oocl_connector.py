@@ -1449,87 +1449,93 @@ class OOCLConnector(BaseCarrierConnector):
         async def _read_calendar_dates() -> List[tuple]:
             """
             Returns list of (date_str, cell_locator_index) for dates in the 14-day window
-            that have a non-'--' price.  The index lets us re-locate the cell later.
+            that have a non-'--' price.
+            Uses robust JS DOM inspection of each calendar month panel.
             """
-            results = []
             try:
-                # Extract month/year pairs via JavaScript from the calendar header text
-                # The calendar shows two month panels side-by-side (e.g. "2026 Jul" "2026 Aug")
-                month_year_pairs: List[tuple] = []
-                header_texts: List[str] = await page.evaluate("""
-                    () => {
-                        const all = document.querySelectorAll('[class*="calendar-header"], [class*="month-header"], [class*="panel-header"], [class*="calendar-title"]');
-                        return Array.from(all).map(el => el.innerText.trim()).filter(t => t.length > 0);
-                    }
-                """)
-                for ht in header_texts:
-                    m = re.search(r"(\d{4})\s+([A-Za-z]{3,9})", ht) or \
-                        re.search(r"([A-Za-z]{3,9})\s+(\d{4})", ht)
-                    if m:
-                        g = m.groups()
-                        year_str = g[0] if g[0].isdigit() else g[1]
-                        mon_str = g[1] if g[0].isdigit() else g[0]
-                        mon_num = MONTH_ABBR.get(mon_str.lower()[:3])
-                        if mon_num and (int(year_str), mon_num) not in month_year_pairs:
-                            month_year_pairs.append((int(year_str), mon_num))
+                eval_js = """
+                () => {
+                    const monthsMap = {
+                        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                    };
+                    const allCells = Array.from(document.querySelectorAll('.custom-date-cell'));
+                    const validCells = [];
 
-                if not month_year_pairs:
-                    # Fallback: infer from today (Jul + Aug if not Dec)
-                    month_year_pairs = [(today.year, today.month)]
-                    if today.month == 12:
-                        month_year_pairs.append((today.year + 1, 1))
-                    else:
-                        month_year_pairs.append((today.year, today.month + 1))
+                    allCells.forEach((cell, idx) => {
+                        const cls = (cell.className || '').toLowerCase();
+                        if (cls.includes('disabled') || cls.includes('prev-month') || cls.includes('next-month') || cls.includes('other-month') || cls.includes('off')) {
+                            return;
+                        }
+                        if (cell.getAttribute('disabled') !== null) {
+                            return;
+                        }
 
-                print(f"[OOCL] [FS] Calendar months detected: {month_year_pairs}")
+                        // Find closest panel container or header
+                        let panel = cell.closest('[class*="month"], [class*="panel"], [class*="calendar"]');
+                        if (!panel) panel = cell.parentElement;
 
-                # Read all custom-date-cell elements
-                cells = page.locator(".custom-date-cell")
-                cell_count = await cells.count()
-                # Split cells roughly evenly across the two months
-                cells_per_month = cell_count // max(len(month_year_pairs), 1)
+                        let headerText = '';
+                        const headerEl = panel ? panel.querySelector('[class*="header"], [class*="title"], [class*="month-name"]') : null;
+                        if (headerEl) {
+                            headerText = headerEl.innerText.trim();
+                        }
+                        if (!headerText) {
+                            const headers = Array.from(document.querySelectorAll('[class*="header"], [class*="title"]'));
+                            for (const h of headers) {
+                                const t = h.innerText.trim();
+                                if (t.match(/\\d{4}\\s+[A-Za-z]+|[A-Za-z]+\\s+\\d{4}/)) {
+                                    headerText = t;
+                                    break;
+                                }
+                            }
+                        }
 
-                for i in range(cell_count):
-                    cell = cells.nth(i)
+                        const m = headerText.match(/(\\d{4})\\s+([A-Za-z]{3,9})/) || headerText.match(/([A-Za-z]{3,9})\\s+(\\d{4})/);
+                        if (!m) return;
+
+                        const g1 = m[1];
+                        const g2 = m[2];
+                        const year = /^\\d{4}$/.test(g1) ? parseInt(g1) : parseInt(g2);
+                        const monStr = /^\\d{4}$/.test(g1) ? g2.toLowerCase().substring(0, 3) : g1.toLowerCase().substring(0, 3);
+                        const month = monthsMap[monStr];
+                        if (!year || !month) return;
+
+                        const rawText = cell.innerText.trim();
+                        const lines = rawText.split('\\n').map(s => s.trim()).filter(Boolean);
+                        if (lines.length === 0) return;
+
+                        const dayStr = lines[0];
+                        if (!/^\\d{1,2}$/.test(dayStr)) return;
+                        const day = parseInt(dayStr);
+
+                        const priceLines = lines.slice(1);
+                        const hasPrice = priceLines.some(p => p && p !== '-' && p !== '--' && !p.toLowerCase().includes('sold'));
+                        if (!hasPrice) return;
+
+                        const formattedDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        validCells.push({ date: formattedDate, index: idx });
+                    });
+
+                    return validCells;
+                }
+                """
+                raw_results = await page.evaluate(eval_js)
+                results = []
+                for item in raw_results:
                     try:
-                        text = (await cell.inner_text()).strip()
+                        d_obj = date.fromisoformat(item["date"])
+                        if start_date <= d_obj <= horizon:
+                            results.append((item["date"], item["index"]))
                     except Exception:
-                        continue
-                    lines = [l.strip() for l in text.splitlines() if l.strip()]
-                    if not lines:
-                        continue
-                    day_str = lines[0]
-                    if not day_str.isdigit():
-                        continue
-                    day = int(day_str)
+                        pass
 
-                    # Determine which month this cell belongs to
-                    month_idx = min(i // max(cells_per_month, 1), len(month_year_pairs) - 1)
-                    year, month = month_year_pairs[month_idx]
-
-                    try:
-                        cell_date = date(year, month, day)
-                    except ValueError:
-                        continue
-
-                    if not (start_date <= cell_date <= horizon):
-                        continue
-
-                    # Check for a non-'--' price
-                    price_lines = lines[1:]
-                    has_price = any(
-                        p and p not in ("-", "--") and "sold" not in p.lower()
-                        for p in price_lines
-                    )
-                    if not has_price:
-                        continue
-
-                    results.append((cell_date.strftime("%Y-%m-%d"), i))
-                    print(f"[OOCL] [FS] Calendar: date {cell_date} has price (cell #{i}): {price_lines}")
+                print(f"[OOCL] [FS] JS Calendar scan results: {results}")
+                return results
 
             except Exception as e:
                 print(f"[OOCL] [FS] _read_calendar_dates error: {e}")
-            return results
+                return []
 
         async def _click_date_strip_item(target_date_str: str) -> bool:
             """Click a date in the visible date strip (used as fallback after calendar issues)."""
