@@ -78,6 +78,28 @@ export async function tryRestorePrimaryIfNeeded(): Promise<boolean> {
   return false;
 }
 
+export async function forceRestorePrimary(): Promise<{ success: boolean; url: string; error?: string }> {
+  const isPrimaryAlive = await probePrimaryHealth();
+  if (isPrimaryAlive) {
+    currentActiveUrl = primaryApiUrl;
+    API_URL = primaryApiUrl;
+    if (onUrlSwitchCallback) {
+      try {
+        onUrlSwitchCallback(primaryApiUrl, true);
+      } catch (cbErr) {
+        console.error("Error in URL switch callback:", cbErr);
+      }
+    }
+    return { success: true, url: primaryApiUrl };
+  } else {
+    let extraReason = "";
+    if (typeof window !== "undefined" && window.location.protocol === "https:" && primaryApiUrl.startsWith("http://")) {
+      extraReason = "Browsers block http:// (unencrypted) requests from https:// websites (Mixed Content). Use ngrok (https://) or run frontend locally (http://localhost:3000).";
+    }
+    return { success: false, url: primaryApiUrl, error: extraReason || "Local backend on " + primaryApiUrl + " is not responding" };
+  }
+}
+
 // Background auto-recovery check when running in the browser
 if (typeof window !== "undefined") {
   setInterval(() => {
