@@ -19,13 +19,41 @@ pending_requests: dict[str, asyncio.Future] = {}
 SECRET_TOKEN = os.getenv("TUNNEL_SECRET_TOKEN", "InfreightSecretTunnel2026")
 
 @app.get("/health")
-async def health():
-    is_connected = client_ws is not None
-    return {
-        "status": "healthy" if is_connected else "waiting_for_local_client",
-        "local_client_connected": is_connected,
-        "mock_mode": False
+async def health(request: Request):
+    global client_ws
+    if not client_ws:
+        return Response(
+            content='{"status": "unhealthy", "error": "Local tunnel client is not connected", "local_client_connected": false}',
+            status_code=503,
+            media_type="application/json"
+        )
+    
+    # Forward health check directly to local backend http://localhost:8000/health
+    req_id = str(uuid.uuid4())
+    payload = {
+        "req_id": req_id,
+        "method": "GET",
+        "path": "/health",
+        "query": "",
+        "headers": {},
+        "body": ""
     }
+    
+    fut = asyncio.get_event_loop().create_future()
+    pending_requests[req_id] = fut
+    
+    try:
+        await client_ws.send_json(payload)
+        res_data = await asyncio.wait_for(fut, timeout=3.0)
+        status_code = res_data.get("status_code", 503)
+        res_body = res_data.get("body", "").encode("latin1")
+        if status_code == 200:
+            return Response(content=res_body, status_code=200, media_type="application/json")
+        else:
+            return Response(content='{"status": "unhealthy", "error": "Local backend returned non-200 on /health"}', status_code=503, media_type="application/json")
+    except Exception:
+        pending_requests.pop(req_id, None)
+        return Response(content='{"status": "unhealthy", "error": "Local backend /health timed out or local server not running"}', status_code=503, media_type="application/json")
 
 @app.websocket("/tunnel/ws")
 async def websocket_endpoint(websocket: WebSocket):

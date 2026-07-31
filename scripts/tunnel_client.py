@@ -44,10 +44,11 @@ async def handle_request(ws, req_data, http_client: httpx.AsyncClient):
             "body": res.content.decode("latin1")
         }
     except Exception as e:
-        print(f"[Client] Error fetching local backend route {path}: {e}")
+        print(f"\n🔴 [ERROR] Could not reach local Python backend ({LOCAL_BACKEND_URL}{path}): {e}")
+        print(f"👉 Make sure python main.py or run_server.py is RUNNING in another terminal window on your laptop!\n")
         response_payload = {
             "req_id": req_id,
-            "status_code": 502,
+            "status_code": 503,
             "headers": {"content-type": "application/json"},
             "body": json.dumps({"error": f"Local backend fetch failed: {str(e)}"})
         }

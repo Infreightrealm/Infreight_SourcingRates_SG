@@ -54,8 +54,11 @@ function HomeContent() {
       });
     }
 
+    let lastToastedUrl: string | null = null;
     registerUrlSwitchCallback((newUrl, isRestored, reason) => {
       setBackendUrl(newUrl);
+      if (lastToastedUrl === newUrl) return;
+      lastToastedUrl = newUrl;
       if (isRestored) {
         toast.success(`Primary Local Backend is BACK ONLINE! Restored connection: ${newUrl}`, {
           duration: 6000,
