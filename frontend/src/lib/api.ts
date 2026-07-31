@@ -33,14 +33,72 @@ export function registerUrlSwitchCallback(cb: (url: string) => void) {
   onUrlSwitchCallback = cb;
 }
 
-// Custom fetch wrapper with automatic failover (handles network errors & HTTP 5xx server errors)
+let lastPrimaryCheckTime = 0;
+const PRIMARY_CHECK_INTERVAL_MS = 5000; // Check primary at most once every 5s when on backup
+
+async function probePrimaryHealth(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(`${primaryApiUrl}/health`, {
+      headers: defaultHeaders,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function tryRestorePrimaryIfNeeded(): Promise<boolean> {
+  if (currentActiveUrl === primaryApiUrl) return true;
+
+  const now = Date.now();
+  if (now - lastPrimaryCheckTime < PRIMARY_CHECK_INTERVAL_MS) {
+    return false;
+  }
+  lastPrimaryCheckTime = now;
+
+  const isPrimaryAlive = await probePrimaryHealth();
+  if (isPrimaryAlive) {
+    console.info(`[API] Primary Local Backend ${primaryApiUrl} is BACK ONLINE! Restoring primary connection from backup.`);
+    currentActiveUrl = primaryApiUrl;
+    API_URL = primaryApiUrl;
+    if (onUrlSwitchCallback) {
+      try {
+        onUrlSwitchCallback(primaryApiUrl);
+      } catch (cbErr) {
+        console.error("Error in URL switch callback:", cbErr);
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+// Background auto-recovery check when running in the browser
+if (typeof window !== "undefined") {
+  setInterval(() => {
+    if (currentActiveUrl !== primaryApiUrl) {
+      tryRestorePrimaryIfNeeded();
+    }
+  }, 8000);
+}
+
+// Custom fetch wrapper with automatic failover and failback recovery
 async function failoverFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const headers = {
     ...defaultHeaders,
     ...options.headers,
   };
 
-  const doSwitch = (reason: string): boolean => {
+  // If currently using backup, check if primary local backend has come back online!
+  if (currentActiveUrl !== primaryApiUrl) {
+    await tryRestorePrimaryIfNeeded();
+  }
+
+  const doSwitchToBackup = (reason: string): boolean => {
     if (backupApiUrl && currentActiveUrl !== backupApiUrl) {
       console.warn(`[API] Primary URL ${currentActiveUrl} failed (${reason}). Switching to backup: ${backupApiUrl}`);
       currentActiveUrl = backupApiUrl;
@@ -60,7 +118,7 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
   try {
     const res = await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
     if (!res.ok && res.status >= 500 && currentActiveUrl !== backupApiUrl) {
-      const switched = doSwitch(`HTTP ${res.status} Server Error`);
+      const switched = doSwitchToBackup(`HTTP ${res.status} Server Error`);
       if (switched) {
         try {
           return await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
@@ -71,7 +129,7 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
     }
     return res;
   } catch (primaryErr) {
-    const switched = doSwitch(String(primaryErr));
+    const switched = doSwitchToBackup(String(primaryErr));
     if (switched) {
       try {
         return await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
