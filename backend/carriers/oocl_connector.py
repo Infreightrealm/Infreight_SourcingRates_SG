@@ -81,6 +81,10 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
     # Alexandria / El Iskandariya override: OOCL FreightSmart lists it as "Alexandria, Al Iskandariyah, Egypt"
     if any(k in text_lower for k in ["alexandria", "iskandariya", "iskandariyah", "egaly", "egalx"]):
         return "Alexandria", "EGALY", "EG", "Egypt"
+
+    # Sihanoukville override: OOCL FreightSmart lists it as "Sihanoukville"
+    if any(k in text_lower for k in ["sihanoukville", "khkos", "kampong saom", "kâmpóng saôm"]):
+        return "Sihanoukville", "KHKOS", "KH", "Cambodia"
         
     # Extract LOCODE
     locode = None
@@ -1431,17 +1435,27 @@ class OOCLConnector(BaseCarrierConnector):
         async def _open_calendar() -> bool:
             """Click the forward nav button on the date strip to open the calendar popup."""
             try:
-                # The '>' button that opens the full 2-month calendar
-                nav_btn = page.locator(
-                    ".date-navigation button.nav-button:last-child, "
-                    ".calendar-container button.nav-button:last-child"
-                ).last
-                if await nav_btn.is_visible(timeout=3000):
-                    await nav_btn.click()
-                    await page.wait_for_timeout(1000)
-                    # Confirm the calendar popup appeared
-                    if await page.locator(".custom-date-cell").first.is_visible(timeout=3000):
-                        return True
+                # Dismiss any popups beforehand
+                await self._fs_dismiss_modals(page)
+                
+                # The '>' button or calendar button that opens the full 2-month calendar
+                nav_selectors = [
+                    ".date-navigation button.nav-button:last-child",
+                    ".calendar-container button.nav-button:last-child",
+                    "button.nav-button:has-text('>')",
+                    "[class*='calendar'] button",
+                    ".date-navigation .nav-button"
+                ]
+                for sel in nav_selectors:
+                    btns = page.locator(sel)
+                    count = await btns.count()
+                    if count > 0:
+                        btn = btns.last
+                        if await btn.is_visible(timeout=2000):
+                            await btn.click()
+                            await page.wait_for_timeout(1500)
+                            if await page.locator(".custom-date-cell").first.is_visible(timeout=3000):
+                                return True
             except Exception as e:
                 print(f"[OOCL] [FS] _open_calendar failed: {e}")
             return False
@@ -1462,6 +1476,10 @@ class OOCLConnector(BaseCarrierConnector):
                     const allCells = Array.from(document.querySelectorAll('.custom-date-cell'));
                     const validCells = [];
 
+                    const panelHeaders = Array.from(document.querySelectorAll('[class*="header"], [class*="title"], [class*="month"]'))
+                        .map(el => el.innerText.trim())
+                        .filter(t => t.match(/\\d{4}\\s+[A-Za-z]+|[A-Za-z]+\\s+\\d{4}/));
+
                     allCells.forEach((cell, idx) => {
                         const cls = (cell.className || '').toLowerCase();
                         if (cls.includes('disabled') || cls.includes('prev-month') || cls.includes('next-month') || cls.includes('other-month') || cls.includes('off')) {
@@ -1471,24 +1489,15 @@ class OOCLConnector(BaseCarrierConnector):
                             return;
                         }
 
-                        // Find closest panel container or header
-                        let panel = cell.closest('[class*="month"], [class*="panel"], [class*="calendar"]');
-                        if (!panel) panel = cell.parentElement;
-
+                        let panel = cell.closest('[class*="month"], [class*="panel"], [class*="calendar"], [class*="container"]');
                         let headerText = '';
-                        const headerEl = panel ? panel.querySelector('[class*="header"], [class*="title"], [class*="month-name"]') : null;
-                        if (headerEl) {
-                            headerText = headerEl.innerText.trim();
+                        if (panel) {
+                            const headerEl = panel.querySelector('[class*="header"], [class*="title"], [class*="month"]');
+                            if (headerEl) headerText = headerEl.innerText.trim();
                         }
-                        if (!headerText) {
-                            const headers = Array.from(document.querySelectorAll('[class*="header"], [class*="title"]'));
-                            for (const h of headers) {
-                                const t = h.innerText.trim();
-                                if (t.match(/\\d{4}\\s+[A-Za-z]+|[A-Za-z]+\\s+\\d{4}/)) {
-                                    headerText = t;
-                                    break;
-                                }
-                            }
+                        if (!headerText && panelHeaders.length > 0) {
+                            const pIdx = Math.floor(idx / (allCells.length / panelHeaders.length));
+                            headerText = panelHeaders[Math.min(pIdx, panelHeaders.length - 1)];
                         }
 
                         const m = headerText.match(/(\\d{4})\\s+([A-Za-z]{3,9})/) || headerText.match(/([A-Za-z]{3,9})\\s+(\\d{4})/);
