@@ -15,6 +15,7 @@ import LoginModal from "@/components/LoginModal";
 import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, type BatchRouteResult } from "@/lib/excelExport";
+import BackendConfigModal from "@/components/BackendConfigModal";
 import { toast } from "sonner";
 
 function HomeContent() {
@@ -27,6 +28,7 @@ function HomeContent() {
   const [userName, setUserName] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   const [backendUrl, setBackendUrl] = useState(getApiUrl());
+  const [isBackendModalOpen, setIsBackendModalOpen] = useState(false);
   const [parsedRfqFields, setParsedRfqFields] = useState<RateSearchRequest | undefined>(undefined);
 
   // Continuous Batch Multi-Route Execution State
@@ -308,25 +310,12 @@ function HomeContent() {
             )}
             
             <button
-              onClick={async () => {
-                toast.info("Testing connection to Local Backend...");
-                const res = await forceRestorePrimary();
-                if (res.success) {
-                  setBackendUrl(res.url);
-                  toast.success(`Connected to Primary Local Backend (${res.url})!`);
-                  healthCheck().then((h) => setMockMode(h.mock_mode)).catch(() => {});
-                } else {
-                  toast.error("Could not connect to Primary Local Backend", {
-                    description: res.error,
-                    duration: 8000,
-                  });
-                }
-              }}
-              className="px-3 py-1 rounded-full border border-blue-200 dark:border-blue-500/30 bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-xs font-medium transition-all duration-200 flex items-center gap-1.5"
-              title="Click to switch back or test connection to Primary Local Backend"
+              onClick={() => setIsBackendModalOpen(true)}
+              className="px-3 py-1 rounded-full border border-blue-200 dark:border-blue-500/30 bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-xs font-medium transition-all duration-200 flex items-center gap-1.5 cursor-pointer shadow-sm"
+              title="Click to configure backend URL or reconnect to Local/ngrok Backend"
             >
-              <span className={`w-2 h-2 rounded-full ${backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1") ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
-              {backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1") ? "Local Backend" : "Cloud Backup (Click to Reconnect Local)"}
+              <span className={`w-2 h-2 rounded-full ${!backendUrl.includes("railway") ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
+              {!backendUrl.includes("railway") ? (backendUrl.includes("localhost") ? "Local Backend" : "Local ngrok Tunnel") : "Cloud Backup (Configure Server)"}
             </button>
             {searchId && <StatusBadge status={searchResult?.status || "QUEUED"} size="md" />}
             
@@ -490,6 +479,15 @@ function HomeContent() {
           }} 
         />
       )}
+
+      <BackendConfigModal
+        isOpen={isBackendModalOpen}
+        onClose={() => setIsBackendModalOpen(false)}
+        onUrlChanged={(newUrl) => {
+          setBackendUrl(newUrl);
+          healthCheck().then((h) => setMockMode(h.mock_mode)).catch(() => {});
+        }}
+      />
     </div>
   );
 }

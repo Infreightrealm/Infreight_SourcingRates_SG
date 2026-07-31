@@ -17,12 +17,30 @@ function formatUrl(url: string): string {
   return url;
 }
 
-const primaryApiUrl = formatUrl(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
+const defaultPrimaryApiUrl = formatUrl(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 const backupApiUrl = formatUrl(process.env.NEXT_PUBLIC_API_URL_BACKUP || "");
 
-export let API_URL = primaryApiUrl;
+export function getPrimaryApiUrl(): string {
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("custom_primary_api_url");
+    if (saved) return formatUrl(saved);
+  }
+  return defaultPrimaryApiUrl;
+}
 
-let currentActiveUrl = primaryApiUrl;
+export function setCustomPrimaryApiUrl(url: string) {
+  if (typeof window !== "undefined") {
+    if (url.trim()) {
+      localStorage.setItem("custom_primary_api_url", formatUrl(url.trim()));
+    } else {
+      localStorage.removeItem("custom_primary_api_url");
+    }
+  }
+}
+
+export let API_URL = getPrimaryApiUrl();
+
+let currentActiveUrl = getPrimaryApiUrl();
 type UrlSwitchCallback = (url: string, isRestored?: boolean, reason?: string) => void;
 let onUrlSwitchCallback: UrlSwitchCallback | null = null;
 
@@ -37,23 +55,26 @@ export function registerUrlSwitchCallback(cb: UrlSwitchCallback) {
 let lastPrimaryCheckTime = 0;
 const PRIMARY_CHECK_INTERVAL_MS = 5000; // Check primary at most once every 5s when on backup
 
-async function probePrimaryHealth(): Promise<boolean> {
+async function probePrimaryHealth(targetUrl: string = getPrimaryApiUrl()): Promise<boolean> {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1500);
-    const res = await fetch(`${primaryApiUrl}/health`, {
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${targetUrl}/health`, {
       headers: defaultHeaders,
       signal: controller.signal,
     });
     clearTimeout(timer);
-    return res.ok;
+    if (!res.ok) return false;
+    const data = await res.json();
+    return Boolean(data && (data.status === "healthy" || data.mock_mode !== undefined));
   } catch {
     return false;
   }
 }
 
 export async function tryRestorePrimaryIfNeeded(): Promise<boolean> {
-  if (currentActiveUrl === primaryApiUrl) return true;
+  const targetPrimary = getPrimaryApiUrl();
+  if (currentActiveUrl === targetPrimary) return true;
 
   const now = Date.now();
   if (now - lastPrimaryCheckTime < PRIMARY_CHECK_INTERVAL_MS) {
@@ -61,14 +82,14 @@ export async function tryRestorePrimaryIfNeeded(): Promise<boolean> {
   }
   lastPrimaryCheckTime = now;
 
-  const isPrimaryAlive = await probePrimaryHealth();
+  const isPrimaryAlive = await probePrimaryHealth(targetPrimary);
   if (isPrimaryAlive) {
-    console.info(`[API] Primary Local Backend ${primaryApiUrl} is BACK ONLINE! Restoring primary connection from backup.`);
-    currentActiveUrl = primaryApiUrl;
-    API_URL = primaryApiUrl;
+    console.info(`[API] Primary Backend ${targetPrimary} is BACK ONLINE! Restoring connection from backup.`);
+    currentActiveUrl = targetPrimary;
+    API_URL = targetPrimary;
     if (onUrlSwitchCallback) {
       try {
-        onUrlSwitchCallback(primaryApiUrl, true);
+        onUrlSwitchCallback(targetPrimary, true);
       } catch (cbErr) {
         console.error("Error in URL switch callback:", cbErr);
       }
@@ -79,31 +100,32 @@ export async function tryRestorePrimaryIfNeeded(): Promise<boolean> {
 }
 
 export async function forceRestorePrimary(): Promise<{ success: boolean; url: string; error?: string }> {
-  const isPrimaryAlive = await probePrimaryHealth();
+  const targetPrimary = getPrimaryApiUrl();
+  const isPrimaryAlive = await probePrimaryHealth(targetPrimary);
   if (isPrimaryAlive) {
-    currentActiveUrl = primaryApiUrl;
-    API_URL = primaryApiUrl;
+    currentActiveUrl = targetPrimary;
+    API_URL = targetPrimary;
     if (onUrlSwitchCallback) {
       try {
-        onUrlSwitchCallback(primaryApiUrl, true);
+        onUrlSwitchCallback(targetPrimary, true);
       } catch (cbErr) {
         console.error("Error in URL switch callback:", cbErr);
       }
     }
-    return { success: true, url: primaryApiUrl };
+    return { success: true, url: targetPrimary };
   } else {
     let extraReason = "";
-    if (typeof window !== "undefined" && window.location.protocol === "https:" && primaryApiUrl.startsWith("http://")) {
-      extraReason = "Browsers block http:// (unencrypted) requests from https:// websites (Mixed Content). Use ngrok (https://) or run frontend locally (http://localhost:3000).";
+    if (typeof window !== "undefined" && window.location.protocol === "https:" && targetPrimary.startsWith("http://")) {
+      extraReason = "Browsers block http:// (unencrypted) requests from https:// websites (Mixed Content). Use an ngrok https:// URL or run frontend locally (http://localhost:3000).";
     }
-    return { success: false, url: primaryApiUrl, error: extraReason || "Local backend on " + primaryApiUrl + " is not responding" };
+    return { success: false, url: targetPrimary, error: extraReason || "Backend on " + targetPrimary + " is not responding" };
   }
 }
 
 // Background auto-recovery check when running in the browser
 if (typeof window !== "undefined") {
   setInterval(() => {
-    if (currentActiveUrl !== primaryApiUrl) {
+    if (currentActiveUrl !== getPrimaryApiUrl()) {
       tryRestorePrimaryIfNeeded();
     }
   }, 8000);
@@ -117,7 +139,7 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
   };
 
   // If currently using backup, check if primary local backend has come back online!
-  if (currentActiveUrl !== primaryApiUrl) {
+  if (currentActiveUrl !== getPrimaryApiUrl()) {
     await tryRestorePrimaryIfNeeded();
   }
 
