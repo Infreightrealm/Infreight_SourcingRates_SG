@@ -344,4 +344,44 @@ export async function parseRfq(
   return res.json();
 }
 
+export async function getCustomPorts(password?: string): Promise<any[]> {
+  const res = await failoverFetch(`/api/admin/custom-ports`, {
+    headers: password ? { "x-admin-password": password } : {},
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load custom ports: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function addCustomPort(
+  portData: { code: string; name: string; country: string; aliases?: string[] },
+  password?: string
+): Promise<any> {
+  const res = await failoverFetch(`/api/admin/custom-ports`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(password ? { "x-admin-password": password } : {}),
+    },
+    body: JSON.stringify(portData),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to add/amend custom port: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteCustomPort(code: string, password?: string): Promise<any> {
+  const res = await failoverFetch(`/api/admin/custom-ports/${encodeURIComponent(code)}`, {
+    method: "DELETE",
+    headers: password ? { "x-admin-password": password } : {},
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete custom port: ${res.status}`);
+  }
+  return res.json();
+}
+
 

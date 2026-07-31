@@ -463,6 +463,8 @@ class PortManager:
             self._ports = {}
             self._aliases = {}
 
+        self._load_custom_ports()
+
         # Load persistent carrier ports cache
         cache_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_ports_cache.json")
         try:
@@ -504,7 +506,79 @@ class PortManager:
             print(f"Error loading carrier overrides: {e}")
             self._dynamic_carrier_overrides = {}
 
-    def _save_carrier_overrides(self):
+    def _load_custom_ports(self):
+        custom_path = os.path.join(os.path.dirname(__file__), "..", "data", "custom_ports.json")
+        try:
+            if os.path.exists(custom_path):
+                with open(custom_path, 'r', encoding='utf-8') as f:
+                    custom_data = json.load(f)
+                    custom_ports = custom_data.get("ports", {})
+                    for code, pdata in custom_ports.items():
+                        code_upper = code.upper()
+                        self._ports[code_upper] = pdata
+                        name_lower = pdata.get("name", "").lower()
+                        if name_lower:
+                            self._aliases[name_lower] = code_upper
+                        for alias in pdata.get("aliases", []):
+                            if alias.strip():
+                                self._aliases[alias.strip().lower()] = code_upper
+        except Exception as e:
+            print(f"Error loading custom ports: {e}")
+
+    def _save_custom_ports(self):
+        custom_path = os.path.join(os.path.dirname(__file__), "..", "data", "custom_ports.json")
+        custom_ports = {code: pdata for code, pdata in self._ports.items() if pdata.get("is_custom")}
+        try:
+            os.makedirs(os.path.dirname(custom_path), exist_ok=True)
+            with open(custom_path, 'w', encoding='utf-8') as f:
+                json.dump({"ports": custom_ports}, f, indent=2)
+        except Exception as e:
+            print(f"Error saving custom ports: {e}")
+
+    def add_custom_port(self, code: str, name: str, country: str, aliases: Optional[List[str]] = None) -> Dict:
+        code_upper = code.strip().upper()
+        if len(code_upper) != 5 or not code_upper.isalpha():
+            raise ValueError("Port UN/LOCODE must be a 5-letter uppercase string (e.g. INKCH)")
+        
+        name_clean = name.strip()
+        country_upper = country.strip().upper()
+        if not name_clean or not country_upper:
+            raise ValueError("City/Port name and country code are required")
+
+        alias_list = [a.strip() for a in (aliases or []) if a.strip()]
+
+        port_entry = {
+            "code": code_upper,
+            "name": name_clean,
+            "country": country_upper,
+            "status": "APPROVED",
+            "is_custom": True,
+            "aliases": alias_list
+        }
+
+        self._ports[code_upper] = port_entry
+        self._aliases[name_clean.lower()] = code_upper
+        for alias in alias_list:
+            self._aliases[alias.lower()] = code_upper
+
+        self.popular_ports.add(code_upper)
+        self._save_custom_ports()
+        self._save_config()
+        return port_entry
+
+    def get_custom_ports(self) -> List[Dict]:
+        return [pdata for pdata in self._ports.values() if pdata.get("is_custom")]
+
+    def delete_custom_port(self, code: str) -> None:
+        code_upper = code.strip().upper()
+        if code_upper in self._ports and self._ports[code_upper].get("is_custom"):
+            pdata = self._ports.pop(code_upper)
+            self._aliases.pop(pdata.get("name", "").lower(), None)
+            for alias in pdata.get("aliases", []):
+                self._aliases.pop(alias.lower(), None)
+            self.popular_ports.discard(code_upper)
+            self._save_custom_ports()
+            self._save_config()
         overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_overrides.json")
         try:
             os.makedirs(os.path.dirname(overrides_path), exist_ok=True)
@@ -1136,3 +1210,12 @@ def add_carrier_override(carrier: str, key: str, override_text: str):
 
 def delete_carrier_override(carrier: str, key: str):
     return PortManager().delete_carrier_override(carrier, key)
+
+def add_custom_port(code: str, name: str, country: str, aliases: Optional[List[str]] = None):
+    return PortManager().add_custom_port(code, name, country, aliases)
+
+def get_custom_ports():
+    return PortManager().get_custom_ports()
+
+def delete_custom_port(code: str):
+    return PortManager().delete_custom_port(code)

@@ -170,3 +170,37 @@ async def delete_carrier_override_endpoint(request: CarrierOverrideRequest, x_ad
     from services.port_manager import delete_carrier_override
     delete_carrier_override(request.carrier, request.key)
     return {"status": "SUCCESS"}
+
+class CustomPortRequest(BaseModel):
+    code: str
+    name: Optional[str] = None
+    country: Optional[str] = None
+    aliases: Optional[List[str]] = []
+
+@admin_router.get("/custom-ports")
+async def get_admin_custom_ports(x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    from services.port_manager import get_custom_ports
+    return get_custom_ports()
+
+@admin_router.post("/custom-ports")
+async def create_custom_port_endpoint(request: CustomPortRequest, x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not request.code or not request.name or not request.country:
+        raise HTTPException(status_code=400, detail="code, name, and country are required")
+    from services.port_manager import add_custom_port
+    try:
+        res = add_custom_port(request.code, request.name, request.country, request.aliases)
+        return {"status": "SUCCESS", "port": res}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@admin_router.delete("/custom-ports/{code}")
+async def delete_custom_port_endpoint(code: str, x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    from services.port_manager import delete_custom_port
+    delete_custom_port(code)
+    return {"status": "SUCCESS"}

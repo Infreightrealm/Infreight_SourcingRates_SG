@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, Building2, Save, Sliders, RefreshCw, Clock } from "lucide-react";
+import { User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, Building2, Save, Sliders, RefreshCw, Clock, MapPin } from "lucide-react";
 import { API_URL } from "@/lib/api";
 import PortAutocomplete from "@/components/PortAutocomplete";
 import { toast } from "sonner";
@@ -151,6 +151,24 @@ export default function AdminDashboard() {
     }
   };
 
+  // Custom Ports state
+  const [customPorts, setCustomPorts] = useState<any[]>([]);
+  const [customCode, setCustomCode] = useState("");
+  const [customName, setCustomName] = useState("");
+  const [customCountry, setCustomCountry] = useState("");
+  const [customAliases, setCustomAliases] = useState("");
+  const [addingCustomPort, setAddingCustomPort] = useState(false);
+
+  const fetchCustomPorts = async () => {
+    try {
+      const { getCustomPorts } = await import("@/lib/api");
+      const data = await getCustomPorts(password);
+      setCustomPorts(data || []);
+    } catch (e) {
+      console.error("Failed to fetch custom ports", e);
+    }
+  };
+
   const fetchPortsConfig = async () => {
     try {
       const { getPortsConfig, getCountriesMap } = await import("@/lib/api");
@@ -160,8 +178,62 @@ export default function AdminDashboard() {
       
       const countries = await getCountriesMap();
       setCountriesMap(countries);
+      fetchCustomPorts();
     } catch (e) {
       console.error("Failed to fetch ports config/countries:", e);
+    }
+  };
+
+  const handleCreateCustomPort = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCode = customCode.trim().toUpperCase();
+    if (cleanCode.length !== 5 || !/^[A-Z]+$/.test(cleanCode)) {
+      toast.error("LOCODE must be a 5-letter uppercase string (e.g. INKCH).");
+      return;
+    }
+    if (!customName.trim() || !customCountry) {
+      toast.error("City/Port name and country are required.");
+      return;
+    }
+
+    setAddingCustomPort(true);
+    try {
+      const { addCustomPort } = await import("@/lib/api");
+      const aliasesList = customAliases.split(",").map((a) => a.trim()).filter(Boolean);
+      await addCustomPort(
+        {
+          code: cleanCode,
+          name: customName.trim(),
+          country: customCountry,
+          aliases: aliasesList,
+        },
+        password
+      );
+
+      toast.success(`Port ${cleanCode} (${customName}) registered/amended successfully!`);
+      setCustomCode("");
+      setCustomName("");
+      setCustomCountry("");
+      setCustomAliases("");
+      fetchCustomPorts();
+      fetchPortsConfig();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to register custom port.");
+    } finally {
+      setAddingCustomPort(false);
+    }
+  };
+
+  const handleDeleteCustomPort = async (code: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete custom port '${code}' (${name})?`)) return;
+    try {
+      const { deleteCustomPort } = await import("@/lib/api");
+      await deleteCustomPort(code, password);
+      toast.success(`Custom port ${code} deleted.`);
+      fetchCustomPorts();
+      fetchPortsConfig();
+    } catch (e: any) {
+      toast.error("Failed to delete custom port.");
     }
   };
 
@@ -555,7 +627,8 @@ export default function AdminDashboard() {
 
         {/* TAB 2: PORT RANKING CONFIG */}
         {activeTab === "ports" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
             {/* Column 1: Boosted Ports */}
             <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-6 flex flex-col justify-between min-h-[500px]">
@@ -717,7 +790,131 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
-        )}
+
+          {/* Bottom Card: Register / Amend Custom City & Port Code */}
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-indigo-500" />
+                Register / Amend Custom City & Port Code
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+                Add a brand new city with its 5-letter UN/LOCODE, or amend the display city name attached to an existing port code. Applied live immediately across all searches!
+              </p>
+            </div>
+
+            <form onSubmit={handleCreateCustomPort} className="bg-slate-50 dark:bg-black/40 p-5 rounded-2xl border border-slate-100 dark:border-gray-800 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                    UN/LOCODE (5-letter)
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={5}
+                    value={customCode}
+                    onChange={(e) => setCustomCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. INKCH"
+                    className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm font-mono text-slate-900 dark:text-white uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[42px]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                    City / Port Display Name
+                  </label>
+                  <input
+                    type="text"
+                    value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    placeholder="e.g. Cochin (KERALA)"
+                    className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[42px]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                    Country
+                  </label>
+                  <select
+                    value={customCountry}
+                    onChange={(e) => setCustomCountry(e.target.value)}
+                    className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[42px]"
+                    required
+                  >
+                    <option value="">-- Select Country --</option>
+                    {Object.entries(countriesMap)
+                      .sort((a, b) => a[1].localeCompare(b[1]))
+                      .map(([code, name]) => (
+                        <option key={code} value={code}>
+                          {name} ({code})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <div className="flex-1 mr-4">
+                  <input
+                    type="text"
+                    value={customAliases}
+                    onChange={(e) => setCustomAliases(e.target.value)}
+                    placeholder="Optional Aliases (comma-separated, e.g. kochi sz, cochin freezone)"
+                    className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[38px]"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={addingCustomPort}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-sm transition-colors flex items-center gap-1.5 h-[38px] whitespace-nowrap shadow-md shadow-indigo-600/20"
+                >
+                  <Plus className="w-4 h-4" />
+                  {addingCustomPort ? "Registering..." : "Save / Amend Port Code"}
+                </button>
+              </div>
+            </form>
+
+            {/* Registered Custom Ports Table */}
+            {customPorts.length > 0 && (
+              <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-gray-800">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-gray-400">
+                  Registered Custom & Amended City Port Codes ({customPorts.length})
+                </h3>
+                <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                  {customPorts.map((cp) => (
+                    <div
+                      key={cp.code}
+                      className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-white/[0.02] hover:bg-slate-100 dark:hover:bg-white/[0.04] border border-slate-100 dark:border-white/5 rounded-xl transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-mono font-bold bg-indigo-100 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded">
+                          {cp.code}
+                        </span>
+                        <span className="text-sm font-semibold text-slate-850 dark:text-gray-200">
+                          {cp.name}
+                        </span>
+                        <span className="text-xs text-slate-400 dark:text-gray-500">
+                          ({countriesMap[cp.country] || cp.country})
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCustomPort(cp.code, cp.name)}
+                        className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
         {/* TAB 3: CARRIER PORT OVERRIDES (NEW!) */}
         {activeTab === "overrides" && (
