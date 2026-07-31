@@ -101,25 +101,55 @@ export async function tryRestorePrimaryIfNeeded(): Promise<boolean> {
 
 export async function forceRestorePrimary(): Promise<{ success: boolean; url: string; error?: string }> {
   const targetPrimary = getPrimaryApiUrl();
-  const isPrimaryAlive = await probePrimaryHealth(targetPrimary);
-  if (isPrimaryAlive) {
-    currentActiveUrl = targetPrimary;
-    API_URL = targetPrimary;
-    if (onUrlSwitchCallback) {
-      try {
-        onUrlSwitchCallback(targetPrimary, true);
-      } catch (cbErr) {
-        console.error("Error in URL switch callback:", cbErr);
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${targetPrimary}/health`, {
+      headers: defaultHeaders,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && (data.status === "healthy" || data.mock_mode !== undefined)) {
+        currentActiveUrl = targetPrimary;
+        API_URL = targetPrimary;
+        if (onUrlSwitchCallback) {
+          try {
+            onUrlSwitchCallback(targetPrimary, true);
+          } catch (cbErr) {
+            console.error("Error in URL switch callback:", cbErr);
+          }
+        }
+        return { success: true, url: targetPrimary };
       }
     }
-    return { success: true, url: targetPrimary };
-  } else {
+
+    const ngrokErr = res.headers.get("Ngrok-Error-Code");
+    const bodyText = await res.text().catch(() => "");
+    if (ngrokErr === "ERR_NGROK_725" || bodyText.includes("ERR_NGROK_725") || bodyText.includes("bandwidth limit")) {
+      return {
+        success: false,
+        url: targetPrimary,
+        error: "ngrok account reached monthly bandwidth limit (ERR_NGROK_725). Use localtunnel ('npx localtunnel --port 8000') or run frontend locally (http://localhost:3000)."
+      };
+    } else if (ngrokErr) {
+      return {
+        success: false,
+        url: targetPrimary,
+        error: `ngrok returned error ${ngrokErr}. Tunnel may be closed or offline.`
+      };
+    }
+  } catch (err: any) {
     let extraReason = "";
     if (typeof window !== "undefined" && window.location.protocol === "https:" && targetPrimary.startsWith("http://")) {
-      extraReason = "Browsers block http:// (unencrypted) requests from https:// websites (Mixed Content). Use an ngrok https:// URL or run frontend locally (http://localhost:3000).";
+      extraReason = "Browsers block http:// (unencrypted) requests from https:// websites (Mixed Content). Use a localtunnel/ngrok https:// URL or run frontend locally (http://localhost:3000).";
     }
-    return { success: false, url: targetPrimary, error: extraReason || "Backend on " + targetPrimary + " is not responding" };
+    return { success: false, url: targetPrimary, error: extraReason || ("Backend on " + targetPrimary + " is not responding (" + (err.message || err) + ")") };
   }
+
+  return { success: false, url: targetPrimary, error: "Backend on " + targetPrimary + " returned invalid response." };
 }
 
 // Background auto-recovery check when running in the browser
