@@ -7,13 +7,16 @@ echo   Infreight Local Backend - New PC Setup Assistant
 echo ========================================================
 echo.
 
-echo [1/3] Creating Python Virtual Environment (.venv)...
-if not exist .venv (
-    python -m venv .venv
+echo [1/3] Removing old/copied virtual environments...
+if exist .venv (
+    rmdir /s /q .venv
 )
 
+echo [1/3] Creating fresh Python Virtual Environment (.venv)...
+python -m venv .venv
+
 echo.
-echo [2/3] Installing Python Dependencies from backend/requirements.txt...
+echo [2/3] Installing Python Dependencies...
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
 pip install -r backend\requirements.txt
