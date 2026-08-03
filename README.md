@@ -1,274 +1,149 @@
 # Infreight Ocean Carrier Rate Automation
 
-Internal web-based system for Infreight Logistics employees to search, compare, and analyze ocean freight quotations across multiple carriers simultaneously.
+Internal web-based system for Infreight Logistics employees to search, compare, and analyze ocean freight quotations across multiple ocean carriers simultaneously.
 
-## Features
+---
 
-- **Multi-carrier rate search** — Search Maersk, CMA CGM, Hapag-Lloyd, ONE, and 5 more carriers simultaneously
-- **Automated portal scraping** — Playwright-based stealth automation for carrier portal login and quote extraction
-- **Concurrent multi-tab searches** — Run multiple searches on different browser tabs without conflicts (isolated temp profiles)
-- **Charge classification** — Automatic categorization of charges (ocean freight, surcharges, excluded local charges)
-- **Final freight value calculation** — BOF + Discount + Freight Surcharges only (excludes origin/destination charges)
-- **Routing detection** — Automatic identification of Direct vs Transit routing with transshipment port names
-- **Free time extraction** — Import detention/demurrage free time pulled from carrier D&D tabs
-- **Normalized comparison table** — Side-by-side comparison across all carriers with sortable columns
-- **Excel export** — One-click export to formatted `.xlsx` with POL, POD, Carrier, Rate, Transit Time, Free Time, ETD, ETA, Routing, and Remarks
-- **Sold out visibility** — Carriers with no sailings are explicitly shown as "Sold out" in the Excel instead of being silently omitted
-- **Human-in-the-loop 2FA** — noVNC browser viewer for manual CAPTCHA/2FA resolution when required by carriers
-- **Persistent sessions** — Chrome profiles stored on Railway volume to preserve login sessions across deployments
-- **Auto cache cleanup** — Chromium cache directories are automatically purged after each search to prevent storage bloat
+## Key Features
+
+- **Multi-Carrier Live Rate Search** — Search Maersk, CMA CGM, Hapag-Lloyd, ONE, OOCL, GreenX (Evergreen), and MSC simultaneously.
+- **Stealth Browser Automation** — Playwright & Patchright automation for carrier portal logins, automated date-strip scanning, and quote extraction.
+- **OOCL FreightSmart Multi-Month Calendar Scraper** — Dual-panel date extraction handling both E-Quote and E-Spot pricing side-by-side.
+- **Railway Cloud WebSocket Tunnel Relay** — Seamless 1-click tunnel (`run_tunnel_client.bat`) connecting Railway Cloud frontend to your local residential IP machine, bypassing DataDome and Cloudflare anti-bot CAPTCHAs with zero cost and zero time limits.
+- **Dynamic Backend Server Switcher & Auto-Recovery** — Automatic failover to Cloud Backup if local server drops, and seamless auto-recovery back to Local/Tunnel when online.
+- **Admin Port Code & City Registry** — Admin interface (`/admin`) to register, amend, or boost UN/LOCODEs, custom city names, and carrier-specific port overrides.
+- **Smart City Synonym Matching** — Built-in synonym engine matching port aliases (`Kochi` $\leftrightarrow$ `Cochin`, `Nhava Sheva` $\leftrightarrow$ `Jawaharlal Nehru`, `Haiphong` $\leftrightarrow$ `Hai Phong`, `Ho Chi Minh` $\leftrightarrow$ `Sai Gon`).
+- **Charge Classification & Value Normalization** — Automatic separation of ocean freight, surcharges, and local fees to calculate true final freight cost.
+- **Formatted Excel Export** — Brand-styled `.xlsx` exports with official color palette (`#323296`, `#FA8C3C`), sortable columns, and explicit "Sold Out" visibility.
+- **Human-in-the-Loop (HITL) 2FA** — Integrated noVNC viewer for manual 2FA/CAPTCHA resolution when required by carriers.
+
+---
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 15 (App Router) + Tailwind CSS |
-| Backend | Python FastAPI |
-| Automation | Patchright (stealth Playwright fork) + Playwright |
-| Proxy | Bright Data ISP/Residential proxies with sticky sessions |
-| Database | PostgreSQL (Railway) / SQLite (local) |
-| Deployment | Railway + Docker + supervisord + nginx |
-| Display | Xvfb + noVNC for headless browser rendering |
+| **Frontend** | Next.js 15 (App Router) + Tailwind CSS + Lucide Icons + Sonner Toasts |
+| **Backend** | Python FastAPI + Uvicorn |
+| **Automation** | Patchright (Stealth Playwright fork) + Real Google Chrome Stable |
+| **Tunnel Relay** | Railway WebSocket Tunnel Relay (`scripts/tunnel_relay` + `run_tunnel_client.bat`) |
+| **Database** | PostgreSQL (Production) / SQLite (Local) |
+| **Deployment** | Railway + Docker + Supervisord |
+
+---
 
 ## Supported Carriers
 
-| Carrier | Status | Notes |
-|---------|--------|-------|
-| Maersk | ✅ Live | Shadow DOM piercing, Patchright stealth, 2FA via noVNC |
-| CMA CGM | ✅ Live | Chrome session bypass, D&D free time extraction |
-| Hapag-Lloyd | ✅ Live | Calendar grid pagination, transshipment detection |
-| ONE | ✅ Live | Date picker automation, charge scoping |
-| MSC | ⏳ Stub | Returns `CONNECTOR_NOT_AVAILABLE` |
-| Evergreen | ⏳ Stub | Returns `CONNECTOR_NOT_AVAILABLE` |
-| COSCO | ⏳ Stub | Returns `CONNECTOR_NOT_AVAILABLE` |
-| OOCL | ⏳ Stub | Returns `CONNECTOR_NOT_AVAILABLE` |
-| HMM | ⏳ Stub | Returns `CONNECTOR_NOT_AVAILABLE` |
+| Carrier | Status | Automation Method & Capabilities |
+|---------|--------|----------------------------------|
+| **Maersk** | ✅ Live | Shadow DOM piercing, Patchright stealth, 2FA via noVNC |
+| **CMA CGM** | ✅ Live | Chrome session preservation, D&D free time extraction |
+| **Hapag-Lloyd** | ✅ Live | Calendar grid pagination, transshipment detection |
+| **ONE** | ✅ Live | Date picker automation, container charge scoping |
+| **OOCL** | ✅ Live | FreightSmart E-Quote & E-Spot calendar scraper, side-by-side date matrix |
+| **GreenX (Evergreen)** | ✅ Live | Accordion fee breakdown parser, free time extraction |
+| **MSC** | ✅ Live | Form automation & rate schedule fallbacks |
 
-## Quick Start (Local Development)
+---
 
-### Prerequisites
+## Hybrid Architecture (Cloud + Local Tunnel Relay)
 
-- Node.js 18+
-- Python 3.12+
-- PostgreSQL (or use Docker, or SQLite for local dev)
-
-### 1. Start PostgreSQL (Optional)
-
-```bash
-# Using Docker
-docker run -d --name infreight-db \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=infreight \
-  -p 5432:5432 \
-  postgres:16-alpine
+```
+[ User Browser / Railway Frontend ]
+              │
+              ▼ (Calls fixed domain: https://your-railway-tunnel.up.railway.app)
+[ Railway Cloud WebSocket Tunnel Relay ]
+              │  ▲ (Persistent background WSS connection)
+              ▼  │
+ [ Local Machine (`run_tunnel_client.bat`) ]
+              └──► Executes Playwright using Local Residential IP (Bypasses DataDome / CAPTCHAs!)
 ```
 
-### 2. Backend Setup
+### Why This Hybrid Setup?
+1. **Anti-Bot Bypass**: Scrapers run from your local machine's residential ISP IP, preventing Cloud IP blocks by DataDome & Cloudflare.
+2. **Fixed Domain**: The Railway Tunnel domain never changes, eliminating constant URL updating.
+3. **No 60-Minute Limits**: Unlike free ngrok or pinggy, the Railway WebSocket Tunnel Relay runs 24/7 with zero time limits and zero extra costs.
 
-```bash
+---
+
+## Quick Start Guide
+
+### Option 1: Running Fully Local (Local Frontend + Local Backend)
+
+#### 1. Backend Setup
+```cmd
 cd backend
-
-# Create .env from example
-cp .env.example .env
-# Edit .env with your credentials and database URL
-
-# Create virtual environment
 python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # macOS/Linux
-
-# Install dependencies
+venv\Scripts\activate
 pip install -r requirements.txt
-
-# Install Playwright browsers (for live mode)
 playwright install chromium
-
-# Start the API server
-uvicorn main:app --reload --port 8000
+python main.py
 ```
 
-### 3. Frontend Setup
-
-```bash
+#### 2. Frontend Setup
+```cmd
 cd frontend
-
-# Install dependencies
 npm install
-
-# Create .env.local
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
-
-# Start dev server
 npm run dev
 ```
+Open **`http://localhost:3000`** in your browser.
 
-### 4. Open the App
+---
 
-Visit: **http://localhost:3000**
+### Option 2: Running Cloud Frontend + Local Backend (Recommended Workflow)
 
-## Configuration
+1. **Start Local Backend**:
+   Double-click **`run_live_loop.bat`** (or `python main.py` in `backend`).
+2. **Start Railway Cloud Tunnel**:
+   Double-click **`run_tunnel_client.bat`** on your desktop.
+3. **Open Cloud Frontend**:
+   Visit your Railway deployed frontend website (e.g., `https://frontend-production-xxxx.up.railway.app`).
+   The top bar badge will display 🟢 **`Local Tunnel Relay`**!
 
-### Environment Variables (Backend)
+---
 
-```env
-# Database
-DATABASE_URL=postgresql+asyncpg://user:pass@host/db  # Omit for SQLite fallback
+## Admin Dashboard (`/admin`)
 
-# Mode
-USE_MOCK_CARRIERS=false  # true = mock data, false = live carrier portals
+Visit `/admin` on your frontend to access system management tools:
 
-# Carrier Credentials
-MAERSK_USERNAME=your_username
-MAERSK_PASSWORD=your_password
-ONE_USERNAME=your_username
-ONE_PASSWORD=your_password
-CMA_USERNAME=your_username
-CMA_PASSWORD=your_password
-HAPAG_USERNAME=your_username
-HAPAG_PASSWORD=your_password
+- **Register / Amend Custom City & Port Code**: Add new UN/LOCODEs, override city display names, and bind custom port mappings stored in `backend/data/custom_ports.json`.
+- **Carrier Overrides**: Manage carrier-specific port aliases (e.g. `KHKOS` $\rightarrow$ `Sihanoukville` for OOCL, `INCOK` $\rightarrow$ `Cochin (KERALA), India` for Maersk).
+- **Search History & Route Health**: Monitor carrier success rates and execution logs across searches.
 
-# Proxy (Bright Data)
-PROXY_SERVER=your_proxy_server
-PROXY_PORT=22225
-MAERSK_PROXY_USER=your_proxy_user
-MAERSK_PROXY_PASS=your_proxy_pass
-CMA_PROXY_USER=your_proxy_user
-CMA_PROXY_PASS=your_proxy_pass
-
-# Browser Profiles
-PERSISTENT_PROFILES_DIR=/data/chrome_profiles  # Railway volume path
-
-# Display
-RESET_CHROME_PROFILES=false  # Set to true to wipe all saved sessions on restart
-```
-
-### Environment Variables (Frontend)
-
-```env
-NEXT_PUBLIC_API_URL=https://your-backend-url.railway.app
-```
-
-## Railway Deployment
-
-1. Create a Railway project with a PostgreSQL database service
-2. Add backend service from Git repo (uses `backend/Dockerfile`)
-3. Add frontend service from Git repo
-4. Set environment variables as listed above
-5. Add a persistent volume mounted at `/data` for Chrome profiles
-6. Railway auto-deploys on every `git push`
+---
 
 ## Project Structure
 
 ```
 ├── backend/
-│   ├── main.py                    # FastAPI application entry
-│   ├── Dockerfile                 # Railway-ready with Playwright + Xvfb + noVNC
-│   ├── supervisord.conf           # Process manager for server + display
-│   ├── nginx.conf                 # Reverse proxy config
-│   ├── api/
-│   │   ├── rate_search_routes.py  # Search create/get endpoints
-│   │   └── port_routes.py         # Port lookup endpoint
-│   ├── models/
-│   │   ├── database.py            # SQLAlchemy async setup
-│   │   ├── schemas.py             # Pydantic request/response models
-│   │   ├── rate_search.py         # Search & carrier result DB models
-│   │   └── quote.py               # Quote & charge DB models
-│   ├── services/
-│   │   ├── charge_classifier.py   # Rule-based charge classification
-│   │   ├── normalizer.py          # Final freight value calculation
-│   │   └── job_service.py         # Search job orchestration
-│   ├── carriers/
-│   │   ├── base_connector.py      # Abstract base connector
-│   │   ├── registry.py            # Connector factory
-│   │   ├── mock_connector.py      # Mock data for testing
-│   │   ├── maersk_connector.py    # Maersk live automation
-│   │   ├── cma_connector.py       # CMA CGM live automation
-│   │   ├── hapag_lloyd_connector.py # Hapag-Lloyd live automation
-│   │   └── one_connector.py       # ONE live automation
-│   └── tests/
+│   ├── main.py                     # FastAPI entry point
+│   ├── Dockerfile                  # Production Railway Dockerfile
+│   ├── api/                        # REST API routes (user, admin, rate search)
+│   ├── carriers/                   # Live carrier connectors (Maersk, OOCL, ONE, etc.)
+│   ├── services/                   # Port manager, job service, charge classifier
+│   └── data/                       # custom_ports.json & port database
 ├── frontend/
-│   └── src/
-│       ├── app/page.tsx           # Main search page
-│       ├── components/
-│       │   └── ResultsTable.tsx   # Results table + Excel export
-│       └── lib/
-│           └── types.ts           # TypeScript type definitions
-├── docker/
-│   └── docker-compose.yml         # Local dev stack
-├── CHANGELOG.md                   # Detailed bug/fix documentation
-└── README.md                      # This file
+│   ├── src/app/                    # Next.js pages (main search, admin)
+│   ├── src/components/             # UI components, status badges, config modal
+│   └── src/lib/                    # API client, failover/recovery logic, Excel exporter
+├── scripts/
+│   ├── tunnel_relay/               # Railway WebSocket Tunnel Relay server
+│   └── tunnel_client.py            # Local machine tunnel client script
+├── run_tunnel_client.bat           # 1-Click launcher for Railway Cloud Tunnel
+├── run_live_loop.bat               # 1-Click launcher for local backend
+├── CHANGELOG.md                    # System change log
+└── README.md                       # Product documentation
 ```
 
-## How It Works
+---
 
-### Search Flow
-```
-User (Frontend) → POST /api/rate-search → Backend creates DB records
-                                         → Spawns background tasks per carrier
-                                         → Each carrier: Login → Search → Extract → Normalize → Save
-User polls GET /api/rate-search/{id}    ← Returns results as carriers complete
-User clicks "Export Excel"              → Frontend generates .xlsx from API data
-```
+## Security & Best Practices
 
-### Carrier Connector Lifecycle
-```
-1. Clone master Chrome profile → isolated temp profile
-2. Launch Chromium on isolated VNC display (thread-safe)
-3. Login (or reuse session from cookies)
-4. Fill search form → Submit
-5. Wait for results → Extract quote cards
-6. For each card:
-   a. Extract ETD, ETA, transit time, vessel, routing
-   b. Click "Details" → Extract charge breakdown
-   c. Click "D&D" tab → Extract free time (carrier-specific)
-   d. Normalize charges → Calculate final freight value
-7. Save all quotes + routing + free time to database
-8. Sync temp profile back to master (preserving cookies/session)
-9. Delete temp profile + purge cache directories
-```
+- **Never commit credentials** — Credentials and private keys are managed via environment variables (`.env`).
+- **Data Privacy** — Local session profiles are stored in `.gitignored` directories (`backend/chrome_profile_*`).
 
-### Final Freight Value Calculation
+---
 
-```
-Final Freight Value =
-    Basic Ocean Freight (BOF)
-    + Discount (normalized to negative)
-    + Freight Surcharges (BAF, LSS, EBS, GRI, PSS, WRS, CAF, etc.)
+## License
 
-EXCLUDED from final value:
-    - Origin charges (THC, handling, documentation, seal, VGM)
-    - Destination charges (THC, delivery, handling)
-    - Uncertain charges (classified separately)
-```
-
-## Adding a New Carrier Connector
-
-1. Create `backend/carriers/your_carrier_connector.py`
-2. Inherit from `BaseCarrierConnector`
-3. Implement all abstract methods: `login()`, `search_quotes()`, `extract_quote_list()`, `open_price_breakdown()`, `extract_charge_breakdown()`, `normalize_result()`
-4. Register in `backend/carriers/registry.py`
-5. Add credentials to `.env.example` and `.env`
-6. Test with a real search before deploying
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/rate-search` | Create a new multi-carrier rate search |
-| `GET` | `/api/rate-search/{search_id}` | Poll search status and results |
-| `GET` | `/health` | Health check |
-
-## Security
-
-> ⚠️ **NEVER commit credentials to Git.**
-
-- All carrier credentials are stored as environment variables only
-- Use Railway environment variables for production
-- Use `.env` file for local development (`.gitignore`'d)
-- The `.env.example` file contains placeholders only
-- Chrome profiles are excluded from Git via `.gitignore`
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for a detailed history of all bugs, fixes, and features.
+Internal Proprietary — **Infreight Logistics**. All Rights Reserved.
