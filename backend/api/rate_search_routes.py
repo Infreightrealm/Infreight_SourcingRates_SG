@@ -313,6 +313,7 @@ async def get_route_health(session: AsyncSession = Depends(get_session)):
     stmt = (
         select(CarrierSearchResult, RateSearch)
         .join(RateSearch, CarrierSearchResult.search_id == RateSearch.id)
+        .options(selectinload(CarrierSearchResult.quotes))
         .order_by(RateSearch.created_at.desc())
     )
 
@@ -323,13 +324,12 @@ async def get_route_health(session: AsyncSession = Depends(get_session)):
     routes_map = {}
 
     for csr, rs in records:
-        origin = csr.resolved_origin_name or rs.origin or "Unknown"
-        dest = csr.resolved_destination_name or rs.destination or "Unknown"
+        origin = rs.origin or csr.resolved_origin_name or "Unknown"
+        dest = rs.destination or csr.resolved_destination_name or "Unknown"
         orig_code = csr.resolved_origin_locode or ""
         dest_code = csr.resolved_destination_locode or ""
 
-        route_key = f"{origin} ({orig_code}) -> {dest} ({dest_code})" if orig_code and dest_code else f"{origin} -> {dest}"
-
+        route_key = f"{origin} -> {dest}"
 
         if route_key not in routes_map:
             routes_map[route_key] = {
@@ -356,10 +356,22 @@ async def get_route_health(session: AsyncSession = Depends(get_session)):
         carrier = carrier_code_map.get(carrier_raw, carrier_raw)
 
         if carrier in CARRIERS and routes_map[route_key]["carrier_health"][carrier] is None:
-            routes_map[route_key]["carrier_health"][carrier] = {
-                "status": csr.status,
-                "last_searched_at": csr.completed_at.isoformat() if csr.completed_at else (csr.started_at.isoformat() if csr.started_at else None),
+            quotes_count = len(csr.quotes) if csr.quotes else 0
+            
+            raw_status = (csr.status or "").upper()
+            if quotes_count > 0 or raw_status in ["COMPLETED", "SUCCESS", "FINISHED"]:
+                status = "SUCCESS" if (quotes_count > 0 or raw_status in ["COMPLETED", "SUCCESS"]) else "NO_QUOTES_AVAILABLE"
+                if quotes_count == 0 and raw_status in ["COMPLETED", "SUCCESS"]:
+                    status = "NO_QUOTES_AVAILABLE"
+            elif raw_status in ["NO_QUOTES_AVAILABLE", "NO_QUOTES"]:
+                status = "NO_QUOTES_AVAILABLE"
+            else:
+                status = "FAILED"
 
+            routes_map[route_key]["carrier_health"][carrier] = {
+                "status": status,
+                "quotes_count": quotes_count,
+                "last_searched_at": csr.completed_at.isoformat() if csr.completed_at else (csr.started_at.isoformat() if csr.started_at else None),
                 "raw_origin_input": csr.raw_origin_input or rs.origin,
                 "raw_destination_input": csr.raw_destination_input or rs.destination,
                 "submitted_origin": csr.submitted_origin,

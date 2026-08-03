@@ -1316,8 +1316,8 @@ export default function AdminDashboard() {
                               </td>
                             );
                           }
-                          const isSuccess = health.status === "SUCCESS";
-                          const isNoQuotes = health.status === "NO_QUOTES_AVAILABLE";
+                          const isSuccess = health.status === "SUCCESS" || health.status === "COMPLETED" || (health.quotes_count && health.quotes_count > 0);
+                          const isNoQuotes = health.status === "NO_QUOTES_AVAILABLE" || health.status === "NO_QUOTES";
                           const isMismatch = health.has_port_mismatch === true;
                           const isUnknownMismatch = health.has_port_mismatch === null;
 
@@ -1329,9 +1329,8 @@ export default function AdminDashboard() {
                                     {"⚠️ Mismatch"}
                                   </span>
                                 ) : isSuccess ? (
-
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
-                                    SUCCESS
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300 whitespace-nowrap">
+                                    {health.quotes_count && health.quotes_count > 0 ? `SUCCESS (${health.quotes_count} quotes)` : "SUCCESS"}
                                   </span>
                                 ) : isNoQuotes ? (
                                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-gray-300">
