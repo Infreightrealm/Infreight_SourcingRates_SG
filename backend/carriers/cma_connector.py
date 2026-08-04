@@ -957,6 +957,25 @@ class CMAConnector(BaseCarrierConnector):
             
             print(f"[CMA] Destination selected: {dest_locode}")
 
+            # --- IMMEDIATE FORM RAMP BANNER CHECK ---
+            await self.page.wait_for_timeout(1000)
+            page_text = await self.page.inner_text('body')
+            if "select" in page_text.lower() and "as ramp" in page_text.lower():
+                print(f"\n[CMA] [FORM BANNER DETECTED] CMA CGM displayed advisory banner immediately after selecting Destination!")
+                print(f"[CMA] Switching Destination {dest_locode} to RAMP and selecting POD...\n")
+                
+                dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i]').nth(1)
+                await dest_field.click()
+                await dest_field.fill("")
+                await dest_field.type(dest_query, delay=30)
+                await self.page.wait_for_timeout(2000)
+                
+                if await self._select_cma_dropdown_option("Destination", dest_locode, prefer_ramp=True):
+                    await self.page.wait_for_timeout(1500)
+                    preferred_pod = "AEJFR" if "AEJFR" in page_text else ("AEKLF" if "AEKLF" in page_text else None)
+                    await self._handle_cma_pod_selection(target_pod_locode=preferred_pod)
+                    await self.page.wait_for_timeout(1000)
+
             # --- CONTAINER TYPE & SIZE & WEIGHTS ---
             target_containers = ["20' Dry Standard", "40' Dry Standard", "40' Dry High Cube"]
             print(f"[CMA] Selecting all 3 dry container sizes: {target_containers}")
