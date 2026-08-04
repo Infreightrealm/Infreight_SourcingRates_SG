@@ -207,11 +207,23 @@ class CMAConnector(BaseCarrierConnector):
         else:
             locator = selector_or_locator
         
-        await locator.scroll_into_view_if_needed()
-        await self._random_mouse_move()
-        await locator.hover()
-        await self._human_delay(200, 500)
-        await locator.click()
+        try:
+            await locator.scroll_into_view_if_needed(timeout=2000)
+        except Exception: pass
+        
+        try:
+            await self._random_mouse_move()
+            await locator.hover(timeout=2000)
+            await self._human_delay(100, 300)
+        except Exception: pass
+
+        try:
+            await locator.click(timeout=3000)
+        except Exception:
+            try:
+                await locator.click(force=True, timeout=3000)
+            except Exception:
+                await locator.evaluate("el => el.click()")
 
     async def _solve_datadome_slider(self) -> bool:
         """
@@ -775,12 +787,10 @@ class CMAConnector(BaseCarrierConnector):
         try:
             print("[CMA] Looking for POD dropdown field...")
             pod_selectors = [
-                '.el-select:has-text("Select")',
-                'div:has-text("POD") .el-select',
                 'div:has(label:has-text("POD")) .el-select',
-                'input[placeholder*="Select" i]',
+                'div:has(label:has-text("POD")) input',
                 'input[placeholder*="POD" i]',
-                '#DdlPod',
+                '.el-select:has-text("Select")',
             ]
             
             pod_field = None
@@ -789,14 +799,6 @@ class CMAConnector(BaseCarrierConnector):
                 if await loc.count() > 0 and await loc.is_visible(timeout=1000):
                     pod_field = loc
                     break
-                    
-            if not pod_field:
-                pod_text = self.page.locator('text=/POD/i').first
-                if await pod_text.count() > 0:
-                    parent = pod_text.locator('..')
-                    loc = parent.locator('.el-select, input, [role="combobox"]').first
-                    if await loc.count() > 0:
-                        pod_field = loc
 
             if pod_field:
                 print("[CMA] Opening POD dropdown...")
@@ -804,32 +806,75 @@ class CMAConnector(BaseCarrierConnector):
                 await pod_field.click(force=True)
                 await self.page.wait_for_timeout(1500)
                 
-                suggestion_sel = 'ul[role="listbox"] li, ul.options li, li[role="option"], .el-select-dropdown__item'
+                suggestion_sel = 'ul[role="listbox"] li:visible, .el-select-dropdown:visible .el-select-dropdown__item, li[role="option"]:visible'
                 suggestions = self.page.locator(suggestion_sel)
                 count = await suggestions.count()
-                print(f"[CMA] Found {count} options in POD dropdown.")
+                print(f"[CMA] Found {count} options in visible POD dropdown.")
                 
-                if count > 0:
-                    if target_pod_locode:
-                        target_clean = target_pod_locode.strip().upper()
-                        for i in range(count):
-                            item = suggestions.nth(i)
-                            text = (await item.inner_text()).strip().upper()
-                            if target_clean in text:
-                                inner_text = (await item.inner_text()).strip()
-                                print(f"[CMA] [SUCCESS] Selected target POD: '{inner_text}'")
-                                await self._hover_and_click(item)
-                                return True
+                valid_pod_item = None
+                for i in range(count):
+                    item = suggestions.nth(i)
+                    text = (await item.inner_text()).strip().upper()
                     
-                    first_item = suggestions.nth(0)
-                    inner_text = (await first_item.inner_text()).strip()
-                    print(f"[CMA] [SUCCESS] Selected default POD option: '{inner_text}'")
-                    await self._hover_and_click(first_item)
+                    # Ignore header menu links
+                    if any(bad in text for bad in ["CMA CGM", "SEARCH IN NEWS", "TRACKING", "VOYAGE", "ENGLISH", "FRANCAIS", "ESPAOL", "PORTUGUS"]):
+                        continue
+                    
+                    # If specific target POD requested (e.g. AEJFR or AEKLF)
+                    if target_pod_locode and target_pod_locode.strip().upper() in text:
+                        valid_pod_item = item
+                        print(f"[CMA] [SUCCESS] Found target POD option: '{await item.inner_text()}'")
+                        break
+                    
+                    # Otherwise pick first option containing a 5-letter locode or valid port
+                    if not valid_pod_item and (re.search(r'\([A-Z]{5}\)', text) or any(p in text for p in ["AEJFR", "AEKLF", "AEJEA", "AEKHL", "FUJAIRAH", "KHOR", "JEBEL", "KHALIFA"])):
+                        valid_pod_item = item
+
+                if valid_pod_item:
+                    inner_text = (await valid_pod_item.inner_text()).strip()
+                    print(f"[CMA] [SUCCESS] Selected POD option: '{inner_text}'")
+                    await self._hover_and_click(valid_pod_item)
                     return True
-            else:
-                print("[CMA] [WARN] POD dropdown field not found on page.")
+                else:
+                    print("[CMA] [WARN] No valid POD port option found in dropdown.")
         except Exception as e:
             print(f"[CMA] POD selection error: {e}")
+        return False
+
+    async def _clear_cma_destination_and_reselect_ramp(self, dest_locode: str, prefer_pod: Optional[str] = None) -> bool:
+        """
+        Clears the currently selected Destination port tag/card, re-types the locode,
+        and selects the RAMP option, then populates the POD field!
+        """
+        try:
+            print(f"[CMA] Clearing current Destination selection to switch to RAMP...")
+            # Look for clear / change / remove buttons on the destination tag/card
+            clear_btn = self.page.locator('div:has-text("Destination") button, button[aria-label*="clear" i], button[aria-label*="remove" i], .icon-close, i.el-icon-close, button:has-text("Clear")').first
+            if await clear_btn.count() > 0:
+                try:
+                    await clear_btn.click(force=True, timeout=1000)
+                    await self.page.wait_for_timeout(1000)
+                except Exception: pass
+            
+            # Re-locate Destination input field (ensure visible=true filter)
+            dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i] >> visible=true').first
+            if await dest_field.count() == 0:
+                dest_container = self.page.locator('div:has(label:has-text("Destination")) input, div[name*="destination" i] input').first
+                if await dest_container.count() > 0:
+                    dest_field = dest_container
+            
+            if await dest_field.count() > 0:
+                await dest_field.click(force=True)
+                await dest_field.fill("")
+                await dest_field.type(dest_locode, delay=30)
+                await self.page.wait_for_timeout(2000)
+            
+            if await self._select_cma_dropdown_option("Destination", dest_locode, prefer_ramp=True):
+                await self.page.wait_for_timeout(1500)
+                await self._handle_cma_pod_selection(target_pod_locode=prefer_pod)
+                return True
+        except Exception as e:
+            print(f"[CMA] Error clearing and re-selecting destination as RAMP: {e}")
         return False
 
     async def _check_cma_ramp_banner_and_retry(self, dest_locode: str) -> bool:
@@ -842,22 +887,9 @@ class CMAConnector(BaseCarrierConnector):
             page_text = await self.page.inner_text('body')
             if "select" in page_text.lower() and "as ramp" in page_text.lower():
                 print(f"\n[CMA] [RAMP BANNER DETECTED] CMA CGM suggested selecting {dest_locode} as RAMP and selecting a POD!")
-                print(f"[CMA] Automatically switching Destination {dest_locode} to RAMP and selecting POD...\n")
-                
-                # Re-fill Destination as RAMP
-                dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i]').nth(1)
-                await dest_field.click()
-                await dest_field.fill("")
-                await dest_field.type(dest_locode, delay=30)
-                await self.page.wait_for_timeout(2000)
-                
-                if await self._select_cma_dropdown_option("Destination", dest_locode, prefer_ramp=True):
-                    await self.page.wait_for_timeout(1500)
-                    
-                    preferred_pod = "AEJFR" if "AEJFR" in page_text else ("AEKLF" if "AEKLF" in page_text else None)
-                    await self._handle_cma_pod_selection(target_pod_locode=preferred_pod)
-                    await self.page.wait_for_timeout(1500)
-                    
+                preferred_pod = "AEJFR" if "AEJFR" in page_text else ("AEKLF" if "AEKLF" in page_text else None)
+                retried = await self._clear_cma_destination_and_reselect_ramp(dest_locode, prefer_pod=preferred_pod)
+                if retried:
                     print("[CMA] Re-submitting search with RAMP + POD...")
                     submit_btn = self.page.locator('button:has-text("Get My Quote")').first
                     await self._hover_and_click(submit_btn)
@@ -962,19 +994,9 @@ class CMAConnector(BaseCarrierConnector):
             page_text = await self.page.inner_text('body')
             if "select" in page_text.lower() and "as ramp" in page_text.lower():
                 print(f"\n[CMA] [FORM BANNER DETECTED] CMA CGM displayed advisory banner immediately after selecting Destination!")
-                print(f"[CMA] Switching Destination {dest_locode} to RAMP and selecting POD...\n")
-                
-                dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i]').nth(1)
-                await dest_field.click()
-                await dest_field.fill("")
-                await dest_field.type(dest_query, delay=30)
-                await self.page.wait_for_timeout(2000)
-                
-                if await self._select_cma_dropdown_option("Destination", dest_locode, prefer_ramp=True):
-                    await self.page.wait_for_timeout(1500)
-                    preferred_pod = "AEJFR" if "AEJFR" in page_text else ("AEKLF" if "AEKLF" in page_text else None)
-                    await self._handle_cma_pod_selection(target_pod_locode=preferred_pod)
-                    await self.page.wait_for_timeout(1000)
+                preferred_pod = "AEJFR" if "AEJFR" in page_text else ("AEKLF" if "AEKLF" in page_text else None)
+                await self._clear_cma_destination_and_reselect_ramp(dest_locode, prefer_pod=preferred_pod)
+                await self.page.wait_for_timeout(1000)
 
             # --- CONTAINER TYPE & SIZE & WEIGHTS ---
             target_containers = ["20' Dry Standard", "40' Dry Standard", "40' Dry High Cube"]
