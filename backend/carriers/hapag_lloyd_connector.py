@@ -1778,9 +1778,42 @@ class HapagLloydConnector(BaseCarrierConnector):
                     const sailingDates = allDates.filter(d => !cutoffDates.has(d));
                     const activeDates = sailingDates.length >= 2 ? sailingDates : allDates;
 
-                    if (activeDates.length < 2) return;
+                    if (activeDates.length < 1) return;
                     const etd = activeDates[0];
-                    const eta = activeDates[activeDates.length - 1];
+                    let eta = activeDates.length >= 2 ? activeDates[activeDates.length - 1] : etd;
+
+                    let transit = null;
+                    const transitBadgeMatch = cardText.match(/\b(\d+)\s*days?\b/i);
+                    if (transitBadgeMatch) {
+                        transit = parseInt(transitBadgeMatch[1], 10);
+                    }
+
+                    // Ensure ETA is chronologically after ETD
+                    if (eta < etd || (transit && eta <= etd)) {
+                        if (transit) {
+                            try {
+                                const d1 = new Date(etd + 'T00:00:00Z');
+                                d1.setUTCDate(d1.getUTCDate() + transit);
+                                eta = d1.toISOString().split('T')[0];
+                            } catch (e) {}
+                        } else {
+                            const futureDates = activeDates.filter(d => d > etd);
+                            if (futureDates.length > 0) {
+                                eta = futureDates[futureDates.length - 1];
+                            } else {
+                                eta = etd;
+                            }
+                        }
+                    }
+
+                    if (!transit && etd && eta && eta > etd) {
+                        try {
+                            const d1 = new Date(etd + 'T00:00:00Z');
+                            const d2 = new Date(eta + 'T00:00:00Z');
+                            const diffTime = Math.abs(d2 - d1);
+                            transit = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        } catch (e) {}
+                    }
 
                     let routing = "Direct";
                     const viaMatch = cardText.match(/via:\s*(.*?)(?=Terminal|Doc Cut-off|FCL Cut-off|$)/i);
@@ -1812,19 +1845,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                                 service = chips[voyageIndex - 2];
                             }
                         }
-                    }
-
-                    let transit = null;
-                    const transitBadgeMatch = cardText.match(/\b(\d+)\s*days?\b/i);
-                    if (transitBadgeMatch) {
-                        transit = parseInt(transitBadgeMatch[1], 10);
-                    } else {
-                        try {
-                            const d1 = new Date(etd);
-                            const d2 = new Date(eta);
-                            const diffTime = Math.abs(d2 - d1);
-                            transit = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                        } catch (e) {}
                     }
 
 
@@ -3919,6 +3939,19 @@ class HapagLloydConnector(BaseCarrierConnector):
                                 normalized.eta = standardize_date_string(schedule["eta"])
                             if schedule["transit_time_days"] is not None:
                                 normalized.transit_time_days = schedule["transit_time_days"]
+                                
+                            # Safety check: ETA must never be earlier than ETD
+                            if normalized.etd and normalized.eta:
+                                try:
+                                    etd_d = datetime.strptime(normalized.etd, "%Y-%m-%d").date()
+                                    eta_d = datetime.strptime(normalized.eta, "%Y-%m-%d").date()
+                                    if eta_d <= etd_d:
+                                        if normalized.transit_time_days and normalized.transit_time_days > 0:
+                                            eta_d = etd_d + timedelta(days=normalized.transit_time_days)
+                                            normalized.eta = eta_d.strftime("%Y-%m-%d")
+                                        else:
+                                            normalized.eta = None
+                                except Exception: pass
                         else:
                             # Fallback if no matching schedule exists (OOCL style)
                             normalized.vessel = "Hapag Vessel /Performa"
