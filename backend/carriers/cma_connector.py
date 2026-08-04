@@ -481,7 +481,7 @@ class CMAConnector(BaseCarrierConnector):
         except Exception:
             pass
 
-    async def _select_cma_dropdown_option(self, label: str, locode: str, cached_name: Optional[str] = None) -> bool:
+    async def _select_cma_dropdown_option(self, label: str, locode: str, cached_name: Optional[str] = None, prefer_ramp: bool = False) -> bool:
         # Target individual <li> items only — NOT the <ul class="options"> container
         suggestion_sel = 'ul[role="listbox"] li, ul.options li, li[role="option"], [class*="suggestion"] li'
         try:
@@ -491,7 +491,20 @@ class CMAConnector(BaseCarrierConnector):
             suggestions = self.page.locator(suggestion_sel)
             count = await suggestions.count()
             
-            print(f"[CMA] Found {count} suggestions in dropdown for {label} (LOCODE: {locode}, cached: '{cached_name}')")
+            print(f"[CMA] Found {count} suggestions in dropdown for {label} (LOCODE: {locode}, cached: '{cached_name}', prefer_ramp: {prefer_ramp})")
+            
+            # Step 0: If prefer_ramp is requested, look for option containing "RAMP" or "DOOR" first!
+            if prefer_ramp:
+                for i in range(count):
+                    item = suggestions.nth(i)
+                    text = (await item.inner_text()).strip().upper()
+                    clean_locode = locode.strip().upper()
+                    if clean_locode in text and ("RAMP" in text or "DOOR" in text):
+                        inner_text = (await item.inner_text()).strip()
+                        print(f"[CMA] [RAMP PREFERRED] Selected RAMP/DOOR option for {label}: '{inner_text}'")
+                        await self._hover_and_click(item)
+                        set_cached_carrier_port("cma", locode, inner_text)
+                        return True
             
             # Normalised target candidate list
             target_candidates = []
@@ -754,6 +767,100 @@ class CMAConnector(BaseCarrierConnector):
 
         return False
 
+    async def _handle_cma_pod_selection(self, target_pod_locode: Optional[str] = None) -> bool:
+        """
+        Handles selecting a POD (Port of Discharge) when CMA CGM destination is set to RAMP.
+        CMA CGM requires selecting a POD (e.g. Fujairah AEJFR or Khor Fakkan AEKLF for Jebel Ali AEJEA).
+        """
+        try:
+            pod_selectors = [
+                'input[placeholder*="POD" i]',
+                '#DdlPod',
+                'div[name*="pod" i] input',
+                'span:has-text("POD") + input',
+                'div:has(label:has-text("POD")) input',
+                'div.el-select:has-text("POD") input',
+            ]
+            
+            pod_field = None
+            for sel in pod_selectors:
+                loc = self.page.locator(sel).first
+                if await loc.count() > 0:
+                    pod_field = loc
+                    break
+                    
+            if not pod_field:
+                pod_input_any = self.page.locator('input[placeholder*="POD" i], #DdlPod').first
+                if await pod_input_any.count() > 0:
+                    pod_field = pod_input_any
+            
+            if pod_field:
+                print("[CMA] Opening POD dropdown...")
+                await pod_field.scroll_into_view_if_needed(timeout=3000)
+                await pod_field.click(force=True)
+                await self.page.wait_for_timeout(1000)
+                
+                suggestion_sel = 'ul[role="listbox"] li, ul.options li, li[role="option"], .el-select-dropdown__item'
+                suggestions = self.page.locator(suggestion_sel)
+                count = await suggestions.count()
+                print(f"[CMA] Found {count} options in POD dropdown.")
+                
+                if count > 0:
+                    if target_pod_locode:
+                        target_clean = target_pod_locode.strip().upper()
+                        for i in range(count):
+                            item = suggestions.nth(i)
+                            text = (await item.inner_text()).strip().upper()
+                            if target_clean in text:
+                                inner_text = (await item.inner_text()).strip()
+                                print(f"[CMA] [SUCCESS] Selected target POD: '{inner_text}'")
+                                await self._hover_and_click(item)
+                                return True
+                    
+                    first_item = suggestions.nth(0)
+                    inner_text = (await first_item.inner_text()).strip()
+                    print(f"[CMA] [SUCCESS] Selected default POD option: '{inner_text}'")
+                    await self._hover_and_click(first_item)
+                    return True
+        except Exception as e:
+            print(f"[CMA] POD selection error: {e}")
+        return False
+
+    async def _check_cma_ramp_banner_and_retry(self, dest_locode: str) -> bool:
+        """
+        Detects if CMA CGM displayed the blue banner message:
+        "Looking for AEJEA or AEKHL, please select AEJEA or AEKHL as ramp and select either AEJFR or AEKLF as POD"
+        and automatically retries the search with RAMP + POD selection!
+        """
+        try:
+            page_text = await self.page.inner_text('body')
+            if "select" in page_text.lower() and "as ramp" in page_text.lower():
+                print(f"\n[CMA] ℹ️ [RAMP BANNER DETECTED] CMA CGM suggested selecting {dest_locode} as RAMP and selecting a POD!")
+                print(f"[CMA] Automatically switching Destination {dest_locode} to RAMP and selecting POD...\n")
+                
+                # Re-fill Destination as RAMP
+                dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i]').nth(1)
+                await dest_field.click()
+                await dest_field.fill("")
+                await dest_field.type(dest_locode, delay=30)
+                await self.page.wait_for_timeout(2000)
+                
+                if await self._select_cma_dropdown_option("Destination", dest_locode, prefer_ramp=True):
+                    await self.page.wait_for_timeout(1500)
+                    
+                    preferred_pod = "AEJFR" if "AEJFR" in page_text else ("AEKLF" if "AEKLF" in page_text else None)
+                    await self._handle_cma_pod_selection(target_pod_locode=preferred_pod)
+                    await self.page.wait_for_timeout(1500)
+                    
+                    print("[CMA] Re-submitting search with RAMP + POD...")
+                    submit_btn = self.page.locator('button:has-text("Get My Quote")').first
+                    await self._hover_and_click(submit_btn)
+                    await self._human_delay(5000, 8000)
+                    return True
+        except Exception as e:
+            print(f"[CMA] Ramp banner retry error: {e}")
+        return False
+
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             print("[CMA] Starting search...")
@@ -988,12 +1095,24 @@ class CMAConnector(BaseCarrierConnector):
 
             # Results detection
             try:
-                await self.page.wait_for_selector('div[class*="schedules-result"], div[class*="sailing-result"], article[class*="schedule"], div[class*="result"], div[class*="quote"]', timeout=30000)
+                await self.page.wait_for_selector('div[class*="schedules-result"], div[class*="sailing-result"], article[class*="schedule"], div[class*="result"], div[class*="quote"]', timeout=20000)
                 print("[CMA] Results loaded.")
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
             except Exception:
                 page_text = await self.page.inner_text('body')
-                if 'no result' in page_text.lower() or 'no schedule' in page_text.lower():
+                
+                # Check if CMA displayed blue ramp banner ("please select ... as ramp and select ... as POD")
+                if "select" in page_text.lower() and "as ramp" in page_text.lower():
+                    retried = await self._check_cma_ramp_banner_and_retry(dest_locode)
+                    if retried:
+                        try:
+                            await self.page.wait_for_selector('div[class*="schedules-result"], div[class*="sailing-result"], article[class*="schedule"], div[class*="result"], div[class*="quote"]', timeout=30000)
+                            print("[CMA] Results loaded after Ramp/POD retry!")
+                            return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                        except Exception:
+                            pass
+
+                if 'no result' in page_text.lower() or 'no schedule' in page_text.lower() or 'unable to propose' in page_text.lower():
                     print("[CMA] No results found for this route/date.")
                     return CarrierResultStatus.NO_QUOTES_AVAILABLE
                 print("[CMA] Results timeout — saving screenshot.")
