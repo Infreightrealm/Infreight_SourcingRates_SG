@@ -877,17 +877,32 @@ class CMAConnector(BaseCarrierConnector):
             print(f"[CMA] Error clearing and re-selecting destination as RAMP: {e}")
         return False
 
-    async def _check_cma_ramp_banner_and_retry(self, dest_locode: str) -> bool:
+    def _extract_recommended_pod_from_banner(self, page_text: str, dest_locode: str, origin_locode: Optional[str] = None) -> Optional[str]:
         """
-        Detects if CMA CGM displayed the blue banner message:
+        Dynamically extracts any recommended 5-letter POD LOCODE mentioned in the carrier advisory banner.
+        Works across all routes worldwide (e.g. AEJFR, AEKLF, AEFJR, OMSOH, SADMM, SARIY, etc.).
+        """
+        try:
+            found_locodes = re.findall(r'\b[A-Z]{5}\b', page_text)
+            candidates = [c for c in found_locodes if c not in (dest_locode, origin_locode or "", "HTTPS", "ECOM", "MUST")]
+            if candidates:
+                print(f"[CMA] Dynamically parsed recommended POD candidate(s) from banner: {candidates}")
+                return candidates[0]
+        except Exception: pass
+        return None
+
+    async def _check_cma_ramp_banner_and_retry(self, dest_locode: str, origin_locode: Optional[str] = None) -> bool:
+        """
+        Detects if CMA CGM displayed an advisory banner message:
         "Looking for AEJEA or AEKHL, please select AEJEA or AEKHL as ramp and select either AEJFR or AEKLF as POD"
+        (or any similar intermodal advisory for any route worldwide)
         and automatically retries the search with RAMP + POD selection!
         """
         try:
             page_text = await self.page.inner_text('body')
             if "select" in page_text.lower() and "as ramp" in page_text.lower():
                 print(f"\n[CMA] [RAMP BANNER DETECTED] CMA CGM suggested selecting {dest_locode} as RAMP and selecting a POD!")
-                preferred_pod = "AEJFR" if "AEJFR" in page_text else ("AEKLF" if "AEKLF" in page_text else None)
+                preferred_pod = self._extract_recommended_pod_from_banner(page_text, dest_locode, origin_locode)
                 retried = await self._clear_cma_destination_and_reselect_ramp(dest_locode, prefer_pod=preferred_pod)
                 if retried:
                     print("[CMA] Re-submitting search with RAMP + POD...")
@@ -994,7 +1009,7 @@ class CMAConnector(BaseCarrierConnector):
             page_text = await self.page.inner_text('body')
             if "select" in page_text.lower() and "as ramp" in page_text.lower():
                 print(f"\n[CMA] [FORM BANNER DETECTED] CMA CGM displayed advisory banner immediately after selecting Destination!")
-                preferred_pod = "AEJFR" if "AEJFR" in page_text else ("AEKLF" if "AEKLF" in page_text else None)
+                preferred_pod = self._extract_recommended_pod_from_banner(page_text, dest_locode, origin_locode)
                 await self._clear_cma_destination_and_reselect_ramp(dest_locode, prefer_pod=preferred_pod)
                 await self.page.wait_for_timeout(1000)
 
