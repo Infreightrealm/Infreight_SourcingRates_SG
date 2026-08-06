@@ -579,6 +579,8 @@ class PortManager:
             self.popular_ports.discard(code_upper)
             self._save_custom_ports()
             self._save_config()
+
+    def _save_carrier_overrides(self):
         overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_overrides.json")
         try:
             os.makedirs(os.path.dirname(overrides_path), exist_ok=True)
