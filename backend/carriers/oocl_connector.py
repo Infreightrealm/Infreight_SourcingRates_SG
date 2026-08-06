@@ -1420,11 +1420,8 @@ class OOCLConnector(BaseCarrierConnector):
            scanning the visible date strip.
         """
         today = date.today()
-        start_date = today
-        window_days = 28
-        if request:
-            start_date = get_booking_start_date(request.departure_date)
-            window_days = request.search_window_days or 28
+        start_date = today  # Always scan from today onwards to capture all upcoming sailings (e.g. 13 Aug and 20 Aug)
+        window_days = (request.search_window_days if request and request.search_window_days else 28)
         horizon = start_date + timedelta(days=window_days)
 
         MONTH_ABBR = {
