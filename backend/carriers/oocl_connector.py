@@ -1424,7 +1424,7 @@ class OOCLConnector(BaseCarrierConnector):
         window_days = 28
         if request:
             start_date = get_booking_start_date(request.departure_date)
-            window_days = min(request.search_window_days or 14, 28)
+            window_days = request.search_window_days or 28
         horizon = start_date + timedelta(days=window_days)
 
         MONTH_ABBR = {
