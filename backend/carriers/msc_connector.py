@@ -603,9 +603,16 @@ class MSCConnector(BaseCarrierConnector):
                             await free_time_el.wait_for(state="visible", timeout=5000)
                             popup_inner = await modal.inner_text(timeout=10000)
                             
-                            match = re.search(r"Import Combined.*?(\d+)\s*Calendar", popup_inner, re.IGNORECASE | re.DOTALL)
+                            # Extract free time for Import Combined (handles "Working days", "Calendar days", "Working days without public holidays", etc.)
+                            match = re.search(r"Import\s+Combined.*?(?:Free\s*Days\s*:?\s*|:\s*|\s+)(\d+)", popup_inner, re.IGNORECASE | re.DOTALL)
+                            if not match:
+                                match = re.search(r"Import.*?(?:Free\s*Days\s*:?\s*|:\s*|\s+)(\d+)", popup_inner, re.IGNORECASE | re.DOTALL)
+                            if not match:
+                                match = re.search(r"(?:Free\s*Days\s*:?\s*)(\d+)", popup_inner, re.IGNORECASE | re.DOTALL)
+
                             if match:
                                 free_time = int(match.group(1))
+                                self.log(f"[MSC] Extracted Free Time: {free_time} days")
                     except Exception as e:
                         self.log(f"Failed to find Free Time text in popup: {e}")
 
