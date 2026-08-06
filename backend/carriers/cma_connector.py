@@ -907,11 +907,40 @@ class CMAConnector(BaseCarrierConnector):
                 if retried:
                     print("[CMA] Re-submitting search with RAMP + POD...")
                     submit_btn = self.page.locator('button:has-text("Get My Quote")').first
-                    await self._hover_and_click(submit_btn)
-                    await self._human_delay(5000, 8000)
                     return True
         except Exception as e:
             print(f"[CMA] Ramp banner retry error: {e}")
+        return False
+
+    async def _handle_cma_customer_account_role(self) -> bool:
+        """
+        Handles the 'Customer account' -> 'Role (you are acting as)' dropdown on CMA CGM form.
+        Selects 'NVOCC' if the section is present.
+        """
+        try:
+            role_field = self.page.locator('#DdlCustomerRole, input[placeholder*="Select your role" i]').first
+            if await role_field.count() > 0 and await role_field.is_visible(timeout=1500):
+                print("[CMA] 'Customer account' section detected. Selecting Role: NVOCC...")
+                await self._hover_and_click(role_field)
+                await self.page.wait_for_timeout(800)
+
+                # Click NVOCC option inside visible dropdown list
+                nvocc_opt = self.page.locator('.el-select-dropdown__item:has-text("NVOCC"), li:has-text("NVOCC")').first
+                if await nvocc_opt.count() > 0 and await nvocc_opt.is_visible(timeout=1500):
+                    await self._hover_and_click(nvocc_opt)
+                    print("[CMA] [SUCCESS] Selected Role: NVOCC")
+                    await self.page.wait_for_timeout(500)
+                    return True
+                else:
+                    # Fallback: type NVOCC and press Enter
+                    print("[CMA] NVOCC option not directly clickable, attempting keyboard selection...")
+                    await role_field.fill("NVOCC")
+                    await self.page.wait_for_timeout(500)
+                    await self.page.keyboard.press("Enter")
+                    print("[CMA] [SUCCESS] Selected Role: NVOCC via keyboard")
+                    return True
+        except Exception as e:
+            print(f"[CMA] Customer account role handling notice: {e}")
         return False
 
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
@@ -1143,6 +1172,10 @@ class CMAConnector(BaseCarrierConnector):
                     print("[CMA] Commodity FAK selected via Enter key fallback.")
                 except Exception as e2:
                     print(f"[CMA] [WARN] Commodity fallback also failed: {e2}")
+
+            # --- CUSTOMER ACCOUNT / ROLE SELECTION ---
+            # Select "NVOCC" if the "Customer account" -> "Role (you are acting as)" dropdown is present on the form
+            await self._handle_cma_customer_account_role()
 
             # --- SUBMIT ---
             print("[CMA] Clicking 'Get My Quote'...")
