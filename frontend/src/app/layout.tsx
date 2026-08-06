@@ -10,8 +10,39 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Infreight Ocean & Air Rate Automation",
-  description: "Internal rate search, airfreight routing, and comparison tool for ocean and air freight quotations.",
+  title: "Infreight | Ocean & Air Rate Automation",
+  description: "Instant carrier rate search, airfreight routing, and RFQ comparison platform.",
+  metadataBase: new URL("https://frontend-production-a90a.up.railway.app"),
+  icons: {
+    icon: [
+      { url: "/infreight_logo.png" },
+      { url: "/favicon.ico" },
+    ],
+    shortcut: "/infreight_logo.png",
+    apple: "/infreight_logo.png",
+  },
+  openGraph: {
+    title: "Infreight | Ocean & Air Rate Automation",
+    description: "Instant carrier rate search, airfreight routing, and RFQ comparison platform.",
+    url: "https://frontend-production-a90a.up.railway.app",
+    siteName: "Infreight Sourcing",
+    images: [
+      {
+        url: "/infreight_logo.png",
+        width: 1200,
+        height: 630,
+        alt: "Infreight Ocean & Air Rate Automation",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Infreight | Ocean & Air Rate Automation",
+    description: "Instant carrier rate search, airfreight routing, and RFQ comparison platform.",
+    images: ["/infreight_logo.png"],
+  },
 };
 
 export const viewport: Viewport = {
