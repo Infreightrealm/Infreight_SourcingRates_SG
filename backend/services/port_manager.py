@@ -51,6 +51,7 @@ CARRIER_PORT_OVERRIDES = {
         "TLDIL": "Dili, Timor Leste",
         "CNXMN": "Xiamen (Fujian), China",
         "USDAL": "Dallas (Texas), United States",
+        "PRSJU": "San Juan, Puerto Rico",
     },
     "one": {
         "VNHPH": "Hai Phong",

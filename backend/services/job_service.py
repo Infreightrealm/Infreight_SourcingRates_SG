@@ -38,6 +38,12 @@ def _detect_port_mismatch(
 
     matched_clean = matched_port_str.strip().lower()
 
+    # 0. Direct match: if resolved_name is contained in matched_clean or vice versa
+    if resolved_name:
+        r_clean = resolved_name.strip().lower()
+        if r_clean and (r_clean in matched_clean or matched_clean in r_clean):
+            return False
+
     # 1. Direct 5-letter UN/LOCODE extraction from matched_port_str if present (e.g. MYPGU, SGSIN)
     # Must be uppercase 5-letter code with valid ISO country prefix to avoid matching words like 'Pasir' or 'Johor'
     locode_matches = re.findall(r'\b([A-Z]{5})\b', matched_port_str)
