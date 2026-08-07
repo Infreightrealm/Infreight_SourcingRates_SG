@@ -560,15 +560,20 @@ class MSCConnector(BaseCarrierConnector):
                             raw_name = match.group(1).strip()
                             clean_name = re.sub(r"^(?:,\s*ELSEWHERE|,\s*COLLECT|,\s*PREPAID|COLLECT|PREPAID)+", "", raw_name).strip()
                             clean_name = re.sub(r"^(?:FREIGHT CHARGE|FREIGHT SURCHARGES|EXPORT SURCHARGES|IMPORT SURCHARGES)", "", clean_name).strip()
-                            clean_name = re.sub(r"^(?:TERMS OF PAYMENT ONLY\.?)", "", clean_name).strip(" ,.")
+                            clean_name = re.sub(r"^(?:MUST FOLLOW SAME TERMS OF PAYMENT AS FREIGHT\.?|COLLECT TERMS OF PAYMENT ONLY\.?|PREPAID TERMS OF PAYMENT ONLY\.?|TERMS OF PAYMENT ONLY\.?|ELSEWHERE\.?)", "", clean_name).strip(" ,.")
+                            clean_name = re.sub(r".*?(MUST FOLLOW SAME TERMS OF PAYMENT AS FREIGHT\.?|COLLECT TERMS OF PAYMENT ONLY\.?|PREPAID TERMS OF PAYMENT ONLY\.?|TERMS OF PAYMENT ONLY\.?)\s*", "", clean_name).strip(" ,.")
                             
                             if not clean_name: continue
                             
                             val = float(match.group(2).replace(",", ""))
                             curr = match.group(3)
                             
+                            formatted_name = clean_name.title()
+                            # Preserve uppercase inside brackets like [CDD], [THC], [ECA]
+                            formatted_name = re.sub(r'\[([a-zA-Z0-9]+)\]', lambda m: f'[{m.group(1).upper()}]', formatted_name)
+                            
                             charge_obj = {
-                                "name": clean_name.title(),
+                                "name": formatted_name,
                                 "amount": val,
                                 "currency": curr,
                                 "category": "bof" if section_name == "FREIGHT CHARGE" else ("included" if section_name == "FREIGHT SURCHARGES" else "excluded")
