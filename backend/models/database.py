@@ -90,6 +90,21 @@ async def init_db():
                     sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN validity_till VARCHAR(50)"))
                 except Exception:
                     pass
+            if 'free_time' not in columns:
+                try:
+                    sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN free_time INTEGER DEFAULT 0"))
+                except Exception:
+                    pass
+            if 'demurrage' not in columns:
+                try:
+                    sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN demurrage INTEGER DEFAULT 0"))
+                except Exception:
+                    pass
+            if 'detention' not in columns:
+                try:
+                    sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN detention INTEGER DEFAULT 0"))
+                except Exception:
+                    pass
 
         if 'carrier_search_results' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('carrier_search_results')]

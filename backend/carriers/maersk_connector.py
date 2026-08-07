@@ -288,9 +288,23 @@ class MaerskConnector(BaseCarrierConnector):
                         
                     # 4. Extract free time detention & demurrage details
                     free_time = None
-                    freetime_match = re.search(r"(\d+)\s*days?\s*(?:of\s*)?(?:detention|demurrage)", card_text, re.IGNORECASE)
-                    if freetime_match:
-                        free_time = int(freetime_match.group(1))
+                    demurrage = 0
+                    detention = 0
+
+                    det_match = re.search(r"(\d+)\s*days?\s*(?:of\s*)?detention", card_text, re.IGNORECASE)
+                    if det_match:
+                        detention = int(det_match.group(1))
+
+                    dem_match = re.search(r"(\d+)\s*days?\s*(?:of\s*)?demurrage", card_text, re.IGNORECASE)
+                    if dem_match:
+                        demurrage = int(dem_match.group(1))
+
+                    if demurrage > 0 or detention > 0:
+                        free_time = demurrage + detention
+                    else:
+                        freetime_match = re.search(r"(\d+)\s*days?\s*(?:of\s*)?(?:detention|demurrage|freetime)", card_text, re.IGNORECASE)
+                        if freetime_match:
+                            free_time = int(freetime_match.group(1))
                         
                     # Build service name
                     service_name = "Maersk Spot Service"
@@ -391,8 +405,10 @@ class MaerskConnector(BaseCarrierConnector):
                                         print(f"[MAERSK] Screenshot/HTML save failed: {ss_e}")
                                 
                                 # Scrape all text inside active page/breakdown panel scoped strictly to current card
-                                raw_charges = await self.extract_charge_breakdown(card)
-                                raw_quote["free_time"] = await self.extract_freetime(card)
+                                ft_info = await self.extract_freetime(card)
+                                raw_quote["free_time"] = ft_info.get("free_time")
+                                raw_quote["demurrage"] = ft_info.get("demurrage", 0)
+                                raw_quote["detention"] = ft_info.get("detention", 0)
                                 
                                 # Click details button again to close/collapse
                                 try:
@@ -2990,10 +3006,11 @@ class MaerskConnector(BaseCarrierConnector):
             print(f"[MAERSK] Error parsing charge breakdown: {e}")
             return []
 
-    async def extract_freetime(self, card_locator) -> int | None:
+    async def extract_freetime(self, card_locator) -> dict:
         """
-        Extracts freetime from the 'Import D&D fees' tab within the expanded card.
+        Extracts freetime, demurrage, and detention from the 'Import D&D fees' tab within the expanded card.
         """
+        res = {"free_time": None, "demurrage": 0, "detention": 0}
         try:
             print("[MAERSK] Searching for 'Import D&D fees' tab...")
             tab_btn = card_locator.locator('button:has-text("Import D&D"), li:has-text("Import D&D"), *:has-text("Import D&D fees")').last
@@ -3003,25 +3020,41 @@ class MaerskConnector(BaseCarrierConnector):
                 print("[MAERSK] Clicked 'Import D&D fees' tab. Waiting for table render...")
                 await self.page.wait_for_timeout(1500)
                 
-                # Extract all text from the card to find the "1 - X" validity period
                 card_text = await card_locator.inner_text()
                 
                 import re
-                # We are looking for "1 - 7" or "1-14" under "Validity period"
-                # The text is usually something like: "1 - 7   Free"
-                match = re.search(r'1\s*-\s*(\d+)', card_text)
-                if match:
-                    free_time = int(match.group(1))
-                    print(f"[MAERSK] Extracted Free Time: {free_time} days from Import D&D tab.")
-                    return free_time
+                demurrage = 0
+                detention = 0
+
+                # Check for Import Demurrage block (e.g. 1 - 3 Free)
+                dem_block = re.search(r"Import\s+Demurrage.*?(?:1\s*-\s*(\d+)|Validity\s*period.*?1\s*-\s*(\d+))", card_text, re.IGNORECASE | re.DOTALL)
+                if dem_block:
+                    d_val = dem_block.group(1) or dem_block.group(2)
+                    if d_val: demurrage = int(d_val)
+
+                # Check for Import Detention block (e.g. 1 - 3 Free)
+                det_block = re.search(r"Import\s+Detention.*?(?:1\s*-\s*(\d+)|Validity\s*period.*?1\s*-\s*(\d+))", card_text, re.IGNORECASE | re.DOTALL)
+                if det_block:
+                    d_val = det_block.group(1) or det_block.group(2)
+                    if d_val: detention = int(d_val)
+
+                res["demurrage"] = demurrage
+                res["detention"] = detention
+
+                if demurrage > 0 or detention > 0:
+                    res["free_time"] = demurrage + detention
                 else:
-                    print("[MAERSK] Could not parse '1 - X' format from Import D&D tab.")
+                    match = re.search(r'1\s*-\s*(\d+)', card_text)
+                    if match:
+                        res["free_time"] = int(match.group(1))
+
+                print(f"[MAERSK] Extracted Free Time: {res['free_time']} days (Demurrage: {demurrage}d, Detention: {detention}d) from Import D&D tab.")
             else:
                 print("[MAERSK] 'Import D&D fees' tab not found or not visible.")
-            return None
+            return res
         except Exception as e:
             print(f"[MAERSK] Error extracting Free Time: {e}")
-            return None
+            return res
 
     async def extract_routing(self, card_locator, index: int) -> str | None:
         """

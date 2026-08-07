@@ -199,6 +199,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       ...rateColumns,
       { header: "T/T", key: "tt", width: 10 },
       { header: "Free time", key: "freetime", width: 12 },
+      { header: "Demurrage", key: "demurrage", width: 12 },
+      { header: "Detention", key: "detention", width: 12 },
       { header: "ETD POL", key: "validity", width: 16 },
       { header: "ETA POD", key: "eta", width: 16 },
       { header: "Validity Till", key: "validity_till", width: 16 },
@@ -275,6 +277,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             ...rates,
             tt: firstQuote.transit_time_days || "-",
             freetime: freeTimeVal,
+            demurrage: firstQuote.demurrage ? firstQuote.demurrage : "-",
+            detention: firstQuote.detention ? firstQuote.detention : "-",
             validity: formatDate(firstQuote.etd),
             eta: formatDate(firstQuote.eta),
             validity_till: formatDate(firstQuote.validity_till),
@@ -548,6 +552,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
                   <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Transit</th>
                   <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Free Time</th>
+                  <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Demurrage</th>
+                  <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Detention</th>
                   <th className="px-1 py-2 text-left text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Service / Vessel</th>
                   <th className="px-1 py-2 text-right text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">BOF</th>
                   <th className="px-1 py-2 text-right text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Discount</th>
@@ -596,6 +602,20 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                           {row.quote.free_time != null ? (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
                               {row.quote.free_time}d
+                            </span>
+                          ) : <span className="text-slate-400 dark:text-white/25 text-[11px]">—</span>}
+                        </td>
+                        <td className="px-1 py-2 text-center font-mono text-[11px]">
+                          {row.quote.demurrage ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
+                              {row.quote.demurrage}d
+                            </span>
+                          ) : <span className="text-slate-400 dark:text-white/25 text-[11px]">—</span>}
+                        </td>
+                        <td className="px-1 py-2 text-center font-mono text-[11px]">
+                          {row.quote.detention ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300">
+                              {row.quote.detention}d
                             </span>
                           ) : <span className="text-slate-400 dark:text-white/25 text-[11px]">—</span>}
                         </td>

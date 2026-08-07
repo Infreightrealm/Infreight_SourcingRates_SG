@@ -592,8 +592,8 @@ class MSCConnector(BaseCarrierConnector):
                             
                             charges.append(charge_obj)
                             
-                    # 3. Extract Free Time
-                    self.log("Extracting free time...")
+                    demurrage = 0
+                    detention = 0
                     try:
                         free_time_tab = modal.locator("text='Free Time'").first
                         if await free_time_tab.is_visible():
@@ -607,11 +607,19 @@ class MSCConnector(BaseCarrierConnector):
                                 except Exception:
                                     break
                             
-                            free_time_el = modal.locator("*:has-text('Import Combined')").last
-                            await free_time_el.wait_for(state="visible", timeout=5000)
                             popup_inner = await modal.inner_text(timeout=10000)
                             
-                            # Extract free time for Import Combined (handles "Working days", "Calendar days", "Working days without public holidays", etc.)
+                            # 1. Check for Import Terminal (Demurrage)
+                            terminal_match = re.search(r"Import\s+Terminal.*?(?:Free\s*Days\s*:?\s*|:\s*|\s+)(\d+)", popup_inner, re.IGNORECASE | re.DOTALL)
+                            if terminal_match:
+                                demurrage = int(terminal_match.group(1))
+
+                            # 2. Check for Import Client (Detention)
+                            client_match = re.search(r"Import\s+Client.*?(?:Free\s*Days\s*:?\s*|:\s*|\s+)(\d+)", popup_inner, re.IGNORECASE | re.DOTALL)
+                            if client_match:
+                                detention = int(client_match.group(1))
+
+                            # 3. Check for Import Combined (Combined Free Time)
                             match = re.search(r"Import\s+Combined.*?(?:Free\s*Days\s*:?\s*|:\s*|\s+)(\d+)", popup_inner, re.IGNORECASE | re.DOTALL)
                             if not match:
                                 match = re.search(r"Import.*?(?:Free\s*Days\s*:?\s*|:\s*|\s+)(\d+)", popup_inner, re.IGNORECASE | re.DOTALL)
@@ -620,7 +628,10 @@ class MSCConnector(BaseCarrierConnector):
 
                             if match:
                                 free_time = int(match.group(1))
-                                self.log(f"[MSC] Extracted Free Time: {free_time} days")
+                            elif demurrage > 0 or detention > 0:
+                                free_time = demurrage + detention
+
+                            self.log(f"[MSC] Extracted Free Time: {free_time} days (Demurrage: {demurrage}d, Detention: {detention}d)")
                     except Exception as e:
                         self.log(f"Failed to find Free Time text in popup: {e}")
 
@@ -732,6 +743,8 @@ class MSCConnector(BaseCarrierConnector):
                             eta=standardize_date_string(eta) if eta else None,
                             vessel=vessel,
                             free_time=free_time,
+                            demurrage=demurrage,
+                            detention=detention,
                             currency=currency,
                             container_type=container_type,
                             basic_ocean_freight=bof_value,

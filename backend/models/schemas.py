@@ -184,6 +184,8 @@ class QuoteSchema(BaseModel):
     vessel: Optional[str] = None
     routing: Optional[str] = "Direct"
     free_time: Optional[int] = None
+    demurrage: Optional[int] = 0
+    detention: Optional[int] = 0
     container_type: Optional[str] = None
     container_quantity: Optional[int] = None
     currency: str = "USD"
