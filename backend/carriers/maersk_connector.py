@@ -769,10 +769,19 @@ class MaerskConnector(BaseCarrierConnector):
             await self.page.wait_for_timeout(300)
             await field.type(query, delay=100)
             
-            await self.page.locator(selector).first.wait_for(state="attached", timeout=10000)
-            # INCREASED WAIT: Maersk API can take 2-4 seconds to return the final results for a query.
-            # If we scrape too early, we might only see partial/cached results (like Adena instead of Aden).
-            await self.page.wait_for_timeout(3500)
+            await self.page.locator(selector).first.wait_for(state="attached", timeout=8000)
+            # Dynamic wait: poll for suggestions to render instead of sleeping for 3.5s unconditionally
+            for _ in range(15):
+                try:
+                    sug_count = await self.page.locator(selector).count()
+                    if sug_count > 0:
+                        print(f"[MAERSK] Autocomplete suggestions ready ({sug_count} items found). Proceeding!")
+                        break
+                except Exception:
+                    pass
+                await self.page.wait_for_timeout(100)
+            else:
+                await self.page.wait_for_timeout(500)
             return True
         except Exception as e:
             print(f"[MAERSK] Autocomplete trigger failed: {e}")
@@ -803,11 +812,15 @@ class MaerskConnector(BaseCarrierConnector):
             except Exception as navigation_error:
                 print(f"[MAERSK] Navigation encountered an error/non-200 code: {navigation_error}")
                 print("[MAERSK] Proceeding anyway in case of Akamai/Cloudflare challenge rendering on 403...")
-            # Extra wait for MDS web components (<mc-input>, <mc-button>) to fully hydrate via JavaScript
-            await self.page.wait_for_timeout(5000)
+            # Dynamic wait for MDS web components or session redirect to settle
+            for _ in range(10):
+                if "login" not in self.page.url.lower() and "auth" not in self.page.url.lower():
+                    break
+                await self.page.wait_for_timeout(200)
+            else:
+                await self.page.wait_for_timeout(1000)
+                
             print(f"[MAERSK] Landed on: {self.page.url}")
-            
-            # Check if we are already logged in (cookie session remembered in chrome_profile)
             current_url = self.page.url
             
             is_logged_in = False
@@ -1366,17 +1379,23 @@ class MaerskConnector(BaseCarrierConnector):
 
                 # 1. Origin Port input (From)
                 origin_selectors = [
+                    'input#mc-input-origin',
+                    '#mc-input-origin input',
                     'input#mc-input-from',
+                    '#mc-input-from input',
                     'input[placeholder*="from" i]',
                     'input[placeholder*="Enter city or port" i]'
                 ]
                 origin_field = None
                 for selector in origin_selectors:
-                    field = self.page.locator(selector).first
-                    if await field.is_visible(timeout=4000):
-                        origin_field = field
-                        print(f"[MAERSK] Found Origin Port input field using: {selector}")
-                        break
+                    try:
+                        field = self.page.locator(selector).first
+                        if await field.is_visible(timeout=2000):
+                            origin_field = field
+                            print(f"[MAERSK] Found Origin Port input field using: {selector}")
+                            break
+                    except Exception:
+                        continue
                         
                 if origin_field:
                     suggestions_union = 'mc-option[role="option"], mc-option, li[role="option"], ul[role="listbox"] li, [class*="c-location-search" i] li, .c-location-search__result, [class*="location" i] [class*="result" i], [class*="suggestion" i] li'
@@ -1625,22 +1644,28 @@ class MaerskConnector(BaseCarrierConnector):
 
                 # 2. Destination Port input (To)
                 dest_selectors = [
+                    'input#mc-input-destination',
+                    '#mc-input-destination input',
                     'input#mc-input-to',
+                    '#mc-input-to input',
+                    'input[name="to" i]',
                     'input[placeholder*="to" i]',
                     'input[placeholder*="Enter city or port" i]'
                 ]
                 dest_field = None
                 for selector in dest_selectors:
-                    if selector == 'input[placeholder*="Enter city or port" i]':
-                        # The destination is the second such input field
-                        field = self.page.locator(selector).nth(1)
-                    else:
-                        field = self.page.locator(selector).first
-                        
-                    if await field.is_visible(timeout=4000):
-                        dest_field = field
-                        print(f"[MAERSK] Found Destination Port input field using: {selector}")
-                        break
+                    try:
+                        if selector == 'input[placeholder*="Enter city or port" i]':
+                            field = self.page.locator(selector).nth(1)
+                        else:
+                            field = self.page.locator(selector).first
+                            
+                        if await field.is_visible(timeout=2000):
+                            dest_field = field
+                            print(f"[MAERSK] Found Destination Port input field using: {selector}")
+                            break
+                    except Exception:
+                        continue
                         
                 if dest_field:
                     suggestions_union = 'mc-option[role="option"], mc-option, li[role="option"], ul[role="listbox"] li, [class*="c-location-search" i] li, .c-location-search__result, [class*="location" i] [class*="result" i], [class*="suggestion" i] li'
@@ -1997,22 +2022,27 @@ class MaerskConnector(BaseCarrierConnector):
                         await field.scroll_into_view_if_needed()
                         
                         # Wait dynamically for the container field to be enabled
-                        for _ in range(10):
+                        is_disabled = True
+                        for _ in range(6):
                             try:
                                 is_disabled = await field.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
                                 if not is_disabled:
                                     break
                             except Exception:
                                 pass
-                            await self.page.wait_for_timeout(500)
+                            await self.page.wait_for_timeout(300)
                         
+                        if is_disabled:
+                            print(f"[MAERSK] Card {idx} field is disabled on page. Bypassing card selection.")
+                            return False
+
                         # Check if already selected to avoid clicking it
                         current_val = await field.input_value()
                         if current_val and target_name.lower() in current_val.lower():
                             print(f"[MAERSK] Card {idx} already has '{current_val}' selected. Skipping dropdown selection.")
                         else:
-                            await field.click()
-                            await self.page.wait_for_timeout(1000)
+                            await field.click(timeout=3000)
+                            await self.page.wait_for_timeout(500)
                             
                             # Find option and click it
                             option_selectors = [
