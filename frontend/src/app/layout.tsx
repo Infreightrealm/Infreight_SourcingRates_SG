@@ -15,11 +15,12 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://frontend-production-a90a.up.railway.app"),
   icons: {
     icon: [
-      { url: "/infreight_logo.png", type: "image/png" },
-      { url: "/icon.png", type: "image/png" },
+      { url: "/infreight_logo.png?v=20260807", type: "image/png" },
+      { url: "/icon.png?v=20260807", type: "image/png" },
+      { url: "/favicon.ico?v=20260807" },
     ],
-    shortcut: "/infreight_logo.png",
-    apple: "/infreight_logo.png",
+    shortcut: "/infreight_logo.png?v=20260807",
+    apple: "/infreight_logo.png?v=20260807",
   },
   openGraph: {
     title: "Infreight | Ocean & Air Rate Automation",
