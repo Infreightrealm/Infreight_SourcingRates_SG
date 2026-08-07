@@ -890,15 +890,23 @@ class GreenXConnector(BaseCarrierConnector):
             dest_part = re.split(r"Tariff Free Time at Origin", dest_part, flags=re.IGNORECASE)[0]
             
             det_match = re.search(r"Container\s+Detention\s*[\r\n\t]*\s*(\d+)\s*Calendar\s+Days", dest_part, re.IGNORECASE)
-            if det_match:
-                quote_ref["free_time"] = int(det_match.group(1))
+            dem_match = re.search(r"Container\s+Demurrage\s*[\r\n\t]*\s*(\d+)\s*Calendar\s+Days", dest_part, re.IGNORECASE)
+
+            detention = int(det_match.group(1)) if det_match else 0
+            demurrage = int(dem_match.group(1)) if dem_match else 0
+
+            quote_ref["detention"] = detention
+            quote_ref["demurrage"] = demurrage
+
+            if demurrage > 0 or detention > 0:
+                quote_ref["free_time"] = demurrage + detention
             else:
-                fallback_match = re.search(r"Container\s+(?:Demurrage|Usage|Storage|Combined)\s*[\r\n\t]*\s*(\d+)\s*Calendar\s+Days", dest_part, re.IGNORECASE)
+                fallback_match = re.search(r"Container\s+(?:Usage|Storage|Combined)\s*[\r\n\t]*\s*(\d+)\s*Calendar\s+Days", dest_part, re.IGNORECASE)
                 if fallback_match:
                     quote_ref["free_time"] = int(fallback_match.group(1))
             
             if quote_ref.get("free_time") is not None:
-                print(f"[GreenX] Extracted destination free time for card {quote_ref['index']}: {quote_ref['free_time']} days")
+                print(f"[GreenX] Extracted destination free time for card {quote_ref['index']}: {quote_ref['free_time']} days (Demurrage: {demurrage}d, Detention: {detention}d)")
             
             return True
         except Exception as e:
@@ -1037,6 +1045,8 @@ class GreenXConnector(BaseCarrierConnector):
                 transit_time_days=local_raw_quote.get("transit_time_days"),
                 routing=local_raw_quote.get("routing", "Direct"),
                 free_time=free_time_int,
+                demurrage=local_raw_quote.get("demurrage", 0),
+                detention=local_raw_quote.get("detention", 0),
                 service_name=local_raw_quote.get("service_name"),
                 vessel=vessel,
                 currency=local_raw_quote.get("currency", "USD"),
