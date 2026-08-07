@@ -319,9 +319,9 @@ class OOCLConnector(BaseCarrierConnector):
                     f.write(html)
                 return CarrierResultStatus.TIMEOUT
                 
-            no_results = self.page.locator('text=/No schedule found/i, text=/no results/i').first
+            no_results = self.page.locator('text=/No schedule found/i, text=/no results/i, text=/Nearby Route Recommendations/i, text=/rates on nearby routes/i').first
             if await no_results.is_visible(timeout=2000):
-                print("[OOCL] No schedules found.")
+                print("[OOCL] No schedules found or page displays 'Nearby Route Recommendations'.")
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE
                 
             print("[OOCL] Results loaded successfully.")
@@ -335,6 +335,15 @@ class OOCLConnector(BaseCarrierConnector):
         quotes = []
         try:
             print("[OOCL] Extracting results...")
+            
+            # Check if page shows Nearby Route Recommendations banner
+            try:
+                nearby_check = self.page.locator('text=/Nearby Route Recommendations/i, text=/rates on nearby routes/i, text=/nearby route/i').first
+                if await nearby_check.is_visible(timeout=1000):
+                    print("[OOCL] Detected 'Nearby Route Recommendations'. Ignoring recommended alternate route.")
+                    return []
+            except Exception:
+                pass
             
             # Wait for the Search Result count text to appear and be stable
             result_count_locator = self.page.locator('span:has-text("Search Result:")')
@@ -1234,6 +1243,15 @@ class OOCLConnector(BaseCarrierConnector):
         # Initialize espot vessels tracking set
         if not hasattr(self, "espot_vessels") or self.espot_vessels is None:
             self.espot_vessels = set()
+
+        # Check if Nearby Route Recommendations is displayed anywhere in DOM or body text
+        try:
+            body_text = await page.locator("body").inner_text()
+            if "nearby route recommendations" in body_text.lower() or "rates on nearby routes" in body_text.lower():
+                print("[OOCL] [FS] Detected 'Nearby Route Recommendations' in body text. Bypassing alternate route cards.")
+                return []
+        except Exception:
+            pass
 
         # Retrieve active calendar date from the page
         active_date = None
