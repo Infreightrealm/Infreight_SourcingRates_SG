@@ -171,7 +171,7 @@
         "20GP": 7,
         "40GP": 7
     },
-    "italy_demurrage_detention_May.pdf": {
+    "Italy": {
         "20GP": 7,
         "40GP": 60
     },
@@ -207,7 +207,7 @@
         "20GP": 7,
         "40GP": 7
     },
-    "Republic of Ireland": {
+    "Republic Of Ireland": {
         "20GP": 6,
         "40GP": 6
     },
@@ -291,7 +291,7 @@
         "20GP": 12,
         "40GP": 12
     },
-    "HongKong": {
+    "Hongkong": {
         "20GP": 4,
         "40GP": 4
     },
@@ -371,7 +371,7 @@
         "20GP": 5,
         "40GP": 5
     },
-    "UAE": {
+    "Uae": {
         "20GP": 5,
         "40GP": 5
     },
@@ -403,7 +403,7 @@
         "20GP": 14,
         "40GP": 14
     },
-    "Democratic Republic of Congo": {
+    "Democratic Republic Of Congo": {
         "20GP": 32,
         "40GP": 32
     },
@@ -503,10 +503,6 @@
         "20GP": 12,
         "40GP": 12
     },
-    "Uganda Export": {
-        "20GP": 28,
-        "40GP": 28
-    },
     "Bahrain": {
         "20GP": 5,
         "40GP": 5
@@ -527,7 +523,7 @@
         "20GP": 35,
         "40GP": 35
     },
-    "USA": {
+    "Usa": {
         "20GP": 2,
         "40GP": 2
     },

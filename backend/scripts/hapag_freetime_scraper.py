@@ -64,7 +64,9 @@ async def scrape_hapag_freetime():
                     text_lower = text.lower()
                     href_lower = href.lower()
                         
-                    # Skip if it is strictly an EXPORT document (contains export but not import)
+                    # REQUIRE 'import' in text or link, and skip pure export documents
+                    if "import" not in text_lower and "import" not in href_lower:
+                        continue
                     if "export" in text_lower and "import" not in text_lower:
                         continue
                     if "export" in href_lower and "import" not in href_lower:
@@ -75,32 +77,49 @@ async def scrape_hapag_freetime():
                                any(word in href_lower for word in ["detention", "demurrage", "dnd", "dtd", "dmd", "mhd", "mho", "tariff"])
                     
                     if is_valid:
-                        # Calculate a priority score for this PDF to resolve duplicates
-                        priority = 0
-                        if "import" in text_lower or "import" in href_lower:
-                            priority += 10
-                        if any(word in text_lower or word in href_lower for word in ["detention", "dnd", "dtd", "mhd"]):
-                            priority += 5
+                        # Extract effective date timestamp from filename for duplicate resolution
+                        file_basename = href.split("/")[-1]
+                        date_match = re.search(r"(\d{8})", file_basename)
+                        date_score = 0
+                        if date_match:
+                            dstr = date_match.group(1) # MMDDYYYY or DDMMYYYY or YYYYMMDD
+                            if dstr.startswith("202"): # YYYYMMDD
+                                date_score = int(dstr)
+                            else: # MMDDYYYY or DDMMYYYY
+                                # Assume DDMMYYYY or MMDDYYYY: last 4 digits are year
+                                year = int(dstr[4:])
+                                month_day = int(dstr[:4])
+                                date_score = year * 10000 + month_day
+
                         # Clean up country name extraction robustly
-                        # E.g. "Albania Demurrage Detention Import"
-                        # E.g. "06012025_Barbados_Import_Detention_Demurrage.pdf"
+                        country = text.split("Detention")[0].split("Demurrage")[0].split("Import")[0].split("Export")[0].strip()
                         
-                        country = text.split("Detention")[0].split("Demurrage")[0].split("Import")[0].strip()
-                        
-                        if not country or len(country) < 3:
-                            file_name = href.split("/")[-1]
-                            country = file_name.split("_Detention")[0].split("_Demurrage")[0].split("_Import")[0].split("-Detention")[0].split("-Demurrage")[0].split("-Import")[0].split("_MHD")[0].split("_DMD")[0].strip()
-                            country = re.sub(r"^\d+_", "", country)
-                            country = country.replace("_", " ")
+                        if not country or len(country) < 3 or country.lower().endswith(".pdf"):
+                            clean_fname = file_basename
+                            clean_fname = re.sub(r"^\d+_", "", clean_fname)
+                            clean_fname = re.sub(r"\.pdf$", "", clean_fname, flags=re.IGNORECASE)
+                            parts = clean_fname.split("_")
+                            # Pick the first non-date, non-keyword part as country
+                            c_parts = []
+                            for p in parts:
+                                if p.lower() in ["import", "export", "detention", "demurrage", "dnd", "mhd", "dmd", "tariff", "guide", "policies", "may", "june", "july", "august"]:
+                                    break
+                                if not p.isdigit():
+                                    c_parts.append(p)
+                            country = " ".join(c_parts).strip()
                             
-                        # Edge case fallback for weird parsing
                         if country.lower() == "cambodia import detention":
                             country = "Cambodia"
+                        elif country.lower() == "italy demurrage detention":
+                            country = "Italy"
                             
-                        if not country:
+                        if not country or len(country) < 3:
                             print(f"Could not parse country from: {text} / {href}")
                             continue
-                            
+
+                        # Priority score: base priority + date_score
+                        priority = date_score + 100
+                        
                         if not href.startswith("http"):
                             href = "https://www.hapag-lloyd.com" + href
                             
@@ -108,7 +127,6 @@ async def scrape_hapag_freetime():
                         
                         print(f"Downloading PDF for {country} from {href}...")
                         
-                        # Actually, let's use page.request.get to download it directly using the authenticated session!
                         response = await page.request.get(href)
                         if response.status == 200:
                             body = await response.body()
@@ -116,17 +134,16 @@ async def scrape_hapag_freetime():
                                 f.write(body)
                             print(f"Saved {pdf_path}")
                             
-                            # Now parse it
                             freetimes = parse_hapag_pdf(pdf_path)
                             if freetimes:
-                                print(f"-> Found Freetime for {country}: {freetimes} (Priority: {priority})")
+                                print(f"-> Found Freetime for {country}: {freetimes} (Priority/DateScore: {priority})")
                                 existing_priority = freetime_priority.get(country, -1)
-                                if priority > existing_priority:
+                                if priority >= existing_priority:
                                     freetime_dict[country] = freetimes
                                     freetime_priority[country] = priority
-                                    print(f"   -> Saved/Overwrote as it has higher or equal priority.")
+                                    print(f"   -> Saved/Overwrote with latest effective version.")
                                 else:
-                                    print(f"   -> Ignored due to lower priority than existing ({existing_priority}).")
+                                    print(f"   -> Ignored due to older date than existing ({existing_priority}).")
                             else:
                                 print(f"-> Could not find Freetime in PDF for {country}")
                         else:
