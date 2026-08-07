@@ -5,6 +5,79 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 
 ---
 
+## [2026-08-07] — Carrier Specific Free Time, Demurrage/Detention Splitting, MSC CDD Surcharges, OOCL Nearby Route Filtering & Favicon Cache Busting
+
+### OOCL Nearby Route Recommendations Suppression (`oocl_connector.py`)
+- **Issue**: When searching routes where OOCL FreightSmart lacks direct coverage (e.g. `Jakarta -> Gebze`), OOCL displays a *"Nearby Route Recommendations"* header proposing alternate ports (e.g. `Jakarta -> Derince`). Previously, the connector extracted these alternate cards as valid quotes for the searched port.
+- **Fix**: Added DOM header and body text checks for `"Nearby Route Recommendations"` and `"rates on nearby routes"` across `search_quotes()`, `extract_quote_list()`, `_fs_run()`, and `_fs_extract_rows()`. When present, alternate route cards are suppressed, returning `CarrierResultStatus.NO_QUOTES_AVAILABLE` (0 quotes returned).
+
+### Favicon Cache Busting & Brand Icon (`layout.tsx`, `icon.png`, `favicon.ico`)
+- **Issue**: The browser tab displayed Next.js/Vercel's default black circle white triangle icon (`▲`) because Next.js App Router loaded `src/app/favicon.ico`. Browsers aggressively cached this icon for 30–90 days.
+- **Fix**: Replaced `src/app/favicon.ico`, `src/app/icon.png`, and `public/favicon.ico` with the official Infreight Logo image. Appended version query parameters (`/infreight_logo.png?v=20260807`) in `layout.tsx` to trigger instant client-side cache busting across all user browsers.
+
+### Hapag-Lloyd MHD (Merchant Haulage Detention) PDF Tariff Scraper (`hapag_freetime_scraper.py`, `hapag_freetime.json`)
+- **Issue**: The Hapag-Lloyd free time database contained outdated documents and export PDFs, and did not prioritize Merchant Haulage Detention (MHD) rules over standard detention.
+- **Fix**:
+  1. Updated PDF scraper to strictly filter `Import` documents, sort by effective date timestamps (retaining 2026/2027 valid documents), and sanitize slash characters in PDF filenames.
+  2. Prioritized **Merchant Haulage Detention (MHD)** tables/rules where calculation starts upon vessel discharge and ends upon empty container return at the designated interchange.
+  3. Regenerated `hapag_freetime.json` mapping **97 clean unique countries/regions**.
+
+### MSC Cargo Data Declaration [CDD] & Working Days Free Time (`msc_connector.py`)
+- **CDD Surcharge Calculation**: Extracted the `Cargo Data Declaration [CDD]` fee under Import surcharges and added it directly into the total freight calculation as an included freight surcharge while preserving uppercase bracket code formatting.
+- **Working Days Free Time**: Updated MSC free time parser to handle `"Working days without public holidays"` and non-calendar day formats.
+
+### Demurrage & Detention Split Fields Across System (`schema.py`, `msc_connector.py`, `maersk_connector.py`, `one_connector.py`, `greenx_connector.py`, `cma_connector.py`, `oocl_connector.py`, `ResultsTable.tsx`, `excel_export.py`)
+- **Feature**: Added dedicated `Demurrage` and `Detention` columns across Database schemas, backend carrier connectors, frontend search result tables, and Excel export files.
+- **Carrier Rules**:
+  - **MSC**: `Import Terminal` $\rightarrow$ Demurrage, `Import Client` $\rightarrow$ Detention, `Import Combined` $\rightarrow$ Free Time.
+  - **Maersk**: Extracted Demurrage & Detention tiers from `Import D&D fees` tab and card headers.
+  - **ONE**: Extracted Demurrage & Detention days from Special/Standard Free Time popups under Destination.
+  - **GreenX**: `Tariff Free Time at Destination Per Container` $\rightarrow$ `Container Detention` & `Container Demurrage`.
+  - **CMA CGM**: `Merged` import free time per container type (`20ST`, `40ST`, `40HC`).
+  - **OOCL**: Destination free time summary text (e.g. `"Destination DD2in1 10 CD"` $\rightarrow$ `10 days`).
+
+---
+
+## [2026-08-04 - 2026-08-06] — CMA CGM Dynamic RAMP/POD Rerouting, Brand Excel Styling, Port Synonym Matching & Tunnel Relays
+
+### CMA CGM Dynamic RAMP / POD Advisory Banner Detection (`cma_connector.py`)
+- **Issue**: For certain inland or feeder destinations (e.g. Jebel Ali `AEJEA`), CMA CGM SpotOn shows an advisory banner recommending alternative RAMP or POD routes (e.g. via Fujairah `AEJFR` / Khor Fakkan `AEKLF`), causing standard PORT search submissions to fail.
+- **Fix**: Added dynamic SpotOn advisory banner detection immediately after destination selection. The connector dynamically clears destination tags and switches search modes from PORT to RAMP/POD seamlessly. Added automatic Customer Account NVOCC role selection on the quoting form.
+
+### Brand-Aligned Excel Export Styling (`excel_export.py`)
+- **Feature**: Redesigned Excel export formatting to align with official corporate brand guidelines:
+  - Body text styled in official brand blue `#323296`.
+  - Header fill updated to brand orange `#FA8C3C` with clean black header text.
+  - Remarks formatted in bold navy `#2F5597`.
+  - Removed POL/POD cell fill backgrounds for clean presentation.
+
+### Dynamic Carrier Port Overrides & Admin Registry (`PortManager`, `AdminDashboard.tsx`)
+- **Feature**: Built a dedicated Admin Dashboard tab allowing administrators to register, amend, and persist custom city name and UN/LOCODE overrides dynamically in `PortManager`.
+- **Port Mismatch Engine Precision**: Resolved false-positive mismatch warnings for city synonyms (e.g. `Kochi / Cochin`, `Alexandria Dekheila`) and bracketed LOCODE matching. Added `_save_carrier_overrides` persistence method.
+
+### Railway WebSocket Tunnel Relay & Failover (`tunnel_client.py`, `run_tunnel_client.bat`, `FailoverFetch`)
+- **Architecture**: Implemented a production-grade Railway WebSocket Tunnel Relay service with local client script (`run_tunnel_client.bat`), primary backend failback recovery, visual toast notifications, and ngrok bandwidth fallback detection.
+- **OpenGraph & Metadata Branding**: Configured OpenGraph metadata and favicon icons to display the Infreight logo when sharing links on messaging platforms.
+
+---
+
+## [2026-07-28 - 2026-07-31] — GreenX Card Isolation, OOCL 28-Day Search Window, Multi-Route Batch Execution Engine & Admin Search History
+
+### GreenX (Evergreen) Card Isolation & Surcharge Parsing (`greenx_connector.py`)
+- **Card Container Isolation**: Fixed card container isolation (`book_cnt == 1`) to extract distinct ETD, ETA, Vessel, and Free Time for every container option (`20GP`, `40GP`, `40HQ`).
+- **Targeted Surcharges & Free Time**: Fixed multi-line regex locators for `EUIS`, `ISOCC`, `LSS`, `ENS`, and `EBKF` surcharges, and targeted `Destination Container Detention` calendar days strictly.
+
+### OOCL FreightSmart 28-Day Calendar Expansion (`oocl_connector.py`)
+- **Calendar Search Window**: Expanded default search window to 28 days and updated calendar navigation to scan from today onwards to capture all upcoming sailings. Fixed calendar month detection to prevent misclicking into September disabled dates.
+
+### Multi-Route Batch Execution Engine (`batch_engine.py`)
+- **Feature**: Built a continuous multi-route batch search engine that executes multi-destination queries sequentially and exports custom `.xlsx` reports organized per destination port sheet.
+
+### Admin User Search History & SGT GMT+8 Conversion (`AdminDashboard.tsx`)
+- **Feature**: Created search history tab with automatic conversion of UTC timestamps to local browser timezone (SGT GMT+8) and auto-seeding of default team accounts (Shaun, Brian, Pak, Operations, Sales, Pricing, Admin).
+
+---
+
 ## [2026-07-22] — Mode-Branching Required Field Validation & Total Weight Division Split
 
 ### Mode-Branching Required Fields Guardrail Fix (`rfq_agent.py`)
