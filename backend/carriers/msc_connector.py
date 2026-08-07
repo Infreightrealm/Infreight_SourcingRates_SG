@@ -572,18 +572,21 @@ class MSCConnector(BaseCarrierConnector):
                             # Preserve uppercase inside brackets like [CDD], [THC], [ECA]
                             formatted_name = re.sub(r'\[([a-zA-Z0-9]+)\]', lambda m: f'[{m.group(1).upper()}]', formatted_name)
                             
+                            is_cdd = "cargo data declaration" in clean_name.lower() or "[cdd]" in clean_name.lower()
+                            is_freight_surcharge = (section_name == "FREIGHT SURCHARGES") or is_cdd
+
                             charge_obj = {
                                 "name": formatted_name,
                                 "amount": val,
                                 "currency": curr,
-                                "category": "bof" if section_name == "FREIGHT CHARGE" else ("included" if section_name == "FREIGHT SURCHARGES" else "excluded")
+                                "category": "bof" if section_name == "FREIGHT CHARGE" else ("included" if is_freight_surcharge else "excluded")
                             }
                             
                             if section_name == "FREIGHT CHARGE":
                                 bof_value += val
                                 total_freight += val
                                 currency = curr
-                            elif section_name == "FREIGHT SURCHARGES":
+                            elif is_freight_surcharge:
                                 total_freight += val
                                 currency = curr
                             
