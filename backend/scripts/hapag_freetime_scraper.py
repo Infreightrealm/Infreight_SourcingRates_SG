@@ -123,7 +123,8 @@ async def scrape_hapag_freetime():
                         if not href.startswith("http"):
                             href = "https://www.hapag-lloyd.com" + href
                             
-                        pdf_path = os.path.join(scratch_dir, f"{country.replace(' ', '_')}.pdf")
+                        safe_country = country.replace("/", "_").replace("\\", "_").replace(" ", "_")
+                        pdf_path = os.path.join(scratch_dir, f"{safe_country}.pdf")
                         
                         print(f"Downloading PDF for {country} from {href}...")
                         
@@ -169,40 +170,48 @@ async def scrape_hapag_freetime():
 def parse_hapag_pdf(pdf_path: str):
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            first_page = pdf.pages[0]
-            
-            # Using extract_text and regex might be more robust than extract_table 
-            # because tables can span pages or have weird merged headers.
-            text = first_page.extract_text()
-            if not text:
-                return None
-                
-            lines = text.split("\n")
-            
+            mhd_freetime = None
             detention_freetime = None
             any_freetime = None
             
-            for i, line in enumerate(lines):
-                if "Freetime" in line:
-                    numbers = re.findall(r"\b\d{1,2}\b", line)
-                    if len(numbers) >= 2:
-                        ft = {
-                            "20GP": int(numbers[0]),
-                            "40GP": int(numbers[1])
-                        }
-                        
-                        # Check context (current line + 3 preceding lines) to see if this is specifically Detention
-                        context = " ".join(lines[max(0, i-3):i+1]).lower()
-                        is_detention = any(word in context for word in ["detention", "mhd", "dnd"])
-                        is_export = "export" in context and "import" not in context
-                        
-                        if is_detention and not is_export:
-                            detention_freetime = ft
+            for page in pdf.pages:
+                text = page.extract_text()
+                if not text:
+                    continue
+                    
+                lines = text.split("\n")
+                
+                for i, line in enumerate(lines):
+                    if "freetime" in line.lower() or "free time" in line.lower() or "mhd" in line.lower():
+                        numbers = re.findall(r"\b\d{1,2}\b", line)
+                        if len(numbers) >= 2:
+                            ft = {
+                                "20GP": int(numbers[0]),
+                                "40GP": int(numbers[1])
+                            }
                             
-                        if not any_freetime and not is_export:
-                            any_freetime = ft
+                            context = " ".join(lines[max(0, i-4):min(len(lines), i+3)]).lower()
+                            is_export = "export" in context and "import" not in context
                             
-            return detention_freetime or any_freetime
+                            if is_export:
+                                continue
+                                
+                            is_mhd = "mhd" in context or "merchant haulage" in context or "discharged from vessel" in context
+                            is_detention = any(word in context for word in ["detention", "dnd", "dtd", "dmd"])
+                            
+                            if is_mhd:
+                                mhd_freetime = ft
+                                break
+                            elif is_detention and not detention_freetime:
+                                detention_freetime = ft
+                            elif not any_freetime:
+                                any_freetime = ft
+                                
+                if mhd_freetime:
+                    break
+                    
+            # Priority: MHD (Merchant Haulage Detention) > Detention > Any Import Free Time
+            return mhd_freetime or detention_freetime or any_freetime
     except Exception as e:
         print(f"PDF Parsing error for {pdf_path}: {e}")
         return None
