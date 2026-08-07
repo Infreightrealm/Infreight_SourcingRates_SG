@@ -15,8 +15,8 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://frontend-production-a90a.up.railway.app"),
   icons: {
     icon: [
-      { url: "/infreight_logo.png" },
-      { url: "/favicon.ico" },
+      { url: "/infreight_logo.png", type: "image/png" },
+      { url: "/icon.png", type: "image/png" },
     ],
     shortcut: "/infreight_logo.png",
     apple: "/infreight_logo.png",
