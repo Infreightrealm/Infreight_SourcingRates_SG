@@ -157,9 +157,9 @@ async def get_rate_search(
                 validity_till=q.validity_till,
                 routing=q.raw_data_json.get("routing") if q.raw_data_json else "Direct",
 
-                free_time=getattr(q, "free_time", None) or (q.raw_data_json.get("free_time") if q.raw_data_json else None),
-                demurrage=getattr(q, "demurrage", 0) or (q.raw_data_json.get("demurrage", 0) if q.raw_data_json else 0),
-                detention=getattr(q, "detention", 0) or (q.raw_data_json.get("detention", 0) if q.raw_data_json else 0),
+                free_time=getattr(q, "free_time", None) if getattr(q, "free_time", None) is not None else (q.raw_data_json.get("free_time") if q.raw_data_json else None),
+                demurrage=getattr(q, "demurrage", None) if getattr(q, "demurrage", None) is not None else (q.raw_data_json.get("demurrage") if q.raw_data_json else None),
+                detention=getattr(q, "detention", None) if getattr(q, "detention", None) is not None else (q.raw_data_json.get("detention") if q.raw_data_json else None),
                 source=q.raw_data_json.get("source", "carrier_portal") if q.raw_data_json else "carrier_portal",
                 raw_reference=q.raw_data_json.get("ref") if q.raw_data_json else None,
             ))

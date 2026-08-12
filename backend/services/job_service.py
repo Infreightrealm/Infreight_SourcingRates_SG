@@ -294,9 +294,9 @@ async def run_carrier_search(
                     discount=q.discount,
                     final_freight_value=q.final_freight_value,
                     validity_till=q.validity_till,
-                    free_time=q.free_time or 0,
-                    demurrage=q.demurrage or 0,
-                    detention=q.detention or 0,
+                    free_time=q.free_time,
+                    demurrage=q.demurrage,
+                    detention=q.detention,
                     raw_data_json={
                         "source": q.source, 
                         "ref": q.raw_reference,

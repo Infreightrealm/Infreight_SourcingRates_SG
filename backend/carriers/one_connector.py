@@ -519,6 +519,12 @@ class ONEConnector(BaseCarrierConnector):
                     if opened:
                         raw_charges = await self.extract_charge_breakdown()
                         
+                    # Extract live Free Time from ONE Quote card popover
+                    idx = raw_quote.get("index", 0)
+                    quote_cards = self.page.locator('div[class*="NewQuoteSummary_body-card"]')
+                    card_loc = quote_cards.nth(idx) if await quote_cards.count() > idx else self.page.locator("body")
+                    raw_quote["_one_live_free_time"] = await self.extract_live_free_time(card_loc, idx)
+
                     # Split combined quotes by container types
                     split_quotes = await self._split_raw_quote_by_container_types(raw_quote, raw_charges)
                     if split_quotes:
@@ -732,7 +738,11 @@ class ONEConnector(BaseCarrierConnector):
                 )
                 print("[ONE] Equipment dropdown is now enabled.")
             except Exception:
-                print("[ONE] Timed out waiting for equipment dropdown — proceeding anyway.")
+                print("[ONE] Timed out waiting for equipment dropdown — force-enabling via JS...")
+                try:
+                    await self.page.evaluate("() => { document.querySelectorAll('[role=\"combobox\"]').forEach(el => { el.removeAttribute('disabled'); el.removeAttribute('readonly'); }); }")
+                except Exception:
+                    pass
             target_containers = ["DRY 20", "DRY 40", "DRY 40H"]
 
             # Helper function to fill a container card at index `idx`
@@ -1691,6 +1701,197 @@ class ONEConnector(BaseCarrierConnector):
             except Exception as re_err:
                 print(f"[ONE] Warning: failed to parse timeline routing: {re_err}")
 
+    @staticmethod
+    def _parse_free_time_text(text: str) -> dict:
+        """
+        Parses ONE QUOTE Free Time popover text.
+        Isolates Destination section first to ensure Destination free time is authoritative.
+        Supports combined DEM & DET and split Demurrage/Detention.
+        """
+        if not text:
+            return {"free_time": None, "demurrage": None, "detention": None, "mode": None}
+
+        scopes_to_try = []
+        dest_match = re.search(r"\bDestination\b", text, re.IGNORECASE)
+        if dest_match:
+            dest_text = text[dest_match.start():]
+            footer_match = re.search(r"(\*?\s*ONE\s+QUOTE|For\s+details)", dest_text, re.IGNORECASE)
+            if footer_match:
+                dest_text = dest_text[:footer_match.start()]
+            scopes_to_try.append(dest_text)
+
+        scopes_to_try.append(text)
+
+        for scope in scopes_to_try:
+            # 1. Combined DEM & DET pattern
+            combined_pattern = r"\bCombined\s+(?:DEM(?:URRAGE)?|Demurrage)\s*&\s*(?:DET(?:ENTION)?|Detention)\s*:?\s*(\d+)\s*Days?\b"
+            m_comb = re.search(combined_pattern, scope, re.IGNORECASE)
+            if m_comb:
+                ft = int(m_comb.group(1))
+                return {
+                    "free_time": ft,
+                    "demurrage": None,
+                    "detention": None,
+                    "mode": "combined",
+                }
+
+            # 2. Split Demurrage & Detention pattern
+            dem_pattern = r"\bDemurrage\b\s*:?\s*(\d+)\s*Days?\b"
+            det_pattern = r"\bDetention\b\s*:?\s*(\d+)\s*Days?\b"
+
+            m_dem = re.search(dem_pattern, scope, re.IGNORECASE)
+            m_det = re.search(det_pattern, scope, re.IGNORECASE)
+
+            if m_dem and m_det:
+                dem = int(m_dem.group(1))
+                det = int(m_det.group(1))
+                return {
+                    "free_time": dem + det,
+                    "demurrage": dem,
+                    "detention": det,
+                    "mode": "split",
+                }
+            elif m_dem:
+                dem = int(m_dem.group(1))
+                return {
+                    "free_time": dem,
+                    "demurrage": dem,
+                    "detention": None,
+                    "mode": "split",
+                }
+            elif m_det:
+                det = int(m_det.group(1))
+                return {
+                    "free_time": det,
+                    "demurrage": None,
+                    "detention": det,
+                    "mode": "split",
+                }
+
+        return {"free_time": None, "demurrage": None, "detention": None, "mode": None}
+
+    async def _get_visible_popover_text(self) -> str:
+        pop_selectors = [
+            'div[class*="popover" i]',
+            'div[class*="FreeTimeModal" i]',
+            'div[class*="FreeTime" i]',
+            'div[class*="MuiPopover" i]',
+            'div[class*="modal" i]',
+            'div[class*="Modal" i]',
+            'div[class*="paper" i]',
+            'div[class*="Paper" i]',
+            '[role="tooltip"]',
+            '[role="dialog"]',
+        ]
+        for sel in pop_selectors:
+            locs = self.page.locator(sel)
+            for i in range(await locs.count()):
+                l = locs.nth(i)
+                try:
+                    if await l.is_visible():
+                        txt = (await l.inner_text()).strip()
+                        if any(k in txt for k in ["Demurrage", "Detention", "Combined DEM", "Free Time"]):
+                            return txt
+                except Exception:
+                    continue
+
+        anchors = self.page.locator('text=/Free Time Information/i, text=/Combined DEM/i, text=/Special Free Time/i')
+        for i in range(await anchors.count()):
+            anc = anchors.nth(i)
+            try:
+                if await anc.is_visible():
+                    ancestor = anc.locator(
+                        'xpath=ancestor::div[contains(@class, "popover") or contains(@class, "Modal") or contains(@class, "modal") or contains(@class, "Paper") or contains(@class, "paper") or contains(@class, "card") or contains(@class, "Container") or contains(@class, "Mui") or @role="tooltip" or @role="dialog"] | xpath=ancestor::div[3]'
+                    ).first
+                    if await ancestor.is_visible():
+                        txt = (await ancestor.inner_text()).strip()
+                        if any(k in txt for k in ["Demurrage", "Detention", "Combined DEM", "Free Time"]):
+                            return txt
+            except Exception:
+                continue
+
+        try:
+            body_txt = await self.page.locator("body").inner_text()
+            if "ONE QUOTE Free Time Information" in body_txt or "Combined DEM & DET" in body_txt:
+                m = re.search(r"(ONE\s+QUOTE\s+Free\s+Time\s+Information[\s\S]*?)(?:\*ONE|\n\n\n|$)", body_txt, re.IGNORECASE)
+                if m:
+                    return m.group(1)
+        except Exception:
+            pass
+
+        return ""
+
+    async def extract_live_free_time(self, card_locator, index: int) -> dict:
+        _one_debug = os.getenv("ONE_DEBUG", "").lower() == "true"
+        parsed = {"free_time": None, "demurrage": None, "detention": None, "mode": None}
+        try:
+            triggers = card_locator.locator(
+                '[class*="freeTime" i], [class*="FreeTime" i], [class*="freetime" i], '
+                'button:has-text("Free Time"), button:has-text("Special"), '
+                'button:not(:has-text("Accept")):not(:has-text("Details"))'
+            )
+            cnt = await triggers.count()
+            trigger = None
+            if cnt > 0:
+                trigger = triggers.first
+            else:
+                page_triggers = self.page.locator(
+                    '[class*="freeTime" i], [class*="FreeTime" i], [class*="freetime" i], '
+                    'button:has-text("Free Time"), button:has-text("Special")'
+                )
+                if await page_triggers.count() > index:
+                    trigger = page_triggers.nth(index)
+
+            if trigger:
+                try:
+                    await trigger.scroll_into_view_if_needed()
+                    await trigger.hover(force=True, timeout=2000)
+                    await self.page.wait_for_timeout(600)
+                except Exception as h_err:
+                    if _one_debug:
+                        print(f"[ONE] Quote {index}: Hover failed: {h_err}")
+
+                pop_text = await self._get_visible_popover_text()
+
+                if not pop_text:
+                    try:
+                        await trigger.click(force=True, timeout=2000)
+                        await self.page.wait_for_timeout(800)
+                        pop_text = await self._get_visible_popover_text()
+                    except Exception as c_err:
+                        if _one_debug:
+                            print(f"[ONE] Quote {index}: Click fallback failed: {c_err}")
+
+                if _one_debug and not pop_text:
+                    visible_elements_text = await self.page.evaluate("""() => {
+                        return Array.from(document.querySelectorAll('*'))
+                            .filter(el => {
+                                const style = window.getComputedStyle(el);
+                                return style && style.display !== 'none' && style.visibility !== 'hidden' && el.innerText;
+                            })
+                            .map(el => el.innerText.trim())
+                            .filter(t => t.includes('Free Time') || t.includes('Demurrage') || t.includes('Detention') || t.includes('Combined') || t.includes('Days'))
+                            .slice(0, 15);
+                    }""")
+                    print(f"[ONE DEBUG] Visible free time candidates on page for quote {index}: {visible_elements_text}")
+
+                if pop_text:
+                    parsed = self._parse_free_time_text(pop_text)
+                    if _one_debug:
+                        print(f"[ONE] Live Free Time extracted (quote {index}, mode={parsed.get('mode')}): total={parsed.get('free_time')}, demurrage={parsed.get('demurrage')}, detention={parsed.get('detention')}")
+                else:
+                    if _one_debug:
+                        print(f"[ONE] Quote {index}: Popover text not found after hover/click")
+            else:
+                if _one_debug:
+                    print(f"[ONE] Quote {index}: Free Time trigger button not found")
+
+        except Exception as e:
+            if _one_debug:
+                print(f"[ONE] Exception during live free time extraction for quote {index}: {e}")
+
+        return parsed
+
     async def normalize_result(self, raw_quote, raw_charges):
 
 
@@ -1789,7 +1990,16 @@ class ONEConnector(BaseCarrierConnector):
                             print(f"[ONE] Successfully mapped offline Inbound Freetime: {dest_country} <- {origin_continent} = {fd} days")
             except Exception as e:
                 print(f"[ONE] Warning: Failed to apply freetime from cache: {e}")
-                
+
+        # Override with live free time if extracted from popover
+        live_ft = raw_quote.get("_one_live_free_time")
+        if live_ft and live_ft.get("free_time") is not None:
+            quote_schema.free_time = live_ft["free_time"]
+            quote_schema.demurrage = live_ft.get("demurrage")
+            quote_schema.detention = live_ft.get("detention")
+            if os.getenv("ONE_DEBUG", "").lower() == "true":
+                print(f"[ONE] Applied LIVE quote Free Time override: total={quote_schema.free_time}, demurrage={quote_schema.demurrage}, detention={quote_schema.detention}")
+
         return quote_schema
 
     async def _split_raw_quote_by_container_types(self, raw_quote: dict, raw_charges: list[dict]) -> list[QuoteSchema]:
