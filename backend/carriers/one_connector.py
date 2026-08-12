@@ -1704,69 +1704,72 @@ class ONEConnector(BaseCarrierConnector):
     @staticmethod
     def _parse_free_time_text(text: str) -> dict:
         """
-        Parses ONE QUOTE Free Time popover text.
-        Isolates Destination section first to ensure Destination free time is authoritative.
+        Parses ONE QUOTE Free Time popover text for DESTINATION ONLY.
+        Ignores Origin free time completely.
         Supports combined DEM & DET and split Demurrage/Detention.
         """
         if not text:
             return {"free_time": None, "demurrage": None, "detention": None, "mode": None}
 
-        scopes_to_try = []
+        # Isolate Destination section
         dest_match = re.search(r"\bDestination\b", text, re.IGNORECASE)
         if dest_match:
             dest_text = text[dest_match.start():]
             footer_match = re.search(r"(\*?\s*ONE\s+QUOTE|For\s+details)", dest_text, re.IGNORECASE)
             if footer_match:
                 dest_text = dest_text[:footer_match.start()]
-            scopes_to_try.append(dest_text)
+            target_text = dest_text
+        else:
+            # If no "Destination" header, check if "Origin" header exists
+            # If "Origin" header exists without "Destination", this popover only contains Origin info -> ignore it!
+            if re.search(r"\bOrigin\b", text, re.IGNORECASE):
+                return {"free_time": None, "demurrage": None, "detention": None, "mode": None}
+            target_text = text
 
-        scopes_to_try.append(text)
+        # 1. Combined DEM & DET pattern
+        combined_pattern = r"\bCombined\s+(?:DEM(?:URRAGE)?|Demurrage)\s*&\s*(?:DET(?:ENTION)?|Detention)\s*:?\s*(\d+)\s*Days?\b"
+        m_comb = re.search(combined_pattern, target_text, re.IGNORECASE)
+        if m_comb:
+            ft = int(m_comb.group(1))
+            return {
+                "free_time": ft,
+                "demurrage": None,
+                "detention": None,
+                "mode": "combined",
+            }
 
-        for scope in scopes_to_try:
-            # 1. Combined DEM & DET pattern
-            combined_pattern = r"\bCombined\s+(?:DEM(?:URRAGE)?|Demurrage)\s*&\s*(?:DET(?:ENTION)?|Detention)\s*:?\s*(\d+)\s*Days?\b"
-            m_comb = re.search(combined_pattern, scope, re.IGNORECASE)
-            if m_comb:
-                ft = int(m_comb.group(1))
-                return {
-                    "free_time": ft,
-                    "demurrage": None,
-                    "detention": None,
-                    "mode": "combined",
-                }
+        # 2. Split Demurrage & Detention pattern
+        dem_pattern = r"\bDemurrage\b\s*:?\s*(\d+)\s*Days?\b"
+        det_pattern = r"\bDetention\b\s*:?\s*(\d+)\s*Days?\b"
 
-            # 2. Split Demurrage & Detention pattern
-            dem_pattern = r"\bDemurrage\b\s*:?\s*(\d+)\s*Days?\b"
-            det_pattern = r"\bDetention\b\s*:?\s*(\d+)\s*Days?\b"
+        m_dem = re.search(dem_pattern, target_text, re.IGNORECASE)
+        m_det = re.search(det_pattern, target_text, re.IGNORECASE)
 
-            m_dem = re.search(dem_pattern, scope, re.IGNORECASE)
-            m_det = re.search(det_pattern, scope, re.IGNORECASE)
-
-            if m_dem and m_det:
-                dem = int(m_dem.group(1))
-                det = int(m_det.group(1))
-                return {
-                    "free_time": dem + det,
-                    "demurrage": dem,
-                    "detention": det,
-                    "mode": "split",
-                }
-            elif m_dem:
-                dem = int(m_dem.group(1))
-                return {
-                    "free_time": dem,
-                    "demurrage": dem,
-                    "detention": None,
-                    "mode": "split",
-                }
-            elif m_det:
-                det = int(m_det.group(1))
-                return {
-                    "free_time": det,
-                    "demurrage": None,
-                    "detention": det,
-                    "mode": "split",
-                }
+        if m_dem and m_det:
+            dem = int(m_dem.group(1))
+            det = int(m_det.group(1))
+            return {
+                "free_time": dem + det,
+                "demurrage": dem,
+                "detention": det,
+                "mode": "split",
+            }
+        elif m_dem:
+            dem = int(m_dem.group(1))
+            return {
+                "free_time": dem,
+                "demurrage": dem,
+                "detention": None,
+                "mode": "split",
+            }
+        elif m_det:
+            det = int(m_det.group(1))
+            return {
+                "free_time": det,
+                "demurrage": None,
+                "detention": det,
+                "mode": "split",
+            }
 
         return {"free_time": None, "demurrage": None, "detention": None, "mode": None}
 

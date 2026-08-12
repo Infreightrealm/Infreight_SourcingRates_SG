@@ -34,3 +34,12 @@ def test_one_free_time_parser_test_c():
     assert res["demurrage"] == 6
     assert res["detention"] == 5
     assert res["mode"] == "split"
+
+
+def test_one_free_time_parser_origin_only_ignored():
+    text = "Origin Demurrage 6 Days Detention 5 Days"
+    res = ONEConnector._parse_free_time_text(text)
+    assert res["free_time"] is None
+    assert res["demurrage"] is None
+    assert res["detention"] is None
+    assert res["mode"] is None
