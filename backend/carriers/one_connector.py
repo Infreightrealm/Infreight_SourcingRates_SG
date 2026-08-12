@@ -1828,36 +1828,90 @@ class ONEConnector(BaseCarrierConnector):
         _one_debug = os.getenv("ONE_DEBUG", "").lower() == "true"
         parsed = {"free_time": None, "demurrage": None, "detention": None, "mode": None}
         try:
-            # Precise selector for ONE Quote Free Time trigger
-            # Explicitly match Free Time elements and avoid voyage/MD1/Accept/Details buttons
-            triggers = card_locator.locator(
-                '[class*="freeTime" i], [class*="FreeTime" i], [class*="freetime" i], '
-                'button:has-text("Free Time"), button:has-text("FreeTime"), '
-                'span:has-text("Free Time"), [role="button"]:has-text("Free Time")'
-            )
-            cnt = await triggers.count()
+            # 1. Broad multi-level selector for Free Time trigger on the card
+            trigger_selectors = [
+                '[class*="free" i]',
+                '[class*="freetime" i]',
+                '[class*="FreeTime" i]',
+                '[class*="SpecialFree" i]',
+                '[class*="StandardFree" i]',
+                'button:has-text("Free Time")',
+                'span:has-text("Free Time")',
+                'div:has-text("Free Time")',
+                '[title*="Free Time" i]',
+                '[aria-label*="Free Time" i]',
+            ]
+            
             trigger = None
-            if cnt > 0:
-                trigger = triggers.first
-            else:
-                page_triggers = self.page.locator(
-                    '[class*="freeTime" i], [class*="FreeTime" i], [class*="freetime" i], '
-                    'button:has-text("Free Time"), span:has-text("Free Time")'
-                )
-                if await page_triggers.count() > index:
-                    trigger = page_triggers.nth(index)
+            for sel in trigger_selectors:
+                try:
+                    loc = card_locator.locator(sel).first
+                    if await loc.count() > 0 and await loc.is_visible(timeout=500):
+                        trigger = loc
+                        if _one_debug:
+                            print(f"[ONE] Quote {index}: Matched Free Time trigger via selector '{sel}'")
+                        break
+                except Exception:
+                    continue
+
+            # 2. JS fallback: Find element next to Details button or containing free time keywords
+            if not trigger:
+                try:
+                    js_handle = await card_locator.evaluate_handle("""(cardEl) => {
+                        const allEls = Array.from(cardEl.querySelectorAll('*'));
+                        for (const el of allEls) {
+                            const cls = (el.className || '').toString().toLowerCase();
+                            const txt = (el.innerText || '').toLowerCase();
+                            const title = (el.getAttribute('title') || '').toLowerCase();
+                            const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                            if (cls.includes('free') || cls.includes('freetime') || txt.includes('free time') || title.includes('free time') || aria.includes('free time')) {
+                                return el;
+                            }
+                        }
+                        const detailsBtn = Array.from(cardEl.querySelectorAll('button, a, span, div')).find(e => (e.innerText || '').trim() === 'Details');
+                        if (detailsBtn && detailsBtn.nextElementSibling) {
+                            return detailsBtn.nextElementSibling;
+                        }
+                        if (detailsBtn && detailsBtn.parentElement && detailsBtn.parentElement.nextElementSibling) {
+                            return detailsBtn.parentElement.nextElementSibling;
+                        }
+                        return null;
+                    }""")
+                    element = js_handle.as_element()
+                    if element and await element.is_visible():
+                        trigger = element
+                        if _one_debug:
+                            print(f"[ONE] Quote {index}: Matched Free Time trigger via JS DOM inspection")
+                except Exception as js_err:
+                    if _one_debug:
+                        print(f"[ONE] Quote {index}: JS DOM inspection failed: {js_err}")
 
             if trigger:
+                # Dispatch JS mouseover + mouseenter events first to trigger React state
+                try:
+                    await trigger.evaluate("""el => {
+                        el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+                        el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+                    }""")
+                except Exception:
+                    pass
+
+                # Playwright physical mouse hover
                 try:
                     await trigger.scroll_into_view_if_needed()
-                    await trigger.hover(force=True, timeout=2000)
-                    await self.page.wait_for_timeout(600)
+                    box = await trigger.bounding_box()
+                    if box:
+                        await self.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                    else:
+                        await trigger.hover(force=True, timeout=2000)
+                    await self.page.wait_for_timeout(800)
                 except Exception as h_err:
                     if _one_debug:
                         print(f"[ONE] Quote {index}: Hover failed: {h_err}")
 
                 pop_text = await self._get_visible_popover_text()
 
+                # Fallback: physical click if hover didn't reveal popover
                 if not pop_text:
                     try:
                         await trigger.click(force=True, timeout=2000)
@@ -1889,7 +1943,7 @@ class ONEConnector(BaseCarrierConnector):
                         print(f"[ONE] Quote {index}: Popover text not found after hover/click")
             else:
                 if _one_debug:
-                    print(f"[ONE] Quote {index}: Free Time trigger button not found")
+                    print(f"[ONE] Quote {index}: Free Time trigger button not found on card")
 
         except Exception as e:
             if _one_debug:
