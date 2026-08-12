@@ -1381,7 +1381,7 @@ class CMAConnector(BaseCarrierConnector):
                     await self._human_delay(1000, 1500)
                     
                     # Scoped JS evaluation to parse the D&D table and sum Demurrage and Detention days for each container size
-                    free_times = await card.evaluate('''card => {
+                    free_time_data = await card.evaluate('''card => {
                         const tables = Array.from(card.querySelectorAll('table'));
                         let importTable = null;
                         
@@ -1418,15 +1418,16 @@ class CMAConnector(BaseCarrierConnector):
                         });
                         
                         const res = {
-                            'DRY 20': 0,
-                            'DRY 40': 0,
-                            'DRY 40H': 0
+                            free_times: { 'DRY 20': 0, 'DRY 40': 0, 'DRY 40H': 0 },
+                            demurrage_times: { 'DRY 20': 0, 'DRY 40': 0, 'DRY 40H': 0 },
+                            detention_times: { 'DRY 20': 0, 'DRY 40': 0, 'DRY 40H': 0 }
                         };
                         
                         for (let r = 1; r < rows.length; r++) {
                             const cells = Array.from(rows[r].querySelectorAll('td, th')).map(el => el.innerText.trim());
                             if (cells.length < 3) continue;
                             
+                            const chargeType = (cells[colIndices.charge] || '').toUpperCase();
                             const sizeType = (cells[colIndices.sizeType] || '').toUpperCase();
                             const duration = parseInt(cells[colIndices.duration] || '0', 10);
                             if (isNaN(duration) || duration <= 0) continue;
@@ -1441,30 +1442,49 @@ class CMAConnector(BaseCarrierConnector):
                             }
                             
                             if (containerKey) {
-                                res[containerKey] += duration;
+                                res.free_times[containerKey] += duration;
+                                if (chargeType.includes('DEMURRAGE') || chargeType === 'DEM') {
+                                    res.demurrage_times[containerKey] += duration;
+                                } else if (chargeType.includes('DETENTION') || chargeType === 'DET') {
+                                    res.detention_times[containerKey] += duration;
+                                }
                             }
                         }
                         return res;
                     }''')
                     
-                    if free_times:
-                        quote_ref["free_times"] = free_times
-                        # Maintain a fallback flat free_time for safety, using DRY 40H as default
-                        quote_ref["free_time"] = free_times.get("DRY 40H") or free_times.get("DRY 40") or free_times.get("DRY 20")
-                        print(f"[CMA] Extracted container-specific D&D free times: {free_times}")
+                    if free_time_data and isinstance(free_time_data, dict):
+                        free_times = free_time_data.get("free_times") or {}
+                        demurrage_times = free_time_data.get("demurrage_times") or {}
+                        detention_times = free_time_data.get("detention_times") or {}
+                        
+                        if any(v > 0 for v in free_times.values()):
+                            quote_ref["free_times"] = free_times
+                            quote_ref["demurrage_times"] = demurrage_times
+                            quote_ref["detention_times"] = detention_times
+                            
+                            quote_ref["free_time"] = free_times.get("DRY 40H") or free_times.get("DRY 40") or free_times.get("DRY 20")
+                            quote_ref["demurrage"] = demurrage_times.get("DRY 40H") or demurrage_times.get("DRY 40") or demurrage_times.get("DRY 20") or None
+                            quote_ref["detention"] = detention_times.get("DRY 40H") or detention_times.get("DRY 40") or detention_times.get("DRY 20") or None
+                            print(f"[CMA] Extracted container D&D free_times={free_times}, demurrage={demurrage_times}, detention={detention_times}")
                     else:
                         print("[CMA] D&D tab table not found/parsed. Attempting regex fallback.")
-                        # Regex fallback for flat string match if table parsing failed
                         dd_text = await card.inner_text()
-                        match = re.search(r'Import free time.*?(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
-                        if match:
-                            quote_ref["free_time"] = int(match.group(1))
-                            quote_ref["free_times"] = {
-                                "DRY 20": quote_ref["free_time"],
-                                "DRY 40": quote_ref["free_time"],
-                                "DRY 40H": quote_ref["free_time"]
-                            }
-                            print(f"[CMA] Extracted Fallback Import Free Time: {quote_ref['free_time']} days")
+                        dem_match = re.search(r'Demurrage.*?(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
+                        det_match = re.search(r'Detention.*?(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
+                        merged_match = re.search(r'Import free time.*?(\d+)\s+Calendar', dd_text, re.IGNORECASE | re.DOTALL)
+                        
+                        dem_val = int(dem_match.group(1)) if dem_match else None
+                        det_val = int(det_match.group(1)) if det_match else None
+                        
+                        if dem_val or det_val:
+                            quote_ref["demurrage"] = dem_val
+                            quote_ref["detention"] = det_val
+                            quote_ref["free_time"] = (dem_val or 0) + (det_val or 0)
+                        elif merged_match:
+                            quote_ref["free_time"] = int(merged_match.group(1))
+                            quote_ref["demurrage"] = None
+                            quote_ref["detention"] = None
             except Exception as e:
                 print(f"[CMA] Error extracting free time from D&D: {e}")
 
@@ -1754,6 +1774,8 @@ class CMAConnector(BaseCarrierConnector):
             transit_time_days=raw_quote.get("transit_time_days"),
             routing=raw_quote.get("routing", "Direct"),
             free_time=raw_quote.get("free_time"),
+            demurrage=raw_quote.get("demurrage"),
+            detention=raw_quote.get("detention"),
             container_type=raw_quote.get("container_type"),
             container_quantity=raw_quote.get("container_quantity", 1),
             service_name=raw_quote.get("service_name"),
@@ -1815,9 +1837,15 @@ class CMAConnector(BaseCarrierConnector):
             local_raw_quote = raw_quote.copy()
             local_raw_quote["container_type"] = std_ct
 
-            # Extract specific free time if present
+            # Extract specific free time, demurrage, and detention if present
             if "free_times" in raw_quote and isinstance(raw_quote["free_times"], dict):
                 local_raw_quote["free_time"] = raw_quote["free_times"].get(std_ct)
+            if "demurrage_times" in raw_quote and isinstance(raw_quote["demurrage_times"], dict):
+                dem_val = raw_quote["demurrage_times"].get(std_ct)
+                local_raw_quote["demurrage"] = dem_val if dem_val and dem_val > 0 else None
+            if "detention_times" in raw_quote and isinstance(raw_quote["detention_times"], dict):
+                det_val = raw_quote["detention_times"].get(std_ct)
+                local_raw_quote["detention"] = det_val if det_val and det_val > 0 else None
 
             # Normalize using the local method
             normalized = await self.normalize_result(local_raw_quote, split_raw_charges)
