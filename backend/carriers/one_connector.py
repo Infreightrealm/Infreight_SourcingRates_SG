@@ -1828,10 +1828,12 @@ class ONEConnector(BaseCarrierConnector):
         _one_debug = os.getenv("ONE_DEBUG", "").lower() == "true"
         parsed = {"free_time": None, "demurrage": None, "detention": None, "mode": None}
         try:
+            # Precise selector for ONE Quote Free Time trigger
+            # Explicitly match Free Time elements and avoid voyage/MD1/Accept/Details buttons
             triggers = card_locator.locator(
                 '[class*="freeTime" i], [class*="FreeTime" i], [class*="freetime" i], '
-                'button:has-text("Free Time"), button:has-text("Special"), '
-                'button:not(:has-text("Accept")):not(:has-text("Details"))'
+                'button:has-text("Free Time"), button:has-text("FreeTime"), '
+                'span:has-text("Free Time"), [role="button"]:has-text("Free Time")'
             )
             cnt = await triggers.count()
             trigger = None
@@ -1840,7 +1842,7 @@ class ONEConnector(BaseCarrierConnector):
             else:
                 page_triggers = self.page.locator(
                     '[class*="freeTime" i], [class*="FreeTime" i], [class*="freetime" i], '
-                    'button:has-text("Free Time"), button:has-text("Special")'
+                    'button:has-text("Free Time"), span:has-text("Free Time")'
                 )
                 if await page_triggers.count() > index:
                     trigger = page_triggers.nth(index)
