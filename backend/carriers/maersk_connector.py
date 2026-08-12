@@ -27,6 +27,10 @@ SIZE_TYPE_MAP = {
     "DRY 45": "45' High Cube Dry",
 }
 
+# Any "rate" below this is a parse artefact (badges, fees, compensation
+# amounts), not an ocean freight price. Tune per trade if needed.
+MIN_PLAUSIBLE_OCEAN_RATE = 50.0
+
 
 def extract_locode_and_country(text: str) -> tuple[Optional[str], Optional[str]]:
     """Extracts LOCODE and country name from text like 'CASABLANCA, MOROCCO (MACAS)'."""
@@ -319,9 +323,37 @@ class MaerskConnector(BaseCarrierConnector):
                         else:
                             vessel_name = f"{vessel_name} (Not open)"
                     else:
-                        # Extract price
-                        price_match = re.search(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", card_text, re.IGNORECASE)
-                        price = float(price_match.group(1).replace(",", "")) if price_match else 0.0
+                        # Extract price. The Maersk Spot Rollable card carries a compensation
+                        # badge ("Get USD 15 per container if rolled") ABOVE the real price,
+                        # so a first-match regex over card_text picks up 15 as the freight value.
+                        price = 0.0
+
+                        # Preferred: the dedicated price element inside this card.
+                        try:
+                            price_el = card.locator(
+                                '[data-test="product-offer-price"], .product-offer-price'
+                            ).first
+                            price_text = (await price_el.inner_text(timeout=2000)).strip()
+                            if "if rolled" not in price_text.lower():
+                                m = re.search(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", price_text, re.IGNORECASE)
+                                if m:
+                                    price = float(m.group(1).replace(",", ""))
+                        except Exception:
+                            pass
+
+                        # Fallback: card text with rollable-badge lines stripped out.
+                        if price <= 0:
+                            safe_text = "\n".join(
+                                ln for ln in card_text.splitlines()
+                                if "if rolled" not in ln.lower() and "may be rolled" not in ln.lower()
+                            )
+                            for v in re.findall(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", safe_text, re.IGNORECASE):
+                                candidate = float(v.replace(",", ""))
+                                if candidate >= MIN_PLAUSIBLE_OCEAN_RATE:
+                                    price = candidate
+                                    break
+                                print(f"[MAERSK] Discarding implausible price {candidate} USD "
+                                      f"at card index {index} — likely a badge, not a rate.")
 
                     unique_key = f"{etd}_{eta}_{vessel_name}_{price}"
                     if unique_key in processed_keys:
@@ -405,6 +437,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         print(f"[MAERSK] Screenshot/HTML save failed: {ss_e}")
                                 
                                 # Scrape all text inside active page/breakdown panel scoped strictly to current card
+                                raw_charges = await self.extract_charge_breakdown(card)
                                 ft_info = await self.extract_freetime(card)
                                 raw_quote["free_time"] = ft_info.get("free_time")
                                 raw_quote["demurrage"] = ft_info.get("demurrage", 0)
@@ -2518,16 +2551,25 @@ class MaerskConnector(BaseCarrierConnector):
                 # --- Price: try data-test selector first, then regex fallback ---
                 total_price = 0.0
                 try:
-                    price_el = card.locator('[data-test="product-offer-price"] p, .product-offer-price p, .mds-price-breakdown').first
+                    price_el = card.locator('[data-test="product-offer-price"], .product-offer-price').first
                     price_text = (await price_el.inner_text(timeout=2000)).strip()
-                    price_match = re.search(r"([\d,]+\.?\d{0,2})", price_text)
-                    if price_match:
-                        total_price = float(price_match.group(1).replace(",", ""))
+                    if "if rolled" not in price_text.lower():
+                        price_match = re.search(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", price_text, re.IGNORECASE)
+                        if price_match:
+                            total_price = float(price_match.group(1).replace(",", ""))
                 except Exception:
-                    # fallback to regex on full card text
-                    price_match = re.search(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", card_text, re.IGNORECASE)
-                    if price_match:
-                        total_price = float(price_match.group(1).replace(",", ""))
+                    pass
+
+                if total_price <= 0:
+                    safe_text = "\n".join(
+                        ln for ln in card_text.splitlines()
+                        if "if rolled" not in ln.lower() and "may be rolled" not in ln.lower()
+                    )
+                    for v in re.findall(r"(?:USD|\$)\s*([\d,]+\.?\d{0,2})", safe_text, re.IGNORECASE):
+                        candidate = float(v.replace(",", ""))
+                        if candidate >= MIN_PLAUSIBLE_OCEAN_RATE:
+                            total_price = candidate
+                            break
 
                 if total_price <= 0:
                     print(f"[MAERSK] Skipping card {index} - no valid price found.")
@@ -2772,6 +2814,12 @@ class MaerskConnector(BaseCarrierConnector):
                 # Locate all table rows in the breakdown panel
                 rows_loc = base_loc.locator('tr, [role="row"]')
                 row_count = await rows_loc.count()
+                if row_count == 0 and card_locator is not None:
+                    print("[MAERSK] Zero rows inside card scope — retrying at page scope "
+                          "(breakdown may render outside the card element).")
+                    rows_loc = self.page.locator('tr, [role="row"]')
+                    row_count = await rows_loc.count()
+
                 print(f"[MAERSK] DOM check: Found {row_count} rows in table/grid.")
                 
                 # We need to track the current section heading (freight, origin, destination)
@@ -2800,7 +2848,7 @@ class MaerskConnector(BaseCarrierConnector):
                             cells.append((await cells_loc.nth(c_idx).inner_text() or "").strip())
                             
                         name = cells[0]
-                        basis = cells[1]
+                        basis = " ".join(cells[1].split())
                         qty_str = cells[2]
                         currency = cells[3]
                         unit_price_str = cells[4]
@@ -2882,6 +2930,7 @@ class MaerskConnector(BaseCarrierConnector):
                 currency_pattern = re.compile(r"^(USD|SGD|EUR|INR|GBP|AUD|CNY|JPY|HKD|MYR)$")
                 
                 i = 0
+                row_start = 0          # where the current unconsumed row begins
                 while i < len(lines):
                     line = lines[i]
                     line_lower = line.lower()
@@ -2890,51 +2939,60 @@ class MaerskConnector(BaseCarrierConnector):
                     if "freight charges" in line_lower:
                         current_section = "freight charges"
                         i += 1
+                        row_start = i
                         continue
                     elif "origin charges" in line_lower:
                         current_section = "origin charges"
                         i += 1
+                        row_start = i
                         continue
                     elif "destination charges" in line_lower:
                         current_section = "destination charges"
                         i += 1
+                        row_start = i
                         continue
                     elif line_lower in ("basis", "quantity", "currency", "unit price", "total price"):
                         i += 1
+                        row_start = i
                         continue
                     elif line_lower == "total price" or "total price" in line_lower:
                         i += 1
+                        row_start = i
                         continue
                     
-                    # Check for pattern: Name | Basis | Qty | Currency | UnitPrice | TotalPrice
-                    if (i + 5) < len(lines):
-                        name_candidate = line
-                        basis = lines[i+1]
-                        qty_str = lines[i+2]
-                        currency_candidate = lines[i+3]
-                        unit_price_str = lines[i+4]
-                        total_price_str = lines[i+5]
-                        
-                        if (currency_pattern.match(currency_candidate) and
-                            amount_pattern.match(qty_str) and
-                            amount_pattern.match(total_price_str) and
-                            len(name_candidate) > 2 and
-                            not any(kw in name_candidate.lower() for kw in ["charges", "basis", "quantity", "currency", "price"])):
-                            
-                            amount = float(total_price_str.replace(",", ""))
-                            category, reason = classify_charge(name_candidate, amount, current_section)
-                            charges.append({
-                                "name": name_candidate,
-                                "basis": basis.strip(),
-                                "amount": amount,
-                                "currency": currency_candidate,
-                                "category": category.value,
-                                "reason": reason,
-                            })
-                            if _maersk_debug:
-                                print(f"[MAERSK] Accessibility Parsed: {name_candidate} -> {amount} {currency_candidate} ({current_section})")
-                            i += 6
-                            continue
+                    # Anchor on the currency token: <name> <basis...> <qty> <CUR> <unit> <total>
+                    # The Basis cell renders as multiple text nodes ("Container" +
+                    # "20 Dry Standard"), so the row length is variable.
+                    if (currency_pattern.match(line)
+                            and i - 1 >= row_start
+                            and i + 2 < len(lines)
+                            and amount_pattern.match(lines[i - 1])
+                            and amount_pattern.match(lines[i + 1])
+                            and amount_pattern.match(lines[i + 2])):
+
+                        head = lines[row_start:i - 1]      # name cell + basis cell(s)
+                        if head:
+                            name_candidate = head[0]
+                            basis = " ".join(head[1:]).strip()
+                            if (len(name_candidate) > 2 and not any(
+                                    kw in name_candidate.lower()
+                                    for kw in ["charges", "basis", "quantity", "currency", "price"])):
+                                amount = float(lines[i + 2].replace(",", ""))
+                                category, reason = classify_charge(name_candidate, amount, current_section)
+                                charges.append({
+                                    "name": name_candidate,
+                                    "basis": basis,
+                                    "amount": amount,
+                                    "currency": line,
+                                    "category": category.value,
+                                    "reason": reason,
+                                })
+                                if _maersk_debug:
+                                    print(f"[MAERSK] Accessibility Parsed: {name_candidate} "
+                                          f"| Basis: {basis} -> {amount} {line} ({current_section})")
+                        i += 3
+                        row_start = i
+                        continue
                     
                     i += 1
                 
