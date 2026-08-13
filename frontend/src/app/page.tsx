@@ -200,7 +200,7 @@ function HomeContent() {
       setBatchResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: "running" } : item));
 
       const request: RateSearchRequest = {
-        carriers: ["MAERSK", "HAPAG_LLOYD"],
+        carriers: ["ALL"],
         origin: pair.origin,
         destination: pair.destination,
         service_term: "CY/CY",
@@ -382,7 +382,7 @@ function HomeContent() {
                   </span>
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                  Running sequential searches across all {batchResults.length} port-to-port routes for Maersk & Hapag-Lloyd.
+                  Running sequential searches across all {batchResults.length} port-to-port routes for all ocean carriers.
                 </p>
               </div>
 
