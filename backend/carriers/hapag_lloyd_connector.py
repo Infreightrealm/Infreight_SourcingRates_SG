@@ -3480,11 +3480,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
 
                         let determinedCategory = null;
-                        const nameLower = name.toLowerCase();
-                        if (nameLower.includes("origin landfreight") || nameLower.includes("landfreight rail") || 
-                            nameLower.includes("origin rail") || nameLower.includes("emergency fuel origin rail") || 
-                            nameLower.includes("fuel origin rail")) {
-                            determinedCategory = "BASIC_OCEAN_FREIGHT";
+                        const nameClean = name.toLowerCase().replace(/\s+/g, " ");
+                        if (/origin\s*landfreight\s*rail|landfreight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail/.test(nameClean)) {
+                            determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
                         } else if (currentSection === "freight_charges") determinedCategory = "BASIC_OCEAN_FREIGHT";
                         else if (currentSection === "surcharges") determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
                         else if (currentSection === "export_surcharges") determinedCategory = "ORIGIN_CHARGE_EXCLUDED";
