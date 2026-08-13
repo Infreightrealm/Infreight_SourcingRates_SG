@@ -349,11 +349,8 @@ class ONEConnector(BaseCarrierConnector):
             return False
 
     async def login(self) -> bool:
-        username = os.getenv("ONE_USERNAME")
-        password = os.getenv("ONE_PASSWORD")
-        if not username or not password:
-            print("[ONE] ERROR: Credentials not set in environment")
-            return False
+        username = os.getenv("ONE_USERNAME") or "BOOKINGSG@IN-FREIGHT.COM"
+        password = os.getenv("ONE_PASSWORD") or "IFSGb2020"
         try:
             await self._init_browser()
             print("[ONE] Navigating to login page...")

@@ -728,11 +728,8 @@ class OOCLConnector(BaseCarrierConnector):
           2. exiamfw.home.oocl.com (Keycloak) â€” password + "Sign In"
         Credentials from OOCL_USERNAME / OOCL_PASSWORD env vars.
         """
-        username = (os.getenv("OOCL_USERNAME") or "").strip()
-        password = (os.getenv("OOCL_PASSWORD") or "").strip()
-        if not username or not password:
-            print("[OOCL] [FS] OOCL_USERNAME / OOCL_PASSWORD not set â€” skipping FreightSmart quotes.")
-            return False
+        username = (os.getenv("OOCL_USERNAME") or "BOOKINGSG@IN-FREIGHT.COM").strip()
+        password = (os.getenv("OOCL_PASSWORD") or "IFSGb2020").strip()
 
         print("[OOCL] [FS] Navigating to FreightSmart login...")
         await page.goto(self.FS_LOGIN_URL, wait_until="domcontentloaded")

@@ -141,11 +141,8 @@ class MSCConnector(BaseCarrierConnector):
         self.context = await self.browser.new_context(viewport={'width': 1920, 'height': 1080})
         self.page = await self.context.new_page()
 
-        username = os.getenv("MSC_USERNAME")
-        password = os.getenv("MSC_PASSWORD")
-        if not username or not password:
-            self.log("Missing MSC credentials.")
-            return False
+        username = os.getenv("MSC_USERNAME") or "BOOKINGSG@IN-FREIGHT.COM"
+        password = os.getenv("MSC_PASSWORD") or "IFSGb2020"
 
         self.log("Navigating to MSC login page...")
         try:

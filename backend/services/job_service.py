@@ -451,11 +451,10 @@ async def run_all_carrier_searches(
         sorted_carriers = sorted(carriers, key=lambda c: 0 if c.upper() in slow_carriers else 1)
 
         # Limit concurrent browser instances to prevent resource exhaustion and anti-bot triggers.
-        # 7 virtual displays exist (supervisord), so the ceiling is display count; the real
-        # constraint is RAM/CPU per Chrome instance. Default 3; tune via CARRIER_MAX_CONCURRENCY
-        # (raise toward 7 only if the host has headroom — watch memory and challenge rates).
+        # Default 7 so all selected carriers (Maersk, ONE, CMA, Hapag, MSC, OOCL, GreenX) launch browsers;
+        # tune via CARRIER_MAX_CONCURRENCY if host RAM/CPU is constrained.
         import os
-        max_concurrency = int(os.getenv("CARRIER_MAX_CONCURRENCY", "3"))
+        max_concurrency = int(os.getenv("CARRIER_MAX_CONCURRENCY", "7"))
         semaphore = asyncio.Semaphore(max_concurrency)
 
         async def run_and_update(c):

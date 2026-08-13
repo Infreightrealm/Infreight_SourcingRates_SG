@@ -264,11 +264,8 @@ class CMAConnector(BaseCarrierConnector):
             return False
 
     async def login(self) -> bool:
-        username = os.getenv("CMA_USERNAME") or os.getenv("CMA_CGM_USERNAME")
-        password = os.getenv("CMA_PASSWORD") or os.getenv("CMA_CGM_PASSWORD")
-        if not username or not password:
-            print("[CMA] ERROR: Credentials not set in environment")
-            return False
+        username = os.getenv("CMA_USERNAME") or os.getenv("CMA_CGM_USERNAME") or "BOOKINGSG@IN-FREIGHT.COM"
+        password = os.getenv("CMA_PASSWORD") or os.getenv("CMA_CGM_PASSWORD") or "IFSGb2020"
 
         try:
             await self._init_browser()
