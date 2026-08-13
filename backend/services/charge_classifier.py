@@ -29,6 +29,12 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Surcharge override to freight surcharge"
     if "premium cargo service" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Premium Cargo Service override to freight surcharge"
+    if "emergency fuel origin" in name_clean and "rail" in name_clean:
+        return ChargeCategory.BASIC_OCEAN_FREIGHT, "Forced Emergency Fuel Origin Rail override to Basic Ocean Freight"
+    if "origin landfreight" in name_clean and "rail" in name_clean:
+        return ChargeCategory.BASIC_OCEAN_FREIGHT, "Forced Origin Landfreight Rail override to Basic Ocean Freight"
+    if "landfreight rail" in name_clean or "origin rail" in name_clean:
+        return ChargeCategory.BASIC_OCEAN_FREIGHT, "Forced Origin Rail charge override to Basic Ocean Freight"
     if "emergency fuel originrail" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Fuel OriginRail override to freight surcharge"
     if "origin landfreightrail" in name_clean:

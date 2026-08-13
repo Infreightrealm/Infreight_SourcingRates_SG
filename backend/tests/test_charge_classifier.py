@@ -125,6 +125,14 @@ def test_short_keyword_boundaries():
     assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Expected FREIGHT_SURCHARGE_INCLUDED, got {cat}"
 
 
+def test_hapag_origin_rail_charges_bof_override():
+    cat, _ = classify_charge("Origin Landfreight Rail", 120, "export_surcharges")
+    assert cat == ChargeCategory.BASIC_OCEAN_FREIGHT
+
+    cat, _ = classify_charge("Emergency Fuel Origin Rail", 10, "export_surcharges")
+    assert cat == ChargeCategory.BASIC_OCEAN_FREIGHT
+
+
 if __name__ == "__main__":
     test_basic_ocean_freight()
     test_discount()
@@ -135,4 +143,5 @@ if __name__ == "__main__":
     test_uncertain()
     test_section_override_precedence()
     test_short_keyword_boundaries()
+    test_hapag_origin_rail_charges_bof_override()
     print("All charge classifier tests passed!")
