@@ -52,6 +52,7 @@ CARRIER_PORT_OVERRIDES = {
         "CNXMN": "Xiamen (Fujian), China",
         "USDAL": "Dallas (Texas), United States",
         "PRSJU": "San Juan, Puerto Rico",
+        "SDPZU": "Port Sudan, Sudan",
     },
     "one": {
         "VNHPH": "Hai Phong",
@@ -170,6 +171,8 @@ PORT_NAME_KEYWORD_MAP = {
     "phnom penh": "KNPNH",
     "aden": "YEADE",
     "xiamen": "CNXMN",
+    "port sudan": "SDPZU",
+    "sudan": "SDPZU",
 }
 
 
