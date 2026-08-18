@@ -204,3 +204,31 @@ async def delete_custom_port_endpoint(code: str, x_admin_password: Optional[str]
     from services.port_manager import delete_custom_port
     delete_custom_port(code)
     return {"status": "SUCCESS"}
+
+
+class ExchangeRateUpdateRequest(BaseModel):
+    currency: str
+    rate_per_usd: float
+
+
+@admin_router.get("/exchange-rates")
+async def get_exchange_rates_endpoint(x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    from services.currency_service import get_all_exchange_rates
+    return get_all_exchange_rates()
+
+
+@admin_router.post("/exchange-rates")
+async def update_exchange_rate_endpoint(request: ExchangeRateUpdateRequest, x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not request.currency or request.rate_per_usd <= 0:
+        raise HTTPException(status_code=400, detail="Valid currency code and rate_per_usd > 0 are required")
+    from services.currency_service import update_exchange_rate
+    try:
+        updated = update_exchange_rate(request.currency, request.rate_per_usd)
+        return {"status": "SUCCESS", "currency": updated}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+

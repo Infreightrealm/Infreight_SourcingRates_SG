@@ -21,7 +21,7 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"users" | "ports" | "overrides" | "history" | "route_health">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates">("users");
 
   // Ports config state
   const [popularPorts, setPopularPorts] = useState<string[]>([]);
@@ -50,6 +50,48 @@ export default function AdminDashboard() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyUserFilter, setHistoryUserFilter] = useState("all");
   const [historyQuery, setHistoryQuery] = useState("");
+
+  // Exchange Rates state
+  const [exchangeRates, setExchangeRates] = useState<Record<string, { code: string; name: string; rate_per_usd: number; usd_per_unit: number; symbol: string }>>({});
+  const [loadingRates, setLoadingRates] = useState(false);
+  const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
+  const [rateSearch, setRateSearch] = useState("");
+
+  const fetchExchangeRates = async () => {
+    setLoadingRates(true);
+    try {
+      const { getExchangeRates } = await import("@/lib/api");
+      const data = await getExchangeRates(password);
+      setExchangeRates(data || {});
+      const inputs: Record<string, string> = {};
+      Object.entries(data || {}).forEach(([code, info]) => {
+        inputs[code] = String(info.rate_per_usd);
+      });
+      setRateInputs(inputs);
+    } catch (e) {
+      console.error("Failed to fetch exchange rates", e);
+      toast.error("Failed to load exchange rates");
+    } finally {
+      setLoadingRates(false);
+    }
+  };
+
+  const handleSaveRate = async (code: string) => {
+    const valStr = rateInputs[code];
+    const numVal = parseFloat(valStr);
+    if (isNaN(numVal) || numVal <= 0) {
+      toast.error("Please enter a valid rate greater than 0.");
+      return;
+    }
+    try {
+      const { updateExchangeRate } = await import("@/lib/api");
+      await updateExchangeRate(code, numVal, password);
+      toast.success(`Updated ${code} rate: 1 USD = ${numVal} ${code}`);
+      fetchExchangeRates();
+    } catch (err: any) {
+      toast.error(err.message || `Failed to update rate for ${code}`);
+    }
+  };
 
   const fetchSearchHistory = async (userFilter?: string) => {
     setLoadingHistory(true);
@@ -101,6 +143,8 @@ export default function AdminDashboard() {
         fetchOverrides();
       } else if (activeTab === "history") {
         fetchSearchHistory();
+      } else if (activeTab === "exchange_rates") {
+        fetchExchangeRates();
       }
     }
   }, [authenticated, activeTab]);
@@ -517,6 +561,19 @@ export default function AdminDashboard() {
           >
             User Search History
             {activeTab === "history" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("exchange_rates")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              activeTab === "exchange_rates"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+            }`}
+          >
+            <span>💱 Currency Conversion Rates</span>
+            {activeTab === "exchange_rates" && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
             )}
           </button>
@@ -1355,6 +1412,94 @@ export default function AdminDashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Exchange Rates Tab */}
+        {activeTab === "exchange_rates" && (
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-8 shadow-sm space-y-6">
+            <div className="flex items-center justify-between flex-wrap gap-4 border-b border-slate-200 dark:border-gray-800 pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>💱 Currency Exchange Rates Management</span>
+                </h2>
+                <p className="text-slate-500 dark:text-gray-400 text-sm mt-1">
+                  View and manually update currency exchange rates relative to USD. Rates are automatically saved for currency conversions.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Search currency (USD, INR, EUR)..."
+                  value={rateSearch}
+                  onChange={(e) => setRateSearch(e.target.value)}
+                  className="bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
+                />
+                <button
+                  onClick={fetchExchangeRates}
+                  className="p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-white rounded-xl transition-colors"
+                  title="Refresh rates"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingRates ? "animate-spin" : ""}`} />
+                </button>
+              </div>
+            </div>
+
+            {loadingRates ? (
+              <div className="text-center py-12 text-slate-500 dark:text-gray-400 font-mono text-sm animate-pulse">
+                Loading live exchange rates...
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Object.entries(exchangeRates)
+                  .filter(([code, info]) => !rateSearch || code.toLowerCase().includes(rateSearch.toLowerCase()) || info.name.toLowerCase().includes(rateSearch.toLowerCase()))
+                  .map(([code, info]) => {
+                    const isUsd = code === "USD";
+                    return (
+                      <div key={code} className="bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-gray-800 rounded-2xl p-5 space-y-3 flex flex-col justify-between hover:border-indigo-500/40 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-lg font-bold text-slate-900 dark:text-white font-mono">{code}</span>
+                            <span className="text-xs text-slate-500 dark:text-gray-400 ml-2">({info.symbol})</span>
+                          </div>
+                          <span className="text-xs px-2 py-0.5 rounded font-medium bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
+                            {info.name}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-slate-500 dark:text-gray-400">
+                            1 USD = X {code}
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              step="any"
+                              disabled={isUsd}
+                              value={rateInputs[code] ?? info.rate_per_usd}
+                              onChange={(e) => setRateInputs({ ...rateInputs, [code]: e.target.value })}
+                              className="w-full bg-white dark:bg-[#181818] border border-slate-300 dark:border-gray-700 rounded-xl px-3 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                            />
+                            {!isUsd && (
+                              <button
+                                onClick={() => handleSaveRate(code)}
+                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
+                              >
+                                <Save className="w-3.5 h-3.5" /> Save
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-slate-400 dark:text-gray-500 font-mono pt-1 border-t border-slate-200 dark:border-gray-800 flex justify-between">
+                          <span>Inverse: 1 {code} = ${(info.usd_per_unit).toFixed(6)} USD</span>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </div>

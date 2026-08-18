@@ -389,6 +389,39 @@ export async function deleteCarrierOverride(
   return res.json();
 }
 
+export async function getExchangeRates(adminPassword?: string): Promise<Record<string, { code: string; name: string; rate_per_usd: number; usd_per_unit: number; symbol: string }>> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/admin/exchange-rates`, { headers });
+  if (!res.ok) {
+    throw new Error(`Failed to load exchange rates: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updateExchangeRate(
+  currency: string,
+  rate_per_usd: number,
+  adminPassword?: string
+): Promise<{ status: string; currency: any }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/admin/exchange-rates`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ currency, rate_per_usd }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to update exchange rate: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getUsers(adminPassword?: string): Promise<any[]> {
   const headers: Record<string, string> = {};
   if (adminPassword) {
