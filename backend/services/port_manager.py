@@ -53,6 +53,7 @@ CARRIER_PORT_OVERRIDES = {
         "USDAL": "Dallas (Texas), United States",
         "PRSJU": "San Juan, Puerto Rico",
         "SDPZU": "Port Sudan, Sudan",
+        "INBLR": "Bangalore (KARNATAKA), India",
     },
     "one": {
         "VNHPH": "Hai Phong",
@@ -173,6 +174,8 @@ PORT_NAME_KEYWORD_MAP = {
     "xiamen": "CNXMN",
     "port sudan": "SDPZU",
     "sudan": "SDPZU",
+    "bangalore": "INBLR",
+    "bengaluru": "INBLR",
 }
 
 
