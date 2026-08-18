@@ -31,6 +31,10 @@ def classify_charge(charge_name: str, amount: float, section_heading: str = None
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Premium Cargo Service override to freight surcharge"
     if re.search(r"origin\s*landfreight\s*rail|landfreight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail", name_clean):
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Origin Rail surcharge override to freight surcharge included"
+    if "arbitrary tariff at destination" in name_clean or "arbitrary" in name_clean and ("destination" in name_clean or "dest" in name_clean):
+        return ChargeCategory.DESTINATION_CHARGE_EXCLUDED, "Destination arbitrary tariff charge excluded"
+    if "arbitrary tariff at origin" in name_clean or "arbitrary" in name_clean and ("origin" in name_clean or "orig" in name_clean):
+        return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, "Origin arbitrary tariff charge excluded"
 
     # ── BASIC OCEAN FREIGHT ──────────────────────────────────
     basic_freight_keywords = [

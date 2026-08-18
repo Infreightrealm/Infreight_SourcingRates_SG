@@ -1561,7 +1561,7 @@ class ONEConnector(BaseCarrierConnector):
             # charge added to every container). This also handles the fully-horizontal
             # layout where all three tokens sit on one line.
             container_token = re.compile(
-                r"DRY\s*(20|40\s*H|40)\s*x\s*(\d+)\s*\(\s*[A-Z]{3}\s*([\d,]+\.\d{2})\s*\)",
+                r"DRY\s*(20|40\s*H|40)\s*x\s*(\d+)\s*\(\s*([A-Z]{3})\s*([\d,]+\.\d{2})\s*\)",
                 re.IGNORECASE,
             )
 
@@ -1574,8 +1574,11 @@ class ONEConnector(BaseCarrierConnector):
                 return "DRY 40"
 
             def _classify(nm: str):
-                cat, rsn = classify_charge(nm, 0, section_heading)
                 nc = " ".join(nm.lower().split())
+                if "arbitrary tariff at destination" in nc or "at destination" in nc or ("arbitrary" in nc and ("destination" in nc or "dest" in nc)):
+                    return ChargeCategory.DESTINATION_CHARGE_EXCLUDED, "Destination arbitrary tariff charge excluded"
+                if "arbitrary tariff at origin" in nc or "at origin" in nc or ("arbitrary" in nc and ("origin" in nc or "orig" in nc)):
+                    return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, "Origin arbitrary tariff charge excluded"
                 if "emergency surcharge" in nc:
                     return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Surcharge override"
                 if "premium cargo service" in nc:
@@ -1584,6 +1587,7 @@ class ONEConnector(BaseCarrierConnector):
                     return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Fuel OriginRail override"
                 if "origin landfreightrail" in nc:
                     return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Origin LandfreightRail override"
+                cat, rsn = classify_charge(nm, 0, section_heading)
                 return cat, rsn
 
             for index, line in enumerate(lines):
@@ -1603,14 +1607,14 @@ class ONEConnector(BaseCarrierConnector):
                 if token_matches:
                     name = current_name or f"Charge {len(charges) + 1}"
                     category, reason = _classify(name)
-                    for size_raw, qty_str, unit_str in token_matches:
+                    for size_raw, qty_str, curr_str, unit_str in token_matches:
                         qty = int(qty_str) if qty_str.isdigit() else 1
                         unit = float(unit_str.replace(",", ""))
                         charges.append({
                             "name": name,
                             "basis": _canon_ctype(size_raw),
                             "amount": round(unit * qty, 2),
-                            "currency": "USD",
+                            "currency": curr_str.upper(),
                             "category": category.value,
                             "reason": reason,
                         })
