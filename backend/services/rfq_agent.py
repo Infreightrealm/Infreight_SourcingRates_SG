@@ -192,10 +192,28 @@ def resolve_port_alias(port_str: Optional[str], mode: str = "sea") -> tuple[Opti
 
     db_results = search_port(search_term)
     if db_results:
-        raw_db_name = db_results[0]["name"]
-        clean_name = re.sub(r'\s*\([^)]*\)', '', raw_db_name).split(',')[0].strip()
-        display = f"{clean_name} (from '{clean_str}')" if clean_name.lower() != clean_str.lower() else clean_name
-        return clean_name, display, False
+        term_lower = search_term.lower().strip()
+        best_match = None
+        # Require exact, prefix, or word boundary match so AHMEDABAD doesn't fuzzy-match to Amirabad (IRBAM)
+        for res in db_results:
+            p_name = res.get("name", "").lower().strip()
+            p_ascii = res.get("name_ascii", "").lower().strip()
+            p_code = res.get("code", "").lower().strip()
+            if term_lower == p_name or term_lower == p_ascii or term_lower == p_code or p_name.startswith(term_lower) or p_ascii.startswith(term_lower):
+                best_match = res
+                break
+        
+        if not best_match:
+            for res in db_results:
+                if term_lower in res.get("name", "").lower() or term_lower in res.get("name_ascii", "").lower():
+                    best_match = res
+                    break
+
+        if best_match:
+            raw_db_name = best_match["name"]
+            clean_name = re.sub(r'\s*\([^)]*\)', '', raw_db_name).split(',')[0].strip()
+            display = f"{clean_name} (from '{clean_str}')" if clean_name.lower() != clean_str.lower() else clean_name
+            return clean_name, display, False
 
 
 
