@@ -70,6 +70,27 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
         
     text_lower = text.lower().strip()
     
+    # 0. Dynamic carrier override check FIRST
+    try:
+        from services.port_manager import get_port_name_for_carrier
+        override = get_port_name_for_carrier("oocl", text)
+        if override:
+            clean_override = re.sub(r'^\[.*?\]\s*', '', override).strip()
+            locode_match = re.search(r'\[\s*([A-Za-z]{5})\s*\]', text) or re.search(r'\b([A-Za-z]{5})\b', text)
+            resolved_locode = locode_match.group(1).upper() if locode_match else ""
+            if not resolved_locode:
+                from services.port_manager import search_port
+                res = search_port(text)
+                if res:
+                    resolved_locode = res[0]['code'].upper()
+            from services.port_manager import PortManager, COUNTRY_CODE_TO_NAME
+            port_data = PortManager().get_port_by_code(resolved_locode) if resolved_locode else None
+            c_code = port_data.get("country", "").upper() if port_data else ""
+            c_name = COUNTRY_CODE_TO_NAME.get(c_code, "") if c_code else ""
+            return clean_override, resolved_locode, c_code, c_name
+    except Exception as e:
+        print(f"[OOCL] Dynamic override lookup note: {e}")
+
     # Rotterdam override
     if "rotterdam" in text_lower or text_lower == "nlrtm":
         return "Rotterdam", "NLRTM", "NL", "Netherlands"
@@ -138,55 +159,47 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
         
     return location_name, locode, country_code, country_name
 
+
 class OOCLConnector(BaseCarrierConnector):
     carrier_code = "OOCL"
     carrier_name = "OOCL"
-    SEARCH_URL = "https://moc.oocl.com/nj_prs_wss/#/sailing_schedules/search?PREFER_LANGUAGE=en-US"
+    SEARCH_URL = "https://www.freightsmart.oocl.com/sailingSchedule"
 
     def __init__(self):
         super().__init__()
-        self.playwright = None
         self.browser = None
         self.context = None
+        self.page = None
 
     async def _init_browser(self):
-        is_prod = os.name != "nt"
-        self.playwright = await async_playwright().start()
-        
-        browser_env = os.environ.copy()
-        if is_prod:
-            browser_env["DISPLAY"] = ":105"
-
-        self.browser = await self.playwright.chromium.launch(
-            headless=False,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-            ],
-            env=browser_env,
+        playwright = await async_playwright().start()
+        self.browser = await playwright.chromium.launch(
+            headless=os.getenv("HEADLESS", "true").lower() in ("true", "1", "yes"),
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
         )
         self.context = await self.browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            ignore_https_errors=True,
+            viewport={"width": 1280, "height": 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         self.page = await self.context.new_page()
-        self.page.set_default_timeout(30000)
 
     async def login(self) -> bool:
         return True
 
     async def _select_location(self, label: str, field_selector: str, location_name: str, locode: str = None, country_code: str = None, country_name: str = None) -> bool:
         try:
-            print(f"[OOCL] Typing {label}: {location_name}")
+            print(f"[OOCL] Typing {label}: {location_name} (locode={locode}, country={country_name})")
             field = self.page.locator(field_selector).first
             await field.click()
             await self.page.keyboard.press("Control+A")
             await self.page.keyboard.press("Backspace")
             
-            await field.type(location_name, delay=100)
+            # If location_name is long comma-separated string, extract primary city name for typing so autocomplete responds
+            type_text = location_name
+            if "," in type_text and len(type_text) > 20:
+                type_text = type_text.split(",")[0].strip()
+
+            await field.type(type_text, delay=100)
             
             dropdown_sel = 'ul[role="listbox"] li, .ui-autocomplete-items li, .dropdown-menu li, .cdk-overlay-container [role="option"], [role="option"]'
 
@@ -208,36 +221,39 @@ class OOCLConnector(BaseCarrierConnector):
                 print(f"[OOCL] Dropdown empty for {label}")
                 return False
                 
-            # Try to match option using LOCODE / Country
             matching_option = None
+            # 1. Match option by LOCODE / Country / City
             for i in range(count):
                 opt = options.nth(i)
                 text = await opt.inner_text()
                 if text:
                     text_lower = text.lower()
-                    if location_name.lower() in text_lower:
-                        if locode or country_code or country_name:
-                            matched = False
-                            if locode and locode.lower() in text_lower:
-                                matched = True
-                            elif country_name and country_name.lower() in text_lower:
-                                matched = True
-                            elif country_code and (country_code.lower() in text_lower or re.search(rf'\b{re.escape(country_code.lower())}\b', text_lower)):
-                                matched = True
-                            if matched:
-                                matching_option = opt
-                                print(f"[OOCL] Matched option by LOCODE/Country for {label}: '{text.strip()}'")
-                                break
-            
-            # Fallback if no specific locode/country matched
+                    loc_matched = False
+                    if locode and locode.lower() in text_lower:
+                        loc_matched = True
+                    elif country_name and country_name.lower() in text_lower:
+                        loc_matched = True
+                    elif country_code and (country_code.lower() in text_lower or re.search(rf'\b{re.escape(country_code.lower())}\b', text_lower)):
+                        loc_matched = True
+
+                    city_matched = location_name.lower() in text_lower or type_text.lower() in text_lower or ("venezia" in text_lower if "venice" in location_name.lower() else False)
+
+                    if loc_matched or (city_matched and (country_name and country_name.lower() in text_lower)):
+                        matching_option = opt
+                        print(f"[OOCL] Matched option for {label}: '{text.strip()}'")
+                        break
+
+            # 2. Fallback if no specific locode/country matched
             if not matching_option:
                 for i in range(count):
                     opt = options.nth(i)
                     text = await opt.inner_text()
-                    if text and location_name.lower() in text.lower():
-                        matching_option = opt
-                        print(f"[OOCL] Fallback matched option by name for {label}: '{text.strip()}'")
-                        break
+                    if text:
+                        text_lower = text.lower()
+                        if location_name.lower() in text_lower or type_text.lower() in text_lower:
+                            matching_option = opt
+                            print(f"[OOCL] Fallback matched option by name for {label}: '{text.strip()}'")
+                            break
             
             if matching_option:
                 await matching_option.scroll_into_view_if_needed()
