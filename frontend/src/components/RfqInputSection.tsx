@@ -50,6 +50,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqI
   const [clarificationInput, setClarificationInput] = useState("");
   const [showDebug, setShowDebug] = useState(false);
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
+  const [selectedModel, setSelectedModel] = useState<string>("gemini-2.5-flash");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -151,7 +152,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqI
     setSelectedPairIndex(0);
 
     try {
-      const result = await parseRfq(textToParse, imgB64 || undefined, imgMime || undefined);
+      const result = await parseRfq(textToParse, imgB64 || undefined, imgMime || undefined, selectedModel);
       setParseResult(result);
 
       // Save to sessionStorage to prevent wiping on search or page navigation
@@ -399,23 +400,46 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqI
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => handleParse(rfqText, imageBase64, imageMime)}
-            disabled={isParsing || (!rfqText.trim() && !imageBase64)}
-            className="px-6 py-3 min-h-[44px] justify-center rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md shadow-purple-500/20 flex items-center gap-2"
-          >
-            {isParsing ? (
-              <>
-                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                {imageBase64 ? "Reading screenshot with AI vision…" : "Reading enquiry & filling details…"}
-              </>
-            ) : (
-              <>
-                ✨ Read enquiry & fill form
-              </>
-            )}
-          </button>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => handleParse(rfqText, imageBase64, imageMime)}
+              disabled={isParsing || (!rfqText.trim() && !imageBase64)}
+              className="px-6 py-3 min-h-[44px] justify-center rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md shadow-purple-500/20 flex items-center gap-2"
+            >
+              {isParsing ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  {imageBase64 ? "Reading screenshot with AI vision…" : "Reading enquiry & filling details…"}
+                </>
+              ) : (
+                <>
+                  ✨ Read enquiry & fill form
+                </>
+              )}
+            </button>
+
+            {/* AI Model Selector Dropdown */}
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-sm self-start sm:self-auto min-h-[44px]">
+              <span className="text-[11px] text-slate-400 font-medium">Model:</span>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="bg-transparent font-bold text-purple-600 dark:text-purple-300 focus:outline-none cursor-pointer text-xs"
+                title="Select Gemini AI Model to read enquiry"
+              >
+                <option value="gemini-2.5-flash" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                  ⚡ Gemini 2.5 Flash (Fast, Standard RFQs)
+                </option>
+                <option value="gemini-1.5-pro" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                  🧠 Gemini 1.5 Pro (Deep Reasoning, Large Multi-Port Lists)
+                </option>
+                <option value="gemini-2.0-pro-exp" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                  🚀 Gemini 2.0 Pro (Max Capacity & Multi-Page PDFs)
+                </option>
+              </select>
+            </div>
+          </div>
 
           {parseResult && (
             <button

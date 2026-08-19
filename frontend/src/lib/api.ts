@@ -509,12 +509,13 @@ export async function getRouteHealth(): Promise<any> {
 export async function parseRfq(
   text?: string,
   image_b64?: string,
-  image_mime?: string
+  image_mime?: string,
+  model?: string
 ): Promise<RFQParseResult> {
   const res = await failoverFetch(`/api/rfq/parse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: text || "", image_b64, image_mime }),
+    body: JSON.stringify({ text: text || "", image_b64, image_mime, model }),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));

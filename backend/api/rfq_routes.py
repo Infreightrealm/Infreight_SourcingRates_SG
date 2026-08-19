@@ -15,7 +15,12 @@ async def parse_rfq_endpoint(payload: RFQParseRequest):
     or return a clarification question if required fields are missing/ambiguous.
     """
     try:
-        result = await parse_rfq(raw_text=payload.text or "", image_b64=payload.image_b64, image_mime=payload.image_mime)
+        result = await parse_rfq(
+            raw_text=payload.text or "",
+            image_b64=payload.image_b64,
+            image_mime=payload.image_mime,
+            model=payload.model
+        )
         return result
 
     except ValueError as ve:

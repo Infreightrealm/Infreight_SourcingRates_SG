@@ -125,6 +125,7 @@ class RFQParseRequest(BaseModel):
     text: Optional[str] = Field(default="", description="Raw RFQ text from email or message")
     image_b64: Optional[str] = Field(default=None, description="Base64 encoded string of uploaded RFQ screenshot image")
     image_mime: Optional[str] = Field(default=None, description="MIME type of uploaded image (e.g. image/png, image/jpeg)")
+    model: Optional[str] = Field(default=None, description="Optional Gemini model override e.g. gemini-1.5-pro or gemini-2.5-flash")
 
 
 
