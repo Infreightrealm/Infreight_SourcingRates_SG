@@ -481,14 +481,11 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqI
                 <option value="gemini-2.5-flash" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
                   ⚡ Gemini 2.5 Flash (Fast, Standard RFQs)
                 </option>
-                <option value="gemini-1.5-pro" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
-                  🧠 Gemini 1.5 Pro (Deep Reasoning, Large Multi-Port Lists)
+                <option value="gemini-pro-latest" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                  🧠 Gemini Pro (Active Pro Model - Deep Reasoning)
                 </option>
-                <option value="gemini-2.0-flash" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
-                  ⚡ Gemini 2.0 Flash (Fast Vision & Spreadsheet Reading)
-                </option>
-                <option value="gemini-2.0-pro-exp-02-05" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
-                  🚀 Gemini 2.0 Pro Exp (Max Capacity & Advanced Reasoning)
+                <option value="gemini-3.1-pro-preview" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                  🚀 Gemini 3.1 Pro (Google Flagship Pro)
                 </option>
               </select>
             </div>

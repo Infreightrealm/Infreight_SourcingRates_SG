@@ -1041,13 +1041,13 @@ async def _call_native_gemini_api(
     )
     
     target_model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    # Normalize model aliases
-    if target_model in ["gemini-2.0-pro-exp", "gemini-2.0-pro", "gemini-2.0-pro-exp-02-05"]:
-        target_model = "gemini-2.0-pro-exp-02-05"
-    elif target_model in ["gemini-1.5-pro"]:
-        target_model = "gemini-1.5-pro"
-    elif target_model in ["gemini-2.0-flash"]:
-        target_model = "gemini-2.0-flash"
+    # Normalize model aliases to Google's active API endpoints
+    if target_model in ["gemini-pro-latest", "gemini-2.0-pro-exp", "gemini-2.0-pro", "gemini-2.0-pro-exp-02-05", "gemini-1.5-pro"]:
+        target_model = "gemini-pro-latest"
+    elif target_model in ["gemini-3.1-pro-preview", "gemini-3-pro"]:
+        target_model = "gemini-3.1-pro-preview"
+    elif target_model in ["gemini-2.0-flash", "gemini-flash-latest"]:
+        target_model = "gemini-flash-latest"
     else:
         target_model = "gemini-2.5-flash"
 
