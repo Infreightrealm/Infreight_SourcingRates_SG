@@ -725,15 +725,21 @@ class MaerskConnector(BaseCarrierConnector):
         return clean.strip()
 
     def _map_container_type(self, text: str) -> str:
-        """Maps standard container search codes (e.g. 'DRY 40H') to Maersk Spot display names."""
-        if not text: return "40 Dry High"
+        """Maps standard container search codes (e.g. 'DRY 20', '20GP') to Maersk Spot display names."""
+        if not text: return "20 Dry Standard"
         normalized = text.strip().upper()
         mapping = {
             "DRY 20": "20 Dry Standard",
+            "20GP": "20 Dry Standard",
+            "20 DRY STANDARD": "20 Dry Standard",
             "DRY 40": "40 Dry Standard",
+            "40GP": "40 Dry Standard",
+            "40 DRY STANDARD": "40 Dry Standard",
             "DRY 40H": "40 Dry High",
+            "40HQ": "40 Dry High",
+            "40 DRY HIGH": "40 Dry High",
         }
-        return mapping.get(normalized, "40 Dry High")
+        return mapping.get(normalized, "20 Dry Standard" if "20" in normalized else "40 Dry High")
 
     async def _human_type(self, locator, text: str, clear: bool = True):
         """Types text character by character into a given locator or element handle with randomized human-like delays."""
@@ -2006,12 +2012,23 @@ class MaerskConnector(BaseCarrierConnector):
                     except Exception:
                         pass
 
-                    # Select all 3 dry container sizes: 20 Dry Standard, 40 Dry Standard, 40 Dry High
-                    target_containers = [
-                        ("20 Dry Standard", request.weight_per_container_kg),
-                        ("40 Dry Standard", request.weight_per_container_kg),
-                        ("40 Dry High", request.weight_per_container_kg)
-                    ]
+                    # Build target container list dynamically based ONLY on requested container types
+                    req_ctypes = getattr(request, "container_types", None) or [getattr(request, "container_type", "DRY 20")]
+                    if isinstance(req_ctypes, str):
+                        req_ctypes = [req_ctypes]
+
+                    target_containers = []
+                    seen_names = set()
+                    for ct in req_ctypes:
+                        maersk_name = self._map_container_type(ct)
+                        if maersk_name not in seen_names:
+                            target_containers.append((maersk_name, request.weight_per_container_kg))
+                            seen_names.add(maersk_name)
+
+                    if not target_containers:
+                        target_containers = [("20 Dry Standard", request.weight_per_container_kg)]
+
+                    print(f"[MAERSK] Configured container search types on form: {[tc[0] for tc in target_containers]}")
 
                     # Helper function to fill a container card at index `idx`
                     async def fill_container_card(idx: int, target_name: str, weight: float):
