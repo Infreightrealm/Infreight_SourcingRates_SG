@@ -1052,6 +1052,7 @@ async def _call_native_gemini_api(
         target_model = "gemini-2.5-flash"
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={gemini_key}"
+    print(f"[RFQ Agent] Invoking Gemini API model endpoint: '{target_model}'")
 
     parts = []
     if image_b64 and image_mime:
@@ -1241,7 +1242,8 @@ async def parse_rfq(
             debug_raw_llm_response="[GUARDRAIL INTERCEPTED]"
         )
 
-    print(f"[RFQ Agent] Processing RFQ via Native Gemini API (gemini-2.5-flash)... (forced_mode={forced_mode})")
+    active_model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    print(f"[RFQ Agent] Processing RFQ via Native Gemini API ({active_model})... (forced_mode={forced_mode})")
     
     try:
         raw_llm_json = await _call_native_gemini_api(raw_text, current_date_str, tomorrow_str, gemini_key, image_b64=image_b64, image_mime=image_mime, forced_mode=forced_mode, model=model)
