@@ -412,7 +412,10 @@ async def update_search_status(search_id: UUID):
             s not in running_statuses and not (s.startswith("RUNNING") if s else False)
             for s in statuses
         )
-        if not all_done:
+        search_str_id = str(search_id)
+        is_task_running = search_str_id in active_search_tasks and any(not t.done() for t in active_search_tasks[search_str_id])
+
+        if not all_done or is_task_running:
             search.status = SearchStatus.RUNNING.value
         else:
             has_success = any(s == "AVAILABLE_QUOTES_FOUND" for s in statuses)

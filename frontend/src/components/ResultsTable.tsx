@@ -82,8 +82,11 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     const carrierInfo = CARRIERS.find((c) => c.code === cr.carrier);
     const color = carrierInfo?.color || "#666";
     
-    // Normalize MSC Timeout to No Quotes
-    const status = (cr.carrier === "MSC" && cr.status === "TIMEOUT") ? "NO_QUOTES_AVAILABLE" : cr.status;
+    // If quotes are present, status is AVAILABLE_QUOTES_FOUND regardless of transient errors; normalize MSC Timeout
+    let status = cr.quotes.length > 0 ? "AVAILABLE_QUOTES_FOUND" : cr.status;
+    if (cr.carrier === "MSC" && status === "TIMEOUT") {
+      status = "NO_QUOTES_AVAILABLE";
+    }
 
     if (cr.quotes.length === 0) {
       allRows.push({

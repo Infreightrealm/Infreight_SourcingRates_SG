@@ -261,8 +261,21 @@ export async function pollRateSearch(
         const data = await getRateSearchResults(searchId);
         onUpdate(data);
 
-        const terminalStatuses = ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"];
-        if (terminalStatuses.includes(data.status) || attempts >= maxAttempts) {
+        const runningStatuses = ["QUEUED", "RUNNING", "WAITING_FOR_HUMAN_VERIFICATION", "MANUAL_ACTION_REQUIRED"];
+        const hasActiveCarrier = (data.results || []).some((r: any) =>
+          runningStatuses.includes(r.status) || (r.status && r.status.startsWith("RUNNING"))
+        );
+
+        // Only stop polling when search is terminal AND no carrier is actively running.
+        // For FAILED/PARTIAL_COMPLETED, ensure a minimum grace period (10 attempts = 20s) to catch late-committing quotes.
+        const isTerminalStatus = ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status);
+        const isFailureStatus = ["PARTIAL_COMPLETED", "FAILED"].includes(data.status);
+        
+        const shouldStop =
+          (isTerminalStatus && !hasActiveCarrier && (!isFailureStatus || attempts >= 10)) ||
+          attempts >= maxAttempts;
+
+        if (shouldStop) {
           clearInterval(timer);
           resolve(data);
         }
