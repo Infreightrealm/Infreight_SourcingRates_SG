@@ -181,21 +181,32 @@ function HomeContent() {
   const handleBatchRunAll = async (allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>) => {
     if (!allPairs || allPairs.length === 0) return;
 
-    setIsBatchRunning(true);
-    setBatchProgress({ current: 0, total: allPairs.length });
+    // Deduplicate pairs by origin + destination to prevent redundant duplicate search jobs
+    const uniquePairs: typeof allPairs = [];
+    const seenKeys = new Set<string>();
+    for (const p of allPairs) {
+      const key = `${(p.origin || "").trim().toLowerCase()}___${(p.destination || "").trim().toLowerCase()}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        uniquePairs.push(p);
+      }
+    }
 
-    const initialBatch: BatchRouteResult[] = allPairs.map(p => ({
+    setIsBatchRunning(true);
+    setBatchProgress({ current: 0, total: uniquePairs.length });
+
+    const initialBatch: BatchRouteResult[] = uniquePairs.map(p => ({
       origin: p.origin,
       destination: p.destination,
       status: "pending"
     }));
     setBatchResults(initialBatch);
 
-    toast.info(`🚀 Starting continuous batch search for ${allPairs.length} port-to-port routes...`);
+    toast.info(`🚀 Starting continuous batch search for ${uniquePairs.length} unique port-to-port route(s)...`);
 
-    for (let i = 0; i < allPairs.length; i++) {
-      const pair = allPairs[i];
-      setBatchProgress({ current: i + 1, total: allPairs.length });
+    for (let i = 0; i < uniquePairs.length; i++) {
+      const pair = uniquePairs[i];
+      setBatchProgress({ current: i + 1, total: uniquePairs.length });
 
       setBatchResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: "running" } : item));
 
@@ -233,7 +244,7 @@ function HomeContent() {
     }
 
     setIsBatchRunning(false);
-    toast.success(`🎉 Continuous batch search completed! All ${allPairs.length} routes processed. Click 'Export to Excel' to download.`);
+    toast.success(`🎉 Continuous batch search completed! All ${uniquePairs.length} unique route(s) processed. Click 'Export to Excel' to download.`);
   };
 
 
