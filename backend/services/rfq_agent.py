@@ -1021,7 +1021,8 @@ async def _call_native_gemini_api(
         tomorrow_date=tomorrow_str
     )
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_key}"
 
     
     parts = []
