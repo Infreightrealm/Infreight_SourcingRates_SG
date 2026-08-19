@@ -12,11 +12,8 @@ echo Press Ctrl+C once to trigger update and restart.
 echo ====================================================
 echo.
 echo [PORT CHECK] Clearing any process bound to port 8000...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000 ^| findstr LISTENING') do (
-    echo Stopping process PID %%a on port 8000...
-    taskkill /F /PID %%a >nul 2>&1
-)
-timeout /t 1 /nobreak >nul
+powershell -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+timeout /t 2 /nobreak >nul
 
 cd backend
 :: Redirecting input via '< nul' bypasses the 'Terminate batch job (Y/N)' prompt
