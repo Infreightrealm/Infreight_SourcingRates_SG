@@ -55,12 +55,62 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqI
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFile = (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please upload an image file (PNG, JPG, or WEBP).");
+    const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls") || file.name.endsWith(".csv") || file.type.includes("excel") || file.type.includes("spreadsheet") || file.type.includes("csv");
+    const isImage = file.type.startsWith("image/");
+
+    if (!isExcel && !isImage) {
+      toast.error("Please upload an Excel spreadsheet (.xlsx, .csv) or an image screenshot (PNG, JPG, WEBP).");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("File size exceeds 5MB limit. Please upload a smaller screenshot.");
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File size exceeds 10MB limit. Please upload a smaller file.");
+      return;
+    }
+
+    if (isExcel) {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const buffer = reader.result as ArrayBuffer;
+          const ExcelJS = (await import("exceljs")).default;
+          const workbook = new ExcelJS.Workbook();
+          await workbook.xlsx.load(buffer);
+          
+          let extractedText = `[EXCEL RFQ TENDER FILE: ${file.name}]\n\n`;
+          workbook.eachSheet((worksheet) => {
+            extractedText += `--- SHEET: ${worksheet.name} ---\n`;
+            worksheet.eachRow((row) => {
+              const rowValues = (row.values as any[])
+                .slice(1)
+                .map(val => {
+                  if (val && typeof val === "object") {
+                    if ("result" in val) return val.result;
+                    if ("text" in val) return val.text;
+                    if ("hyperlink" in val) return val.text || val.hyperlink;
+                  }
+                  return val ?? "";
+                })
+                .join("\t");
+              if (rowValues.trim()) {
+                extractedText += `${rowValues}\n`;
+              }
+            });
+            extractedText += "\n";
+          });
+
+          setRfqText(extractedText);
+          setImageBase64(null);
+          setImageMime(null);
+          setImagePreview(null);
+          if (parseResult) setParseResult(null);
+          toast.success(`📊 Excel file '${file.name}' read successfully! Click 'Read enquiry & fill form' to parse with AI.`);
+        } catch (err: any) {
+          console.error("Excel parsing error:", err);
+          toast.error(`Failed to read Excel file: ${err.message || err}`);
+        }
+      };
+      reader.readAsArrayBuffer(file);
       return;
     }
 
@@ -362,16 +412,16 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqI
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  accept="image/png,image/jpeg,image/jpg,image/webp,.xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
-                <span className="text-xl mb-1">📋 🖼️</span>
+                <span className="text-xl mb-1">📊 🖼️ 📋</span>
                 <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Paste screenshot (Ctrl+V / Cmd+V), drop file, or click
+                  Upload Excel (.xlsx, .csv), drop screenshot, or paste (Ctrl+V)
                 </span>
                 <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium mt-0.5">
-                  Direct clipboard paste supported | PNG, JPG, WEBP (Max 5MB)
+                  Excel Files (.xlsx, .csv) | Screenshots (PNG, JPG, WEBP) | Direct Paste
                 </span>
 
               </div>
