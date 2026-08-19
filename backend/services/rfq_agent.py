@@ -1023,9 +1023,18 @@ async def _call_native_gemini_api(
     )
     
     target_model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    # Normalize model aliases
+    if target_model in ["gemini-2.0-pro-exp", "gemini-2.0-pro", "gemini-2.0-pro-exp-02-05"]:
+        target_model = "gemini-2.0-pro-exp-02-05"
+    elif target_model in ["gemini-1.5-pro"]:
+        target_model = "gemini-1.5-pro"
+    elif target_model in ["gemini-2.0-flash"]:
+        target_model = "gemini-2.0-flash"
+    else:
+        target_model = "gemini-2.5-flash"
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={gemini_key}"
 
-    
     parts = []
     if image_b64 and image_mime:
         clean_mime = image_mime.lower().strip()
@@ -1077,6 +1086,11 @@ async def _call_native_gemini_api(
     
     async with httpx.AsyncClient(timeout=35.0) as client:
         res = await client.post(url, json=payload, headers=headers)
+        if res.status_code == 404 and target_model != "gemini-2.5-flash":
+            print(f"[RFQ Agent] Model '{target_model}' returned 404. Falling back to default 'gemini-2.5-flash'...")
+            fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+            res = await client.post(fallback_url, json=payload, headers=headers)
+
         if res.status_code != 200:
             raise RuntimeError(f"Gemini API error ({res.status_code}): {res.text}")
         

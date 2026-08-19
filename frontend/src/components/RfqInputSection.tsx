@@ -484,8 +484,11 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqI
                 <option value="gemini-1.5-pro" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
                   🧠 Gemini 1.5 Pro (Deep Reasoning, Large Multi-Port Lists)
                 </option>
-                <option value="gemini-2.0-pro-exp" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
-                  🚀 Gemini 2.0 Pro (Max Capacity & Multi-Page PDFs)
+                <option value="gemini-2.0-flash" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                  ⚡ Gemini 2.0 Flash (Fast Vision & Spreadsheet Reading)
+                </option>
+                <option value="gemini-2.0-pro-exp-02-05" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                  🚀 Gemini 2.0 Pro Exp (Max Capacity & Advanced Reasoning)
                 </option>
               </select>
             </div>
