@@ -200,9 +200,9 @@ class OOCLConnector(BaseCarrierConnector):
 
     async def _select_location(self, label: str, field_selector: str, location_name: str, locode: str = None, country_code: str = None, country_name: str = None) -> bool:
         try:
-            # Clean bracketed tags like [CY] from location_name
-            clean_loc_name = re.sub(r'^\[.*?\]\s*', '', location_name).strip()
-            print(f"[OOCL] Typing {label}: {clean_loc_name} (locode={locode}, country={country_name})")
+            raw_target = location_name.strip()
+            clean_loc_name = re.sub(r'^\[.*?\]\s*', '', raw_target).strip()
+            print(f"[OOCL] Typing {label}: {raw_target} (clean={clean_loc_name}, locode={locode}, country={country_name})")
             field = self.page.locator(field_selector).first
             await field.click()
             await self.page.keyboard.press("Control+A")
@@ -212,10 +212,6 @@ class OOCLConnector(BaseCarrierConnector):
             type_text = clean_loc_name
             if "," in type_text:
                 type_text = type_text.split(",")[0].strip()
-
-            # If city is Venezia, type Venice so FreightSmart autocomplete finds English index
-            if type_text.lower() == "venezia":
-                type_text = "Venice"
 
             await field.type(type_text, delay=100)
             
@@ -246,33 +242,45 @@ class OOCLConnector(BaseCarrierConnector):
             if country_code == "IT" or (country_name and "italy" in country_name.lower()) or (locode and "it" in locode.lower()[:2]):
                 wrong_countries = ["united states", "usa", "los angeles", "california"]
 
-            # 1. Match option by LOCODE / Country / City
+            # 0. Check direct match against raw_target or clean_loc_name
             for i in range(count):
                 opt = options.nth(i)
                 text = await opt.inner_text()
                 if text:
-                    text_lower = text.lower()
-                    if wrong_countries and any(w in text_lower for w in wrong_countries):
-                        continue
-
-                    loc_matched = False
-                    if locode and locode.lower() in text_lower:
-                        loc_matched = True
-                    elif country_name and country_name.lower() in text_lower:
-                        loc_matched = True
-                    elif country_code and (country_code.lower() in text_lower or re.search(rf'\b{re.escape(country_code.lower())}\b', text_lower)):
-                        loc_matched = True
-
-                    city_matched = (
-                        "venice" in text_lower or "venezia" in text_lower
-                        if ("venice" in clean_loc_name.lower() or "venezia" in clean_loc_name.lower())
-                        else (clean_loc_name.lower() in text_lower or type_text.lower() in text_lower)
-                    )
-
-                    if loc_matched or (city_matched and (not country_name or country_name.lower() in text_lower or "italy" in text_lower)):
+                    text_lower = text.lower().strip()
+                    if raw_target.lower() == text_lower or clean_loc_name.lower() == text_lower or (raw_target.lower() in text_lower):
                         matching_option = opt
-                        print(f"[OOCL] Matched option for {label}: '{text.strip()}'")
+                        print(f"[OOCL] Direct override matched option for {label}: '{text.strip()}'")
                         break
+
+            # 1. Match option by LOCODE / Country / City if direct match didn't trigger
+            if not matching_option:
+                for i in range(count):
+                    opt = options.nth(i)
+                    text = await opt.inner_text()
+                    if text:
+                        text_lower = text.lower()
+                        if wrong_countries and any(w in text_lower for w in wrong_countries):
+                            continue
+
+                        loc_matched = False
+                        if locode and locode.lower() in text_lower:
+                            loc_matched = True
+                        elif country_name and country_name.lower() in text_lower:
+                            loc_matched = True
+                        elif country_code and (country_code.lower() in text_lower or re.search(rf'\b{re.escape(country_code.lower())}\b', text_lower)):
+                            loc_matched = True
+
+                        city_matched = (
+                            "venice" in text_lower or "venezia" in text_lower
+                            if ("venice" in clean_loc_name.lower() or "venezia" in clean_loc_name.lower())
+                            else (clean_loc_name.lower() in text_lower or type_text.lower() in text_lower)
+                        )
+
+                        if loc_matched or (city_matched and (not country_name or country_name.lower() in text_lower or "italy" in text_lower)):
+                            matching_option = opt
+                            print(f"[OOCL] Matched option for {label}: '{text.strip()}'")
+                            break
 
             # 2. Fallback: match first non-excluded option
             if not matching_option:
