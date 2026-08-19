@@ -938,16 +938,32 @@ class PortManager:
         # 0. Check dynamic carrier overrides FIRST
         if hasattr(self, '_dynamic_carrier_overrides') and carrier_key in self._dynamic_carrier_overrides:
             carrier_dict = self._dynamic_carrier_overrides[carrier_key]
+            # 0a. Direct exact match
             if text_lower in carrier_dict:
                 return carrier_dict[text_lower]
-            paren_match = re.search(r'\(\s*([A-Za-z]{5})\s*\)', text)
-            if paren_match:
-                locode_key = paren_match.group(1).lower()
-                if locode_key in carrier_dict:
-                    return carrier_dict[locode_key]
-            clean_word = text.strip().lower()
-            if clean_word in carrier_dict:
-                return carrier_dict[clean_word]
+
+            # 0b. Extract LOCODE from brackets [] or parens () or 5-letter word
+            locode_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', text) or re.search(r'\b([A-Za-z]{5})\b', text)
+            if locode_match:
+                l_key = locode_match.group(1).lower()
+                if l_key in carrier_dict:
+                    return carrier_dict[l_key]
+                # Check if any key in carrier_dict contains this LOCODE (e.g. key "venice, italy [itvce]" contains "itvce")
+                for k, v in carrier_dict.items():
+                    if l_key in k.lower():
+                        return v
+
+            # 0c. Clean text without bracket/paren tags
+            clean_text = re.sub(r'[\[\(].*?[\]\)]', '', text_lower).strip()
+            if clean_text and clean_text in carrier_dict:
+                return carrier_dict[clean_text]
+
+            # 0d. Fuzzy substring match (e.g. input "Venice, Italy [ITVCE]" vs key "venice, italy [itvce]")
+            for k, v in carrier_dict.items():
+                k_lower = k.lower().strip()
+                k_clean = re.sub(r'[\[\(].*?[\]\)]', '', k_lower).strip()
+                if k_lower == text_lower or k_lower in text_lower or text_lower in k_lower or (clean_text and clean_text in k_clean):
+                    return v
         if "dallas" in text_lower or text_lower == "usdal":
             if carrier_key == "maersk":
                 return "Dallas (Texas), United States"
