@@ -173,7 +173,12 @@ class OOCLConnector(BaseCarrierConnector):
 
     async def _init_browser(self):
         self.playwright = await async_playwright().start()
-        headless_setting = os.getenv("HEADLESS", "true").lower() in ("true", "1", "yes")
+        is_prod = os.name != "nt"
+        browser_env = os.environ.copy()
+        if is_prod:
+            browser_env["DISPLAY"] = ":105"
+
+        headless_setting = os.getenv("HEADLESS", "false").lower() in ("true", "1", "yes")
         self.browser = await self.playwright.chromium.launch(
             headless=headless_setting,
             args=[
@@ -181,7 +186,8 @@ class OOCLConnector(BaseCarrierConnector):
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled"
-            ]
+            ],
+            env=browser_env
         )
         self.context = await self.browser.new_context(
             viewport={"width": 1280, "height": 800},
