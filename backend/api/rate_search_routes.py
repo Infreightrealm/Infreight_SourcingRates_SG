@@ -428,22 +428,33 @@ async def get_user_search_history(
                 "quotes_count": q_count
             })
 
-        history.append({
-            "id": str(rs.id),
-            "user_name": rs.user_name or "Guest User",
-            "created_at": (rs.created_at.isoformat() + ("Z" if not rs.created_at.isoformat().endswith("Z") else "")) if rs.created_at else "",
-            "origin": rs.origin,
-            "destination": rs.destination,
-            "container_type": rs.container_type,
-            "container_quantity": rs.container_quantity,
-            "weight_per_container_kg": rs.weight_per_container_kg,
-            "commodity": rs.commodity,
-            "departure_date": rs.departure_date,
-            "selected_carriers": rs.selected_carriers or [],
-            "status": rs.status,
-            "total_quotes": total_quotes,
-            "carrier_results": carrier_summaries
-        })
+            effective_status = rs.status
+            if effective_status == "RUNNING" and rs.carrier_results:
+                running_states = {"QUEUED", "RUNNING", "WAITING_FOR_HUMAN_VERIFICATION", "MANUAL_ACTION_REQUIRED"}
+                all_cr_done = all(
+                    cr.status not in running_states and not (cr.status.startswith("RUNNING") if cr.status else False)
+                    for cr in rs.carrier_results
+                )
+                if all_cr_done:
+                    has_succ = any(cr.status == "AVAILABLE_QUOTES_FOUND" or (cr.quotes and len(cr.quotes) > 0) for cr in rs.carrier_results)
+                    effective_status = "COMPLETED" if has_succ else "FAILED"
+
+            history.append({
+                "id": str(rs.id),
+                "user_name": rs.user_name or "Guest User",
+                "created_at": (rs.created_at.isoformat() + ("Z" if not rs.created_at.isoformat().endswith("Z") else "")) if rs.created_at else "",
+                "origin": rs.origin,
+                "destination": rs.destination,
+                "container_type": rs.container_type,
+                "container_quantity": rs.container_quantity,
+                "weight_per_container_kg": rs.weight_per_container_kg,
+                "commodity": rs.commodity,
+                "departure_date": rs.departure_date,
+                "selected_carriers": rs.selected_carriers or [],
+                "status": effective_status,
+                "total_quotes": total_quotes,
+                "carrier_results": carrier_summaries
+            })
 
     return history
 

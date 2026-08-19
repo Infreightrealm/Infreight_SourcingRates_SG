@@ -413,7 +413,10 @@ async def update_search_status(search_id: UUID):
             for s in statuses
         )
         search_str_id = str(search_id)
-        is_task_running = search_str_id in active_search_tasks and any(not t.done() for t in active_search_tasks[search_str_id])
+        current_t = asyncio.current_task()
+        is_task_running = search_str_id in active_search_tasks and any(
+            t != current_t and not t.done() for t in active_search_tasks.get(search_str_id, [])
+        )
 
         if not all_done or is_task_running:
             search.status = SearchStatus.RUNNING.value
@@ -474,6 +477,7 @@ async def run_all_carrier_searches(
             await asyncio.gather(*active_tasks, return_exceptions=True)
         finally:
             active_search_tasks.pop(search_str_id, None)
+            await asyncio.shield(update_search_status(search_id))
 
     except BaseException as e:
         print(f"[JOB] run_all_carrier_searches was interrupted or cancelled: {e}")
