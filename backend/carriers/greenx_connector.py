@@ -283,7 +283,8 @@ class GreenXConnector(BaseCarrierConnector):
             print(f"[GreenX] Error checking suggestions: {err}")
 
         if not clicked:
-            print(f"[GreenX] WARNING: No dropdown option found for '{query}'. Proceeding.")
+            print(f"[GreenX] WARNING: No dropdown option found for '{query}' in GreenX portal list. Port unsupported.")
+            return False
         else:
             print(f"[GreenX] Port selection locked in for {label}")
 
