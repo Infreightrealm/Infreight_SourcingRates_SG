@@ -24,15 +24,14 @@ echo.
 echo [3/3] Launching Infreight Backend Server (Port 8000)...
 echo.
 if exist .venv (
-    .venv\Scripts\python.exe -c "import uvicorn" >nul 2>&1
-    if errorlevel 1 (
-        echo [INFO] Cleaning broken .venv folder...
+    if not exist .venv\pyvenv.cfg (
+        echo [INFO] Removing incomplete .venv folder...
         rmdir /s /q .venv >nul 2>&1
     )
 )
 
 set "PY_CMD=python"
-if exist .venv\Scripts\python.exe (
+if exist .venv\pyvenv.cfg (
     set "PY_CMD=..\.venv\Scripts\python.exe"
 )
 
