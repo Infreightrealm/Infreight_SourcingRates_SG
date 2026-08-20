@@ -23,7 +23,7 @@ pip install -r backend\requirements.txt
 pip install httpx websockets
 
 echo.
-echo [3/3] Installing Playwright & Patchright Stealth Browsers...
+echo [3/3] Downloading Chromium Browser binaries for Playwright and Patchright...
 python -m playwright install chromium
 python -m patchright install chromium
 
