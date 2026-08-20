@@ -117,7 +117,12 @@ async def create_batch_rate_search(
     search_ids = []
     requests_meta = []
 
-    for route in request.routes:
+    # Enforce anti-bot safety limit of 50 routes per inquiry
+    routes = request.routes[:50]
+    if len(request.routes) > 50:
+        print(f"[VERTICAL BATCH] Enforced anti-bot safety cap: sliced {len(request.routes)} routes to first 50 max.")
+
+    for route in routes:
         req_obj = RateSearchRequest(
             carriers=carriers,
             origin=route.origin,

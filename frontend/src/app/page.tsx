@@ -192,21 +192,28 @@ function HomeContent() {
       }
     }
 
-    setIsBatchRunning(true);
-    setBatchProgress({ current: 0, total: uniquePairs.length });
+    // Cap to 50 unique route pairs per inquiry batch to maintain carrier anti-bot compliance
+    const cappedPairs = uniquePairs.slice(0, 50);
 
-    const initialBatch: BatchRouteResult[] = uniquePairs.map(p => ({
+    if (uniquePairs.length > 50) {
+      toast.warning(`🛡️ Anti-Bot Safety Cap: Processing first 50 routes (out of ${uniquePairs.length} total) to maintain carrier compliance.`);
+    }
+
+    setIsBatchRunning(true);
+    setBatchProgress({ current: 0, total: cappedPairs.length });
+
+    const initialBatch: BatchRouteResult[] = cappedPairs.map(p => ({
       origin: p.origin,
       destination: p.destination,
       status: "running"
     }));
     setBatchResults(initialBatch);
 
-    toast.info(`⚡ PERSISTENT BATCH ENGINE ACTIVATED: Dispatching ${uniquePairs.length} unique routes to POST /api/rate-search/batch...`);
+    toast.info(`⚡ PERSISTENT BATCH ENGINE ACTIVATED: Dispatching ${cappedPairs.length} unique routes (capped at 50 max)...`);
 
     try {
       const batchRes = await createBatchRateSearch({
-        routes: uniquePairs,
+        routes: cappedPairs,
         carriers: ["ALL"],
         user_name: userName || undefined
       });
