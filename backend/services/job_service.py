@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.database import get_async_session_maker
 from models.rate_search import RateSearch, CarrierSearchResult
 from models.quote import Quote, QuoteCharge
-from models.schemas import RateSearchRequest, CarrierResultStatus, SearchStatus
+from models.schemas import RateSearchRequest, CarrierResultStatus, SearchStatus, QuoteSchema
 from carriers.registry import get_connector
 import re
 import difflib
