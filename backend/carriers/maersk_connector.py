@@ -65,6 +65,7 @@ class MaerskConnector(BaseCarrierConnector):
 
     def __init__(self):
         super().__init__()
+        self.SEARCH_URL = "https://www.maersk.com/book/"
         self.playwright = None
         self.current_card = None
         self.temp_profile_dir = None

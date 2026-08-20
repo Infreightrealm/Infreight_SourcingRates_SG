@@ -41,6 +41,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     def __init__(self):
         super().__init__()
+        self.SEARCH_URL = "https://www.hapag-lloyd.com/en/online-business/quotation/quick-quotes.html"
         self.playwright = None
         self._all_quotes = []
         self.master_profile_dir = None

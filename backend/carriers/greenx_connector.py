@@ -17,6 +17,7 @@ class GreenXConnector(BaseCarrierConnector):
 
     def __init__(self):
         super().__init__()
+        self.SEARCH_URL = "https://www.greenx.evergreen-marine.com/ebusiness/quote/spotRateSearch.do"
         self.playwright = None
         self._all_quotes = []
         self.current_charges = []

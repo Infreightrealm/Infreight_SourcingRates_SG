@@ -35,6 +35,7 @@ class ONEConnector(BaseCarrierConnector):
 
     def __init__(self):
         super().__init__()
+        self.SEARCH_URL = "https://ecom.one-line.com/ecom/CUP_HOM_3001.do"
         self.playwright = None
         self._cached_quotes = {}
         self._cached_status = {}

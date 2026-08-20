@@ -102,6 +102,7 @@ class MSCConnector(BaseCarrierConnector):
 
     def __init__(self):
         super().__init__()
+        self.SEARCH_URL = "https://www.msc.com/en/solutions/instant-quote"
         self.playwright = None
 
     def log(self, msg: str):
