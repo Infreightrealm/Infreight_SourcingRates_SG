@@ -28,6 +28,11 @@ if exist .venv\Scripts\python.exe (
 ) else if exist backend\.venv\Scripts\python.exe (
     cd backend && .venv\Scripts\python.exe run_server.py
 ) else (
+    python -c "import uvicorn" >nul 2>&1
+    if errorlevel 1 (
+        echo [INFO] Installing backend dependencies...
+        pip install -r backend\requirements.txt
+    )
     cd backend && python run_server.py
 )
 
