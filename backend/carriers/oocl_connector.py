@@ -163,7 +163,7 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
 class OOCLConnector(BaseCarrierConnector):
     carrier_code = "OOCL"
     carrier_name = "OOCL"
-    SEARCH_URL = "https://freightsmart.oocl.com"
+    SEARCH_URL = "https://www.oocl.com/eng/ourservices/eservices/sailingschedule/Pages/default.aspx"
 
     def __init__(self):
         super().__init__()
@@ -331,6 +331,22 @@ class OOCLConnector(BaseCarrierConnector):
             except Exception as ne:
                 print(f"[OOCL] Page goto note: {ne}")
             await self.page.wait_for_timeout(2000)
+            
+            # Check for Cloudflare Turnstile security gate
+            try:
+                title = (await self.page.title()).lower()
+                content = (await self.page.content()).lower()
+                if "just a moment" in title or "security verification" in content or "verify you are human" in content:
+                    print("[OOCL] [ACTION REQUIRED] Cloudflare security verification detected! Please click 'Verify you are human' in the opened Chrome window.")
+                    for _ in range(60):
+                        await asyncio.sleep(1)
+                        c_title = (await self.page.title()).lower()
+                        c_content = (await self.page.content()).lower()
+                        if "just a moment" not in c_title and "security verification" not in c_content and "verify you are human" not in c_content:
+                            print("[OOCL] Cloudflare verification solved! Continuing search...")
+                            break
+            except Exception as ce:
+                print(f"[OOCL] Cloudflare check note: {ce}")
             
             # Find inputs. In OOCL there is an Origin input and a Destination input inside the form.
             # Usually they are inside app-autocomplete or similar.
