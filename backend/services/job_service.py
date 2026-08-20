@@ -603,7 +603,7 @@ async def run_vertical_batch_searches(
             await connector.run_batch_persistent_search(requests, route_callback=route_progress_callback)
 
     active_tasks = [asyncio.create_task(run_carrier_batch(c)) for c in sorted_carriers]
-    try:
-        await asyncio.gather(*active_tasks, return_exceptions=True)
-    except Exception as e:
-        print(f"[VERTICAL BATCH] Exception during vertical batch execution: {e}")
+    results = await asyncio.gather(*active_tasks, return_exceptions=True)
+    for c, res in zip(sorted_carriers, results):
+        if isinstance(res, Exception):
+            print(f"[VERTICAL BATCH] Error executing batch for carrier {c}: {res}")
