@@ -202,7 +202,7 @@ function HomeContent() {
     }));
     setBatchResults(initialBatch);
 
-    toast.info(`🚀 Dispatching Vertical Carrier-First Batch for ${uniquePairs.length} unique routes (7 parallel persistent carrier workers)...`);
+    toast.info(`⚡ PERSISTENT BATCH ENGINE ACTIVATED: Dispatching ${uniquePairs.length} unique routes to POST /api/rate-search/batch...`);
 
     try {
       const batchRes = await createBatchRateSearch({
