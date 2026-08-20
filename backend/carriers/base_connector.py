@@ -226,8 +226,11 @@ class BaseCarrierConnector(ABC):
             pass
         return False
 
-    async def close(self):
+    async def close(self, force: bool = False):
         """Clean up browser resources robustly, ensuring failures or hangs never block execution."""
+        if getattr(self, "is_batch_active", False) and not force:
+            # Keep browser session open during persistent batch execution
+            return
         try:
             if self.page:
                 try:
@@ -332,6 +335,7 @@ class BaseCarrierConnector(ABC):
         The browser is closed only when all routes in the batch complete.
         """
         batch_results = []
+        self.is_batch_active = True
         try:
             # Step 1: Login ONCE
             login_ok = await self.login()
@@ -392,7 +396,8 @@ class BaseCarrierConnector(ABC):
             print(f"[{self.carrier_code}] Persistent batch execution error: {e}")
             return batch_results
         finally:
-            await asyncio.shield(self.close())
+            self.is_batch_active = False
+            await asyncio.shield(self.close(force=True))
 
 
 class NotAvailableConnector(BaseCarrierConnector):
