@@ -163,7 +163,7 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
 class OOCLConnector(BaseCarrierConnector):
     carrier_code = "OOCL"
     carrier_name = "OOCL"
-    SEARCH_URL = "https://www.freightsmart.oocl.com/sailingSchedule"
+    SEARCH_URL = "https://freightsmart.oocl.com/sailingSchedule"
 
     def __init__(self):
         super().__init__()

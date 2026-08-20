@@ -391,7 +391,7 @@ class BaseCarrierConnector(ABC):
                 # Reset or navigate back to search page for next route without closing browser
                 try:
                     if self.page and idx < len(requests) - 1 and getattr(self, "SEARCH_URL", None):
-                        await self.page.goto(self.SEARCH_URL, wait_until="networkidle", timeout=15000)
+                        await self.page.goto(self.SEARCH_URL, wait_until="domcontentloaded", timeout=15000)
                         await self.page.wait_for_timeout(1000)
                 except Exception as ne:
                     print(f"[{self.carrier_code}] Navigation reset note: {ne}")
