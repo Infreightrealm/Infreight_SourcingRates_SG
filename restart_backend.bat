@@ -23,20 +23,24 @@ if %errorlevel%==0 (
 echo.
 echo [3/3] Launching Infreight Backend Server (Port 8000)...
 echo.
-set "PY_CMD=python"
-if exist .venv\Scripts\python.exe (
+if exist .venv (
     .venv\Scripts\python.exe -c "import uvicorn" >nul 2>&1
-    if %errorlevel%==0 set "PY_CMD=..\.venv\Scripts\python.exe"
-) else if exist backend\.venv\Scripts\python.exe (
-    backend\.venv\Scripts\python.exe -c "import uvicorn" >nul 2>&1
-    if %errorlevel%==0 set "PY_CMD=.venv\Scripts\python.exe"
+    if errorlevel 1 (
+        echo [INFO] Cleaning broken .venv folder...
+        rmdir /s /q .venv >nul 2>&1
+    )
 )
 
-python -c "import uvicorn" >nul 2>&1
+set "PY_CMD=python"
+if exist .venv\Scripts\python.exe (
+    set "PY_CMD=..\.venv\Scripts\python.exe"
+)
+
+%PY_CMD% -c "import uvicorn" >nul 2>&1
 if errorlevel 1 (
-    echo [INFO] Installing missing backend dependencies...
-    pip install -r backend\requirements.txt
-    pip install httpx websockets
+    echo [INFO] Installing missing backend dependencies into Python...
+    python -m pip install -r backend\requirements.txt
+    python -m pip install uvicorn fastapi httpx websockets
 )
 
 cd backend && %PY_CMD% run_server.py
