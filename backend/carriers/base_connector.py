@@ -5,7 +5,7 @@ Each carrier connector must implement these methods to integrate with
 the carrier's quote portal via Playwright browser automation.
 """
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Any
 import asyncio
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
 
