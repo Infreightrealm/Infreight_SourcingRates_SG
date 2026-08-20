@@ -549,7 +549,8 @@ async def run_vertical_batch_searches(
     slow_carriers = ["HAPAG_LLOYD", "ONE"]
     sorted_carriers = sorted(carriers, key=lambda c: 0 if c.upper() in slow_carriers else 1)
 
-    max_concurrency = int(os.getenv("CARRIER_MAX_CONCURRENCY", "7"))
+    # Limit concurrent persistent carrier sessions (default 3 at a time) to keep CPU & RAM smooth
+    max_concurrency = int(os.getenv("CARRIER_MAX_CONCURRENCY", "3"))
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def run_carrier_batch(carrier_code: str):
