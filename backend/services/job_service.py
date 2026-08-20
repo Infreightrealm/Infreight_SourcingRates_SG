@@ -528,4 +528,82 @@ async def cancel_all_active_searches():
             if not task.done():
                 task.cancel()
                 cancelled_count += 1
-    print(f"[JOB] Cancelled {cancelled_count} active search task(s).")
+    active_search_tasks.clear()
+    return cancelled_count
+
+
+async def run_vertical_batch_searches(
+    batch_search_ids: list[UUID],
+    carriers: list[str],
+    requests: list[RateSearchRequest],
+):
+    """
+    Executes multi-route RFQ tenders using Vertical Carrier-First Persistent Sessions.
+    Dispatches 7 parallel persistent carrier workers, one per selected carrier.
+    Each carrier worker launches Chromium ONCE, logs in ONCE, and searches all routes sequentially.
+    """
+    import os
+    print(f"[VERTICAL BATCH] Starting vertical persistent batch for {len(requests)} routes across {len(carriers)} carriers...")
+    
+    # 1. Sort carriers (Hapag & ONE first)
+    slow_carriers = ["HAPAG_LLOYD", "ONE"]
+    sorted_carriers = sorted(carriers, key=lambda c: 0 if c.upper() in slow_carriers else 1)
+
+    max_concurrency = int(os.getenv("CARRIER_MAX_CONCURRENCY", "7"))
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def run_carrier_batch(carrier_code: str):
+        async with semaphore:
+            connector_cls = CARRIER_CONNECTORS.get(carrier_code)
+            if not connector_cls:
+                print(f"[VERTICAL BATCH] No connector for {carrier_code}")
+                return
+
+            connector = connector_cls()
+            print(f"[VERTICAL BATCH] [{carrier_code}] Persistent Session Started")
+
+            async def route_progress_callback(idx: int, req: RateSearchRequest, status: CarrierResultStatus, quotes: list[QuoteSchema]):
+                # Find matching search_id for this route index
+                if idx < len(batch_search_ids):
+                    s_id = batch_search_ids[idx]
+                    async with get_async_session_maker()() as session:
+                        db_result = (await session.execute(
+                            select(CarrierSearchResult).where(
+                                CarrierSearchResult.search_id == s_id,
+                                CarrierSearchResult.carrier == carrier_code
+                            )
+                        )).scalar_one_or_none()
+                        if db_result:
+                            db_result.status = status.value
+                            db_result.completed_at = datetime.utcnow()
+                            # Save quotes
+                            for q_schema in quotes:
+                                db_quote = Quote(
+                                    carrier_result_id=db_result.id,
+                                    etd=q_schema.etd,
+                                    eta=q_schema.eta,
+                                    transit_time_days=q_schema.transit_time_days,
+                                    service_name=q_schema.service_name,
+                                    vessel=q_schema.vessel,
+                                    container_type=q_schema.container_type,
+                                    container_quantity=q_schema.container_quantity,
+                                    currency=q_schema.currency,
+                                    basic_ocean_freight=q_schema.basic_ocean_freight,
+                                    discount=q_schema.discount,
+                                    final_freight_value=q_schema.final_freight_value,
+                                    validity_till=q_schema.validity_till,
+                                    raw_data_json={"routing": q_schema.routing, "free_time": q_schema.free_time}
+                                )
+                                session.add(db_quote)
+                            await session.commit()
+
+                        # Update main search status
+                        await asyncio.shield(update_search_status(s_id))
+
+            await connector.run_batch_persistent_search(requests, route_callback=route_progress_callback)
+
+    active_tasks = [asyncio.create_task(run_carrier_batch(c)) for c in sorted_carriers]
+    try:
+        await asyncio.gather(*active_tasks, return_exceptions=True)
+    except Exception as e:
+        print(f"[VERTICAL BATCH] Exception during vertical batch execution: {e}")

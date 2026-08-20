@@ -12,7 +12,7 @@ import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchCompletionModal } from "@/components/SearchCompletionModal";
 import LoginModal from "@/components/LoginModal";
-import { createRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
+import { createRateSearch, createBatchRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, type BatchRouteResult } from "@/lib/excelExport";
 import BackendConfigModal from "@/components/BackendConfigModal";
@@ -198,53 +198,49 @@ function HomeContent() {
     const initialBatch: BatchRouteResult[] = uniquePairs.map(p => ({
       origin: p.origin,
       destination: p.destination,
-      status: "pending"
+      status: "running"
     }));
     setBatchResults(initialBatch);
 
-    toast.info(`🚀 Starting continuous batch search for ${uniquePairs.length} unique port-to-port route(s)...`);
+    toast.info(`🚀 Dispatching Vertical Carrier-First Batch for ${uniquePairs.length} unique routes (7 parallel persistent carrier workers)...`);
 
-    for (let i = 0; i < uniquePairs.length; i++) {
-      const pair = uniquePairs[i];
-      setBatchProgress({ current: i + 1, total: uniquePairs.length });
-
-      setBatchResults(prev => prev.map((item, idx) => idx === i ? { ...item, status: "running" } : item));
-
-      const request: RateSearchRequest = {
+    try {
+      const batchRes = await createBatchRateSearch({
+        routes: uniquePairs,
         carriers: ["ALL"],
-        origin: pair.origin,
-        destination: pair.destination,
-        service_term: "CY/CY",
-        container_types: pair.container_types || ["DRY 20", "DRY 40"],
-        container_quantity: 1,
-        weight_per_container_kg: pair.weight_per_container_kg || 25000,
-        commodity: "Furniture",
-        departure_date: "tomorrow",
-        search_window_days: 14
-      };
+        user_name: userName || undefined
+      });
 
-      try {
-        const { search_id } = await createRateSearch({ ...request, user_name: userName || undefined });
-        setSearchId(search_id);
-        let resultData: RateSearchResultResponse | null = null;
-        await pollRateSearch(search_id, (data) => {
-          resultData = data;
-          setSearchResult(data);
+      const searchIds = batchRes.search_ids;
+
+      // Poll search_ids in parallel as vertical persistent carrier workers complete routes
+      const completedResults: Record<number, RateSearchResultResponse> = {};
+      let completedCount = 0;
+
+      const pollPromises = searchIds.map((sId, index) => {
+        return pollRateSearch(sId, (data) => {
+          if (data && data.status !== "QUEUED" && data.status !== "RUNNING") {
+            if (!completedResults[index]) {
+              completedResults[index] = data;
+              completedCount++;
+              setBatchProgress({ current: completedCount, total: uniquePairs.length });
+              setBatchResults(prev => prev.map((item, idx) =>
+                idx === index ? { ...item, status: "completed", searchResult: data } : item
+              ));
+            }
+          }
         });
+      });
 
-        setBatchResults(prev => prev.map((item, idx) => 
-          idx === i ? { ...item, status: "completed", searchResult: resultData } : item
-        ));
-      } catch (err: any) {
-        console.error(`Batch search failed for route #${i+1} (${pair.origin} -> ${pair.destination}):`, err);
-        setBatchResults(prev => prev.map((item, idx) => 
-          idx === i ? { ...item, status: "failed" } : item
-        ));
-      }
+      await Promise.all(pollPromises);
+      toast.success(`🎉 Vertical Persistent Batch complete! Successfully processed ${uniquePairs.length} routes.`);
+
+    } catch (err: any) {
+      console.error("Vertical Batch search error:", err);
+      toast.error(`Vertical Batch search error: ${err.message || err}`);
+    } finally {
+      setIsBatchRunning(false);
     }
-
-    setIsBatchRunning(false);
-    toast.success(`🎉 Continuous batch search completed! All ${uniquePairs.length} unique route(s) processed. Click 'Export to Excel' to download.`);
   };
 
 

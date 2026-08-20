@@ -231,6 +231,23 @@ export async function createRateSearch(request: RateSearchRequest): Promise<Rate
   return res.json();
 }
 
+export async function createBatchRateSearch(payload: {
+  routes: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>;
+  carriers?: string[];
+  user_name?: string;
+}): Promise<{ batch_id: string; total_routes: int; carriers: string[]; search_ids: string[]; status: string }> {
+  const res = await failoverFetch(`/api/rate-search/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Batch API error: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getRateSearchResults(searchId: string): Promise<RateSearchResultResponse> {
   const res = await failoverFetch(`/api/rate-search/${searchId}`);
   if (!res.ok) {

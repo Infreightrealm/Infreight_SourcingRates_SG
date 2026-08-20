@@ -128,6 +128,28 @@ class RFQParseRequest(BaseModel):
     model: Optional[str] = Field(default=None, description="Optional Gemini model override e.g. gemini-1.5-pro or gemini-2.5-flash")
 
 
+class BatchRoutePair(BaseModel):
+    origin: str
+    destination: str
+    container_types: Optional[list[str]] = Field(default_factory=lambda: ["DRY 20", "DRY 40"])
+    weight_per_container_kg: Optional[float] = 25000.0
+
+
+class BatchRateSearchRequest(BaseModel):
+    routes: list[BatchRoutePair]
+    carriers: list[str] = Field(default_factory=lambda: ["ALL"])
+    user_name: Optional[str] = None
+    commodity: str = Field(default="Furniture")
+
+
+class BatchRateSearchResponse(BaseModel):
+    batch_id: str
+    total_routes: int
+    carriers: list[str]
+    search_ids: list[str]
+    status: str = "QUEUED"
+
+
 
 class RFQParseResult(BaseModel):
     status: str = Field(..., description="'success', 'air_draft_generated', 'needs_clarification', or 'unsupported_cargo'")

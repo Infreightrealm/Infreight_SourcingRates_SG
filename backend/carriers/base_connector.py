@@ -321,6 +321,79 @@ class BaseCarrierConnector(ABC):
         finally:
             await asyncio.shield(self.close())
 
+    async def run_batch_persistent_search(
+        self,
+        requests: list[RateSearchRequest],
+        route_callback: Optional[Any] = None
+    ) -> list[tuple[RateSearchRequest, CarrierResultStatus, list[QuoteSchema]]]:
+        """
+        Executes a vertical batch search over multiple route requests using a SINGLE persistent browser session.
+        Login and browser initialization happen ONCE at the start.
+        The browser is closed only when all routes in the batch complete.
+        """
+        batch_results = []
+        try:
+            # Step 1: Login ONCE
+            login_ok = await self.login()
+            if not login_ok:
+                for req in requests:
+                    batch_results.append((req, CarrierResultStatus.LOGIN_FAILED, []))
+                return batch_results
+
+            # Step 2: Loop over each route request on the SAME open browser context
+            for idx, req in enumerate(requests):
+                print(f"[{self.carrier_code}] Persistent Batch Step {idx+1}/{len(requests)}: {req.origin} -> {req.destination}")
+                quotes = []
+                try:
+                    # Execute search flow on active page
+                    search_status = await self.search_quotes(req)
+                    if search_status == CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                        raw_quotes = await self.extract_quote_list()
+                        if raw_quotes:
+                            for raw_q in raw_quotes:
+                                try:
+                                    opened = await self.open_price_breakdown(raw_q)
+                                    raw_charges = []
+                                    if opened:
+                                        raw_charges = await self.extract_charge_breakdown()
+                                    normalized = await self.normalize_result(raw_q, raw_charges)
+                                    quotes.append(normalized)
+                                except Exception as e:
+                                    print(f"[{self.carrier_code}] Error extracting batch quote: {e}")
+                                    continue
+                            
+                            status_res = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.EXTRACTION_FAILED
+                            batch_results.append((req, status_res, quotes))
+                        else:
+                            batch_results.append((req, CarrierResultStatus.NO_QUOTES_AVAILABLE, []))
+                    else:
+                        batch_results.append((req, search_status, []))
+                except Exception as e:
+                    print(f"[{self.carrier_code}] Persistent Batch route error ({req.origin}->{req.destination}): {e}")
+                    batch_results.append((req, CarrierResultStatus.FAILED, []))
+                
+                if route_callback:
+                    try:
+                        await route_callback(idx, req, batch_results[-1][1], quotes)
+                    except Exception:
+                        pass
+
+                # Reset or navigate back to search page for next route without closing browser
+                try:
+                    if self.page and idx < len(requests) - 1 and getattr(self, "SEARCH_URL", None):
+                        await self.page.goto(self.SEARCH_URL, wait_until="networkidle", timeout=15000)
+                        await self.page.wait_for_timeout(1000)
+                except Exception as ne:
+                    print(f"[{self.carrier_code}] Navigation reset note: {ne}")
+
+            return batch_results
+
+        except Exception as e:
+            print(f"[{self.carrier_code}] Persistent batch execution error: {e}")
+            return batch_results
+        finally:
+            await asyncio.shield(self.close())
+
 
 class NotAvailableConnector(BaseCarrierConnector):
     """Placeholder connector for carriers not yet implemented."""

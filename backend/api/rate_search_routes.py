@@ -5,7 +5,7 @@ POST /api/rate-search — Create a new rate search
 GET  /api/rate-search/{search_id} — Get status and results
 """
 import asyncio
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -21,6 +21,8 @@ from models.schemas import (
     RateSearchRequest,
     RateSearchCreateResponse,
     RateSearchResultResponse,
+    BatchRateSearchRequest,
+    BatchRateSearchResponse,
     CarrierResultSchema,
     QuoteSchema,
     ChargeSchema,
@@ -90,6 +92,84 @@ async def create_rate_search(
     return RateSearchCreateResponse(
         search_id=str(search.id),
         status="QUEUED",
+    )
+
+
+@router.post("/rate-search/batch", response_model=BatchRateSearchResponse)
+async def create_batch_rate_search(
+    request: BatchRateSearchRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Execute a multi-route RFQ batch using Vertical Parallel Persistent Sessions.
+    Dispatches 7 persistent carrier workers concurrently.
+    """
+    from services.job_service import run_vertical_batch_searches
+
+    carriers = request.carriers
+    if "ALL" in [c.upper() for c in carriers]:
+        carriers = ALL_CARRIERS
+    else:
+        carriers = [c.upper() for c in carriers]
+
+    batch_id = str(uuid4())
+    search_ids = []
+    requests_meta = []
+
+    for route in request.routes:
+        req_obj = RateSearchRequest(
+            carriers=carriers,
+            origin=route.origin,
+            destination=route.destination,
+            service_term="CY/CY",
+            container_types=route.container_types or ["DRY 20", "DRY 40"],
+            weight_per_container_kg=route.weight_per_container_kg or 25000.0,
+            commodity=request.commodity or "Furniture",
+            user_name=request.user_name
+        )
+        requests_meta.append(req_obj)
+
+        search = RateSearch(
+            user_name=request.user_name,
+            origin=route.origin,
+            destination=route.destination,
+            service_term="CY/CY",
+            container_type=", ".join(req_obj.container_types),
+            container_quantity=1,
+            weight_per_container_kg=req_obj.weight_per_container_kg,
+            commodity=req_obj.commodity,
+            departure_date="tomorrow",
+            search_window_days=14,
+            selected_carriers=carriers,
+            status="QUEUED",
+        )
+        session.add(search)
+        await session.flush()
+        search_ids.append(search.id)
+
+        for carrier in carriers:
+            session.add(CarrierSearchResult(
+                search_id=search.id,
+                carrier=carrier,
+                status="QUEUED",
+            ))
+
+    await session.commit()
+
+    background_tasks.add_task(
+        run_vertical_batch_searches,
+        search_ids,
+        carriers,
+        requests_meta
+    )
+
+    return BatchRateSearchResponse(
+        batch_id=batch_id,
+        total_routes=len(request.routes),
+        carriers=carriers,
+        search_ids=[str(s) for s in search_ids],
+        status="QUEUED"
     )
 
 
