@@ -555,13 +555,12 @@ async def run_vertical_batch_searches(
 
     async def run_carrier_batch(carrier_code: str):
         async with semaphore:
-            connector_cls = CARRIER_CONNECTORS.get(carrier_code)
-            if not connector_cls:
+            connector = get_connector(carrier_code)
+            if not connector:
                 print(f"[VERTICAL BATCH] No connector for {carrier_code}")
                 return
 
-            connector = connector_cls()
-            print(f"[VERTICAL BATCH] [{carrier_code}] Persistent Session Started")
+            print(f"[VERTICAL BATCH] [{carrier_code}] Persistent Session Started (Concurrency limit={max_concurrency})")
 
             async def route_progress_callback(idx: int, req: RateSearchRequest, status: CarrierResultStatus, quotes: list[QuoteSchema]):
                 # Find matching search_id for this route index
