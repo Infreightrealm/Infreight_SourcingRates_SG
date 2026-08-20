@@ -172,6 +172,8 @@ class OOCLConnector(BaseCarrierConnector):
         self.page = None
 
     async def _init_browser(self):
+        if self.page and self.browser:
+            return
         self.playwright = await async_playwright().start()
         is_prod = os.name != "nt"
         browser_env = os.environ.copy()
@@ -324,8 +326,11 @@ class OOCLConnector(BaseCarrierConnector):
             self.page.on("console", lambda msg: print(f"[OOCL-Console] {msg.type}: {msg.text}"))
             
             print(f"[OOCL] Navigating to search URL: {self.SEARCH_URL}")
-            await self.page.goto(self.SEARCH_URL, wait_until="networkidle")
-            await self.page.wait_for_timeout(3000)
+            try:
+                await self.page.goto(self.SEARCH_URL, wait_until="domcontentloaded", timeout=20000)
+            except Exception as ne:
+                print(f"[OOCL] Page goto note: {ne}")
+            await self.page.wait_for_timeout(2000)
             
             # Find inputs. In OOCL there is an Origin input and a Destination input inside the form.
             # Usually they are inside app-autocomplete or similar.
