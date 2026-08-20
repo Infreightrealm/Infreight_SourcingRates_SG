@@ -12,8 +12,13 @@ powershell -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 800
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000" ^| findstr "LISTENING"') do taskkill /F /PID %%a >nul 2>&1
 timeout /t 2 /nobreak >nul
 
-echo [2/3] Pulling latest updates from GitHub...
-git pull origin main
+where git >nul 2>&1
+if %errorlevel%==0 (
+    echo [2/3] Pulling latest updates from GitHub...
+    git pull origin main
+) else (
+    echo [2/3] Git not installed — skipping git pull.
+)
 
 echo.
 echo [3/3] Launching Infreight Backend Server (Port 8000)...
