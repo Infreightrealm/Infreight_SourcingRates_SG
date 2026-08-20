@@ -340,8 +340,14 @@ class BaseCarrierConnector(ABC):
             # Step 1: Login ONCE
             login_ok = await self.login()
             if not login_ok:
-                for req in requests:
+                print(f"[{self.carrier_code}] Persistent Batch LOGIN FAILED. Updating database status for {len(requests)} routes.")
+                for idx, req in enumerate(requests):
                     batch_results.append((req, CarrierResultStatus.LOGIN_FAILED, []))
+                    if route_callback:
+                        try:
+                            await route_callback(idx, req, CarrierResultStatus.LOGIN_FAILED, [])
+                        except Exception:
+                            pass
                 return batch_results
 
             # Step 2: Loop over each route request on the SAME open browser context
