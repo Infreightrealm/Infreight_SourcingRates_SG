@@ -520,8 +520,11 @@ async def run_all_carrier_searches(
 
 
 
+active_batch_tasks: list[asyncio.Task] = []
+
+
 async def cancel_all_active_searches():
-    """Cancel all active search tasks."""
+    """Cancel all active single & vertical batch search tasks and force close browsers."""
     cancelled_count = 0
     for search_id, tasks in list(active_search_tasks.items()):
         for task in tasks:
@@ -529,6 +532,17 @@ async def cancel_all_active_searches():
                 task.cancel()
                 cancelled_count += 1
     active_search_tasks.clear()
+
+    for task in list(active_batch_tasks):
+        if not task.done():
+            task.cancel()
+            cancelled_count += 1
+    active_batch_tasks.clear()
+
+    # Force close all open Playwright Chrome browser windows across all carriers
+    from carriers.registry import close_all_active_connectors
+    await close_all_active_connectors()
+
     return cancelled_count
 
 
@@ -603,7 +617,13 @@ async def run_vertical_batch_searches(
             await connector.run_batch_persistent_search(requests, route_callback=route_progress_callback)
 
     active_tasks = [asyncio.create_task(run_carrier_batch(c)) for c in sorted_carriers]
-    results = await asyncio.gather(*active_tasks, return_exceptions=True)
-    for c, res in zip(sorted_carriers, results):
-        if isinstance(res, Exception):
-            print(f"[VERTICAL BATCH] Error executing batch for carrier {c}: {res}")
+    active_batch_tasks.extend(active_tasks)
+    try:
+        results = await asyncio.gather(*active_tasks, return_exceptions=True)
+        for c, res in zip(sorted_carriers, results):
+            if isinstance(res, Exception):
+                print(f"[VERTICAL BATCH] Error executing batch for carrier {c}: {res}")
+    finally:
+        for t in active_tasks:
+            if t in active_batch_tasks:
+                active_batch_tasks.remove(t)

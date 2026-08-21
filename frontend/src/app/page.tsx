@@ -302,10 +302,13 @@ function HomeContent() {
                 try {
                   const { forceStopSearches } = await import("@/lib/api");
                   await forceStopSearches();
-                  toast.success("Searches forcefully stopped");
+                  toast.success("Searches & Browser Workers forcefully stopped");
                   setSearchId(null);
                   setSearchResult(null);
                   setIsLoading(false);
+                  setIsBatchRunning(false);
+                  setBatchResults([]);
+                  setBatchProgress({ current: 0, total: 0 });
                 } catch (e) {
                   toast.error("Failed to stop searches");
                 }

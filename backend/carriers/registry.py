@@ -33,6 +33,10 @@ SUPPORTED_CARRIERS = [
 ]
 
 
+# Active connector instance registry for force-stop teardown
+ACTIVE_CONNECTOR_INSTANCES: dict[str, BaseCarrierConnector] = {}
+
+
 def get_connector(carrier_code: str) -> BaseCarrierConnector:
     """
     Get the appropriate connector for a carrier.
@@ -43,10 +47,28 @@ def get_connector(carrier_code: str) -> BaseCarrierConnector:
     use_mock = os.getenv("USE_MOCK_CARRIERS", "true").lower() in ("true", "1", "yes")
 
     if use_mock:
-        return MockCarrierConnector(carrier_code)
+        conn = MockCarrierConnector(carrier_code)
+        ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
+        return conn
 
     # Live mode
     if carrier_code in LIVE_CONNECTORS:
-        return LIVE_CONNECTORS[carrier_code]()
+        conn = LIVE_CONNECTORS[carrier_code]()
+        ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
+        return conn
 
-    return NotAvailableConnector(carrier_code)
+    conn = NotAvailableConnector(carrier_code)
+    ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
+    return conn
+
+
+async def close_all_active_connectors():
+    """Force close all active carrier connectors and their Playwright Chrome windows."""
+    for carrier_code, connector in list(ACTIVE_CONNECTOR_INSTANCES.items()):
+        try:
+            print(f"[REGISTRY] Force closing active browser for {carrier_code}...")
+            connector.is_batch_active = False
+            await connector.close(force=True)
+        except Exception as e:
+            print(f"[REGISTRY] Error force closing {carrier_code}: {e}")
+    ACTIVE_CONNECTOR_INSTANCES.clear()
