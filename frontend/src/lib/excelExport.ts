@@ -19,6 +19,18 @@ function sanitizeSheetName(name: string, index: number): string {
   return `${index + 1}. ${clean}`;
 }
 
+function is20ftContainer(type?: string): boolean {
+  if (!type) return false;
+  const t = type.toUpperCase();
+  return t.includes("20") || t.includes("20GP") || t.includes("20FT") || t.includes("20'");
+}
+
+function is40ftContainer(type?: string): boolean {
+  if (!type) return false;
+  const t = type.toUpperCase();
+  return t.includes("40") || t.includes("40GP") || t.includes("40HQ") || t.includes("40HC") || t.includes("40FT") || t.includes("40'");
+}
+
 export async function exportMultiRouteResultsToExcel(batchResults: BatchRouteResult[], filename = "Infreight_Multi_Port_Ocean_Rates.xlsx") {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Infreight Ocean Rate Automation";
@@ -31,7 +43,7 @@ export async function exportMultiRouteResultsToExcel(batchResults: BatchRouteRes
     { header: "#", key: "index", width: 6 },
     { header: "Origin Port", key: "origin", width: 22 },
     { header: "Destination Port", key: "destination", width: 25 },
-    { header: "Status", key: "status", width: 16 },
+    { header: "Status", key: "status", width: 26 },
     { header: "Carriers Found", key: "carriers", width: 24 },
     { header: "Cheapest 20GP Rate ($)", key: "rate20", width: 22 },
     { header: "Cheapest 40GP/40HQ Rate ($)", key: "rate40", width: 26 },
@@ -52,9 +64,12 @@ export async function exportMultiRouteResultsToExcel(batchResults: BatchRouteRes
     const res = item.searchResult;
     const quotes = res?.results?.flatMap(r => r.quotes || []) || [];
     
-    // Find cheapest 20GP & 40GP
-    const rates20 = quotes.filter(q => q.container_type === "DRY 20").map(q => q.final_freight_value);
-    const rates40 = quotes.filter(q => q.container_type === "DRY 40" || q.container_type === "DRY 40H").map(q => q.final_freight_value);
+    // Flexible matching for 20ft & 40ft containers
+    const quotes20 = quotes.filter(q => is20ftContainer(q.container_type));
+    const quotes40 = quotes.filter(q => is40ftContainer(q.container_type));
+
+    const rates20 = quotes20.map(q => q.final_freight_value).filter(val => typeof val === "number" && val > 0);
+    const rates40 = quotes40.map(q => q.final_freight_value).filter(val => typeof val === "number" && val > 0);
     
     const min20 = rates20.length > 0 ? Math.min(...rates20) : null;
     const min40 = rates40.length > 0 ? Math.min(...rates40) : null;
@@ -66,7 +81,7 @@ export async function exportMultiRouteResultsToExcel(batchResults: BatchRouteRes
       index: idx + 1,
       origin: item.origin,
       destination: item.destination,
-      status: item.status === "completed" ? (quotes.length > 0 ? "Quotes Found" : "No Quotes") : item.status.toUpperCase(),
+      status: item.status === "completed" ? (quotes.length > 0 ? "Quotes Found" : "No Quotes (No Direct Schedule)") : item.status.toUpperCase(),
       carriers: carriersList || (res ? "None" : "Pending"),
       rate20: min20 !== null ? `$${min20.toLocaleString()}` : "-",
       rate40: min40 !== null ? `$${min40.toLocaleString()}` : "-",
