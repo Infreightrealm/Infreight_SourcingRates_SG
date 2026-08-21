@@ -592,6 +592,7 @@ async def run_vertical_batch_searches(
                             db_result.completed_at = datetime.utcnow()
                             # Save quotes
                             for q_schema in quotes:
+                                c_type = q_schema.container_type or (req.container_types[0] if req.container_types else "FCL")
                                 db_quote = Quote(
                                     carrier_result_id=db_result.id,
                                     etd=q_schema.etd,
@@ -599,7 +600,7 @@ async def run_vertical_batch_searches(
                                     transit_time_days=q_schema.transit_time_days,
                                     service_name=q_schema.service_name,
                                     vessel=q_schema.vessel,
-                                    container_type=q_schema.container_type,
+                                    container_type=c_type,
                                     container_quantity=q_schema.container_quantity,
                                     currency=q_schema.currency,
                                     basic_ocean_freight=q_schema.basic_ocean_freight,

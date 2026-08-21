@@ -33,7 +33,7 @@ class CMAConnector(BaseCarrierConnector):
 
     def __init__(self):
         super().__init__()
-        self.SEARCH_URL = "https://www.cma-cgm.com/ebusiness/prices-finder"
+        self.SEARCH_URL = "https://www.cma-cgm.com/ebusiness/pricing/instant-Quoting"
         self.playwright = None
         self._all_quotes = []
         self.current_card = None

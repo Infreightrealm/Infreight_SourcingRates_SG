@@ -20,13 +20,13 @@ function sanitizeSheetName(name: string, index: number): string {
 }
 
 function is20ftContainer(type?: string): boolean {
-  if (!type) return false;
+  if (!type || type === "None" || type.trim() === "") return true;
   const t = type.toUpperCase();
   return t.includes("20") || t.includes("20GP") || t.includes("20FT") || t.includes("20'");
 }
 
 function is40ftContainer(type?: string): boolean {
-  if (!type) return false;
+  if (!type || type === "None" || type.trim() === "") return true;
   const t = type.toUpperCase();
   return t.includes("40") || t.includes("40GP") || t.includes("40HQ") || t.includes("40HC") || t.includes("40FT") || t.includes("40'");
 }
