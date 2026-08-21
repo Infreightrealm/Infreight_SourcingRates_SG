@@ -1141,6 +1141,9 @@ class CMAConnector(BaseCarrierConnector):
             
             print(f"[CMA] Destination selected: {dest_locode}")
 
+            # --- IMMEDIATE POL / POD SELECTION (e.g. Pasir Gudang -> Ahmedabad requiring coastal POD) ---
+            await self._handle_cma_pol_pod_prompts()
+
             # --- IMMEDIATE FORM RAMP BANNER CHECK ---
             await self.page.wait_for_timeout(1000)
             page_text = await self.page.inner_text('body')
