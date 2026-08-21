@@ -839,6 +839,57 @@ class CMAConnector(BaseCarrierConnector):
             print(f"[CMA] POD selection error: {e}")
         return False
 
+    async def _handle_cma_pol_pod_prompts(self) -> bool:
+        """
+        Scans for POL (Port of Loading) or POD (Port of Discharge) dropdown prompts on CMA CGM's form.
+        Certain inland/feeder routes (e.g. Pasir Gudang -> Ahmedabad) require selecting a coastal POL or POD.
+        """
+        if not self.page:
+            return False
+        
+        try:
+            pol_pod_selectors = [
+                'div:has(label:has-text("POD")) .el-select',
+                'div:has(label:has-text("POD")) input',
+                'div:has(label:has-text("POL")) .el-select',
+                'div:has(label:has-text("POL")) input',
+                'input[placeholder*="Port of Discharge" i]',
+                'input[placeholder*="Port of Loading" i]',
+                'input[placeholder*="POD" i]',
+                'input[placeholder*="POL" i]',
+            ]
+
+            found_any = False
+            for sel in pol_pod_selectors:
+                try:
+                    elements = self.page.locator(sel)
+                    count = await elements.count()
+                    for i in range(count):
+                        el = elements.nth(i)
+                        if await el.is_visible(timeout=500):
+                            found_any = True
+                            print(f"[CMA] Found POL/POD field matching '{sel}'. Opening...")
+                            await el.scroll_into_view_if_needed(timeout=2000)
+                            await el.click(force=True)
+                            await self.page.wait_for_timeout(1000)
+
+                            suggestion_sel = 'ul[role="listbox"] li:visible, .el-select-dropdown:visible .el-select-dropdown__item, li[role="option"]:visible'
+                            suggestions = self.page.locator(suggestion_sel)
+                            sug_count = await suggestions.count()
+                            print(f"[CMA] Found {sug_count} options in POL/POD dropdown.")
+                            if sug_count > 0:
+                                item = suggestions.first
+                                inner_text = (await item.inner_text()).strip()
+                                print(f"[CMA] [SUCCESS] Selected POL/POD option: '{inner_text}'")
+                                await self._hover_and_click(item)
+                                await self.page.wait_for_timeout(1000)
+                except Exception as e_inner:
+                    pass
+            return found_any
+        except Exception as e:
+            print(f"[CMA] Error handling POL/POD prompts: {e}")
+            return False
+
     async def _clear_cma_destination_and_reselect_ramp(self, dest_locode: str, prefer_pod: Optional[str] = None) -> bool:
         """
         Clears the currently selected Destination port tag/card, re-types the locode,
@@ -1174,6 +1225,9 @@ class CMAConnector(BaseCarrierConnector):
             # --- CUSTOMER ACCOUNT / ROLE SELECTION ---
             # Select "NVOCC" if the "Customer account" -> "Role (you are acting as)" dropdown is present on the form
             await self._handle_cma_customer_account_role()
+
+            # --- POL / POD MANDATORY SELECTION CHECK ---
+            await self._handle_cma_pol_pod_prompts()
 
             # --- SUBMIT ---
             print("[CMA] Clicking 'Get My Quote'...")
