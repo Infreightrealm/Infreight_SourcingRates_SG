@@ -80,7 +80,7 @@ function HomeContent() {
   // Resume polling or restore batch results if search_ids or id is in URL on mount
   useEffect(() => {
     const rawSearchIds = searchParams.get("search_ids");
-    if (rawSearchIds && !isBatchRunning) {
+    if (rawSearchIds && !isBatchRunning && batchResults.length === 0) {
       const searchIds = rawSearchIds.split(",").map(s => s.trim()).filter(Boolean);
       if (searchIds.length > 0) {
         setIsBatchRunning(true);
@@ -226,6 +226,12 @@ function HomeContent() {
 
   const handleBatchRunAll = async (allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>) => {
     if (!allPairs || allPairs.length === 0) return;
+
+    // Clear previous search_ids query parameter from URL and clear previous search result state
+    if (typeof window !== "undefined") {
+      window.history.pushState(null, "", window.location.pathname);
+    }
+    setSearchResult(null);
 
     // Deduplicate pairs by origin + destination to prevent redundant duplicate search jobs
     const uniquePairs: typeof allPairs = [];
