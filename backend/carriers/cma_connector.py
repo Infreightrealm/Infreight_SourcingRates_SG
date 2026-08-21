@@ -841,26 +841,34 @@ class CMAConnector(BaseCarrierConnector):
 
     async def _handle_cma_pol_pod_prompts(self) -> bool:
         """
-        Scans for POL (Port of Loading) or POD (Port of Discharge) dropdown prompts on CMA CGM's form.
-        Certain inland/feeder routes (e.g. Pasir Gudang -> Ahmedabad) require selecting a coastal POL or POD.
+        Scans for POL (Port of Loading) or POD (Port of Discharge) dropdown prompts on CMA CGM SpotOn Search.
+        Certain inland/feeder routes (e.g. Pasir Gudang -> Ahmedabad) require selecting a coastal POL or POD (e.g. Mundra or Nhava Sheva).
         """
         if not self.page:
             return False
         
         try:
-            pol_pod_selectors = [
+            # Look for visible POD / POL dropdown boxes or elements containing 'Select' near POD / POL labels
+            pod_pol_triggers = [
+                'xpath=//*[text()[contains(normalize-space(.), "POD")]]/following::*[contains(text(), "Select") or contains(@class, "select")][1]',
+                'xpath=//*[text()[contains(normalize-space(.), "POL")]]/following::*[contains(text(), "Select") or contains(@class, "select")][1]',
+                'xpath=//label[contains(text(), "POD")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
+                'xpath=//label[contains(text(), "POL")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
                 'div:has(label:has-text("POD")) .el-select',
-                'div:has(label:has-text("POD")) input',
                 'div:has(label:has-text("POL")) .el-select',
+                'div:has(label:has-text("POD")) input',
                 'div:has(label:has-text("POL")) input',
                 'input[placeholder*="Port of Discharge" i]',
                 'input[placeholder*="Port of Loading" i]',
                 'input[placeholder*="POD" i]',
                 'input[placeholder*="POL" i]',
+                '.el-select:has-text("Select")',
+                'div:has-text("POD") div:has-text("Select")',
+                'span:has-text("Select")',
             ]
 
             found_any = False
-            for sel in pol_pod_selectors:
+            for sel in pod_pol_triggers:
                 try:
                     elements = self.page.locator(sel)
                     count = await elements.count()
@@ -868,21 +876,42 @@ class CMAConnector(BaseCarrierConnector):
                         el = elements.nth(i)
                         if await el.is_visible(timeout=500):
                             found_any = True
-                            print(f"[CMA] Found POL/POD field matching '{sel}'. Opening...")
+                            print(f"[CMA] [SPOTON POD/POL] Found POL/POD dropdown trigger matching '{sel}'. Opening...")
                             await el.scroll_into_view_if_needed(timeout=2000)
                             await el.click(force=True)
                             await self.page.wait_for_timeout(1000)
 
-                            suggestion_sel = 'ul[role="listbox"] li:visible, .el-select-dropdown:visible .el-select-dropdown__item, li[role="option"]:visible'
-                            suggestions = self.page.locator(suggestion_sel)
-                            sug_count = await suggestions.count()
-                            print(f"[CMA] Found {sug_count} options in POL/POD dropdown.")
-                            if sug_count > 0:
-                                item = suggestions.first
-                                inner_text = (await item.inner_text()).strip()
-                                print(f"[CMA] [SUCCESS] Selected POL/POD option: '{inner_text}'")
-                                await self._hover_and_click(item)
-                                await self.page.wait_for_timeout(1000)
+                            # Target expanded options (e.g. Mundra INMUN, Nhava Sheva INNSA, Khor Fakkan AEKLF, etc.)
+                            option_selectors = [
+                                '.el-select-dropdown:visible .el-select-dropdown__item',
+                                'ul[role="listbox"] li:visible',
+                                'li[role="option"]:visible',
+                                'div[class*="option"]:visible',
+                                'li:has-text("Mundra")',
+                                'li:has-text("Nhava Sheva")',
+                                'div:has-text("Mundra")',
+                                'div:has-text("Nhava Sheva")',
+                                'li:has-text("INMUN")',
+                                'li:has-text("INNSA")',
+                            ]
+                            
+                            clicked_option = False
+                            for opt_sel in option_selectors:
+                                options = self.page.locator(opt_sel)
+                                opt_count = await options.count()
+                                if opt_count > 0:
+                                    for j in range(opt_count):
+                                        opt_item = options.nth(j)
+                                        if await opt_item.is_visible(timeout=300):
+                                            opt_text = (await opt_item.inner_text()).strip()
+                                            if opt_text and not any(bad in opt_text.upper() for bad in ["SELECT", "CMA CGM", "SEARCH"]):
+                                                print(f"[CMA] [SUCCESS] Selected POL/POD option: '{opt_text}'")
+                                                await self._hover_and_click(opt_item)
+                                                await self.page.wait_for_timeout(1000)
+                                                clicked_option = True
+                                                break
+                                if clicked_option:
+                                    break
                 except Exception as e_inner:
                     pass
             return found_any
