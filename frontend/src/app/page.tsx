@@ -483,19 +483,40 @@ function HomeContent() {
             {/* Batch Item Status Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-56 overflow-y-auto pr-1">
               {batchResults.map((item, idx) => {
-                let badgeStyle = "bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500";
-                if (item.status === "running") badgeStyle = "bg-blue-500/20 border-blue-500/40 text-blue-600 dark:text-blue-300 font-bold animate-pulse";
-                if (item.status === "completed") badgeStyle = "bg-emerald-500/20 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold";
-                if (item.status === "failed") badgeStyle = "bg-rose-500/20 border-rose-500/40 text-rose-600 dark:text-rose-400";
+                let badgeStyle = "bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500 cursor-pointer hover:scale-[1.02]";
+                if (item.status === "running") badgeStyle = "bg-blue-500/20 border-blue-500/40 text-blue-600 dark:text-blue-300 font-bold animate-pulse cursor-pointer hover:scale-[1.02]";
+                if (item.status === "completed") badgeStyle = "bg-emerald-500/20 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold cursor-pointer hover:scale-[1.02] shadow-sm";
+                if (item.status === "failed") badgeStyle = "bg-rose-500/20 border-rose-500/40 text-rose-600 dark:text-rose-400 cursor-pointer hover:scale-[1.02]";
+
+                const isSelected = searchResult && searchResult.destination === item.destination;
 
                 return (
-                  <div key={idx} className={`p-2 rounded-xl border text-[11px] font-mono flex flex-col gap-0.5 ${badgeStyle}`}>
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      if (item.searchResult) {
+                        setSearchResult(item.searchResult);
+                        toast.info(`Viewing live results for Route #${idx + 1}: ${item.origin} ➔ ${item.destination}`);
+                      } else {
+                        toast.info(`Route #${idx + 1} (${item.destination}) is currently ${item.status}.`);
+                      }
+                    }}
+                    className={`p-2 rounded-xl border text-[11px] font-mono flex flex-col gap-0.5 text-left transition-all duration-200 ${badgeStyle} ${
+                      isSelected ? "ring-2 ring-emerald-500 ring-offset-1 dark:ring-offset-slate-900 scale-[1.02]" : ""
+                    }`}
+                  >
                     <div className="flex items-center justify-between text-[10px] opacity-70">
                       <span>#{idx + 1}</span>
                       <span>{item.status.toUpperCase()}</span>
                     </div>
                     <div className="truncate font-semibold text-slate-900 dark:text-white">{item.destination}</div>
-                  </div>
+                    {item.searchResult && item.searchResult.results && (
+                      <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-sans font-medium mt-0.5">
+                        {item.searchResult.results.reduce((acc, r) => acc + (r.quotes?.length || 0), 0)} quotes found ➔
+                      </div>
+                    )}
+                  </button>
                 );
               })}
             </div>
