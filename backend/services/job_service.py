@@ -408,22 +408,18 @@ async def update_search_status(search_id: UUID):
         statuses = [r.status for r in results]
 
         running_statuses = {"QUEUED", "RUNNING", "WAITING_FOR_HUMAN_VERIFICATION", "MANUAL_ACTION_REQUIRED"}
-        all_done = all(
-            s not in running_statuses and not (s.startswith("RUNNING") if s else False)
-            for s in statuses
-        )
-        search_str_id = str(search_id)
-        current_t = asyncio.current_task()
-        is_task_running = search_str_id in active_search_tasks and any(
-            t != current_t and not t.done() for t in active_search_tasks.get(search_str_id, [])
-        )
+        finished_statuses = {"AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "LOGIN_FAILED", "TIMEOUT", "UNKNOWN_ERROR", "EXTRACTION_FAILED", "FAILED", "COMPLETED"}
+        
+        has_finished_carrier = any(s in finished_statuses for s in statuses)
+        has_running_carrier = any(s in running_statuses or (s.startswith("RUNNING") if s else False) for s in statuses)
 
-        if not all_done or is_task_running:
+        if not has_finished_carrier:
             search.status = SearchStatus.RUNNING.value
+        elif has_running_carrier:
+            search.status = SearchStatus.PARTIAL_COMPLETED.value
         else:
             has_success = any(s == "AVAILABLE_QUOTES_FOUND" for s in statuses)
-            has_failure = any(s in ("LOGIN_FAILED", "TIMEOUT", "UNKNOWN_ERROR",
-                                    "EXTRACTION_FAILED", "FAILED") for s in statuses)
+            has_failure = any(s in ("LOGIN_FAILED", "TIMEOUT", "UNKNOWN_ERROR", "EXTRACTION_FAILED", "FAILED") for s in statuses)
 
             if has_success and has_failure:
                 search.status = SearchStatus.PARTIAL_COMPLETED.value

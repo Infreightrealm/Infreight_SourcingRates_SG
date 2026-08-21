@@ -91,7 +91,8 @@ function HomeContent() {
             const initialResults: BatchRouteResult[] = results.map((res, idx) => {
               const orig = res?.origin || `Route #${idx + 1}`;
               const dest = res?.destination || `Destination #${idx + 1}`;
-              const isTerminal = res ? ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(res.status) : false;
+              const hasFinishedCarrier = res?.results?.some(r => ["AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "COMPLETED", "FAILED"].includes(r.status));
+              const isTerminal = res ? (["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(res.status) || hasFinishedCarrier) : false;
               return {
                 origin: orig,
                 destination: dest,
@@ -106,15 +107,17 @@ function HomeContent() {
 
             // Resume polling for any running items
             const pollPromises = searchIds.map((sId, index) => {
-              const res = results[index];
-              if (res && ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(res.status)) {
-                return Promise.resolve(res);
-              }
               return pollRateSearch(sId, (data) => {
-                const isTerminal = data ? ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status) : false;
-                setBatchResults(prev => prev.map((item, idx) =>
-                  idx === index ? { ...item, status: isTerminal ? "completed" : "running", searchResult: data } : item
-                ));
+                const hasFinished = data?.results?.some(r => ["AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "COMPLETED", "FAILED"].includes(r.status));
+                const isTerminal = data ? (["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status) || hasFinished) : false;
+                const newStatus: BatchRouteResult["status"] = isTerminal ? "completed" : "running";
+                setBatchResults(prev => {
+                  const next = prev.map((item, idx) =>
+                    idx === index ? { ...item, status: newStatus, searchResult: data } : item
+                  );
+                  setBatchProgress({ current: next.filter(r => r.status === "completed").length, total: searchIds.length });
+                  return next;
+                });
               });
             });
 
@@ -278,20 +281,20 @@ function HomeContent() {
 
       const pollPromises = searchIds.map((sId, index) => {
         return pollRateSearch(sId, (data) => {
-          if (data && data.status !== "QUEUED") {
-            const isTerminal = ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status);
-            if (isTerminal && !completedResults[index]) {
-              completedResults[index] = data;
-              completedCount++;
-              setBatchProgress({ current: completedCount, total: cappedPairs.length });
-              setBatchResults(prev => prev.map((item, idx) =>
-                idx === index ? { ...item, status: "completed", searchResult: data } : item
-              ));
-            } else if (data.status === "RUNNING") {
-              setBatchResults(prev => prev.map((item, idx) =>
-                idx === index ? { ...item, status: "running", searchResult: data } : item
-              ));
-            }
+          if (data) {
+            const hasFinishedCarrier = data.results?.some((r: any) =>
+              ["AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "COMPLETED", "FAILED"].includes(r.status)
+            );
+            const isTerminal = ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status) || hasFinishedCarrier;
+            
+            const newStatus: BatchRouteResult["status"] = isTerminal ? "completed" : "running";
+            setBatchResults(prev => {
+              const next = prev.map((item, idx) =>
+                idx === index ? { ...item, status: newStatus, searchResult: data } : item
+              );
+              setBatchProgress({ current: next.filter(r => r.status === "completed").length, total: cappedPairs.length });
+              return next;
+            });
           }
         });
       });
