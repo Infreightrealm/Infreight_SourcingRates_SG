@@ -8,6 +8,7 @@ import { toast } from "sonner";
 interface RfqInputSectionProps {
   onParsedSuccess: (parsedFields: RateSearchRequest) => void;
   onBatchRunAll?: (allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>) => void;
+  selectedCarriers?: string[];
 }
 
 
@@ -38,7 +39,7 @@ const DEMO_EXAMPLES = [
   }
 ];
 
-export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqInputSectionProps) {
+export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, selectedCarriers }: RfqInputSectionProps) {
 
   const [rfqText, setRfqText] = useState("");
   const [imageBase64, setImageBase64] = useState<string | null>(null);
@@ -817,9 +818,14 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll }: RfqI
                     <button
                       type="button"
                       onClick={() => onBatchRunAll(parseResult.all_parsed_pairs || [])}
-                      className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer"
+                      className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer flex-wrap"
                     >
-                      ⚡ Run All {parseResult.all_parsed_pairs?.length || parseResult.total_pairs_found} Routes Continuously
+                      <span>⚡ Run All {Math.min(parseResult.all_parsed_pairs?.length || parseResult.total_pairs_found, 50)} Routes Continuously</span>
+                      {selectedCarriers && selectedCarriers.length > 0 && !selectedCarriers.includes("ALL") && (
+                        <span className="px-2 py-0.5 bg-black/30 rounded-md text-[10px] font-mono text-emerald-200 border border-emerald-400/30">
+                          Carriers: {selectedCarriers.join(", ")}
+                        </span>
+                      )}
                     </button>
                   )}
                 </div>

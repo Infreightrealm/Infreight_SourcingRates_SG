@@ -9,10 +9,17 @@ interface RateSearchFormProps {
   onSubmit: (request: RateSearchRequest) => void;
   isLoading: boolean;
   initialValues?: Partial<RateSearchRequest>;
+  selectedCarriers?: string[];
+  onCarrierChange?: (carriers: string[]) => void;
 }
 
-export default function RateSearchForm({ onSubmit, isLoading, initialValues }: RateSearchFormProps) {
-  const [carriers, setCarriers] = useState<string[]>(initialValues?.carriers || ["ALL"]);
+export default function RateSearchForm({ onSubmit, isLoading, initialValues, selectedCarriers, onCarrierChange }: RateSearchFormProps) {
+  const [carriers, setCarriers] = useState<string[]>(selectedCarriers || initialValues?.carriers || ["ALL"]);
+
+  const handleCarrierChange = (newCarriers: string[]) => {
+    setCarriers(newCarriers);
+    if (onCarrierChange) onCarrierChange(newCarriers);
+  };
   const [origin, setOrigin] = useState(initialValues?.origin || "Singapore");
   const [destination, setDestination] = useState(initialValues?.destination || "Hamburg");
 
@@ -71,7 +78,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues }: R
   return (
     <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in-up">
       {/* Carrier Selection */}
-      <CarrierMultiSelect selected={carriers} onChange={setCarriers} />
+      <CarrierMultiSelect selected={carriers} onChange={handleCarrierChange} />
 
       {/* Hapag-Lloyd Regional Account Toggle */}
       {(carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL")) && (

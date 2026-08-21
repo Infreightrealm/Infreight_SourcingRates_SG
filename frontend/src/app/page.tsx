@@ -35,6 +35,7 @@ function HomeContent() {
   const [batchResults, setBatchResults] = useState<BatchRouteResult[]>([]);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+  const [selectedCarriers, setSelectedCarriers] = useState<string[]>(["ALL"]);
 
 
 
@@ -209,12 +210,15 @@ function HomeContent() {
     }));
     setBatchResults(initialBatch);
 
-    toast.info(`⚡ PERSISTENT BATCH ENGINE ACTIVATED: Dispatching ${cappedPairs.length} unique routes (capped at 50 max)...`);
+    const activeCarriers = selectedCarriers.length > 0 ? selectedCarriers : ["ALL"];
+    const carrierLabel = activeCarriers.includes("ALL") ? "All 7 Carriers" : activeCarriers.join(", ");
+
+    toast.info(`⚡ PERSISTENT BATCH ENGINE ACTIVATED: Sourcing ${cappedPairs.length} routes for [${carrierLabel}]...`);
 
     try {
       const batchRes = await createBatchRateSearch({
         routes: cappedPairs,
-        carriers: ["ALL"],
+        carriers: activeCarriers,
         user_name: userName || undefined
       });
 
@@ -382,7 +386,7 @@ function HomeContent() {
         <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
 
         {/* AI RFQ Front Door */}
-        <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} onBatchRunAll={handleBatchRunAll} />
+        <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} onBatchRunAll={handleBatchRunAll} selectedCarriers={selectedCarriers} />
 
         {/* Batch Progress & Excel Export Panel */}
         {batchResults.length > 0 && (
@@ -448,7 +452,7 @@ function HomeContent() {
             </svg>
             <h2 className="text-base font-semibold text-slate-900 dark:text-white">Search Parameters</h2>
           </div>
-          <RateSearchForm key={searchId || JSON.stringify(parsedRfqFields) || "new"} onSubmit={handleSearch} isLoading={isLoading} initialValues={parsedRfqFields} />
+          <RateSearchForm key={searchId || JSON.stringify(parsedRfqFields) || "new"} onSubmit={handleSearch} isLoading={isLoading} initialValues={parsedRfqFields} selectedCarriers={selectedCarriers} onCarrierChange={setSelectedCarriers} />
         </section>
 
 
