@@ -1054,7 +1054,22 @@ class CMAConnector(BaseCarrierConnector):
             origin_query = origin_locode
             
             print(f"[CMA] Filling Origin: '{origin_query}' (locode: {origin_locode}, cached: '{origin_cached}')")
-            origin_field = self.page.locator('input[placeholder*="Name / Code / Port" i]').nth(0)
+            origin_sel = [
+                'input[placeholder*="Origin" i]',
+                'input[placeholder*="Name / Code / Port" i]',
+                'div:has(label:has-text("Origin")) input',
+                'input[name*="origin" i]',
+                'xpath=//*[text()[contains(., "Origin")]]/following::input[not(@type="hidden")][1]',
+            ]
+            origin_field = None
+            for sel in origin_sel:
+                loc = self.page.locator(sel).first
+                if await loc.count() > 0 and await loc.is_visible(timeout=1000):
+                    origin_field = loc
+                    break
+            if not origin_field:
+                origin_field = self.page.locator('input[placeholder*="Name / Code / Port" i], input[placeholder*="Origin" i]').first
+            
             await origin_field.click()
             await origin_field.fill("")  # Clear field
             await origin_field.type(origin_query, delay=30)
@@ -1100,7 +1115,22 @@ class CMAConnector(BaseCarrierConnector):
 
             # Initial search uses standard PORT selection; switches to RAMP only if CMA displays the advisory banner
             print(f"[CMA] Filling Destination: '{dest_query}' (locode: {dest_locode}, cached: '{dest_cached}')")
-            dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i]').nth(1)
+            dest_sel = [
+                'input[placeholder*="Destination" i]',
+                'input[placeholder*="Name / Code / Port" i]',
+                'div:has(label:has-text("Destination")) input',
+                'input[name*="destination" i]',
+                'xpath=//*[text()[contains(., "Destination")]]/following::input[not(@type="hidden")][1]',
+            ]
+            dest_field = None
+            for sel in dest_sel:
+                loc = self.page.locator(sel).first
+                if await loc.count() > 0 and await loc.is_visible(timeout=1000):
+                    dest_field = loc
+                    break
+            if not dest_field:
+                dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i], input[placeholder*="Destination" i]').nth(1)
+
             await dest_field.click()
             await dest_field.fill("")
             await dest_field.type(dest_query, delay=30)
