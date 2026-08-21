@@ -77,12 +77,68 @@ function HomeContent() {
       .catch(() => setMockMode(null));
   }, []);
 
-  // Resume polling if searchId is in URL on mount
+  // Resume polling or restore batch results if search_ids or id is in URL on mount
   useEffect(() => {
+    const rawSearchIds = searchParams.get("search_ids");
+    if (rawSearchIds && !isBatchRunning) {
+      const searchIds = rawSearchIds.split(",").map(s => s.trim()).filter(Boolean);
+      if (searchIds.length > 0) {
+        setIsBatchRunning(true);
+        setIsLoading(true);
+
+        Promise.all(searchIds.map(sId => getRateSearchResults(sId).catch(() => null)))
+          .then(results => {
+            const initialResults: BatchRouteResult[] = results.map((res, idx) => {
+              const orig = res?.origin || `Route #${idx + 1}`;
+              const dest = res?.destination || `Destination #${idx + 1}`;
+              const isTerminal = res ? ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(res.status) : false;
+              return {
+                origin: orig,
+                destination: dest,
+                status: isTerminal ? "completed" : "running",
+                searchResult: res
+              };
+            });
+
+            setBatchResults(initialResults);
+            const initialCompleted = initialResults.filter(r => r.status === "completed").length;
+            setBatchProgress({ current: initialCompleted, total: searchIds.length });
+
+            // Resume polling for any running items
+            const pollPromises = searchIds.map((sId, index) => {
+              const res = results[index];
+              if (res && ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(res.status)) {
+                return Promise.resolve(res);
+              }
+              return pollRateSearch(sId, (data) => {
+                const isTerminal = data ? ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status) : false;
+                setBatchResults(prev => prev.map((item, idx) =>
+                  idx === index ? { ...item, status: isTerminal ? "completed" : "running", searchResult: data } : item
+                ));
+              });
+            });
+
+            return Promise.all(pollPromises);
+          })
+          .then(() => {
+            setBatchResults(prev => {
+              setBatchProgress({ current: prev.filter(r => r.status === "completed").length, total: prev.length });
+              return prev;
+            });
+          })
+          .catch(err => {
+            console.warn("Failed to restore batch search:", err);
+          })
+          .finally(() => {
+            setIsLoading(false);
+            setIsBatchRunning(false);
+          });
+      }
+    }
+
     const id = searchParams.get("id");
-    if (id && !searchResult && !isLoading) {
+    if (id && !searchResult && !isLoading && !rawSearchIds) {
       setIsLoading(true);
-      // Fetch initial data then start polling
       getRateSearchResults(id)
         .then(data => {
           setSearchResult(data);
@@ -103,20 +159,6 @@ function HomeContent() {
           if (!["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status)) {
             pollRateSearch(id, (updatedData) => {
               setSearchResult(updatedData);
-              if (updatedData.origin && updatedData.destination) {
-                setParsedRfqFields((prev) => ({
-                  carriers: prev?.carriers || ["ALL"],
-                  origin: updatedData.origin!,
-                  destination: updatedData.destination!,
-                  container_types: updatedData.container_types || (updatedData.container_type ? [updatedData.container_type] : ["DRY 40H"]),
-                  container_quantity: 1,
-                  weight_per_container_kg: prev?.weight_per_container_kg || 20000,
-                  commodity: "Furniture",
-                  departure_date: "tomorrow",
-                  search_window_days: 14,
-                  service_term: "CY/CY"
-                }));
-              }
             }).finally(() => setIsLoading(false));
           } else {
             setIsLoading(false);
@@ -127,7 +169,7 @@ function HomeContent() {
           setIsLoading(false);
         });
     }
-  }, []);
+  }, [searchParams]);
 
   const handleSearch = async (request: RateSearchRequest) => {
     setIsLoading(true);
@@ -224,19 +266,30 @@ function HomeContent() {
 
       const searchIds = batchRes.search_ids;
 
+      // Update browser URL query params so batch results persist across page refresh!
+      if (typeof window !== "undefined" && searchIds.length > 0) {
+        const newUrl = `${window.location.pathname}?search_ids=${searchIds.join(",")}`;
+        window.history.pushState({ path: newUrl }, "", newUrl);
+      }
+
       // Poll search_ids in parallel as vertical persistent carrier workers complete routes
       const completedResults: Record<number, RateSearchResultResponse> = {};
       let completedCount = 0;
 
       const pollPromises = searchIds.map((sId, index) => {
         return pollRateSearch(sId, (data) => {
-          if (data && data.status !== "QUEUED" && data.status !== "RUNNING") {
-            if (!completedResults[index]) {
+          if (data && data.status !== "QUEUED") {
+            const isTerminal = ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status);
+            if (isTerminal && !completedResults[index]) {
               completedResults[index] = data;
               completedCount++;
-              setBatchProgress({ current: completedCount, total: uniquePairs.length });
+              setBatchProgress({ current: completedCount, total: cappedPairs.length });
               setBatchResults(prev => prev.map((item, idx) =>
                 idx === index ? { ...item, status: "completed", searchResult: data } : item
+              ));
+            } else if (data.status === "RUNNING") {
+              setBatchResults(prev => prev.map((item, idx) =>
+                idx === index ? { ...item, status: "running", searchResult: data } : item
               ));
             }
           }
@@ -244,7 +297,7 @@ function HomeContent() {
       });
 
       await Promise.all(pollPromises);
-      toast.success(`🎉 Vertical Persistent Batch complete! Successfully processed ${uniquePairs.length} routes.`);
+      toast.success(`🎉 Vertical Persistent Batch complete! Successfully processed ${cappedPairs.length} routes.`);
 
     } catch (err: any) {
       console.error("Vertical Batch search error:", err);
