@@ -314,6 +314,50 @@ class OOCLConnector(BaseCarrierConnector):
             print(f"[OOCL] Failed to select {label}: {e}")
             return False
 
+    async def _try_auto_click_turnstile(self) -> bool:
+        """
+        Attempts to automatically click the Cloudflare Turnstile 'Verify you are human' checkbox iframe.
+        """
+        if not self.page:
+            return False
+        try:
+            # 1. Look for Cloudflare challenge iframe
+            for frame in self.page.frames:
+                if "challenges.cloudflare.com" in frame.url or "turnstile" in frame.url:
+                    print("[OOCL] Found Cloudflare Turnstile iframe. Attempting auto-click...")
+                    checkbox_selectors = [
+                        'input[type="checkbox"]',
+                        '.mark',
+                        '#challenge-stage',
+                        'label.ctp-checkbox-label',
+                        'span.mark',
+                        'div.ctp-checkbox-container'
+                    ]
+                    for sel in checkbox_selectors:
+                        cb = frame.locator(sel).first
+                        if await cb.count() > 0 and await cb.is_visible(timeout=1000):
+                            await cb.click(force=True)
+                            print("[OOCL] [AUTO-CLICK SUCCESS] Clicked Cloudflare Turnstile checkbox!")
+                            await self.page.wait_for_timeout(2000)
+                            return True
+            
+            # 2. Main page fallback for shadow-root or embedded challenge
+            main_selectors = [
+                'iframe[src*="challenges.cloudflare.com"]',
+                '#challenge-stage',
+                'div:has-text("Verify you are human")'
+            ]
+            for sel in main_selectors:
+                el = self.page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible(timeout=500):
+                    await el.click(force=True)
+                    print(f"[OOCL] Clicked Turnstile element '{sel}' on main page.")
+                    await self.page.wait_for_timeout(2000)
+                    return True
+        except Exception as e:
+            print(f"[OOCL] Turnstile auto-click attempt note: {e}")
+        return False
+
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             await self._init_browser()
@@ -337,14 +381,22 @@ class OOCLConnector(BaseCarrierConnector):
                 title = (await self.page.title()).lower()
                 content = (await self.page.content()).lower()
                 if "just a moment" in title or "security verification" in content or "verify you are human" in content:
-                    print("[OOCL] [ACTION REQUIRED] Cloudflare security verification detected! Please click 'Verify you are human' in the opened Chrome window.")
-                    for _ in range(60):
-                        await asyncio.sleep(1)
-                        c_title = (await self.page.title()).lower()
-                        c_content = (await self.page.content()).lower()
-                        if "just a moment" not in c_title and "security verification" not in c_content and "verify you are human" not in c_content:
-                            print("[OOCL] Cloudflare verification solved! Continuing search...")
-                            break
+                    print("[OOCL] Cloudflare security verification detected! Attempting automated click...")
+                    await self._try_auto_click_turnstile()
+                    await self.page.wait_for_timeout(2000)
+
+                    c_title = (await self.page.title()).lower()
+                    c_content = (await self.page.content()).lower()
+                    if "just a moment" in c_title or "security verification" in c_content or "verify you are human" in c_content:
+                        print("[OOCL] [ACTION REQUIRED] Cloudflare Turnstile requires manual 1-click verification! Please click 'Verify you are human' in the opened Chrome window.")
+                        for _ in range(60):
+                            await asyncio.sleep(1)
+                            await self._try_auto_click_turnstile()
+                            c_title = (await self.page.title()).lower()
+                            c_content = (await self.page.content()).lower()
+                            if "just a moment" not in c_title and "security verification" not in c_content and "verify you are human" not in c_content:
+                                print("[OOCL] Cloudflare verification solved! Continuing search...")
+                                break
             except Exception as ce:
                 print(f"[OOCL] Cloudflare check note: {ce}")
             
