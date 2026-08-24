@@ -839,15 +839,49 @@ class CMAConnector(BaseCarrierConnector):
             print(f"[CMA] POD selection error: {e}")
         return False
 
+    async def _ensure_cma_location_type_ramp(self) -> bool:
+        """
+        Ensures 'Ramp' is explicitly selected under 'Type of location' toggle buttons if present on the form.
+        """
+        if not self.page:
+            return False
+        try:
+            ramp_selectors = [
+                'button:has-text("Ramp")',
+                'div:has-text("Type of location") button:has-text("Ramp")',
+                'div:has-text("Type of location") div:has-text("Ramp")',
+                '.el-radio-button:has-text("Ramp")',
+                'span:has-text("Ramp")',
+            ]
+            for sel in ramp_selectors:
+                elements = self.page.locator(sel)
+                count = await elements.count()
+                for i in range(count):
+                    el = elements.nth(i)
+                    if await el.is_visible(timeout=500):
+                        txt = (await el.inner_text()).strip()
+                        if txt.upper() == "RAMP" or "RAMP" in txt.upper():
+                            print(f"[CMA] [LOCATION TYPE] Explicitly clicking 'Ramp' toggle button...")
+                            await el.click(force=True)
+                            await self.page.wait_for_timeout(500)
+                            return True
+        except Exception as e:
+            print(f"[CMA] Location type Ramp toggle note: {e}")
+        return False
+
     async def _handle_cma_pol_pod_prompts(self) -> bool:
         """
         Scans for POL (Port of Loading) or POD (Port of Discharge) dropdown prompts on CMA CGM SpotOn Search.
-        Certain inland/feeder routes (e.g. Pasir Gudang -> Ahmedabad) require selecting a coastal POL or POD (e.g. Mundra or Nhava Sheva).
+        Certain inland/feeder routes (e.g. Pasir Gudang -> Ahmedabad or Ho Chi Minh Ramp.Door -> Southampton)
+        require selecting a coastal POL or POD (e.g. Vung Tau, Mundra, or Nhava Sheva).
         """
         if not self.page:
             return False
         
         try:
+            # First, check if Ramp toggle is needed
+            await self._ensure_cma_location_type_ramp()
+
             # Look for visible POD / POL dropdown boxes or elements containing 'Select' near POD / POL labels
             pod_pol_triggers = [
                 'xpath=//*[text()[contains(normalize-space(.), "POL")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
@@ -868,19 +902,30 @@ class CMAConnector(BaseCarrierConnector):
                 'span:has-text("Select")',
             ]
 
-            found_any = False
             for sel in pod_pol_triggers:
                 try:
                     elements = self.page.locator(sel)
                     count = await elements.count()
                     for i in range(count):
                         el = elements.nth(i)
-                        if await el.is_visible(timeout=500):
-                            found_any = True
-                            print(f"[CMA] [SPOTON POD/POL] Found POL/POD dropdown trigger matching '{sel}'. Opening...")
-                            await el.scroll_into_view_if_needed(timeout=2000)
+                        if await el.is_visible(timeout=300):
+                            # Check if input already has a valid value (e.g. Vung Tau VNVUT, Mundra INMUN)
+                            val = ""
+                            try:
+                                val = await el.input_value(timeout=300)
+                            except:
+                                try:
+                                    val = await el.inner_text(timeout=300)
+                                except: pass
+                            
+                            if val and any(v in val.upper() for v in ["VNVUT", "VUNG TAU", "VNNHT", "INMUN", "INNSA"]):
+                                print(f"[CMA] POL/POD already populated: '{val.strip()}' - skipping re-trigger.")
+                                return True
+
+                            print(f"[CMA] [SPOTON POD/POL] Opening POL/POD dropdown trigger matching '{sel}'...")
+                            await el.scroll_into_view_if_needed(timeout=1000)
                             await el.click(force=True)
-                            await self.page.wait_for_timeout(1000)
+                            await self.page.wait_for_timeout(500)
 
                             # Target expanded options (e.g. Vung Tau VNVUT, Nhon Trach VNNHT, Mundra INMUN, Nhava Sheva INNSA, Khor Fakkan AEKLF, etc.)
                             option_selectors = [
@@ -902,7 +947,6 @@ class CMAConnector(BaseCarrierConnector):
                                 'li:has-text("INNSA")',
                             ]
                             
-                            clicked_option = False
                             for opt_sel in option_selectors:
                                 options = self.page.locator(opt_sel)
                                 opt_count = await options.count()
@@ -914,14 +958,11 @@ class CMAConnector(BaseCarrierConnector):
                                             if opt_text and not any(bad in opt_text.upper() for bad in ["SELECT", "CMA CGM", "SEARCH"]):
                                                 print(f"[CMA] [SUCCESS] Selected POL/POD option: '{opt_text}'")
                                                 await self._hover_and_click(opt_item)
-                                                await self.page.wait_for_timeout(1000)
-                                                clicked_option = True
-                                                break
-                                if clicked_option:
-                                    break
+                                                await self.page.wait_for_timeout(500)
+                                                return True # Return immediately once selected! No multi-trigger stutter!
                 except Exception as e_inner:
                     pass
-            return found_any
+            return False
         except Exception as e:
             print(f"[CMA] Error handling POL/POD prompts: {e}")
             return False
@@ -1031,6 +1072,9 @@ class CMAConnector(BaseCarrierConnector):
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             print("[CMA] Starting search...")
+            if not self.page:
+                await self._init_browser()
+                await self.page.goto(self.SEARCH_URL, wait_until="domcontentloaded")
             
             # Initialize fallback notice
             self.port_fallback_notice = None
