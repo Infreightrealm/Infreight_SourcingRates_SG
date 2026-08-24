@@ -850,20 +850,21 @@ class CMAConnector(BaseCarrierConnector):
         try:
             # Look for visible POD / POL dropdown boxes or elements containing 'Select' near POD / POL labels
             pod_pol_triggers = [
-                'xpath=//*[text()[contains(normalize-space(.), "POD")]]/following::*[contains(text(), "Select") or contains(@class, "select")][1]',
-                'xpath=//*[text()[contains(normalize-space(.), "POL")]]/following::*[contains(text(), "Select") or contains(@class, "select")][1]',
-                'xpath=//label[contains(text(), "POD")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
+                'xpath=//*[text()[contains(normalize-space(.), "POL")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
+                'xpath=//*[text()[contains(normalize-space(.), "POD")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
                 'xpath=//label[contains(text(), "POL")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
-                'div:has(label:has-text("POD")) .el-select',
+                'xpath=//label[contains(text(), "POD")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
                 'div:has(label:has-text("POL")) .el-select',
-                'div:has(label:has-text("POD")) input',
+                'div:has(label:has-text("POD")) .el-select',
                 'div:has(label:has-text("POL")) input',
-                'input[placeholder*="Port of Discharge" i]',
+                'div:has(label:has-text("POD")) input',
                 'input[placeholder*="Port of Loading" i]',
-                'input[placeholder*="POD" i]',
+                'input[placeholder*="Port of Discharge" i]',
                 'input[placeholder*="POL" i]',
+                'input[placeholder*="POD" i]',
+                '.el-select:has-text("Choose a POL")',
                 '.el-select:has-text("Select")',
-                'div:has-text("POD") div:has-text("Select")',
+                'span:has-text("Choose a POL")',
                 'span:has-text("Select")',
             ]
 
@@ -881,14 +882,20 @@ class CMAConnector(BaseCarrierConnector):
                             await el.click(force=True)
                             await self.page.wait_for_timeout(1000)
 
-                            # Target expanded options (e.g. Mundra INMUN, Nhava Sheva INNSA, Khor Fakkan AEKLF, etc.)
+                            # Target expanded options (e.g. Vung Tau VNVUT, Nhon Trach VNNHT, Mundra INMUN, Nhava Sheva INNSA, Khor Fakkan AEKLF, etc.)
                             option_selectors = [
                                 '.el-select-dropdown:visible .el-select-dropdown__item',
                                 'ul[role="listbox"] li:visible',
                                 'li[role="option"]:visible',
                                 'div[class*="option"]:visible',
+                                'li:has-text("Vung Tau")',
+                                'li:has-text("VNVUT")',
+                                'li:has-text("Nhon Trach")',
+                                'li:has-text("VNNHT")',
                                 'li:has-text("Mundra")',
                                 'li:has-text("Nhava Sheva")',
+                                'div:has-text("Vung Tau")',
+                                'div:has-text("VNVUT")',
                                 'div:has-text("Mundra")',
                                 'div:has-text("Nhava Sheva")',
                                 'li:has-text("INMUN")',
@@ -1053,7 +1060,11 @@ class CMAConnector(BaseCarrierConnector):
             origin_cached = get_cached_carrier_port("cma", origin_locode) if origin_locode else None
             origin_query = origin_locode
             
-            print(f"[CMA] Filling Origin: '{origin_query}' (locode: {origin_locode}, cached: '{origin_cached}')")
+            # For Ho Chi Minh (VNSGN), user requested RAMP.DOOR selection so direct Vung Tau service / POL selection triggers!
+            is_hcm_origin = (origin_locode == "VNSGN") or ("HO CHI MINH" in (request.origin.upper() if request.origin else ""))
+            prefer_ramp_origin = is_hcm_origin
+
+            print(f"[CMA] Filling Origin: '{origin_query}' (locode: {origin_locode}, cached: '{origin_cached}', prefer_ramp: {prefer_ramp_origin})")
             origin_sel = [
                 'input[placeholder*="Origin" i]',
                 'input[placeholder*="Name / Code / Port" i]',
@@ -1075,10 +1086,10 @@ class CMAConnector(BaseCarrierConnector):
             await origin_field.type(origin_query, delay=30)
             await self.page.wait_for_timeout(2000)
 
-            if not await self._select_cma_dropdown_option("Origin", origin_locode, origin_cached):
+            if not await self._select_cma_dropdown_option("Origin", origin_locode, origin_cached, prefer_ramp=prefer_ramp_origin):
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
             
-            print(f"[CMA] Origin selected: {origin_locode}")
+            print(f"[CMA] Origin selected: {origin_locode} (prefer_ramp={prefer_ramp_origin})")
 
             # --- DESTINATION ---
             if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
