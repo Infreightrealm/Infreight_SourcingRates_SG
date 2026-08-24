@@ -581,10 +581,22 @@ def _detect_mode_by_hierarchy(raw_text: str, forced_mode: str | None = None) -> 
     text_lower = raw_text.lower()
 
     # --- PRIORITY 1: Explicit Mode Words ---
-    p1_air_terms = ["airfreight", "air rate", "air cargo", "flight schedule", "awb", "uplift", "by air", "via air"]
+    p1_air_terms = [
+        "airfreight", "air freight", "air rate", "air rates", "air cargo",
+        "flight schedule", "awb", "mawb", "hawb", "uplift", "by air", "via air",
+        "air import", "air export", "air shipment", "exw air", "air quote",
+        "air pricing", "air transport", "airport", "air import rates", "air export rates",
+        "air import rate", "air export rate", "exw air import", "exw air export"
+    ]
     p1_sea_terms = ["ocean freight", "sea freight", "sailing", "vessel", "fcl", "lcl", "b/l", "bill of lading", "ocean rate", "by sea", "by ocean", "ocean"]
 
     matched_p1_air = [t for t in p1_air_terms if re.search(r'\b' + re.escape(t) + r'\b', text_lower)]
+    
+    # Flexible Air Phrase Regex (matches e.g. "air import rates", "exw air", "mumbai airport")
+    if not matched_p1_air:
+        if re.search(r'\bair\s*(?:[a-z]+\s+)?(?:rate|rates|import|export|freight|cargo|shipment|quote|pricing|transport)?\b', text_lower) or "airport" in text_lower or "exw air" in text_lower:
+            matched_p1_air.append("air rates")
+
     matched_p1_sea = [t for t in p1_sea_terms if re.search(r'\b' + re.escape(t) + r'\b', text_lower)]
 
     p1_mode = None
@@ -603,13 +615,13 @@ def _detect_mode_by_hierarchy(raw_text: str, forced_mode: str | None = None) -> 
     ]
     has_container_ref = any(re.search(pat, text_lower) for pat in p2_sea_patterns)
 
-    p2_air_terms = ["skids", "uld", "chargeable weight"]
+    p2_air_terms = ["skids", "uld", "chargeable weight", "pallet", "pallets"]
     has_air_unit = any(re.search(r'\b' + re.escape(t) + r'\b', text_lower) for t in p2_air_terms)
 
     # Note: treat dimensions/kgs as air signal ONLY when no container reference is present
     has_air_dims_only = (
-        bool(re.search(r'\b(?:kg|kgs|kilo|kilos|gross weight)\b', text_lower)) and
-        bool(re.search(r'\b(?:\d+\s*x\s*\d+\s*x\s*\d+|\d+\s*cm|\d+\s*crates|\d+\s*sets)\b', text_lower)) and
+        bool(re.search(r'\b(?:kg|kgs|kilo|kilos|gross weight|weight)\b', text_lower)) and
+        bool(re.search(r'(?:l\s*\d+|\b\d+)\s*x\s*(?:w\s*\d+|\d+)\s*x\s*(?:h\s*\d+|\d+)|pallet|pallets|\b\d+\s*cm|\d+\s*crates|\d+\s*sets', text_lower)) and
         not has_container_ref
     )
 
@@ -641,19 +653,18 @@ def _detect_mode_by_hierarchy(raw_text: str, forced_mode: str | None = None) -> 
     unambiguous_air_locations = ["singapore airport", "changi airport", "kul airport", "heathrow", "jfk airport", "ord airport", "fra airport", "lhr airport"]
 
     matched_p3_sea = [loc for loc in unambiguous_sea_locations if loc in text_lower]
-    matched_p3_air = [loc for loc in unambiguous_air_locations if loc in text_lower]
+    matched_p3_air = [loc for loc in unambiguous_air_locations if loc in text_lower or ("airport" in text_lower and not matched_p3_sea)]
 
     if matched_p3_sea and not matched_p3_air:
-
         return "sea", 0.9, matched_p3_sea, False
     elif matched_p3_air and not matched_p3_sea:
         return "air", 0.9, matched_p3_air, False
 
     # Multi-line bulk port/destination list check (e.g. GDYNIA USD \n GDANSK USD ...)
-    # If text has 3+ lines or numbered destinations and no explicit air terms, default to sea
+    # Only default to sea if NO air signals, NO air units, and NO airport references are present
     line_count = len([l for l in text_lower.split("\n") if l.strip()])
     has_numbered_list = bool(re.search(r'\b[1-9]\d?[\.\)]\s*[a-z]+', text_lower))
-    if (line_count >= 3 or has_numbered_list) and not matched_p1_air:
+    if (line_count >= 3 or has_numbered_list) and not matched_p1_air and not matched_p3_air and not has_air_unit and not has_air_dims_only:
         return "sea", 0.85, ["multi-destination list"], False
 
     # No decisive signal or dual-mode city tie-breaker -> Needs Clarification!
@@ -743,15 +754,44 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
     # Air Mode Handling
     if mode == "air":
-        origin = "Singapore Airport" if "singapore airport" in text_lower or "singapore" in text_lower else "Singapore"
-        destination = "KUL" if "kul" in text_lower else None
+        origin = "Singapore (SIN)" if "singapore" in text_lower else ("KUL" if "kul" in text_lower else "Singapore Airport")
+        destination = "Mumbai Airport (BOM)" if "mumbai" in text_lower else ("Hong Kong (HKG)" if "hong kong" in text_lower or "hkg" in text_lower else ("KUL" if "kul" in text_lower else None))
         
-        commodity = "Machines Part Accessories" if "machines part" in text_lower else ("HITACHI PRINTERS" if "hitachi" in text_lower else "Furniture")
+        commodity = "General Cargo"
+        if "machines part" in text_lower:
+            commodity = "Machines Part Accessories"
+        elif "hitachi" in text_lower:
+            commodity = "HITACHI PRINTERS"
 
-        
-        dims = "186 x 32 x 37 cm H - 2 Crates" if "186 x 32" in text_lower else ("64x53x74 cm/10 pkgs" if "64x53x74" in text_lower else "Not specified")
-        weight_str = "320.00 kgs (160 kgs x 2 crates)" if "320.00 kgs" in text_lower else ("320 kg" if "320 kg" in text_lower else "Not specified")
-        pkg_str = "2 Crates / Sets" if "2 crates" in text_lower else ("10 pkgs" if "10 pkgs" in text_lower else "Not specified")
+        # Dimensions
+        if "110" in text_lower:
+            dims = "L110 x W110 x H53 cm"
+        elif "186 x 32" in text_lower:
+            dims = "186 x 32 x 37 cm H - 2 Crates"
+        elif "64x53x74" in text_lower:
+            dims = "64x53x74 cm/10 pkgs"
+        else:
+            dims = "Not specified"
+
+        # Weight
+        if "78" in text_lower:
+            weight_str = "78 kg"
+        elif "320.00 kgs" in text_lower:
+            weight_str = "320.00 kgs (160 kgs x 2 crates)"
+        elif "320 kg" in text_lower:
+            weight_str = "320 kg"
+        else:
+            weight_str = "Not specified"
+
+        # Package count
+        if "pallet" in text_lower:
+            pkg_str = "1 Pallet"
+        elif "2 crates" in text_lower:
+            pkg_str = "2 Crates / Sets"
+        elif "10 pkgs" in text_lower:
+            pkg_str = "10 pkgs"
+        else:
+            pkg_str = "Not specified"
 
         drafts = generate_dual_air_drafts(
             origin=origin,
