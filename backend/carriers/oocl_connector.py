@@ -72,18 +72,18 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
     
     # 0. Dynamic carrier override check FIRST
     try:
-        from services.port_manager import get_port_name_for_carrier
-        override = get_port_name_for_carrier("oocl", text)
-        if override:
+        from services.port_manager import resolve_port_for_carrier, PortManager, COUNTRY_CODE_TO_NAME
+        override = resolve_port_for_carrier(text, "oocl")
+        if override and override.strip().lower() != text.strip().lower():
+            print(f"[OOCL] [PORT OVERRIDE MATCHED] Input '{text}' -> Override '{override}'")
             clean_override = re.sub(r'^\[.*?\]\s*', '', override).strip()
-            locode_match = re.search(r'\[\s*([A-Za-z]{5})\s*\]', text) or re.search(r'\b([A-Za-z]{5})\b', text)
+            locode_match = re.search(r'\[\s*([A-Za-z]{5})\s*\]', text) or re.search(r'\b([A-Za-z]{5})\b', text) or re.search(r'\b([A-Za-z]{5})\b', override)
             resolved_locode = locode_match.group(1).upper() if locode_match else ""
             if not resolved_locode:
                 from services.port_manager import search_port
                 res = search_port(text)
                 if res:
                     resolved_locode = res[0]['code'].upper()
-            from services.port_manager import PortManager, COUNTRY_CODE_TO_NAME
             port_data = PortManager().get_port_by_code(resolved_locode) if resolved_locode else None
             c_code = port_data.get("country", "").upper() if port_data else ""
             c_name = COUNTRY_CODE_TO_NAME.get(c_code, "") if c_code else ""
