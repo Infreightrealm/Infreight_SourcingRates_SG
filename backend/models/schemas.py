@@ -2,7 +2,7 @@
 Pydantic schemas for API request/response validation.
 """
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Union
 from datetime import date
 from pydantic import BaseModel, Field, model_validator
 from enum import Enum
@@ -264,3 +264,7 @@ class RateSearchResultResponse(BaseModel):
     queue_position: Optional[int] = None
     active_search_info: Optional[str] = None
     results: list[CarrierResultSchema] = []
+
+QuoteSchema.model_rebuild()
+CarrierResultSchema.model_rebuild()
+RateSearchResultResponse.model_rebuild()
