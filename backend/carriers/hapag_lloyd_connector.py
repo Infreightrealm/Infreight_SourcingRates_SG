@@ -1492,12 +1492,22 @@ class HapagLloydConnector(BaseCarrierConnector):
             except Exception as adv_err:
                 print(f"[HAPAG] Schedule: Advanced search expand error: {adv_err}")
 
-            # Force using "DRY 40H" (40' General Purpose High Cube) to query all departures.
-            # Hapag-Lloyd returns pricing for all 3 container types (20/40/40H) in the same document
-            # regardless of which one was selected, but selecting 40'HC displays the maximum number of departures.
-            hapag_container = "40' General Purpose High Cube"
+            # Select container type based on user request (or default to 40' High Cube)
+            req_c = None
+            if request.container_type:
+                req_c = request.container_type.strip().upper()
+            elif getattr(request, "container_types", None) and len(request.container_types) == 1:
+                req_c = request.container_types[0].strip().upper()
 
-            print(f"[HAPAG] Schedule: Selecting container type: '{hapag_container}'")
+            c_alias = {
+                "20GP": "DRY 20", "20'GP": "DRY 20", "20STD": "DRY 20", "DRY 20": "DRY 20",
+                "40GP": "DRY 40", "40'GP": "DRY 40", "40STD": "DRY 40", "DRY 40": "DRY 40",
+                "40HQ": "DRY 40H", "40HC": "DRY 40H", "40'HQ": "DRY 40H", "40'HC": "DRY 40H", "DRY 40H": "DRY 40H"
+            }
+            norm_c = c_alias.get(req_c) if req_c else None
+            hapag_container = self.CONTAINER_TYPE_MAP.get(norm_c, "40' General Purpose High Cube")
+
+            print(f"[HAPAG] Schedule: Selecting container type: '{hapag_container}' (requested: {req_c or 'All/Multi'})")
             container_selected = False
             try:
                 # Press Escape first to close any stray open dropdowns
@@ -2131,12 +2141,24 @@ class HapagLloydConnector(BaseCarrierConnector):
                 raise Exception("Failed to select End Location dropdown option after 3 attempts.")
 
             # --- CONTAINER TYPE ---
-            # Force using "DRY 40H" (40' General Purpose High Cube) to query all departures.
-            # Hapag-Lloyd returns pricing for all 3 container types (20/40/40H) in the same document
-            # regardless of which one was selected, but selecting 40'HC displays the maximum number of departures.
-            hapag_container = "40' General Purpose High Cube"
+            # Select container type dynamically based on user request.
+            # Quick Quotes Spot returns spot pricing only for the specific container type selected in the form.
+            # Default to 40' High Cube if multiple or unspecified.
+            req_c = None
+            if request.container_type:
+                req_c = request.container_type.strip().upper()
+            elif getattr(request, "container_types", None) and len(request.container_types) == 1:
+                req_c = request.container_types[0].strip().upper()
 
-            print(f"[HAPAG] Mapped container to choose: '{hapag_container}'")
+            c_alias = {
+                "20GP": "DRY 20", "20'GP": "DRY 20", "20STD": "DRY 20", "DRY 20": "DRY 20",
+                "40GP": "DRY 40", "40'GP": "DRY 40", "40STD": "DRY 40", "DRY 40": "DRY 40",
+                "40HQ": "DRY 40H", "40HC": "DRY 40H", "40'HQ": "DRY 40H", "40'HC": "DRY 40H", "DRY 40H": "DRY 40H"
+            }
+            norm_c = c_alias.get(req_c) if req_c else None
+            hapag_container = self.CONTAINER_TYPE_MAP.get(norm_c, "40' General Purpose High Cube")
+
+            print(f"[HAPAG] Mapped container to choose: '{hapag_container}' (requested: {req_c or 'All/Multi'})")
 
             # Always select container type — Hapag default is 20' GP, not 40' HC
             try:
