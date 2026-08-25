@@ -942,7 +942,7 @@ class OOCLConnector(BaseCarrierConnector):
 
         return False
 
-    async def _fs_set_container_quantities(self, page, request: Optional[SearchRequest] = None, lock: Optional[asyncio.Lock] = None) -> bool:
+    async def _fs_set_container_quantities(self, page, request: Optional[RateSearchRequest] = None, lock: Optional[asyncio.Lock] = None) -> bool:
         """
         Opens the 'Container Type and Quantity' picker (General tab: 20GP/20RF(NOR),
         40GP, 40HQ/40RQ(NOR)) and sets container quantities dynamically.
