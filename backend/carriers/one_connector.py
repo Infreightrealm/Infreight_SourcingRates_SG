@@ -1795,7 +1795,7 @@ class ONEConnector(BaseCarrierConnector):
                 try:
                     if await l.is_visible():
                         txt = (await l.inner_text()).strip()
-                        if any(k in txt for k in ["Demurrage", "Detention", "Combined DEM", "Free Time"]):
+                        if "Free Time Information" in txt or ("Demurrage" in txt and "Destination" in txt) or ("Detention" in txt and "Destination" in txt):
                             return txt
                 except Exception:
                     continue
@@ -1818,7 +1818,7 @@ class ONEConnector(BaseCarrierConnector):
         try:
             body_txt = await self.page.locator("body").inner_text()
             if "ONE QUOTE Free Time Information" in body_txt or "Combined DEM & DET" in body_txt:
-                m = re.search(r"(ONE\s+QUOTE\s+Free\s+Time\s+Information[\s\S]*?)(?:\*ONE|\n\n\n|$)", body_txt, re.IGNORECASE)
+                m = re.search(r"(ONE\s+QUOTE\s+Free\s+Time\s+Information[\s\S]*?)(?:For\s+details|\*?\s*ONE\s+Standard|$)", body_txt, re.IGNORECASE)
                 if m:
                     return m.group(1)
         except Exception:
@@ -1830,33 +1830,28 @@ class ONEConnector(BaseCarrierConnector):
         _one_debug = os.getenv("ONE_DEBUG", "").lower() == "true"
         parsed = {"free_time": None, "demurrage": None, "detention": None, "mode": None}
         try:
-            # Scroll card into view first so elements are actionable
-            try:
-                await card_locator.scroll_into_view_if_needed()
-                await self.page.wait_for_timeout(300)
-            except Exception:
-                pass
-
-            # 1. JS element finder inside card_locator
+            # 1. Target the i-th Free Time button on the entire page directly
             trigger = None
             try:
-                js_handle = await card_locator.evaluate_handle("""(cardEl) => {
-                    const allEls = Array.from(cardEl.querySelectorAll('*'));
-                    for (const el of allEls) {
+                js_handle = await self.page.evaluate_handle("""(idx) => {
+                    const allBtns = Array.from(document.querySelectorAll('button, div, span, a'));
+                    const ftBtns = allBtns.filter(el => {
                         const txt = (el.innerText || '').trim();
-                        const cls = (el.className || '').toString().toLowerCase();
-                        if (txt.includes('Standard Free Time') || txt.includes('Special Free Time') || txt.includes('Free Time') || cls.includes('freetime') || cls.includes('free-time')) {
-                            return el;
-                        }
+                        return (txt === 'Standard Free Time' || txt === 'Special Free Time' || txt.includes('Free Time')) && el.children.length <= 2;
+                    });
+                    if (ftBtns.length > idx) {
+                        return ftBtns[idx];
+                    }
+                    if (ftBtns.length > 0) {
+                        return ftBtns[0];
                     }
                     return null;
-                }""")
+                }""", index)
                 element = js_handle.as_element()
                 if element:
                     trigger = element
             except Exception as js_err:
-                if _one_debug:
-                    print(f"[ONE] Quote {index}: JS trigger lookup error: {js_err}")
+                print(f"[ONE] Quote {index}: JS global trigger lookup error: {js_err}")
 
             if not trigger:
                 trigger_selectors = [
@@ -1869,7 +1864,7 @@ class ONEConnector(BaseCarrierConnector):
                 ]
                 for sel in trigger_selectors:
                     try:
-                        loc = card_locator.locator(sel).first
+                        loc = self.page.locator(sel).nth(index)
                         if await loc.count() > 0:
                             trigger = loc
                             break
@@ -1884,6 +1879,7 @@ class ONEConnector(BaseCarrierConnector):
                         el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
                         el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
                     }""")
+                    await self.page.wait_for_timeout(300)
                 except Exception:
                     pass
 
@@ -1917,7 +1913,7 @@ class ONEConnector(BaseCarrierConnector):
                 else:
                     print(f"[ONE] Quote {index}: Popover text not found after hover/click")
             else:
-                print(f"[ONE] Quote {index}: Free Time trigger button not found on card")
+                print(f"[ONE] Quote {index}: Free Time trigger button not found on page")
 
         except Exception as e:
             print(f"[ONE] Exception during live free time extraction for quote {index}: {e}")
