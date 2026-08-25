@@ -279,13 +279,7 @@ async def run_carrier_search(
 
             # Persist quotes
             for q in all_quotes:
-                ft_val = None
-                if q.free_time is not None:
-                    raw_ft = str(q.free_time).strip()
-                    if raw_ft.isdigit():
-                        ft_val = int(raw_ft)
-                    else:
-                        ft_val = raw_ft
+                ft_val = str(q.free_time).strip() if q.free_time is not None else None
 
                 db_quote = Quote(
                     carrier_result_id=db_result.id,
