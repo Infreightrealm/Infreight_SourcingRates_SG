@@ -279,6 +279,7 @@ async def run_carrier_search(
 
             # Persist quotes
             for q in all_quotes:
+                ft_str = str(q.free_time) if q.free_time is not None else None
                 db_quote = Quote(
                     carrier_result_id=db_result.id,
                     carrier=carrier_code,
@@ -294,7 +295,7 @@ async def run_carrier_search(
                     discount=q.discount,
                     final_freight_value=q.final_freight_value,
                     validity_till=q.validity_till,
-                    free_time=str(q.free_time) if q.free_time is not None else None,
+                    free_time=ft_str,
                     demurrage=q.demurrage,
                     detention=q.detention,
                     raw_data_json={
@@ -307,7 +308,18 @@ async def run_carrier_search(
                     },
                 )
                 session.add(db_quote)
-                await session.flush()  # Get the quote ID
+                try:
+                    await session.flush()  # Get the quote ID
+                except Exception as flush_err:
+                    # Fallback for legacy DB schema where free_time column was strictly INTEGER
+                    import re
+                    num_ft = None
+                    if q.free_time is not None:
+                        m = re.search(r"\d+", str(q.free_time))
+                        if m:
+                            num_ft = int(m.group(0))
+                    db_quote.free_time = num_ft
+                    await session.flush()
 
                 # Persist included surcharges
                 for charge in q.included_freight_surcharges:
