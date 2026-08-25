@@ -27,7 +27,7 @@ class Quote(Base):
     discount = Column(Float, nullable=True, default=0.0)
     final_freight_value = Column(Float, nullable=True, default=0.0)
     validity_till = Column(String(50), nullable=True)
-    free_time = Column(Integer, nullable=True, default=0)
+    free_time = Column(String(50), nullable=True)
     demurrage = Column(Integer, nullable=True, default=0)
     detention = Column(Integer, nullable=True, default=0)
     raw_data_json = Column(JSON, nullable=True)

@@ -206,7 +206,7 @@ class QuoteSchema(BaseModel):
     service_name: Optional[str] = None
     vessel: Optional[str] = None
     routing: Optional[str] = "Direct"
-    free_time: Optional[int] = None
+    free_time: Optional[Union[int, str]] = None
     demurrage: Optional[int] = None
     detention: Optional[int] = None
     container_type: Optional[str] = None

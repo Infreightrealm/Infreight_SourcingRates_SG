@@ -92,7 +92,7 @@ async def init_db():
                     pass
             if 'free_time' not in columns:
                 try:
-                    sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN free_time INTEGER DEFAULT 0"))
+                    sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN free_time VARCHAR(50)"))
                 except Exception:
                     pass
             if 'demurrage' not in columns:

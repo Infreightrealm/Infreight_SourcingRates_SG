@@ -294,7 +294,7 @@ async def run_carrier_search(
                     discount=q.discount,
                     final_freight_value=q.final_freight_value,
                     validity_till=q.validity_till,
-                    free_time=q.free_time,
+                    free_time=str(q.free_time) if q.free_time is not None else None,
                     demurrage=q.demurrage,
                     detention=q.detention,
                     raw_data_json={
