@@ -67,6 +67,38 @@
         "20GP": 0,
         "40GP": 1
     },
+    "Italy": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Greece": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Turkey": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Turkiye": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Egypt": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "United Arab Emirates": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "UAE": {
+        "20GP": 5,
+        "40GP": 5
+    },
+    "Saudi Arabia": {
+        "20GP": 5,
+        "40GP": 5
+    },
     "Latvia": {
         "20GP": 14,
         "40GP": 14
