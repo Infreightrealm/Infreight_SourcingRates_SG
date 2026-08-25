@@ -1830,68 +1830,57 @@ class ONEConnector(BaseCarrierConnector):
         _one_debug = os.getenv("ONE_DEBUG", "").lower() == "true"
         parsed = {"free_time": None, "demurrage": None, "detention": None, "mode": None}
         try:
-            # 1. Broad multi-level selector for Free Time trigger on the card
-            trigger_selectors = [
-                '[class*="free" i]',
-                '[class*="freetime" i]',
-                '[class*="FreeTime" i]',
-                '[class*="SpecialFree" i]',
-                '[class*="StandardFree" i]',
-                'button:has-text("Free Time")',
-                'span:has-text("Free Time")',
-                'div:has-text("Free Time")',
-                '[title*="Free Time" i]',
-                '[aria-label*="Free Time" i]',
-            ]
-            
-            trigger = None
-            for sel in trigger_selectors:
-                try:
-                    loc = card_locator.locator(sel).first
-                    if await loc.count() > 0 and await loc.is_visible(timeout=500):
-                        trigger = loc
-                        if _one_debug:
-                            print(f"[ONE] Quote {index}: Matched Free Time trigger via selector '{sel}'")
-                        break
-                except Exception:
-                    continue
+            # Scroll card into view first so elements are actionable
+            try:
+                await card_locator.scroll_into_view_if_needed()
+                await self.page.wait_for_timeout(300)
+            except Exception:
+                pass
 
-            # 2. JS fallback: Find element next to Details button or containing free time keywords
+            # 1. JS element finder inside card_locator
+            trigger = None
+            try:
+                js_handle = await card_locator.evaluate_handle("""(cardEl) => {
+                    const allEls = Array.from(cardEl.querySelectorAll('*'));
+                    for (const el of allEls) {
+                        const txt = (el.innerText || '').trim();
+                        const cls = (el.className || '').toString().toLowerCase();
+                        if (txt.includes('Standard Free Time') || txt.includes('Special Free Time') || txt.includes('Free Time') || cls.includes('freetime') || cls.includes('free-time')) {
+                            return el;
+                        }
+                    }
+                    return null;
+                }""")
+                element = js_handle.as_element()
+                if element:
+                    trigger = element
+            except Exception as js_err:
+                if _one_debug:
+                    print(f"[ONE] Quote {index}: JS trigger lookup error: {js_err}")
+
             if not trigger:
-                try:
-                    js_handle = await card_locator.evaluate_handle("""(cardEl) => {
-                        const allEls = Array.from(cardEl.querySelectorAll('*'));
-                        for (const el of allEls) {
-                            const cls = (el.className || '').toString().toLowerCase();
-                            const txt = (el.innerText || '').toLowerCase();
-                            const title = (el.getAttribute('title') || '').toLowerCase();
-                            const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-                            if (cls.includes('free') || cls.includes('freetime') || txt.includes('free time') || title.includes('free time') || aria.includes('free time')) {
-                                return el;
-                            }
-                        }
-                        const detailsBtn = Array.from(cardEl.querySelectorAll('button, a, span, div')).find(e => (e.innerText || '').trim() === 'Details');
-                        if (detailsBtn && detailsBtn.nextElementSibling) {
-                            return detailsBtn.nextElementSibling;
-                        }
-                        if (detailsBtn && detailsBtn.parentElement && detailsBtn.parentElement.nextElementSibling) {
-                            return detailsBtn.parentElement.nextElementSibling;
-                        }
-                        return null;
-                    }""")
-                    element = js_handle.as_element()
-                    if element and await element.is_visible():
-                        trigger = element
-                        if _one_debug:
-                            print(f"[ONE] Quote {index}: Matched Free Time trigger via JS DOM inspection")
-                except Exception as js_err:
-                    if _one_debug:
-                        print(f"[ONE] Quote {index}: JS DOM inspection failed: {js_err}")
+                trigger_selectors = [
+                    'text="Standard Free Time"',
+                    'text="Special Free Time"',
+                    'button:has-text("Free Time")',
+                    'span:has-text("Free Time")',
+                    'div:has-text("Free Time")',
+                    '[class*="free" i]',
+                ]
+                for sel in trigger_selectors:
+                    try:
+                        loc = card_locator.locator(sel).first
+                        if await loc.count() > 0:
+                            trigger = loc
+                            break
+                    except Exception:
+                        continue
 
             if trigger:
                 # Dispatch JS mouseover + mouseenter events first to trigger React state
                 try:
                     await trigger.evaluate("""el => {
+                        el.scrollIntoView({ block: 'center', inline: 'center' });
                         el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
                         el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
                     }""")
@@ -1900,7 +1889,6 @@ class ONEConnector(BaseCarrierConnector):
 
                 # Playwright physical mouse hover
                 try:
-                    await trigger.scroll_into_view_if_needed()
                     box = await trigger.bounding_box()
                     if box:
                         await self.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
@@ -1923,33 +1911,16 @@ class ONEConnector(BaseCarrierConnector):
                         if _one_debug:
                             print(f"[ONE] Quote {index}: Click fallback failed: {c_err}")
 
-                if _one_debug and not pop_text:
-                    visible_elements_text = await self.page.evaluate("""() => {
-                        return Array.from(document.querySelectorAll('*'))
-                            .filter(el => {
-                                const style = window.getComputedStyle(el);
-                                return style && style.display !== 'none' && style.visibility !== 'hidden' && el.innerText;
-                            })
-                            .map(el => el.innerText.trim())
-                            .filter(t => t.includes('Free Time') || t.includes('Demurrage') || t.includes('Detention') || t.includes('Combined') || t.includes('Days'))
-                            .slice(0, 15);
-                    }""")
-                    print(f"[ONE DEBUG] Visible free time candidates on page for quote {index}: {visible_elements_text}")
-
                 if pop_text:
                     parsed = self._parse_free_time_text(pop_text)
-                    if _one_debug:
-                        print(f"[ONE] Live Free Time extracted (quote {index}, mode={parsed.get('mode')}): total={parsed.get('free_time')}, demurrage={parsed.get('demurrage')}, detention={parsed.get('detention')}")
+                    print(f"[ONE] Live Free Time extracted for quote {index}: mode={parsed.get('mode')}, total={parsed.get('free_time')}, DEM={parsed.get('demurrage')}, DET={parsed.get('detention')}")
                 else:
-                    if _one_debug:
-                        print(f"[ONE] Quote {index}: Popover text not found after hover/click")
+                    print(f"[ONE] Quote {index}: Popover text not found after hover/click")
             else:
-                if _one_debug:
-                    print(f"[ONE] Quote {index}: Free Time trigger button not found on card")
+                print(f"[ONE] Quote {index}: Free Time trigger button not found on card")
 
         except Exception as e:
-            if _one_debug:
-                print(f"[ONE] Exception during live free time extraction for quote {index}: {e}")
+            print(f"[ONE] Exception during live free time extraction for quote {index}: {e}")
 
         return parsed
 
