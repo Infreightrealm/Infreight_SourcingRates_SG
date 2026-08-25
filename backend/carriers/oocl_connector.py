@@ -942,14 +942,33 @@ class OOCLConnector(BaseCarrierConnector):
 
         return False
 
-    async def _fs_set_container_quantities(self, page, lock: Optional[asyncio.Lock] = None) -> bool:
+    async def _fs_set_container_quantities(self, page, request: Optional[SearchRequest] = None, lock: Optional[asyncio.Lock] = None) -> bool:
         """
         Opens the 'Container Type and Quantity' picker (General tab: 20GP/20RF(NOR),
-        40GP, 40HQ/40RQ(NOR)) and sets quantity 1 for all three rows, so one search
-        prices every size at once. Serialized against `lock` (see _fs_fill_port) so
-        the watcher's own Escape-key fallback can't fire while this picker is open
-        and also relying on Escape to close itself.
+        40GP, 40HQ/40RQ(NOR)) and sets container quantities dynamically.
+        If a single container type is requested by the user, sets 1 for that type
+        and 0 for others to fit within strict sailing TEU limits.
         """
+        target_qtys = {"20GP": 1, "40GP": 1, "40HQ": 1}
+
+        req_c = None
+        if request:
+            if request.container_type:
+                req_c = request.container_type.strip().upper()
+            elif getattr(request, "container_types", None) and len(request.container_types) == 1:
+                req_c = request.container_types[0].strip().upper()
+
+        if req_c:
+            c_alias = {
+                "20GP": "20GP", "20'GP": "20GP", "20STD": "20GP", "DRY 20": "20GP",
+                "40GP": "40GP", "40'GP": "40GP", "40STD": "40GP", "DRY 40": "40GP",
+                "40HQ": "40HQ", "40HC": "40HQ", "40'HQ": "40HQ", "40'HC": "40HQ", "DRY 40H": "40HQ"
+            }
+            single_type = c_alias.get(req_c)
+            if single_type:
+                target_qtys = {"20GP": 0, "40GP": 0, "40HQ": 0}
+                target_qtys[single_type] = 1
+
         async def _do_fill():
             try:
                 picker = page.locator('.cargo-input-wrap .input-container').first
@@ -966,8 +985,9 @@ class OOCLConnector(BaseCarrierConnector):
                 await inputs.first.wait_for(state="visible", timeout=5000)
                 count = await inputs.count()
                 if count >= 3:
-                    for i in range(3):
-                        await inputs.nth(i).fill("1")
+                    await inputs.nth(0).fill(str(target_qtys["20GP"]))
+                    await inputs.nth(1).fill(str(target_qtys["40GP"]))
+                    await inputs.nth(2).fill(str(target_qtys["40HQ"]))
                     filled = 3
             except Exception as fill_err:
                 print(f"[OOCL] [FS] Direct popover input fill failed: {fill_err}")
@@ -979,12 +999,13 @@ class OOCLConnector(BaseCarrierConnector):
                         row_input = page.locator(
                             f'div:has-text("{label}") >> input').last
                         if await row_input.is_visible():
-                            await row_input.fill("1")
+                            val = str(target_qtys.get(label, 1))
+                            await row_input.fill(val)
                             filled += 1
                             continue
                     except Exception:
                         pass
-            print(f"[OOCL] [FS] Container quantities set ({filled}/3 rows).")
+            print(f"[OOCL] [FS] Container quantities set to {target_qtys} ({filled}/3 rows).")
             # Close the picker so it doesn't block the Get Quote button
             try:
                 await page.keyboard.press("Escape")
@@ -1750,7 +1771,7 @@ class OOCLConnector(BaseCarrierConnector):
                 return []
             if not await self._fs_fill_port(page, "destination", request.destination, lock=ui_lock):
                 return []
-            await self._fs_set_container_quantities(page, lock=ui_lock)
+            await self._fs_set_container_quantities(page, request=request, lock=ui_lock)
 
             try:
                 async with ui_lock:
