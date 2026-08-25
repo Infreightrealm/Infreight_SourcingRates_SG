@@ -359,106 +359,12 @@ class OOCLConnector(BaseCarrierConnector):
         return False
 
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
-        try:
-            await self._init_browser()
-            
-            async def log_response(response):
-                print(f"[OOCL] API Response: {response.url} - Status: {response.status}")
-            
-            self.page.on("response", log_response)
-            
-            self.page.on("console", lambda msg: print(f"[OOCL-Console] {msg.type}: {msg.text}"))
-            
-            print(f"[OOCL] Navigating to search URL: {self.SEARCH_URL}")
-            try:
-                await self.page.goto(self.SEARCH_URL, wait_until="domcontentloaded", timeout=20000)
-            except Exception as ne:
-                print(f"[OOCL] Page goto note: {ne}")
-            await self.page.wait_for_timeout(2000)
-            
-            # Check for Cloudflare Turnstile security gate
-            try:
-                title = (await self.page.title()).lower()
-                content = (await self.page.content()).lower()
-                if "just a moment" in title or "security verification" in content or "verify you are human" in content:
-                    print("[OOCL] Cloudflare security verification detected! Attempting automated click...")
-                    await self._try_auto_click_turnstile()
-                    await self.page.wait_for_timeout(2000)
-
-                    c_title = (await self.page.title()).lower()
-                    c_content = (await self.page.content()).lower()
-                    if "just a moment" in c_title or "security verification" in c_content or "verify you are human" in c_content:
-                        print("[OOCL] [ACTION REQUIRED] Cloudflare Turnstile requires manual 1-click verification! Please click 'Verify you are human' in the opened Chrome window.")
-                        for _ in range(60):
-                            await asyncio.sleep(1)
-                            await self._try_auto_click_turnstile()
-                            c_title = (await self.page.title()).lower()
-                            c_content = (await self.page.content()).lower()
-                            if "just a moment" not in c_title and "security verification" not in c_content and "verify you are human" not in c_content:
-                                print("[OOCL] Cloudflare verification solved! Continuing search...")
-                                break
-            except Exception as ce:
-                print(f"[OOCL] Cloudflare check note: {ce}")
-            
-            # Find inputs. In OOCL there is an Origin input and a Destination input inside the form.
-            # Usually they are inside app-autocomplete or similar.
-            origin_field = 'input[placeholder="Origin"], oocl-autocomplete-input[formcontrolname="origin"] input'
-            dest_field = 'input[placeholder="Destination"], oocl-autocomplete-input[formcontrolname="destination"] input'
-            
-            # If placeholders are different, let's use the nth input approach as a fallback
-            try:
-                await self.page.locator(origin_field).first.wait_for(state="attached", timeout=5000)
-            except Exception:
-                origin_field = 'input[type="text"] >> nth=0'
-                dest_field = 'input[type="text"] >> nth=1'
-            
-            origin_name, origin_locode, origin_cc, origin_cn = resolve_oocl_port_info(request.origin)
-            origin_success = await self._select_location("Origin", origin_field, origin_name, origin_locode, origin_cc, origin_cn)
-            if not origin_success:
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
-                
-            dest_name, dest_locode, dest_cc, dest_cn = resolve_oocl_port_info(request.destination)
-            dest_success = await self._select_location("Destination", dest_field, dest_name, dest_locode, dest_cc, dest_cn)
-            if not dest_success:
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
-                
-
-            try:
-                await self.page.keyboard.press("Tab")
-                await self.page.wait_for_timeout(500)
-                
-                # Use Playwright's native click so it waits for actionability/overlays
-                search_btn = self.page.locator('button[ng-click="displayResult()"], button[form="searchForm"]').first
-                await search_btn.wait_for(state="visible", timeout=5000)
-                await search_btn.click()
-                print("[OOCL] Clicked Search button.")
-            except Exception as e:
-                print(f"[OOCL] Failed to click Search button: {e}")
-                return CarrierResultStatus.INVALID_SEARCH_INPUT
-            
-            try:
-                # OOCL can be slow, wait up to 90 seconds for results/captcha
-                await self.page.locator('.ag-row, :text-matches("No schedule found", "i")').first.wait_for(state="attached", timeout=90000)
-            except Exception as e:
-                print(f"[OOCL] Timeout or error waiting for search results: {e}")
-                os.makedirs("scratch", exist_ok=True)
-                await self.page.screenshot(path="scratch/oocl_search_timeout.png", full_page=True)
-                html = await self.page.content()
-                with open("scratch/oocl_search_timeout.html", "w", encoding="utf-8") as f:
-                    f.write(html)
-                return CarrierResultStatus.TIMEOUT
-                
-            no_results = self.page.locator('text=/No schedule found/i, text=/no results/i, text=/Nearby Route Recommendations/i, text=/rates on nearby routes/i').first
-            if await no_results.is_visible(timeout=2000):
-                print("[OOCL] No schedules found or page displays 'Nearby Route Recommendations'.")
-                return CarrierResultStatus.NO_QUOTES_AVAILABLE
-                
-            print("[OOCL] Results loaded successfully.")
-            return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
-
-        except Exception as e:
-            print(f"[OOCL] Search failed: {e}")
-            return CarrierResultStatus.UNKNOWN_ERROR
+        """
+        Public oocl.com Chromium sailing schedule crawl bypassed per directive.
+        All sailing schedules and rates are retrieved directly via FreightSmart.
+        """
+        print("[OOCL] Bypassing legacy oocl.com Chromium sailing schedule crawl (using FreightSmart directly).")
+        return CarrierResultStatus.NO_QUOTES_AVAILABLE
 
     async def extract_quote_list(self) -> List[dict]:
         quotes = []
