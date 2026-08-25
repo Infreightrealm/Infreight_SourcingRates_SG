@@ -140,11 +140,11 @@
         "AFRICA": 7
     },
     "GB": {
-        "ASIA": 5,
-        "NORTH AMERICA": 5,
-        "LATIN AMERICA": 5,
-        "EUROPE": 5,
-        "AFRICA": 5
+        "ASIA": 11,
+        "NORTH AMERICA": 11,
+        "LATIN AMERICA": 11,
+        "EUROPE": 11,
+        "AFRICA": 11
     },
     "DE": {
         "ASIA": 7,

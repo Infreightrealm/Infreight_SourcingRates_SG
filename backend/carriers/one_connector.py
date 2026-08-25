@@ -1852,10 +1852,13 @@ class ONEConnector(BaseCarrierConnector):
             trigger = None
             try:
                 js_handle = await self.page.evaluate_handle("""(idx) => {
-                    const allBtns = Array.from(document.querySelectorAll('button, div, span, a'));
-                    const ftBtns = allBtns.filter(el => {
+                    const all = Array.from(document.querySelectorAll('button, a, span, div'));
+                    const ftBtns = all.filter(el => {
                         const txt = (el.innerText || '').trim();
-                        return (txt === 'Standard Free Time' || txt === 'Special Free Time' || txt.includes('Free Time')) && el.children.length <= 2;
+                        const cls = (el.className || '').toString();
+                        const isFtText = txt === 'Standard Free Time' || txt === 'Special Free Time' || txt.includes('Free Time');
+                        const isButtonOrSpan = el.tagName === 'BUTTON' || el.tagName === 'A' || cls.includes('FreeTime') || cls.includes('free-time') || (el.children.length === 0 && isFtText);
+                        return isFtText && isButtonOrSpan;
                     });
                     if (ftBtns.length > idx) {
                         return ftBtns[idx];
