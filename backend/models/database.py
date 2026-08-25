@@ -95,6 +95,11 @@ async def init_db():
                     sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN free_time VARCHAR(50)"))
                 except Exception:
                     pass
+            else:
+                try:
+                    sync_conn.execute(text("ALTER TABLE quotes ALTER COLUMN free_time TYPE VARCHAR(50) USING free_time::varchar"))
+                except Exception:
+                    pass
             if 'demurrage' not in columns:
                 try:
                     sync_conn.execute(text("ALTER TABLE quotes ADD COLUMN demurrage INTEGER DEFAULT 0"))
