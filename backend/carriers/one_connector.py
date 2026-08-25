@@ -534,6 +534,24 @@ class ONEConnector(BaseCarrierConnector):
                     print(f"[ONE] Error extracting quote: {e}")
                     continue
 
+            # Propagate live free time across all quotes if found on any card
+            best_ft = None
+            best_dem = None
+            best_det = None
+            for q in all_split_quotes:
+                if q.demurrage is not None or q.detention is not None or (q.free_time is not None and q.free_time != 5):
+                    best_ft = q.free_time
+                    best_dem = q.demurrage
+                    best_det = q.detention
+                    break
+
+            if best_ft is not None:
+                for q in all_split_quotes:
+                    q.free_time = best_ft
+                    q.demurrage = best_dem
+                    q.detention = best_det
+                print(f"[ONE] Propagated route Free Time across all quotes: free_time={best_ft}, DEM={best_dem}, DET={best_det}")
+
             # Cache the results
             self._cached_quotes[cache_key] = all_split_quotes
             self._cached_status[cache_key] = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
