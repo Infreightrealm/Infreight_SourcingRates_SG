@@ -1139,7 +1139,8 @@ class OOCLConnector(BaseCarrierConnector):
         """
         surcharges_dict = {}
         try:
-            # 1. Wait for any active dialog to close
+            # 1. Wait for any active dialog to close and dismiss overlays
+            await self._fs_dismiss_modals(page)
             try:
                 await page.locator('.el-dialog:visible, [role="dialog"]:visible').wait_for(state="hidden", timeout=3000)
             except Exception:
@@ -1147,12 +1148,26 @@ class OOCLConnector(BaseCarrierConnector):
 
             # 2. Click the Details button
             details_btn = card.locator('button:has-text("Details")').first
-            if not await details_btn.is_visible():
+            if not await details_btn.is_visible(timeout=3000):
                 print("[OOCL] Details button not visible on card.")
                 return surcharges_dict
 
             await details_btn.scroll_into_view_if_needed()
-            await details_btn.click()
+            
+            # Wait up to 5s for button disabled loading state to clear
+            for _ in range(10):
+                cls = await details_btn.get_attribute("class") or ""
+                dis = await details_btn.get_attribute("disabled")
+                if "disable" not in cls.lower() and dis is None:
+                    break
+                await page.wait_for_timeout(500)
+
+            try:
+                await details_btn.click(timeout=4000)
+            except Exception:
+                print("[OOCL] Standard Details click blocked; triggering JS click fallback...")
+                await details_btn.evaluate("el => el.click()")
+                
             print("[OOCL] Clicked Details button.")
 
             # 3. Wait for the details dialog to load
@@ -1516,65 +1531,33 @@ class OOCLConnector(BaseCarrierConnector):
             try:
                 eval_js = r"""
                 () => {
-                    const monthsMap = {
-                        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
-                        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
-                    };
-                    const allCells = Array.from(document.querySelectorAll('.custom-date-cell'));
                     const validCells = [];
+                    const allCells = Array.from(document.querySelectorAll('.custom-date-cell'));
 
-                    // Find separate month panels (e.g. left vs right month containers in 2-month picker)
-                    let panels = Array.from(document.querySelectorAll('[class*="month-panel"], [class*="calendar-panel"], [class*="picker-content"], .el-picker-panel__content, [class*="month-container"], [class*="date-table-container"]'));
-                    if (panels.length === 0) {
-                        // Fallback: group by closest panel or find elements with month headers
-                        const headers = Array.from(document.querySelectorAll('[class*="header"], [class*="title"], [class*="month"]'));
-                        panels = headers.map(h => h.closest('[class*="month"], [class*="panel"], [class*="calendar"], [class*="container"]') || h.parentElement).filter(Boolean);
-                    }
-                    if (panels.length === 0) {
-                        panels = [document.body];
-                    }
+                    allCells.forEach((cell, idx) => {
+                        const td = cell.closest('td');
+                        if (!td) return;
 
-                    panels.forEach(panel => {
-                        const headerEl = panel.querySelector('[class*="header"], [class*="title"], [class*="month"]');
-                        const headerText = headerEl ? headerEl.innerText.trim() : '';
-                        const m = headerText.match(/(\d{4})\s+([A-Za-z]{3,9})/) || headerText.match(/([A-Za-z]{3,9})\s+(\d{4})/);
-                        if (!m) return;
+                        // Ant Design calendar cells have explicit YYYY-MM-DD title attribute on the <td>
+                        const dateStr = td.getAttribute('title');
+                        if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
 
-                        const g1 = m[1];
-                        const g2 = m[2];
-                        const year = /^\d{4}$/.test(g1) ? parseInt(g1) : parseInt(g2);
-                        const monStr = /^\d{4}$/.test(g1) ? g2.toLowerCase().substring(0, 3) : g1.toLowerCase().substring(0, 3);
-                        const month = monthsMap[monStr];
-                        if (!year || !month) return;
+                        const cls = ((cell.className || '') + ' ' + (td.className || '')).toLowerCase();
+                        if (cls.includes('disabled') || cls.includes('prev-month') || cls.includes('next-month') || cls.includes('other-month') || cls.includes('off')) {
+                            return;
+                        }
 
-                        const cells = Array.from(panel.querySelectorAll('.custom-date-cell'));
-                        cells.forEach(cell => {
-                            const cls = (cell.className || '').toLowerCase();
-                            if (cls.includes('disabled') || cls.includes('prev-month') || cls.includes('next-month') || cls.includes('other-month') || cls.includes('off')) {
-                                return;
-                            }
-                            if (cell.getAttribute('disabled') !== null) {
-                                return;
-                            }
+                        const rawText = cell.innerText.trim();
+                        const lines = rawText.split('\n').map(s => s.trim()).filter(Boolean);
+                        if (lines.length === 0) return;
 
-                            const rawText = cell.innerText.trim();
-                            const lines = rawText.split('\n').map(s => s.trim()).filter(Boolean);
-                            if (lines.length === 0) return;
+                        const priceLines = lines.slice(1);
+                        const hasPrice = priceLines.some(p => p && p !== '-' && p !== '--' && !p.toLowerCase().includes('sold'));
+                        if (!hasPrice) return;
 
-                            const dayStr = lines[0];
-                            if (!/^\d{1,2}$/.test(dayStr)) return;
-                            const day = parseInt(dayStr);
-
-                            const priceLines = lines.slice(1);
-                            const hasPrice = priceLines.some(p => p && p !== '-' && p !== '--' && !p.toLowerCase().includes('sold'));
-                            if (!hasPrice) return;
-
-                            const formattedDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                            const globalIdx = allCells.indexOf(cell);
-                            if (!validCells.some(vc => vc.date === formattedDate)) {
-                                validCells.push({ date: formattedDate, index: globalIdx });
-                            }
-                        });
+                        if (!validCells.some(vc => vc.date === dateStr)) {
+                            validCells.push({ date: dateStr, index: idx });
+                        }
                     });
 
                     return validCells;
