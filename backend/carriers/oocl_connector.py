@@ -1608,7 +1608,7 @@ class OOCLConnector(BaseCarrierConnector):
             Uses robust JS DOM inspection of each calendar month panel.
             """
             try:
-                eval_js = """
+                eval_js = r"""
                 () => {
                     const monthsMap = {
                         'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
@@ -1617,54 +1617,58 @@ class OOCLConnector(BaseCarrierConnector):
                     const allCells = Array.from(document.querySelectorAll('.custom-date-cell'));
                     const validCells = [];
 
-                    const panelHeaders = Array.from(document.querySelectorAll('[class*="header"], [class*="title"], [class*="month"]'))
-                        .map(el => el.innerText.trim())
-                        .filter(t => t.match(/\\d{4}\\s+[A-Za-z]+|[A-Za-z]+\\s+\\d{4}/));
+                    // Find separate month panels (e.g. left vs right month containers in 2-month picker)
+                    let panels = Array.from(document.querySelectorAll('[class*="month-panel"], [class*="calendar-panel"], [class*="picker-content"], .el-picker-panel__content, [class*="month-container"], [class*="date-table-container"]'));
+                    if (panels.length === 0) {
+                        // Fallback: group by closest panel or find elements with month headers
+                        const headers = Array.from(document.querySelectorAll('[class*="header"], [class*="title"], [class*="month"]'));
+                        panels = headers.map(h => h.closest('[class*="month"], [class*="panel"], [class*="calendar"], [class*="container"]') || h.parentElement).filter(Boolean);
+                    }
+                    if (panels.length === 0) {
+                        panels = [document.body];
+                    }
 
-                    allCells.forEach((cell, idx) => {
-                        const cls = (cell.className || '').toLowerCase();
-                        if (cls.includes('disabled') || cls.includes('prev-month') || cls.includes('next-month') || cls.includes('other-month') || cls.includes('off')) {
-                            return;
-                        }
-                        if (cell.getAttribute('disabled') !== null) {
-                            return;
-                        }
-
-                        let panel = cell.closest('[class*="month"], [class*="panel"], [class*="calendar"], [class*="container"]');
-                        let headerText = '';
-                        if (panel) {
-                            const headerEl = panel.querySelector('[class*="header"], [class*="title"], [class*="month"]');
-                            if (headerEl) headerText = headerEl.innerText.trim();
-                        }
-                        if (!headerText && panelHeaders.length > 0) {
-                            const pIdx = Math.floor(idx / (allCells.length / panelHeaders.length));
-                            headerText = panelHeaders[Math.min(pIdx, panelHeaders.length - 1)];
-                        }
-
-                        const m = headerText.match(/(\\d{4})\\s+([A-Za-z]{3,9})/) || headerText.match(/([A-Za-z]{3,9})\\s+(\\d{4})/);
+                    panels.forEach(panel => {
+                        const headerEl = panel.querySelector('[class*="header"], [class*="title"], [class*="month"]');
+                        const headerText = headerEl ? headerEl.innerText.trim() : '';
+                        const m = headerText.match(/(\d{4})\s+([A-Za-z]{3,9})/) || headerText.match(/([A-Za-z]{3,9})\s+(\d{4})/);
                         if (!m) return;
 
                         const g1 = m[1];
                         const g2 = m[2];
-                        const year = /^\\d{4}$/.test(g1) ? parseInt(g1) : parseInt(g2);
-                        const monStr = /^\\d{4}$/.test(g1) ? g2.toLowerCase().substring(0, 3) : g1.toLowerCase().substring(0, 3);
+                        const year = /^\d{4}$/.test(g1) ? parseInt(g1) : parseInt(g2);
+                        const monStr = /^\d{4}$/.test(g1) ? g2.toLowerCase().substring(0, 3) : g1.toLowerCase().substring(0, 3);
                         const month = monthsMap[monStr];
                         if (!year || !month) return;
 
-                        const rawText = cell.innerText.trim();
-                        const lines = rawText.split('\\n').map(s => s.trim()).filter(Boolean);
-                        if (lines.length === 0) return;
+                        const cells = Array.from(panel.querySelectorAll('.custom-date-cell'));
+                        cells.forEach(cell => {
+                            const cls = (cell.className || '').toLowerCase();
+                            if (cls.includes('disabled') || cls.includes('prev-month') || cls.includes('next-month') || cls.includes('other-month') || cls.includes('off')) {
+                                return;
+                            }
+                            if (cell.getAttribute('disabled') !== null) {
+                                return;
+                            }
 
-                        const dayStr = lines[0];
-                        if (!/^\\d{1,2}$/.test(dayStr)) return;
-                        const day = parseInt(dayStr);
+                            const rawText = cell.innerText.trim();
+                            const lines = rawText.split('\n').map(s => s.trim()).filter(Boolean);
+                            if (lines.length === 0) return;
 
-                        const priceLines = lines.slice(1);
-                        const hasPrice = priceLines.some(p => p && p !== '-' && p !== '--' && !p.toLowerCase().includes('sold'));
-                        if (!hasPrice) return;
+                            const dayStr = lines[0];
+                            if (!/^\d{1,2}$/.test(dayStr)) return;
+                            const day = parseInt(dayStr);
 
-                        const formattedDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                        validCells.push({ date: formattedDate, index: idx });
+                            const priceLines = lines.slice(1);
+                            const hasPrice = priceLines.some(p => p && p !== '-' && p !== '--' && !p.toLowerCase().includes('sold'));
+                            if (!hasPrice) return;
+
+                            const formattedDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                            const globalIdx = allCells.indexOf(cell);
+                            if (!validCells.some(vc => vc.date === formattedDate)) {
+                                validCells.push({ date: formattedDate, index: globalIdx });
+                            }
+                        });
                     });
 
                     return validCells;
