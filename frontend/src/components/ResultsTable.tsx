@@ -604,7 +604,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         <td className="px-1 py-2 text-center">
                           {row.quote.free_time != null ? (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                              {row.quote.free_time}d
+                              {String(row.quote.free_time).endsWith("d") || String(row.quote.free_time).includes(" ") ? row.quote.free_time : `${row.quote.free_time}d`}
                             </span>
                           ) : <span className="text-slate-400 dark:text-white/25 text-[11px]">—</span>}
                         </td>

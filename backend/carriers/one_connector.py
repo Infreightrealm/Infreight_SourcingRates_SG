@@ -1751,7 +1751,7 @@ class ONEConnector(BaseCarrierConnector):
             dem = int(m_dem.group(1))
             det = int(m_det.group(1))
             return {
-                "free_time": f"{dem}d DEM / {det}d DET",
+                "free_time": dem + det,
                 "demurrage": dem,
                 "detention": det,
                 "mode": "split",
