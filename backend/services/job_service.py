@@ -308,18 +308,7 @@ async def run_carrier_search(
                     },
                 )
                 session.add(db_quote)
-                try:
-                    await session.flush()  # Get the quote ID
-                except Exception as flush_err:
-                    # Fallback for legacy DB schema where free_time column was strictly INTEGER
-                    import re
-                    num_ft = None
-                    if q.free_time is not None:
-                        m = re.search(r"\d+", str(q.free_time))
-                        if m:
-                            num_ft = int(m.group(0))
-                    db_quote.free_time = num_ft
-                    await session.flush()
+                await session.flush()  # Get the quote ID
 
                 # Persist included surcharges
                 for charge in q.included_freight_surcharges:
@@ -384,14 +373,22 @@ async def run_carrier_search(
             print(f"[JOB] {carrier_code}: {final_status.value} — {len(all_quotes)} quote(s)")
 
         except BaseException as e:
-            if isinstance(e, asyncio.CancelledError):
-                db_result.status = CarrierResultStatus.FAILED.value
-                db_result.error_message = "Search forcefully stopped by user"
-            else:
-                db_result.status = CarrierResultStatus.UNKNOWN_ERROR.value
-                db_result.error_message = str(e)
-            db_result.completed_at = datetime.utcnow()
-            await asyncio.shield(session.commit())
+            print(f"[JOB] {carrier_code} error: {e}")
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            async with get_async_session_maker()() as err_session:
+                err_db_result = (await err_session.execute(result_query)).scalar_one_or_none()
+                if err_db_result:
+                    if isinstance(e, asyncio.CancelledError):
+                        err_db_result.status = CarrierResultStatus.FAILED.value
+                        err_db_result.error_message = "Search forcefully stopped by user"
+                    else:
+                        err_db_result.status = CarrierResultStatus.UNKNOWN_ERROR.value
+                        err_db_result.error_message = str(e)
+                    err_db_result.completed_at = datetime.utcnow()
+                    await err_session.commit()
             if isinstance(e, asyncio.CancelledError):
                 raise
             print(f"[JOB] {carrier_code} error: {e}")
