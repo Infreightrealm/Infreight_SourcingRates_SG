@@ -115,11 +115,28 @@ export default function ResultsTable({ data }: ResultsTableProps) {
   const nonQuoteRows = allRows.filter((r) => !r.quote);
 
 
-  const uniqueContainerTypes = Array.from(
-    new Set(
-      quoteRows
-        .map((r) => r.quote?.container_type)
-        .filter((ct): ct is string => !!ct)
+  const CONTAINER_ORDER: Record<string, number> = {
+    "DRY 20": 1, "20GP": 1, "20'": 1,
+    "DRY 40": 2, "40GP": 2, "40'": 2,
+    "DRY 40H": 3, "40HQ": 3, "40HC": 3, "40'HQ": 3, "40'HC": 3,
+  };
+
+  const sortContainerTypes = (types: string[]): string[] => {
+    return [...types].sort((a, b) => {
+      const orderA = CONTAINER_ORDER[a.toUpperCase()] ?? 99;
+      const orderB = CONTAINER_ORDER[b.toUpperCase()] ?? 99;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.localeCompare(b);
+    });
+  };
+
+  const uniqueContainerTypes = sortContainerTypes(
+    Array.from(
+      new Set(
+        quoteRows
+          .map((r) => r.quote?.container_type)
+          .filter((ct): ct is string => !!ct)
+      )
     )
   );
 
@@ -152,8 +169,9 @@ export default function ResultsTable({ data }: ResultsTableProps) {
   const exportToExcel = async () => {
     if (sortedRows.length === 0) return;
 
-    // Get selected container types list
-    const containerTypesList = data.container_types || (data.container_type ? [data.container_type] : ["DRY 40H"]);
+    // Get selected container types list in standard order: 20GP -> 40GP -> 40HQ
+    const rawContainerTypes = data.container_types || (data.container_type ? [data.container_type] : ["DRY 40H"]);
+    const containerTypesList = sortContainerTypes(rawContainerTypes);
     const baseCurrency = quoteRows[0]?.quote?.currency || "USD";
 
     // Format container column header (e.g. DRY 40H -> 40HQ (USD))
@@ -441,7 +459,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             <div className="flex items-center gap-2 mt-1">
               <StatusBadge status={data.status} size="md" />
               <div className="flex gap-1.5 flex-wrap">
-                {(data.container_types || (data.container_type ? [data.container_type] : [])).map((ct) => (
+                {sortContainerTypes(data.container_types || (data.container_type ? [data.container_type] : [])).map((ct) => (
                   <span key={ct} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white/70">
                     {ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct} × {data.container_quantity}
                   </span>

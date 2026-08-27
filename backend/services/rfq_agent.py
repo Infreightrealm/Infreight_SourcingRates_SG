@@ -1493,6 +1493,8 @@ async def parse_rfq(
             for c in raw_c_types:
                 if c and isinstance(c, str) and c.strip():
                     c_types.append(c.strip())
+        from models.schemas import sort_container_types
+        c_types = sort_container_types(c_types)
 
         # Post-LLM Guardrail Check for Special Equipment container types (e.g. 40RF, 40RH, Reefer, OT, FR)
         llm_unsupported_equip = extracted_data.get("unsupported_equipment_type")

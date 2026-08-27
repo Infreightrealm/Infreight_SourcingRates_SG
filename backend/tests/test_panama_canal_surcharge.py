@@ -142,3 +142,15 @@ async def test_oocl_normalize_result_with_pcs():
     pcs = next(s for s in quote.included_freight_surcharges if s.name == "Panama Canal Surcharge")
     assert pcs.amount == 337.0
     assert pcs.currency == "USD"
+
+
+def test_container_types_standard_ordering():
+    from models.schemas import sort_container_types
+    input_types = ["DRY 40H", "DRY 20"]
+    sorted_types = sort_container_types(input_types)
+    assert sorted_types == ["DRY 20", "DRY 40H"]
+
+    input_types_3 = ["DRY 40H", "DRY 40", "DRY 20"]
+    sorted_types_3 = sort_container_types(input_types_3)
+    assert sorted_types_3 == ["DRY 20", "DRY 40", "DRY 40H"]
+

@@ -76,6 +76,19 @@ class ChargeCategory(str, Enum):
 # Request schemas
 # ────────────────────────────────────────────
 
+CONTAINER_TYPE_ORDER = {
+    "DRY 20": 1, "20GP": 1, "20'": 1,
+    "DRY 40": 2, "40GP": 2, "40'": 2,
+    "DRY 40H": 3, "40HQ": 3, "40HC": 3, "40'HQ": 3, "40'HC": 3,
+}
+
+def sort_container_types(types: list[str]) -> list[str]:
+    """Sort container types in standard order: DRY 20 (20GP) -> DRY 40 (40GP) -> DRY 40H (40HQ)."""
+    if not types:
+        return []
+    return sorted(types, key=lambda t: (CONTAINER_TYPE_ORDER.get(t.upper().strip(), 99), t))
+
+
 class RateSearchRequest(BaseModel):
     carriers: list[str] = Field(..., description="List of carrier codes or ['ALL']")
     origin: str = Field(default="Singapore", description="Origin port/location")
@@ -108,9 +121,12 @@ class RateSearchRequest(BaseModel):
             c_type = data.get("container_type")
             if c_types is not None:
                 if isinstance(c_types, str):
-                    data["container_types"] = [c.strip() for c in c_types.split(",") if c.strip()]
+                    raw_list = [c.strip() for c in c_types.split(",") if c.strip()]
                 elif isinstance(c_types, list):
-                    data["container_types"] = [c for c in c_types if c]
+                    raw_list = [c for c in c_types if c]
+                else:
+                    raw_list = []
+                data["container_types"] = sort_container_types(raw_list)
                 if not data.get("container_type") and data["container_types"]:
                     data["container_type"] = data["container_types"][0]
             elif c_type is not None:
