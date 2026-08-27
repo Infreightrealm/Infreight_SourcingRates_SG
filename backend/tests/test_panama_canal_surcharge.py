@@ -154,3 +154,40 @@ def test_container_types_standard_ordering():
     sorted_types_3 = sort_container_types(input_types_3)
     assert sorted_types_3 == ["DRY 20", "DRY 40", "DRY 40H"]
 
+
+def test_weight_surcharge_applicability_filtering():
+    """Verify non-applicable weight tier surcharges are excluded from final value for 16,000 KG 20GP search."""
+    from services.charge_classifier import is_weight_surcharge_applicable
+    from services.normalizer import classify_and_organize_charges, calculate_final_freight_value
+
+    c1 = "Between 20 and 34 ton container gross weight (VGM)"
+    c2 = "Between 34.001 and 55 ton container gross weight (VGM)"
+
+    is_app1, reason1 = is_weight_surcharge_applicable(c1, weight_per_container_kg=16000, container_type="DRY 20")
+    assert not is_app1
+    assert "outside required range" in reason1
+
+    is_app2, reason2 = is_weight_surcharge_applicable(c2, weight_per_container_kg=16000, container_type="DRY 20")
+    assert not is_app2
+    assert "outside required range" in reason2
+
+    raw_charges = [
+        {"name": "Basic Ocean Freight", "amount": 2061.0, "currency": "USD", "category": "BASIC_OCEAN_FREIGHT"},
+        {"name": "Emission Allowance", "amount": 88.0, "currency": "USD", "category": "FREIGHT_SURCHARGE_INCLUDED"},
+        {"name": "Marine Fuel Recovery", "amount": 589.0, "currency": "USD", "category": "FREIGHT_SURCHARGE_INCLUDED"},
+        {"name": "Between 20 and 34 ton container gross weight (VGM)", "amount": 400.0, "currency": "USD", "category": "FREIGHT_SURCHARGE_INCLUDED"},
+        {"name": "Between 34.001 and 55 ton container gross weight (VGM)", "amount": 450.0, "currency": "USD", "category": "FREIGHT_SURCHARGE_INCLUDED"},
+        {"name": "Security Manifest Document Fee", "amount": 35.0, "currency": "USD", "category": "FREIGHT_SURCHARGE_INCLUDED"},
+    ]
+
+    organized = classify_and_organize_charges(raw_charges, weight_per_container_kg=16000, container_type="DRY 20")
+    
+    assert len(organized["included_freight_surcharges"]) == 3
+    included_names = [s.name for s in organized["included_freight_surcharges"]]
+    assert c1 not in included_names
+    assert c2 not in included_names
+
+    final_val = calculate_final_freight_value(organized["all_classified"])
+    assert final_val == 2061.0 + 88.0 + 589.0 + 35.0  # 2773.0 USD
+
+

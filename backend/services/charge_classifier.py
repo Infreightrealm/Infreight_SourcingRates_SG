@@ -10,18 +10,128 @@ Classifies each charge into one of:
 - UNCERTAIN_EXCLUDED
 """
 import re
+from typing import Optional
 from models.schemas import ChargeCategory
 
 
-def classify_charge(charge_name: str, amount: float, section_heading: str = None) -> tuple[ChargeCategory, str]:
+def is_weight_surcharge_applicable(
+    charge_name: str,
+    weight_per_container_kg: Optional[float] = None,
+    container_type: Optional[str] = None
+) -> tuple[bool, str]:
     """
-    Classify a charge line item based on its name, amount, and the section heading it falls under.
+    Evaluates whether a weight-tier or overweight surcharge is applicable for the given cargo weight / container gross weight.
+
+    Returns:
+        (is_applicable: bool, reason: str)
+    """
+    if weight_per_container_kg is None or weight_per_container_kg <= 0:
+        return True, "No weight provided; default to applicable"
+
+    name_clean = charge_name.lower().strip()
+    name_clean = re.sub(r"\s+", " ", name_clean)
+
+    cargo_wt_kg = float(weight_per_container_kg)
+    cargo_wt_tons = cargo_wt_kg / 1000.0
+
+    c_type_upper = (container_type or "").upper()
+    if "20" in c_type_upper:
+        tare_kg = 2200.0
+    elif "40" in c_type_upper or "45" in c_type_upper:
+        tare_kg = 3800.0
+    else:
+        tare_kg = 3000.0
+
+    gross_wt_kg = cargo_wt_kg + tare_kg
+    gross_wt_tons = gross_wt_kg / 1000.0
+
+    # 1. Pattern: Between MIN and MAX ton/tons/mt/kg
+    m_between = re.search(
+        r"between\s+(\d+(?:\.\d+)?)\s+(?:and|to|-)\s+(\d+(?:\.\d+)?)\s*(ton|tons|mt|tonne|tonnes|kg)?",
+        name_clean
+    )
+    if m_between:
+        val1 = float(m_between.group(1))
+        val2 = float(m_between.group(2))
+        unit = (m_between.group(3) or "ton").lower()
+
+        min_kg = val1 if unit == "kg" else val1 * 1000.0
+        max_kg = val2 if unit == "kg" else val2 * 1000.0
+
+        min_tons, max_tons = min_kg / 1000.0, max_kg / 1000.0
+
+        is_gross = any(k in name_clean for k in ["gross", "vgm", "container weight"])
+        eval_kg = gross_wt_kg if is_gross else cargo_wt_kg
+        eval_tons = gross_wt_tons if is_gross else cargo_wt_tons
+
+        if eval_kg < (min_kg - 0.1) or eval_kg > (max_kg + 0.1):
+            wt_type_str = f"Gross Weight ({eval_tons:.1f}T)" if is_gross else f"Cargo Weight ({eval_tons:.1f}T)"
+            return False, f"Not applicable: {wt_type_str} is outside required range [{min_tons:.1f}T - {max_tons:.1f}T]"
+        return True, "Applicable: weight falls within tier range"
+
+    # 2. Pattern: Over / Exceeding / Above / > MIN ton/tons/mt/kg
+    m_over = re.search(
+        r"(?:over|exceeding|above|>)\s*(\d+(?:\.\d+)?)\s*(ton|tons|mt|tonne|tonnes|kg)?",
+        name_clean
+    )
+    if m_over:
+        val = float(m_over.group(1))
+        unit = (m_over.group(2) or "ton").lower()
+        thresh_kg = val if unit == "kg" else val * 1000.0
+        thresh_tons = thresh_kg / 1000.0
+
+        is_gross = any(k in name_clean for k in ["gross", "vgm", "container weight"])
+        eval_kg = gross_wt_kg if is_gross else cargo_wt_kg
+        eval_tons = gross_wt_tons if is_gross else cargo_wt_tons
+
+        if eval_kg <= thresh_kg:
+            wt_type_str = f"Gross Weight ({eval_tons:.1f}T)" if is_gross else f"Cargo Weight ({eval_tons:.1f}T)"
+            return False, f"Not applicable: {wt_type_str} does not exceed threshold of {thresh_tons:.1f}T"
+        return True, "Applicable: weight exceeds threshold"
+
+    # 3. Pattern: Up to / Under / Below / < MAX ton/tons/mt/kg
+    m_under = re.search(
+        r"(?:up\s+to|under|below|<)\s*(\d+(?:\.\d+)?)\s*(ton|tons|mt|tonne|tonnes|kg)?",
+        name_clean
+    )
+    if m_under:
+        val = float(m_under.group(1))
+        unit = (m_under.group(2) or "ton").lower()
+        thresh_kg = val if unit == "kg" else val * 1000.0
+        thresh_tons = thresh_kg / 1000.0
+
+        is_gross = any(k in name_clean for k in ["gross", "vgm", "container weight"])
+        eval_kg = gross_wt_kg if is_gross else cargo_wt_kg
+        eval_tons = gross_wt_tons if is_gross else cargo_wt_tons
+
+        if eval_kg > thresh_kg:
+            wt_type_str = f"Gross Weight ({eval_tons:.1f}T)" if is_gross else f"Cargo Weight ({eval_tons:.1f}T)"
+            return False, f"Not applicable: {wt_type_str} exceeds maximum limit of {thresh_tons:.1f}T"
+        return True, "Applicable: weight is below max limit"
+
+    return True, "Standard charge"
+
+
+def classify_charge(
+    charge_name: str,
+    amount: float,
+    section_heading: str = None,
+    weight_per_container_kg: Optional[float] = None,
+    container_type: Optional[str] = None
+) -> tuple[ChargeCategory, str]:
+    """
+    Classify a charge line item based on its name, amount, section heading, and weight parameters.
 
     Returns:
         tuple of (ChargeCategory, reason_string)
     """
     name_lower = charge_name.lower().strip()
     section = section_heading.strip().lower() if section_heading else ""
+
+    # ── WEIGHT / VGM TIER APPLICABILITY CHECK ─────────────────
+    is_app, app_reason = is_weight_surcharge_applicable(charge_name, weight_per_container_kg, container_type)
+    if not is_app:
+        return ChargeCategory.UNCERTAIN_EXCLUDED, app_reason
 
     # ── SPECIAL OVERRIDES ────────────────────────────────────
     name_clean = " ".join(name_lower.split())

@@ -99,12 +99,18 @@ def calculate_final_freight_value(charges: list[dict]) -> float:
     return round(final, 2)
 
 
-def classify_and_organize_charges(raw_charges: list[dict]) -> dict:
+def classify_and_organize_charges(
+    raw_charges: list[dict],
+    weight_per_container_kg: float | None = None,
+    container_type: str | None = None,
+) -> dict:
     """
     Takes raw charge line items and classifies them.
 
     Args:
         raw_charges: list of dicts with keys: name, amount, currency
+        weight_per_container_kg: optional container weight in kg to evaluate tier surcharges
+        container_type: optional container type (e.g. DRY 20, DRY 40H)
 
     Returns:
         dict with keys:
@@ -122,21 +128,30 @@ def classify_and_organize_charges(raw_charges: list[dict]) -> dict:
     uncertain_charges = []
     all_classified = []
 
+    from services.charge_classifier import is_weight_surcharge_applicable
+
     for raw in raw_charges:
         name = raw.get("name", "Unknown Charge")
         amount = float(raw.get("amount", 0.0))
         currency = raw.get("currency", "USD")
 
-        # Preserve the high-context classification from the carrier connector if present
-        raw_category_str = raw.get("category")
-        if raw_category_str:
-            try:
-                category = ChargeCategory(raw_category_str)
-                reason = raw.get("reason", "Preserved carrier connector classification")
-            except ValueError:
-                category, reason = classify_charge(name, amount)
+        # Evaluate weight surcharge applicability first
+        is_app, app_reason = is_weight_surcharge_applicable(name, weight_per_container_kg, container_type)
+
+        if not is_app:
+            category = ChargeCategory.UNCERTAIN_EXCLUDED
+            reason = app_reason
         else:
-            category, reason = classify_charge(name, amount)
+            # Preserve the high-context classification from the carrier connector if present
+            raw_category_str = raw.get("category")
+            if raw_category_str:
+                try:
+                    category = ChargeCategory(raw_category_str)
+                    reason = raw.get("reason", "Preserved carrier connector classification")
+                except ValueError:
+                    category, reason = classify_charge(name, amount, weight_per_container_kg=weight_per_container_kg, container_type=container_type)
+            else:
+                category, reason = classify_charge(name, amount, weight_per_container_kg=weight_per_container_kg, container_type=container_type)
 
         classified = {
             "name": name,

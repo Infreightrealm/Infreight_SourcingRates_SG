@@ -3608,7 +3608,8 @@ class HapagLloydConnector(BaseCarrierConnector):
         from models.schemas import ChargeSchema
         from services.normalizer import classify_and_organize_charges, calculate_final_freight_value
         
-        organized = classify_and_organize_charges(raw_charges)
+        req_weight = getattr(self, "current_request", None).weight_per_container_kg if hasattr(self, "current_request") and self.current_request else None
+        organized = classify_and_organize_charges(raw_charges, weight_per_container_kg=req_weight, container_type=container_type)
         basic_ocean_freight = organized["basic_ocean_freight"]
         included_freight_surcharges = organized["included_freight_surcharges"]
         excluded_charges = organized["excluded_charges"]
