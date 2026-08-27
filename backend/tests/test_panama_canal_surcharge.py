@@ -191,3 +191,25 @@ def test_weight_surcharge_applicability_filtering():
     assert final_val == 2061.0 + 88.0 + 589.0 + 35.0  # 2773.0 USD
 
 
+def test_hapag_estimated_transportation_days_regex():
+    """Verify regex extraction of Estimated Transportation Days from Hapag-Lloyd modal text."""
+    modal_text_sample_1 = """
+    Quick Quotes
+    From PENANG TERMINAL / RAMP (POL)
+    To HAMBURG TERMINAL / RAMP (POD)
+    Estimated Transportation Days
+    34
+    """
+    m1 = re.search(r"Estimated\s+Transportation\s+Days\s*[:\s]*(\d+)", modal_text_sample_1, re.IGNORECASE)
+    assert m1 is not None
+    assert int(m1.group(1)) == 34
+
+    modal_text_sample_2 = """
+    Estimated Transportation Days: 39
+    """
+    m2 = re.search(r"Estimated\s+Transportation\s+Days\s*[:\s]*(\d+)", modal_text_sample_2, re.IGNORECASE)
+    assert m2 is not None
+    assert int(m2.group(1)) == 39
+
+
+

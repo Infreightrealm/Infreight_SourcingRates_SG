@@ -3537,10 +3537,35 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
                     }
                 }
-                return results;
+
+                // Extract Estimated Transportation Days / Transit Time from modal sidebar or body text
+                let modalTT = null;
+                try {
+                    const fullText = document.body ? document.body.textContent : "";
+                    const ttMatch = fullText.match(/Estimated\s+Transportation\s+Days\s*[:\s]*(\d+)/i) || 
+                                    fullText.match(/Estimated\s+Transit\s+Time\s*[:\s]*(\d+)\s*days?/i) ||
+                                    fullText.match(/Transportation\s+Days\s*[:\s]*(\d+)/i);
+                    if (ttMatch) {
+                        modalTT = parseInt(ttMatch[1], 10);
+                    }
+                } catch (e) {}
+
+                return {
+                    charges: results,
+                    estimated_transportation_days: modalTT
+                };
             }''')
             
-            print(f"[HAPAG] Successfully extracted charges for DRY 20 ({len(charges['DRY 20'])} items), DRY 40 ({len(charges['DRY 40'])} items), DRY 40H ({len(charges['DRY 40H'])} items)")
+            if isinstance(eval_res, dict) and "charges" in eval_res:
+                charges = eval_res.get("charges", {})
+                modal_tt = eval_res.get("estimated_transportation_days")
+                if modal_tt and isinstance(modal_tt, int) and modal_tt > 0:
+                    self._last_parsed_modal_transit_time = modal_tt
+                    print(f"[HAPAG] Extracted 'Estimated Transportation Days' from modal: {modal_tt} days")
+            else:
+                charges = eval_res
+
+            print(f"[HAPAG] Successfully extracted charges for DRY 20 ({len(charges.get('DRY 20', []))} items), DRY 40 ({len(charges.get('DRY 40', []))} items), DRY 40H ({len(charges.get('DRY 40H', []))} items)")
             
         except Exception as e:
             print(f"[HAPAG] Surcharge details extraction error: {e}")
@@ -3986,6 +4011,19 @@ class HapagLloydConnector(BaseCarrierConnector):
                             normalized.routing = "Direct"
                             normalized.eta = None
                             normalized.transit_time_days = None
+
+                        # --- FALLBACK TRANSIT TIME & ETA FROM ESTIMATED TRANSPORTATION DAYS ---
+                        fallback_tt = getattr(self, "_last_parsed_modal_transit_time", None) or getattr(self, "_last_parsed_transit_time", None)
+                        if (normalized.transit_time_days is None or normalized.transit_time_days == 0) and fallback_tt and fallback_tt > 0:
+                            normalized.transit_time_days = fallback_tt
+                            print(f"[HAPAG] Applied fallback Estimated Transportation Days ({fallback_tt}d) to ETD {normalized.etd}")
+                            if normalized.etd and (not normalized.eta or normalized.eta == "—"):
+                                try:
+                                    etd_d = datetime.strptime(normalized.etd, "%Y-%m-%d").date()
+                                    eta_d = etd_d + timedelta(days=fallback_tt)
+                                    normalized.eta = standardize_date_string(eta_d)
+                                except Exception:
+                                    pass
 
                         if raw_quote.get("is_spot"):
                             if normalized.vessel and "(SPOT)" not in normalized.vessel:
