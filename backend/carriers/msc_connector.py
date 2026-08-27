@@ -552,7 +552,7 @@ class MSCConnector(BaseCarrierConnector):
                         section_text = extract_section(popup_text, section_name, next_headers)
                         if not section_text: continue
                         
-                        pattern = r"(.*?)(?:PER EQUIPMENT|PER BILL OF LADING)\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s+(?:PREPAID|COLLECT)"
+                        pattern = r"(.*?)(?:PER EQUIPMENT|PER BILL OF LADING|PER CONTAINER|PER TEU|PER 20'|PER 40'|PER 45FT|PER 45')\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s*(?:PREPAID|COLLECT)?"
                         
                         for match in re.finditer(pattern, section_text, re.DOTALL):
                             raw_name = match.group(1).strip()
@@ -567,11 +567,12 @@ class MSCConnector(BaseCarrierConnector):
                             curr = match.group(3)
                             
                             formatted_name = clean_name.title()
-                            # Preserve uppercase inside brackets like [CDD], [THC], [ECA]
+                            # Preserve uppercase inside brackets like [CDD], [THC], [ECA], [PCS]
                             formatted_name = re.sub(r'\[([a-zA-Z0-9]+)\]', lambda m: f'[{m.group(1).upper()}]', formatted_name)
                             
                             is_cdd = "cargo data declaration" in clean_name.lower() or "[cdd]" in clean_name.lower()
-                            is_freight_surcharge = (section_name == "FREIGHT SURCHARGES") or is_cdd
+                            is_pcs = any(k in clean_name.lower() for k in ["panama canal", "pcs", "panama"])
+                            is_freight_surcharge = (section_name == "FREIGHT SURCHARGES") or is_cdd or is_pcs
 
                             charge_obj = {
                                 "name": formatted_name,

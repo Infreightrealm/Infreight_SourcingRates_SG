@@ -1747,8 +1747,10 @@ class ONEConnector(BaseCarrierConnector):
             target_text = text
 
         # 1. Combined DEM & DET pattern
-        combined_pattern = r"\bCombined\s+(?:DEM(?:URRAGE)?|Demurrage)\s*&\s*(?:DET(?:ENTION)?|Detention)\s*:?\s*(\d+)\s*Days?\b"
-        m_comb = re.search(combined_pattern, target_text, re.IGNORECASE)
+        combined_pattern = r"\b(?:Combined\s+)?(?:DEM(?:URRAGE)?|Demurrage)\s*(?:&|and|/)\s*(?:DET(?:ENTION)?|Detention)\s*:?\s*(\d+)\s*Days?\b"
+        combined_pattern_2 = r"\bCombined\s+(?:Free\s+Time|DEM|DET|Demurrage|Detention)\s*:?\s*(\d+)\s*Days?\b"
+        
+        m_comb = re.search(combined_pattern, target_text, re.IGNORECASE) or re.search(combined_pattern_2, target_text, re.IGNORECASE)
         if m_comb:
             ft = int(m_comb.group(1))
             return {

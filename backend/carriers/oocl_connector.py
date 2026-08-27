@@ -1256,24 +1256,47 @@ class OOCLConnector(BaseCarrierConnector):
 
             for item in extracted:
                 code = (item.get("code") or "").strip().upper()
-                if code not in ("ETS", "EBS"):
+                name = (item.get("name") or "").strip().upper()
+
+                is_ets = code == "ETS" or "ETS" in code or "EMISSION" in name
+                is_ebs = code == "EBS" or "EBS" in code or "BUNKER" in name
+                is_pcs = code == "PCS" or "PCS" in code or "PANAMA" in code or "PANAMA" in name or "PCS" in name
+
+                if not (is_ets or is_ebs or is_pcs):
                     continue
+
+                matched_code = "PCS" if is_pcs else ("ETS" if is_ets else "EBS")
 
                 unit = (item.get("unit") or "").strip().upper()
-                c_type = unit_map.get(unit)
-                if not c_type:
-                    continue
-
                 price_str = item.get("priceStr") or ""
                 # Parse number from priceStr, e.g. "USD 74" or "74"
                 match = re.search(r"([\d,]+(?:\.\d{1,2})?)", price_str)
                 if match:
                     price_val = float(match.group(1).replace(",", ""))
-                    if c_type not in surcharges_dict:
-                        surcharges_dict[c_type] = {}
-                    surcharges_dict[c_type][code] = price_val
 
-            print(f"[OOCL] Parsed OOCL ETS/EBS surcharges: {surcharges_dict}")
+                    # Determine container types to apply to
+                    target_c_types = []
+                    if unit in ("20GP", "20RF", "20", "20'"):
+                        target_c_types = ["DRY 20"]
+                    elif unit in ("40GP", "40", "40'"):
+                        target_c_types = ["DRY 40"]
+                    elif unit in ("40HQ", "40RQ", "40HC", "45", "45'"):
+                        target_c_types = ["DRY 40H"]
+                    elif any(u in unit for u in ["CONTAINER", "CTR", "BOX", "EQUIPMENT", "BL", "PER CONTAINER", "PER BL", "ALL"]):
+                        target_c_types = ["DRY 20", "DRY 40", "DRY 40H"]
+                    else:
+                        mapped = unit_map.get(unit)
+                        if mapped:
+                            target_c_types = [mapped]
+                        else:
+                            target_c_types = ["DRY 20", "DRY 40", "DRY 40H"]
+
+                    for c_type in target_c_types:
+                        if c_type not in surcharges_dict:
+                            surcharges_dict[c_type] = {}
+                        surcharges_dict[c_type][matched_code] = price_val
+
+            print(f"[OOCL] Parsed OOCL surcharges: {surcharges_dict}")
 
         except Exception as e:
             print(f"[OOCL] Error extracting details: {e}")
@@ -1955,12 +1978,19 @@ class OOCLConnector(BaseCarrierConnector):
         final_freight_value = raw_quote.get("final_freight_value") or 0.0
         basic_ocean_freight = raw_quote.get("basic_ocean_freight") or 0.0
         
+        target_charges = {}
         if container_type and container_type in dialog_charges:
-            c_charges = dialog_charges[container_type]
-            
+            target_charges = dialog_charges[container_type]
+        elif "ALL" in dialog_charges:
+            target_charges = dialog_charges["ALL"]
+        elif dialog_charges:
+            first_key = list(dialog_charges.keys())[0]
+            target_charges = dialog_charges[first_key]
+
+        if target_charges:
             # ETS Compliance Fee
-            if "ETS" in c_charges:
-                ets_val = c_charges["ETS"]
+            if "ETS" in target_charges:
+                ets_val = target_charges["ETS"]
                 from models.schemas import ChargeSchema
                 included_surcharges.append(ChargeSchema(
                     name="ETS Compliance Fee",
@@ -1971,8 +2001,8 @@ class OOCLConnector(BaseCarrierConnector):
                 final_freight_value += ets_val
                 
             # Emergency Bunker Surcharge
-            if "EBS" in c_charges:
-                ebs_val = c_charges["EBS"]
+            if "EBS" in target_charges:
+                ebs_val = target_charges["EBS"]
                 from models.schemas import ChargeSchema
                 included_surcharges.append(ChargeSchema(
                     name="Emergency Bunker Surcharge",
@@ -1981,6 +2011,18 @@ class OOCLConnector(BaseCarrierConnector):
                     reason="Emergency Bunker Surcharge"
                 ))
                 final_freight_value += ebs_val
+
+            # Panama Canal Surcharge
+            if "PCS" in target_charges:
+                pcs_val = target_charges["PCS"]
+                from models.schemas import ChargeSchema
+                included_surcharges.append(ChargeSchema(
+                    name="Panama Canal Surcharge",
+                    amount=pcs_val,
+                    currency="USD",
+                    reason="Panama Canal Surcharge"
+                ))
+                final_freight_value += pcs_val
 
         raw_quote["included_freight_surcharges"] = included_surcharges
         raw_quote["final_freight_value"] = round(final_freight_value, 2)

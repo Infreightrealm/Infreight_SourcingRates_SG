@@ -258,3 +258,19 @@ class MockCarrierConnector(BaseCarrierConnector):
         if quotes:
             return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
         return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+    async def run_batch_persistent_search(
+        self,
+        requests: list[RateSearchRequest],
+        route_callback: any = None
+    ) -> list[tuple[RateSearchRequest, CarrierResultStatus, list[QuoteSchema]]]:
+        batch_results = []
+        for idx, req in enumerate(requests):
+            status, quotes = await self.run_full_search(req)
+            batch_results.append((req, status, quotes))
+            if route_callback:
+                try:
+                    await route_callback(idx, req, status, quotes)
+                except Exception:
+                    pass
+        return batch_results
