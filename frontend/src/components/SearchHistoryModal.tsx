@@ -60,6 +60,7 @@ export default function SearchHistoryModal({
   const [loading, setLoading] = useState(false);
   const [searchFilter, setSearchFilter] = useState("");
   const [showOnlyMySearches, setShowOnlyMySearches] = useState(true);
+  const [fetchLimit, setFetchLimit] = useState<number>(250);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchExporting, setBatchExporting] = useState(false);
@@ -68,7 +69,7 @@ export default function SearchHistoryModal({
     setLoading(true);
     try {
       const filterUser = showOnlyMySearches && userName ? userName : undefined;
-      const data = await getSearchHistory(filterUser);
+      const data = await getSearchHistory(filterUser, fetchLimit);
       setHistoryItems(data || []);
     } catch (err: any) {
       console.error("Failed to load search history:", err);
@@ -82,7 +83,7 @@ export default function SearchHistoryModal({
     if (isOpen) {
       fetchHistory();
     }
-  }, [isOpen, showOnlyMySearches]);
+  }, [isOpen, showOnlyMySearches, fetchLimit]);
 
   if (!isOpen) return null;
 
@@ -224,6 +225,23 @@ export default function SearchHistoryModal({
           </div>
 
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-gray-400 bg-slate-100 dark:bg-white/5 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10">
+              <span className="font-medium text-[11px] mr-1">Show:</span>
+              {[100, 250, 500].map((num) => (
+                <button
+                  key={num}
+                  onClick={() => setFetchLimit(num)}
+                  className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                    fetchLimit === num
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "text-slate-600 dark:text-gray-300 hover:bg-slate-200 dark:hover:bg-white/10"
+                  }`}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+
             <button
               onClick={fetchHistory}
               disabled={loading}

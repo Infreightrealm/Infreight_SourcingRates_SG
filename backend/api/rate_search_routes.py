@@ -482,7 +482,7 @@ from sqlalchemy.orm import selectinload
 @router.get("/searches/history")
 async def get_user_search_history(
     user_name: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 250,
     session: AsyncSession = Depends(get_session)
 ):
     """

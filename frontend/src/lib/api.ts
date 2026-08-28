@@ -506,9 +506,11 @@ export async function resetAllUsers(adminPassword?: string): Promise<{ status: s
   return res.json();
 }
 
-export async function getSearchHistory(userName?: string): Promise<any[]> {
-  const query = userName ? `?user_name=${encodeURIComponent(userName)}` : "";
-  const res = await failoverFetch(`/api/admin/search-history${query}`);
+export async function getSearchHistory(userName?: string, limit: number = 250): Promise<any[]> {
+  const params = new URLSearchParams();
+  if (userName) params.append("user_name", userName);
+  params.append("limit", limit.toString());
+  const res = await failoverFetch(`/api/admin/search-history?${params.toString()}`);
   if (!res.ok) {
     throw new Error(`Failed to load search history: ${res.status}`);
   }
