@@ -15,15 +15,23 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
   const [showDropdown, setShowDropdown] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const justSelectedRef = useRef(false);
 
   useEffect(() => {
+    if (justSelectedRef.current) {
+      justSelectedRef.current = false;
+      return;
+    }
+
     const timer = setTimeout(async () => {
       if (value.length >= 2) {
         setIsSearching(true);
         try {
           const results = await getPortSuggestions(value);
           setSuggestions(results);
-          if (results.length > 0) setShowDropdown(true);
+          if (results.length > 0 && !justSelectedRef.current) {
+            setShowDropdown(true);
+          }
         } catch (err) {
           console.error("Failed to fetch suggestions", err);
         } finally {
@@ -50,6 +58,7 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
   }, []);
 
   const handleSelect = (port: any) => {
+    justSelectedRef.current = true;
     // Format: 'Kochi, India [INCOK]' to lock in exact port and country
     const country = port.country_name || port.country;
     const displayValue = country ? `${port.name}, ${country} [${port.code}]` : `${port.name} [${port.code}]`;
@@ -68,11 +77,14 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
         <input
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            justSelectedRef.current = false;
+            onChange(e.target.value);
+          }}
           className={inputClass}
           placeholder={placeholder}
           required={required}
-          onFocus={() => value.length >= 2 && suggestions.length > 0 && setShowDropdown(true)}
+          onFocus={() => !justSelectedRef.current && value.length >= 2 && suggestions.length > 0 && setShowDropdown(true)}
         />
         {isSearching && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
