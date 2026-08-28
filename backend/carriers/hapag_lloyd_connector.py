@@ -3304,7 +3304,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 except Exception as de:
                     print(f"[HAPAG] Debug dump failed: {de}")
             
-            charges = await self.page.evaluate(r'''() => {
+            eval_res = await self.page.evaluate(r'''() => {
                 let idx_name = -1;
                 let idx_unit = -1;
                 let idx_curr = -1;
