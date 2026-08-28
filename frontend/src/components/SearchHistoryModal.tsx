@@ -117,16 +117,8 @@ export default function SearchHistoryModal({
     try {
       toast.loading(`Fetching rates for Excel export (${item.origin} ➔ ${item.destination})...`, { id: "export-single" });
       const fullResult = await getRateSearchResults(item.id);
-      const safeOrig = (item.origin || "Origin").replace(/[^a-zA-Z0-9]/g, "_");
-      const safeDest = (item.destination || "Destination").replace(/[^a-zA-Z0-9]/g, "_");
-      await exportMultiRouteResultsToExcel([
-        {
-          origin: fullResult.origin || item.origin,
-          destination: fullResult.destination || item.destination,
-          status: "completed",
-          searchResult: fullResult,
-        }
-      ], `Infreight_${safeOrig}_to_${safeDest}_Rates.xlsx`);
+      const { exportSingleSearchToExcel } = await import("@/lib/excelExport");
+      await exportSingleSearchToExcel(fullResult);
       toast.success(`Excel export downloaded for ${item.origin} ➔ ${item.destination}!`, { id: "export-single" });
     } catch (err: any) {
       toast.error(`Failed to export to Excel: ${err.message}`, { id: "export-single" });

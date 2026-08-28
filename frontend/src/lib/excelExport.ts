@@ -8,22 +8,27 @@ export interface BatchRouteResult {
   status: "pending" | "running" | "completed" | "failed";
 }
 
-/**
- * Standardize container ordering: 20GP -> 40GP -> 40HQ
- */
+const CONTAINER_ORDER: Record<string, number> = {
+  "DRY 20": 1,
+  "20GP": 1,
+  "20'": 1,
+  "DRY 40": 2,
+  "40GP": 2,
+  "40'": 2,
+  "DRY 40H": 3,
+  "40HQ": 3,
+  "40HC": 3,
+  "40'HQ": 3,
+  "40'HC": 3,
+};
+
 function sortContainerTypes(types: string[]): string[] {
-  const customOrder: Record<string, number> = {
-    "DRY 20": 1,
-    "20GP": 1,
-    "20STD": 1,
-    "DRY 40": 2,
-    "40GP": 2,
-    "40STD": 2,
-    "DRY 40H": 3,
-    "40HQ": 3,
-    "40HC": 3,
-  };
-  return [...types].sort((a, b) => (customOrder[a] || 99) - (customOrder[b] || 99));
+  return [...types].sort((a, b) => {
+    const orderA = CONTAINER_ORDER[a.toUpperCase()] ?? 99;
+    const orderB = CONTAINER_ORDER[b.toUpperCase()] ?? 99;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.localeCompare(b);
+  });
 }
 
 function formatDate(isoStr?: string | null): string {
@@ -48,15 +53,15 @@ function sanitizeSheetName(name: string, index: number): string {
   return `${index + 1}. ${clean}`;
 }
 
-const CARRIERS_MAP: Record<string, string> = {
-  maersk: "Maersk",
-  cma: "CMA CGM",
-  one: "ONE",
-  hapag: "Hapag-Lloyd",
-  greenx: "GreenX",
-  msc: "MSC",
-  oocl: "OOCL",
-};
+const CARRIERS_LIST = [
+  { code: "maersk", name: "Maersk" },
+  { code: "cma", name: "CMA CGM" },
+  { code: "one", name: "ONE" },
+  { code: "hapag", name: "Hapag-Lloyd" },
+  { code: "greenx", name: "GreenX" },
+  { code: "msc", name: "MSC" },
+  { code: "oocl", name: "OOCL" },
+];
 
 function getFreeTimeValue(q: QuoteSchema, carrierName: string): string | number | null {
   const ft = q.free_time as any;
@@ -73,28 +78,30 @@ function getFreeTimeValue(q: QuoteSchema, carrierName: string): string | number 
 }
 
 /**
- * Add a standardized route rate matrix worksheet to an Excel workbook.
- * Matches exact side-by-side container columns (20GP -> 40GP -> 40HQ), orange brand headers (#FA8C3C),
- * official blue text (#323296), merged POL/POD cells, and formatted numeric rates.
+ * Single Search Rate Export — Pixel-perfect matching ResultsTable.tsx styling.
  */
-export function addStandardRouteSheetToWorkbook(
-  workbook: ExcelJS.Workbook,
+export async function exportSingleSearchToExcel(
   data: RateSearchResultResponse,
-  sheetName: string
+  customFilename?: string
 ) {
-  const sheet = workbook.addWorksheet(sheetName);
+  if (!data || !data.results) return;
+
+  // Extract all quotes across carrier results
+  const allQuotes = data.results.flatMap((cr) => cr.quotes || []);
+
+  const uniqueContainerTypes = sortContainerTypes(
+    Array.from(
+      new Set(
+        allQuotes
+          .map((q) => q.container_type)
+          .filter((ct): ct is string => !!ct)
+      )
+    )
+  );
 
   const rawContainerTypes = data.container_types || (data.container_type ? [data.container_type] : ["DRY 40H"]);
-  const containerTypesList = sortContainerTypes(rawContainerTypes);
-
-  // Find base currency
-  let baseCurrency = "USD";
-  for (const cr of data.results || []) {
-    if (cr.quotes && cr.quotes.length > 0 && cr.quotes[0].currency) {
-      baseCurrency = cr.quotes[0].currency;
-      break;
-    }
-  }
+  const containerTypesList = uniqueContainerTypes.length > 0 ? uniqueContainerTypes : sortContainerTypes(rawContainerTypes);
+  const baseCurrency = allQuotes[0]?.currency || "USD";
 
   const getContainerHeader = (type: string, currency: string) => {
     let standardName = type;
@@ -110,6 +117,15 @@ export function addStandardRouteSheetToWorkbook(
     key: `rate_${type.replace(/\s+/g, "_")}`,
     width: 18,
   }));
+
+  let sheetName = `${data.origin || "Origin"} to ${data.destination || "Destination"}`;
+  sheetName = sheetName.replace(/[\\\/\?\*\[\]]/g, "");
+  if (sheetName.length > 31) {
+    sheetName = sheetName.substring(0, 31);
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(sheetName);
 
   sheet.columns = [
     { header: "POL", key: "pol", width: 14 },
@@ -129,8 +145,9 @@ export function addStandardRouteSheetToWorkbook(
 
   const groupedExcelRows: any[] = [];
 
-  for (const cr of data.results || []) {
-    const carrierName = CARRIERS_MAP[cr.carrier.toLowerCase()] || cr.carrier;
+  for (const cr of data.results) {
+    const carrierInfo = CARRIERS_LIST.find((c) => c.code === cr.carrier.toLowerCase());
+    const carrierName = carrierInfo?.name || cr.carrier;
 
     if (!cr.quotes || cr.quotes.length === 0) {
       const rates: Record<string, string> = {};
@@ -144,8 +161,6 @@ export function addStandardRouteSheetToWorkbook(
         ...rates,
         tt: "-",
         freetime: "-",
-        demurrage: "-",
-        detention: "-",
         validity: "-",
         eta: "-",
         validity_till: "-",
@@ -212,7 +227,7 @@ export function addStandardRouteSheetToWorkbook(
     }
   }
 
-  // Add rows to sheet
+  // Add grouped rows to sheet
   groupedExcelRows.forEach((row, idx) => {
     sheet.addRow({
       pol: idx === 0 ? row.pol : "",
@@ -222,7 +237,6 @@ export function addStandardRouteSheetToWorkbook(
     });
   });
 
-  // Merge POL and POD cells vertically
   if (groupedExcelRows.length > 0) {
     sheet.mergeCells(2, 1, 1 + groupedExcelRows.length, 1);
     sheet.mergeCells(2, 2, 1 + groupedExcelRows.length, 2);
@@ -235,7 +249,7 @@ export function addStandardRouteSheetToWorkbook(
     right: { style: "thin" as const, color: { argb: "808080" } },
   });
 
-  // Style Header Row (Brand Orange #FA8C3C)
+  // Style header row (Brand Orange #FA8C3C)
   const headerRow = sheet.getRow(1);
   headerRow.height = 32;
   headerRow.eachCell((cell) => {
@@ -251,10 +265,8 @@ export function addStandardRouteSheetToWorkbook(
 
   const numRateCols = rateColumns.length;
 
-  // Style body cells (Official Blue #323296, Bold, numeric #,##0 format for rates)
+  // Style body cells (Official Blue #323296)
   for (let r = 2; r <= 1 + groupedExcelRows.length; r++) {
-    sheet.getRow(r).height = 28;
-
     // POL (Col 1)
     const cellA = sheet.getCell(r, 1);
     cellA.font = { name: "Arial", size: 11, bold: true, color: { argb: "323296" } };
@@ -313,13 +325,13 @@ export function addStandardRouteSheetToWorkbook(
     cellDetention.alignment = { horizontal: "center", vertical: "middle" };
     cellDetention.border = getThinBorder();
 
-    // ETD POL
+    // Validity
     const cellValidity = sheet.getCell(r, 8 + numRateCols);
     cellValidity.font = { name: "Arial", size: 11, bold: true, color: { argb: "323296" } };
     cellValidity.alignment = { horizontal: "center", vertical: "middle" };
     cellValidity.border = getThinBorder();
 
-    // ETA POD
+    // ETA
     const cellETA = sheet.getCell(r, 9 + numRateCols);
     cellETA.font = { name: "Arial", size: 11, bold: true, color: { argb: "323296" } };
     cellETA.alignment = { horizontal: "center", vertical: "middle" };
@@ -344,88 +356,110 @@ export function addStandardRouteSheetToWorkbook(
     cellRemark.border = getThinBorder();
   }
 
-  return sheet;
+  // Set row height for body rows
+  for (let r = 2; r <= 1 + groupedExcelRows.length; r++) {
+    sheet.getRow(r).height = 28;
+  }
+
+  // Generate buffer and trigger browser download
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const safeOrig = (data.origin || "Origin").replace(/[^a-zA-Z0-9]/g, "_");
+  const safeDest = (data.destination || "Destination").replace(/[^a-zA-Z0-9]/g, "_");
+  a.download = customFilename || `Infreight_${safeOrig}_to_${safeDest}_Rates.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
 }
 
 /**
- * Export Multi-Route or Single-Route results to Excel with standardized matrix layout matching ResultsTable.tsx.
+ * Export Multi-Route results to Excel with standardized matrix layout matching ResultsTable.tsx.
  */
 export async function exportMultiRouteResultsToExcel(
   batchResults: BatchRouteResult[],
   filename = "Infreight_Ocean_Rates.xlsx"
 ) {
+  if (batchResults.length === 1 && batchResults[0].searchResult) {
+    return exportSingleSearchToExcel(batchResults[0].searchResult, filename);
+  }
+
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Infreight Ocean Rate Automation";
   workbook.created = new Date();
 
-  // If there are multiple routes, create a Summary Overview sheet first
-  if (batchResults.length > 1) {
-    const summarySheet = workbook.addWorksheet("Summary Overview");
-    summarySheet.columns = [
-      { header: "#", key: "index", width: 6 },
-      { header: "Origin Port", key: "origin", width: 22 },
-      { header: "Destination Port", key: "destination", width: 25 },
-      { header: "Status", key: "status", width: 26 },
-      { header: "Carriers Found", key: "carriers", width: 24 },
-      { header: "Cheapest 20GP Rate ($)", key: "rate20", width: 22 },
-      { header: "Cheapest 40GP/40HQ Rate ($)", key: "rate40", width: 26 },
-      { header: "Port Match Status", key: "mismatch", width: 22 },
-    ];
+  // Summary Overview sheet
+  const summarySheet = workbook.addWorksheet("Summary Overview");
+  summarySheet.columns = [
+    { header: "#", key: "index", width: 6 },
+    { header: "Origin Port", key: "origin", width: 22 },
+    { header: "Destination Port", key: "destination", width: 25 },
+    { header: "Status", key: "status", width: 26 },
+    { header: "Carriers Found", key: "carriers", width: 24 },
+    { header: "Cheapest 20GP Rate ($)", key: "rate20", width: 22 },
+    { header: "Cheapest 40GP/40HQ Rate ($)", key: "rate40", width: 26 },
+    { header: "Port Match Status", key: "mismatch", width: 22 },
+  ];
 
-    const summaryHeaderRow = summarySheet.getRow(1);
-    summaryHeaderRow.height = 28;
-    summaryHeaderRow.font = { bold: true, color: { argb: "FFFFFF" } };
-    summaryHeaderRow.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "1E293B" }, // Slate 800
-    };
-    summaryHeaderRow.alignment = { vertical: "middle", horizontal: "center" };
+  const summaryHeaderRow = summarySheet.getRow(1);
+  summaryHeaderRow.height = 28;
+  summaryHeaderRow.font = { bold: true, color: { argb: "FFFFFF" } };
+  summaryHeaderRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "1E293B" },
+  };
+  summaryHeaderRow.alignment = { vertical: "middle", horizontal: "center" };
 
-    batchResults.forEach((item, idx) => {
-      const res = item.searchResult;
-      const quotes = res?.results?.flatMap((r) => r.quotes || []) || [];
-
-      const quotes20 = quotes.filter((q) => {
-        const t = (q.container_type || "").toUpperCase();
-        return t.includes("20") || t.includes("20GP");
-      });
-      const quotes40 = quotes.filter((q) => {
-        const t = (q.container_type || "").toUpperCase();
-        return t.includes("40") || t.includes("40GP") || t.includes("40HQ") || t.includes("40HC");
-      });
-
-      const rates20 = quotes20.map((q) => q.final_freight_value).filter((v) => typeof v === "number" && v > 0);
-      const rates40 = quotes40.map((q) => q.final_freight_value).filter((v) => typeof v === "number" && v > 0);
-
-      const min20 = rates20.length > 0 ? Math.min(...rates20) : null;
-      const min40 = rates40.length > 0 ? Math.min(...rates40) : null;
-      const carriersList = Array.from(new Set(res?.results?.map((r) => CARRIERS_MAP[r.carrier.toLowerCase()] || r.carrier) || [])).join(", ");
-      const hasMismatch = res?.results?.some((cr) => cr.has_port_mismatch === true);
-
-      summarySheet.addRow({
-        index: idx + 1,
-        origin: item.origin,
-        destination: item.destination,
-        status: item.status === "completed" ? (quotes.length > 0 ? "Quotes Found" : "No Quotes (No Direct Schedule)") : item.status.toUpperCase(),
-        carriers: carriersList || (res ? "None" : "Pending"),
-        rate20: min20 !== null ? `$${min20.toLocaleString()}` : "-",
-        rate40: min40 !== null ? `$${min40.toLocaleString()}` : "-",
-        mismatch: hasMismatch ? "⚠️ Port Mismatch" : "✅ Verified Match",
-      });
-    });
-  }
-
-  // Add standardized matrix worksheet per route
   batchResults.forEach((item, idx) => {
+    const res = item.searchResult;
+    const quotes = res?.results?.flatMap((r) => r.quotes || []) || [];
+
+    const quotes20 = quotes.filter((q) => {
+      const t = (q.container_type || "").toUpperCase();
+      return t.includes("20") || t.includes("20GP");
+    });
+    const quotes40 = quotes.filter((q) => {
+      const t = (q.container_type || "").toUpperCase();
+      return t.includes("40") || t.includes("40GP") || t.includes("40HQ") || t.includes("40HC");
+    });
+
+    const rates20 = quotes20.map((q) => q.final_freight_value).filter((v) => typeof v === "number" && v > 0);
+    const rates40 = quotes40.map((q) => q.final_freight_value).filter((v) => typeof v === "number" && v > 0);
+
+    const min20 = rates20.length > 0 ? Math.min(...rates20) : null;
+    const min40 = rates40.length > 0 ? Math.min(...rates40) : null;
+    const carriersList = Array.from(new Set(res?.results?.map((r) => CARRIERS_LIST.find((c) => c.code === r.carrier.toLowerCase())?.name || r.carrier) || [])).join(", ");
+    const hasMismatch = res?.results?.some((cr) => cr.has_port_mismatch === true);
+
+    summarySheet.addRow({
+      index: idx + 1,
+      origin: item.origin,
+      destination: item.destination,
+      status: item.status === "completed" ? (quotes.length > 0 ? "Quotes Found" : "No Quotes (No Direct Schedule)") : item.status.toUpperCase(),
+      carriers: carriersList || (res ? "None" : "Pending"),
+      rate20: min20 !== null ? `$${min20.toLocaleString()}` : "-",
+      rate40: min40 !== null ? `$${min40.toLocaleString()}` : "-",
+      mismatch: hasMismatch ? "⚠️ Port Mismatch" : "✅ Verified Match",
+    });
+  });
+
+  // Add individual worksheets using identical exporter logic
+  for (let idx = 0; idx < batchResults.length; idx++) {
+    const item = batchResults[idx];
     if (item.searchResult) {
       let sheetTitle = `${item.origin || "Origin"} to ${item.destination || "Destination"}`;
       sheetTitle = sanitizeSheetName(sheetTitle, idx);
-      addStandardRouteSheetToWorkbook(workbook, item.searchResult, sheetTitle);
+      
+      // Temporary workbook sheet building
+      const tempWb = new ExcelJS.Workbook();
+      await exportSingleSearchToExcel(item.searchResult, "temp.xlsx");
     }
-  });
+  }
 
-  // Generate buffer and trigger browser download
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = window.URL.createObjectURL(blob);

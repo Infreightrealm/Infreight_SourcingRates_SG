@@ -167,21 +167,288 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     q.included_freight_surcharges.reduce((s, c) => s + c.amount, 0);
 
   const exportToExcel = async () => {
-    if (!data) return;
-    const { exportMultiRouteResultsToExcel } = await import("@/lib/excelExport");
-    const safeOrig = (data.origin || "Origin").replace(/[^a-zA-Z0-9]/g, "_");
-    const safeDest = (data.destination || "Destination").replace(/[^a-zA-Z0-9]/g, "_");
-    await exportMultiRouteResultsToExcel(
-      [
-        {
-          origin: data.origin || "",
-          destination: data.destination || "",
-          status: "completed",
-          searchResult: data,
-        },
-      ],
-      `Infreight_${safeOrig}_to_${safeDest}_Rates.xlsx`
-    );
+    if (sortedRows.length === 0) return;
+
+    // Get selected container types list in standard order: 20GP -> 40GP -> 40HQ
+    const rawContainerTypes = data.container_types || (data.container_type ? [data.container_type] : ["DRY 40H"]);
+    const containerTypesList = sortContainerTypes(rawContainerTypes);
+    const baseCurrency = quoteRows[0]?.quote?.currency || "USD";
+
+    // Format container column header (e.g. DRY 40H -> 40HQ (USD))
+    const getContainerHeader = (type: string, currency: string) => {
+      let standardName = type;
+      if (type === "DRY 20") standardName = "20GP";
+      else if (type === "DRY 40") standardName = "40GP";
+      else if (type === "DRY 40H") standardName = "40HQ";
+      return `${standardName} (${currency})`;
+    };
+
+    const rateColumns = containerTypesList.map(type => ({
+      type,
+      header: getContainerHeader(type, baseCurrency),
+      key: `rate_${type.replace(/\s+/g, "_")}`,
+      width: 18
+    }));
+
+    // Helpers to extract free time values
+    const getFreeTimeValue = (q: QuoteSchema, carrierName: string) => {
+      if (q.free_time !== undefined && q.free_time !== null) return q.free_time;
+      if (carrierName.toUpperCase() === "MAERSK" && q.service_name) {
+        const match = q.service_name.match(/(\d+)\s*days?\s*(?:of\s*)?detention/i);
+        if (match) return parseInt(match[1]);
+        const simpleMatch = q.service_name.match(/(\d+)\s*days?/i);
+        if (simpleMatch) return parseInt(simpleMatch[1]);
+      }
+      return null;
+    };
+
+    // Clean sheet name (Excel limit is 31 chars, no special chars)
+    let sheetName = `${data.origin || "Origin"} to ${data.destination || "Destination"}`;
+    sheetName = sheetName.replace(/[\\\/\?\*\[\]]/g, "");
+    if (sheetName.length > 31) {
+      sheetName = sheetName.substring(0, 31);
+    }
+
+    const ExcelJS = (await import("exceljs")).default;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet(sheetName);
+
+    sheet.columns = [
+      { header: "POL", key: "pol", width: 12 },
+      { header: "POD", key: "pod", width: 25 },
+      { header: "Carrier", key: "carrier", width: 16 },
+      ...rateColumns,
+      { header: "T/T", key: "tt", width: 10 },
+      { header: "Free time", key: "freetime", width: 12 },
+      { header: "Demurrage", key: "demurrage", width: 12 },
+      { header: "Detention", key: "detention", width: 12 },
+      { header: "ETD POL", key: "validity", width: 16 },
+      { header: "ETA POD", key: "eta", width: 16 },
+      { header: "Validity Till", key: "validity_till", width: 16 },
+      { header: "Routing", key: "routing", width: 12 },
+      { header: "Remark", key: "remark", width: 35 }
+    ];
+
+    // Group and add rows side-by-side
+    const groupedExcelRows: any[] = [];
+    
+    for (const cr of data.results) {
+      const carrierInfo = CARRIERS.find(c => c.code === cr.carrier);
+      const carrierName = carrierInfo?.name || cr.carrier;
+
+      if (cr.quotes.length === 0) {
+        const rates: Record<string, string> = {};
+        containerTypesList.forEach(ct => {
+          rates[`rate_${ct.replace(/\s+/g, "_")}`] = cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out";
+        });
+        groupedExcelRows.push({
+          pol: data.origin || "",
+          pod: data.destination || "",
+          carrier: carrierName,
+          ...rates,
+          tt: "-",
+          freetime: "-",
+          validity: "-",
+          eta: "-",
+          validity_till: "-",
+          routing: "-",
+          remark: cr.error_message || (cr.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not available" : "No quotes returned")
+        });
+      } else {
+        const scheduleGroups: Record<string, QuoteSchema[]> = {};
+        for (const q of cr.quotes) {
+          const key = `${q.etd || ""}|${q.eta || ""}|${(q.vessel || "").trim().toLowerCase()}|${(q.routing || "").trim().toLowerCase()}`;
+          if (!scheduleGroups[key]) {
+            scheduleGroups[key] = [];
+          }
+          scheduleGroups[key].push(q);
+        }
+
+        for (const key of Object.keys(scheduleGroups)) {
+          const groupQuotes = scheduleGroups[key];
+          const rates: Record<string, string | number> = {};
+          const isSpot = groupQuotes.some(q => 
+            (q.vessel || "").toUpperCase().includes("SPOT") || 
+            (q.service_name || "").toUpperCase().includes("SPOT")
+          );
+
+          containerTypesList.forEach(ct => {
+            rates[`rate_${ct.replace(/\s+/g, "_")}`] = isSpot 
+              ? "-" 
+              : (cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out");
+          });
+
+          groupQuotes.forEach(q => {
+            if (q.container_type) {
+              rates[`rate_${q.container_type.replace(/\s+/g, "_")}`] = q.final_freight_value === 0.0 
+                ? (isSpot ? "-" : (cr.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold out")) 
+                : q.final_freight_value;
+            }
+          });
+
+          const firstQuote = groupQuotes[0];
+          const freeTimeVal = getFreeTimeValue(firstQuote, cr.carrier) ?? "-";
+
+          groupedExcelRows.push({
+            pol: data.origin || "",
+            pod: data.destination || "",
+            carrier: carrierName,
+            ...rates,
+            tt: firstQuote.transit_time_days || "-",
+            freetime: freeTimeVal,
+            demurrage: firstQuote.demurrage != null ? `${firstQuote.demurrage}d` : "-",
+            detention: firstQuote.detention != null ? `${firstQuote.detention}d` : "-",
+            validity: formatDate(firstQuote.etd),
+            eta: formatDate(firstQuote.eta),
+            validity_till: formatDate(firstQuote.validity_till),
+            routing: firstQuote.routing || "Direct",
+            remark: firstQuote.vessel || "-"
+          });
+        }
+      }
+    }
+
+    // Add grouped rows to sheet
+    groupedExcelRows.forEach((row, idx) => {
+      sheet.addRow({
+        pol: idx === 0 ? row.pol : "",
+        pod: idx === 0 ? row.pod : "",
+        carrier: row.carrier,
+        ...row,
+      });
+    });
+
+    if (groupedExcelRows.length > 0) {
+      sheet.mergeCells(2, 1, 1 + groupedExcelRows.length, 1);
+      sheet.mergeCells(2, 2, 1 + groupedExcelRows.length, 2);
+    }
+
+    const getThinBorder = () => ({
+      top: { style: 'thin' as const, color: { argb: '808080' } },
+      left: { style: 'thin' as const, color: { argb: '808080' } },
+      bottom: { style: 'thin' as const, color: { argb: '808080' } },
+      right: { style: 'thin' as const, color: { argb: '808080' } }
+    });
+
+    // Style header row
+    const headerRow = sheet.getRow(1);
+    headerRow.height = 32;
+    headerRow.eachCell((cell) => {
+      cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: '000000' } }; // Automatic black
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FA8C3C' } // Brand orange #FA8C3C
+      };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = getThinBorder();
+    });
+
+    const numRateCols = rateColumns.length;
+
+    // Style body cells
+    for (let r = 2; r <= 1 + groupedExcelRows.length; r++) {
+      // POL (Col 1)
+      const cellA = sheet.getCell(r, 1);
+      cellA.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } }; // Official Blue #323296
+      cellA.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cellA.border = getThinBorder();
+
+      // POD (Col 2)
+      const cellB = sheet.getCell(r, 2);
+      cellB.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellB.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cellB.border = getThinBorder();
+
+      // Carrier (Col 3)
+      const cellC = sheet.getCell(r, 3);
+      cellC.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellC.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellC.border = getThinBorder();
+
+      // Selected Container rates (Col 4 to 3 + numRateCols)
+      for (let c = 0; c < numRateCols; c++) {
+        const cellRate = sheet.getCell(r, 4 + c);
+        if (cellRate.value === "Sold out" || cellRate.value === "Offline rates") {
+          cellRate.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'C00000' } }; // Bold red
+          cellRate.alignment = { horizontal: 'center', vertical: 'middle' };
+        } else {
+          cellRate.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+          cellRate.alignment = { horizontal: 'center', vertical: 'middle' };
+          cellRate.numFmt = '#,##0'; // format as integer
+        }
+        cellRate.border = getThinBorder();
+      }
+
+      // T/T
+      const cellTT = sheet.getCell(r, 4 + numRateCols);
+      cellTT.font = { name: 'Arial', size: 11, bold: true, color: { argb: '385723' } }; // Forest green
+      cellTT.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellTT.border = getThinBorder();
+
+      // Free time
+      const cellFreetime = sheet.getCell(r, 5 + numRateCols);
+      cellFreetime.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellFreetime.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellFreetime.border = getThinBorder();
+
+      // Demurrage
+      const cellDemurrage = sheet.getCell(r, 6 + numRateCols);
+      cellDemurrage.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellDemurrage.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellDemurrage.border = getThinBorder();
+
+      // Detention
+      const cellDetention = sheet.getCell(r, 7 + numRateCols);
+      cellDetention.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellDetention.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellDetention.border = getThinBorder();
+
+      // Validity (ETD POL)
+      const cellValidity = sheet.getCell(r, 8 + numRateCols);
+      cellValidity.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellValidity.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellValidity.border = getThinBorder();
+
+      // ETA (ETA POD)
+      const cellETA = sheet.getCell(r, 9 + numRateCols);
+      cellETA.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellETA.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellETA.border = getThinBorder();
+
+      // Validity Till
+      const cellValidityTill = sheet.getCell(r, 10 + numRateCols);
+      cellValidityTill.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellValidityTill.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellValidityTill.border = getThinBorder();
+
+      // Routing
+      const cellRouting = sheet.getCell(r, 11 + numRateCols);
+      cellRouting.font = { name: 'Arial', size: 11, bold: true, color: { argb: '323296' } };
+      cellRouting.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellRouting.border = getThinBorder();
+
+      // Remark
+      const cellRemark = sheet.getCell(r, 12 + numRateCols);
+      cellRemark.font = { name: 'Arial', size: 10, bold: true, color: { argb: '323296' } };
+      cellRemark.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cellRemark.border = getThinBorder();
+    }
+
+    // Set row height for body rows
+    for (let r = 2; r <= 1 + groupedExcelRows.length; r++) {
+      sheet.getRow(r).height = 28;
+    }
+
+    // Generate buffer and trigger browser download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `rates_${new Date().toISOString().split("T")[0]}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
