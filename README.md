@@ -1,149 +1,176 @@
-# Infreight Ocean Carrier Rate Automation
+# 🚢 Infreight Sourcing & Ocean Rate Automation System
 
-Internal web-based system for Infreight Logistics employees to search, compare, and analyze ocean freight quotations across multiple ocean carriers simultaneously.
-
----
-
-## Key Features
-
-- **Multi-Carrier Live Rate Search** — Search Maersk, CMA CGM, Hapag-Lloyd, ONE, OOCL, GreenX (Evergreen), and MSC simultaneously.
-- **Stealth Browser Automation** — Playwright & Patchright automation for carrier portal logins, automated date-strip scanning, and quote extraction.
-- **OOCL FreightSmart Multi-Month Calendar Scraper** — Dual-panel date extraction handling both E-Quote and E-Spot pricing side-by-side.
-- **Railway Cloud WebSocket Tunnel Relay** — Seamless 1-click tunnel (`run_tunnel_client.bat`) connecting Railway Cloud frontend to your local residential IP machine, bypassing DataDome and Cloudflare anti-bot CAPTCHAs with zero cost and zero time limits.
-- **Dynamic Backend Server Switcher & Auto-Recovery** — Automatic failover to Cloud Backup if local server drops, and seamless auto-recovery back to Local/Tunnel when online.
-- **Admin Port Code & City Registry** — Admin interface (`/admin`) to register, amend, or boost UN/LOCODEs, custom city names, and carrier-specific port overrides.
-- **Smart City Synonym Matching** — Built-in synonym engine matching port aliases (`Kochi` $\leftrightarrow$ `Cochin`, `Nhava Sheva` $\leftrightarrow$ `Jawaharlal Nehru`, `Haiphong` $\leftrightarrow$ `Hai Phong`, `Ho Chi Minh` $\leftrightarrow$ `Sai Gon`).
-- **Charge Classification & Value Normalization** — Automatic separation of ocean freight, surcharges, and local fees to calculate true final freight cost.
-- **Formatted Excel Export** — Brand-styled `.xlsx` exports with official color palette (`#323296`, `#FA8C3C`), sortable columns, and explicit "Sold Out" visibility.
-- **Human-in-the-Loop (HITL) 2FA** — Integrated noVNC viewer for manual 2FA/CAPTCHA resolution when required by carriers.
+An enterprise-grade, multi-carrier ocean freight rate intelligence and sourcing platform. The system automates real-time rate extraction across major global container shipping lines, itemizes complex price breakdowns, dynamically classifies freight surcharges vs. local origin/destination fees, and renders pixel-perfect side-by-side container comparison matrices with standardized Excel export capabilities.
 
 ---
 
-## Tech Stack
+## 🌟 Key Capabilities
 
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 15 (App Router) + Tailwind CSS + Lucide Icons + Sonner Toasts |
-| **Backend** | Python FastAPI + Uvicorn |
-| **Automation** | Patchright (Stealth Playwright fork) + Real Google Chrome Stable |
-| **Tunnel Relay** | Railway WebSocket Tunnel Relay (`scripts/tunnel_relay` + `run_tunnel_client.bat`) |
-| **Database** | PostgreSQL (Production) / SQLite (Local) |
-| **Deployment** | Railway + Docker + Supervisord |
+### 1. Multi-Carrier Automation Engine
+* **Real-time Live Sourcing**: Autonomous Playwright crawlers for major ocean container lines:
+  - **Maersk Line**
+  - **Hapag-Lloyd**
+  - **CMA CGM**
+  - **Ocean Network Express (ONE Line)**
+  - **OOCL**
+  - **MSC (Mediterranean Shipping Company)**
+  - **GreenX / Evergreen**
+* **Stealth & Session Resilience**: Chrome profile state persistence, shadow-DOM handling, dynamic XPath/CSS fallback strategies, anti-bot captcha management, and optional Bright Data Web Unlocker proxy routing.
+
+### 2. Intelligent Surcharge & Charge Classifier Engine (`charge_classifier.py`)
+Automatically normalizes raw charge descriptions into strict freight accounting categories:
+* **`BASIC_OCEAN_FREIGHT`**: Base ocean freight rates.
+* **`FREIGHT_SURCHARGE_INCLUDED`**: Included in total ocean freight:
+  - Bunker Adjustment Factor (BAF) / Fuel Surcharges
+  - Low Sulphur / Environmental Surcharges (LSS, EES)
+  - Peak Season Surcharges (PSS)
+  - Panama Canal Surcharges (PCS)
+  - Emergency Operational Cost Recovery
+  - Inland Haulage / Origin Landfreight Rail Surcharges
+  - Transport Additional Surcharges
+* **`ORIGIN_CHARGE_EXCLUDED` / `DESTINATION_CHARGE_EXCLUDED`**: Local port & administrative fees excluded from the total ocean rate:
+  - Terminal Handling Charges (THC Origin / THC Dest)
+  - Documentation / Bill of Lading Fees
+  - Customs Clearance & Equipment Transfer Fees
+  - Gate Reservation & Storage Fees
+* **Dynamic Weight / VGM Thresholding**: Evaluates container weight against carrier weight tiers (e.g. 16,000 kg vs 20,000 kg) to automatically include or exclude Heavy Lift & Overweight Surcharges.
+
+### 3. Container Comparison Matrix & Excel Export Engine
+* **Multi-Container View**: Side-by-side container pricing (20GP, 40GP, 40HQ), transit times, free time, demurrage/detention, vessel/voyage details, and routing paths.
+* **Pixel-Perfect Excel Exports**: Formatted using OpenPyXL and ExcelJS with custom styling (Arial 11, Official Blue `#323296`, Brand Orange `#FA8C3C` headers, Forest Green T/T, and bold red sold-out indicators).
+* **Permanent Search History Archive**: Complete database audit log of all rate searches with user-selectable retrieval limits (100, 250, 500 records) and batch export support.
 
 ---
 
-## Supported Carriers
-
-| Carrier | Status | Automation Method & Capabilities |
-|---------|--------|----------------------------------|
-| **Maersk** | ✅ Live | Shadow DOM piercing, Patchright stealth, 2FA via noVNC |
-| **CMA CGM** | ✅ Live | Chrome session preservation, D&D free time extraction |
-| **Hapag-Lloyd** | ✅ Live | Calendar grid pagination, transshipment detection |
-| **ONE** | ✅ Live | Date picker automation, container charge scoping |
-| **OOCL** | ✅ Live | FreightSmart E-Quote & E-Spot calendar scraper, side-by-side date matrix |
-| **GreenX (Evergreen)** | ✅ Live | Accordion fee breakdown parser, free time extraction |
-| **MSC** | ✅ Live | Form automation & rate schedule fallbacks |
-
----
-
-## Hybrid Architecture (Cloud + Local Tunnel Relay)
+## 🏗️ System Architecture
 
 ```
-[ User Browser / Railway Frontend ]
-              │
-              ▼ (Calls fixed domain: https://your-railway-tunnel.up.railway.app)
-[ Railway Cloud WebSocket Tunnel Relay ]
-              │  ▲ (Persistent background WSS connection)
-              ▼  │
- [ Local Machine (`run_tunnel_client.bat`) ]
-              └──► Executes Playwright using Local Residential IP (Bypasses DataDome / CAPTCHAs!)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            NEXT.JS 14 FRONTEND                              │
+│         (React, Tailwind CSS, Container Matrix, History & Export)           │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ REST API (JSON / HTTP)
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                             FASTAPI BACKEND                                 │
+│          (Async REST Endpoints, Database ORM, Task Manager)                │
+└───────────────┬──────────────────────┬──────────────────────┬───────────────┘
+                │                      │                      │
+┌───────────────▼──────────────┐ ┌─────▼────────────────────┐ ┌▼──────────────┐
+│   PLAYWRIGHT CRAWLERS        │ │ CHARGE CLASSIFIER ENGINE │ │ SQL DATABASE │
+│ (Maersk, Hapag, ONE, CMA, etc│ │ (Surcharge Categorization│ │ (SQLite /    │
+│  Stealth Profiles & Captcha) │ │  & Weight Thresholding)  │ │  PostgreSQL) │
+└──────────────────────────────┘ └──────────────────────────┘ └──────────────┘
 ```
-
-### Why This Hybrid Setup?
-1. **Anti-Bot Bypass**: Scrapers run from your local machine's residential ISP IP, preventing Cloud IP blocks by DataDome & Cloudflare.
-2. **Fixed Domain**: The Railway Tunnel domain never changes, eliminating constant URL updating.
-3. **No 60-Minute Limits**: Unlike free ngrok or pinggy, the Railway WebSocket Tunnel Relay runs 24/7 with zero time limits and zero extra costs.
 
 ---
 
-## Quick Start Guide
+## 🛠️ Project Structure
 
-### Option 1: Running Fully Local (Local Frontend + Local Backend)
+```
+Infreight_Sourcing_New/
+├── backend/
+│   ├── api/                      # FastAPI API routes & endpoints
+│   │   ├── rate_search_routes.py # Rate search & history endpoints
+│   │   └── export_routes.py      # Excel export endpoints
+│   ├── carriers/                 # Playwright carrier connectors
+│   │   ├── maersk_connector.py   # Maersk automation
+│   │   ├── hapag_lloyd_connector.py # Hapag-Lloyd automation
+│   │   ├── cma_cgm_connector.py  # CMA CGM automation
+│   │   ├── one_connector.py      # ONE Line automation
+│   │   └── oocl_connector.py     # OOCL automation
+│   ├── services/                 # Core domain & intelligence services
+│   │   ├── charge_classifier.py  # Surcharge classification engine
+│   │   └── normalizer.py         # Rate normalization service
+│   ├── models/                   # Pydantic schemas & database models
+│   ├── tests/                    # Backend Pytest automated test suite
+│   ├── .env.example              # Environment configuration template
+│   └── requirements.txt          # Python dependencies manifest
+├── frontend/
+│   ├── src/
+│   │   ├── components/           # React UI components
+│   │   │   ├── ResultsTable.tsx  # Container rate comparison matrix
+│   │   │   ├── SearchForm.tsx    # Multi-route search input form
+│   │   │   └── SearchHistoryModal.tsx # Search history modal & selector
+│   │   ├── lib/                  # Frontend utilities & API client
+│   │   │   ├── excelExport.ts    # Excel workbook matrix generator
+│   │   │   └── api.ts            # Axios backend API client
+│   └── package.json              # Node.js dependencies manifest
+└── README.md                     # Platform documentation
+```
 
-#### 1. Backend Setup
-```cmd
+---
+
+## 🚀 Quick Start Guide
+
+### Prerequisites
+- **Python**: `3.11` or `3.12`
+- **Node.js**: `v18.x` or higher
+- **Browser**: Google Chrome installed locally
+
+---
+
+### Step 1: Backend Setup
+
+```bash
+# 1. Navigate to backend directory
 cd backend
-python -m venv venv
-venv\Scripts\activate
+
+# 2. Create and activate a Python virtual environment
+python -m venv .venv
+
+# On Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+# On Linux/macOS:
+source .venv/bin/activate
+
+# 3. Install Python dependencies
 pip install -r requirements.txt
+
+# 4. Install Playwright browser binaries
 playwright install chromium
-python main.py
+
+# 5. Create your local environment configuration file
+cp .env.example .env
+
+# Edit .env with your carrier portal credentials and database settings
+
+# 6. Start the FastAPI backend server
+uvicorn main:app --port 8000 --reload
 ```
 
-#### 2. Frontend Setup
-```cmd
+---
+
+### Step 2: Frontend Setup
+
+```bash
+# 1. Open a new terminal and navigate to frontend directory
 cd frontend
+
+# 2. Install Node.js dependencies
 npm install
+
+# 3. Start Next.js development server
 npm run dev
 ```
-Open **`http://localhost:3000`** in your browser.
+
+Access the application UI in your browser at: **`http://localhost:3000`**
 
 ---
 
-### Option 2: Running Cloud Frontend + Local Backend (Recommended Workflow)
+## 🧪 Running Automated Tests
 
-1. **Start Local Backend**:
-   Double-click **`run_live_loop.bat`** (or `python main.py` in `backend`).
-2. **Start Railway Cloud Tunnel**:
-   Double-click **`run_tunnel_client.bat`** on your desktop.
-3. **Open Cloud Frontend**:
-   Visit your Railway deployed frontend website (e.g., `https://frontend-production-xxxx.up.railway.app`).
-   The top bar badge will display 🟢 **`Local Tunnel Relay`**!
+```bash
+# Backend Test Suite (Charge Classifier, Panama Canal Surcharge, Storage Cleanup)
+cd backend
+pytest tests/
 
----
-
-## Admin Dashboard (`/admin`)
-
-Visit `/admin` on your frontend to access system management tools:
-
-- **Register / Amend Custom City & Port Code**: Add new UN/LOCODEs, override city display names, and bind custom port mappings stored in `backend/data/custom_ports.json`.
-- **Carrier Overrides**: Manage carrier-specific port aliases (e.g. `KHKOS` $\rightarrow$ `Sihanoukville` for OOCL, `INCOK` $\rightarrow$ `Cochin (KERALA), India` for Maersk).
-- **Search History & Route Health**: Monitor carrier success rates and execution logs across searches.
-
----
-
-## Project Structure
-
-```
-├── backend/
-│   ├── main.py                     # FastAPI entry point
-│   ├── Dockerfile                  # Production Railway Dockerfile
-│   ├── api/                        # REST API routes (user, admin, rate search)
-│   ├── carriers/                   # Live carrier connectors (Maersk, OOCL, ONE, etc.)
-│   ├── services/                   # Port manager, job service, charge classifier
-│   └── data/                       # custom_ports.json & port database
-├── frontend/
-│   ├── src/app/                    # Next.js pages (main search, admin)
-│   ├── src/components/             # UI components, status badges, config modal
-│   └── src/lib/                    # API client, failover/recovery logic, Excel exporter
-├── scripts/
-│   ├── tunnel_relay/               # Railway WebSocket Tunnel Relay server
-│   └── tunnel_client.py            # Local machine tunnel client script
-├── run_tunnel_client.bat           # 1-Click launcher for Railway Cloud Tunnel
-├── run_live_loop.bat               # 1-Click launcher for local backend
-├── CHANGELOG.md                    # System change log
-└── README.md                       # Product documentation
+# Frontend TypeScript Type Verification
+cd frontend
+npx tsc --noEmit
 ```
 
 ---
 
-## Security & Best Practices
+## 📄 License & Confidentiality
 
-- **Never commit credentials** — Credentials and private keys are managed via environment variables (`.env`).
-- **Data Privacy** — Local session profiles are stored in `.gitignored` directories (`backend/chrome_profile_*`).
-
----
-
-## License
-
-Internal Proprietary — **Infreight Logistics**. All Rights Reserved.
+Internal Proprietary Sourcing & Automation System — All Rights Reserved.
