@@ -145,20 +145,20 @@ async def run_carrier_search(
     carrier_lock = queue_manager.get_carrier_lock(carrier_code)
     async with carrier_lock:
         async with get_async_session_maker()() as session:
-        # Find the carrier result record
-        result_query = select(CarrierSearchResult).where(
-            CarrierSearchResult.search_id == search_id,
-            CarrierSearchResult.carrier == carrier_code,
-        )
-        db_result = (await session.execute(result_query)).scalar_one_or_none()
-        if not db_result:
-            print(f"[JOB] No CarrierSearchResult found for {carrier_code}")
-            return
+            # Find the carrier result record
+            result_query = select(CarrierSearchResult).where(
+                CarrierSearchResult.search_id == search_id,
+                CarrierSearchResult.carrier == carrier_code,
+            )
+            db_result = (await session.execute(result_query)).scalar_one_or_none()
+            if not db_result:
+                print(f"[JOB] No CarrierSearchResult found for {carrier_code}")
+                return
 
-        # Mark as RUNNING
-        db_result.status = CarrierResultStatus.RUNNING.value
-        db_result.started_at = datetime.utcnow()
-        await session.commit()
+            # Mark as RUNNING
+            db_result.status = CarrierResultStatus.RUNNING.value
+            db_result.started_at = datetime.utcnow()
+            await session.commit()
 
         connector = None
         try:

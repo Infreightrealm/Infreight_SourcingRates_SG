@@ -9,8 +9,10 @@ if sys.platform == "win32":
 
 if __name__ == "__main__":
     import os
+    import traceback
     print("[SERVER] Starting server without --reload to maintain ProactorEventLoop for Playwright.")
     try:
         uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
-    finally:
-        os._exit(0)
+    except Exception as e:
+        print("[SERVER ERROR] Exception during server launch:")
+        traceback.print_exc()
