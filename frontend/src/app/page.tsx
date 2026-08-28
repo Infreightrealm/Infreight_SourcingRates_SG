@@ -15,6 +15,7 @@ import LoginModal from "@/components/LoginModal";
 import { createRateSearch, createBatchRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, type BatchRouteResult } from "@/lib/excelExport";
+import SearchHistoryModal from "@/components/SearchHistoryModal";
 import BackendConfigModal from "@/components/BackendConfigModal";
 import { toast } from "sonner";
 
@@ -29,6 +30,7 @@ function HomeContent() {
   const [isClient, setIsClient] = useState(false);
   const [backendUrl, setBackendUrl] = useState(getApiUrl());
   const [isBackendModalOpen, setIsBackendModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [parsedRfqFields, setParsedRfqFields] = useState<RateSearchRequest | undefined>(undefined);
 
   // Continuous Batch Multi-Route Execution State
@@ -417,6 +419,16 @@ function HomeContent() {
             })()}
             {searchId && <StatusBadge status={searchResult?.status || "QUEUED"} size="md" />}
             
+            <button
+              onClick={() => setIsHistoryModalOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-semibold text-xs transition-all duration-200 flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="View Search History & Export Past Quotes"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>My Searches & History</span>
+            </button>
             <div className="w-px h-6 bg-slate-200 dark:bg-white/10 mx-1"></div>
             {userName && (
               <button
@@ -605,6 +617,22 @@ function HomeContent() {
         onUrlChanged={(newUrl) => {
           setBackendUrl(newUrl);
           healthCheck().then((h) => setMockMode(h.mock_mode)).catch(() => {});
+        }}
+      />
+
+      <SearchHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        userName={userName}
+        onSelectSearch={(res) => {
+          setSearchResult(res);
+          if (res?.search_id) {
+            setSearchId(res.search_id);
+          }
+          const el = document.getElementById("results-section");
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth" });
+          }
         }}
       />
     </div>

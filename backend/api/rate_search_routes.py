@@ -479,6 +479,7 @@ async def get_route_health(session: AsyncSession = Depends(get_session)):
 from sqlalchemy.orm import selectinload
 
 @router.get("/admin/search-history")
+@router.get("/searches/history")
 async def get_user_search_history(
     user_name: Optional[str] = None,
     limit: int = 100,
