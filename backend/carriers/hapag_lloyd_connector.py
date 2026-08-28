@@ -2472,18 +2472,18 @@ class HapagLloydConnector(BaseCarrierConnector):
             # ------------------------------------------------------------------
             # JS helper: scrape all visible date columns and their prices (excluding portal/dialog)
             # ------------------------------------------------------------------
-            JS_GET_VISIBLE_DATES_AND_PRICES = '''() => {
+            JS_GET_VISIBLE_DATES_AND_PRICES = r'''() => {
                 const patterns = [
-                    /^\\d{4}-\\d{2}-\\d{2}$/,
-                    /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
-                    /^\\d{2}-\\d{2}-\\d{4}$/,
-                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
-                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
-                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}$/i,
-                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2},\\s+\\d{4}$/i
+                    /^\d{4}-\d{2}-\d{2}$/,
+                    /^\d{2}\.\d{2}\.\d{4}$/,
+                    /^\d{2}-\d{2}-\d{4}$/,
+                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}$/i,
+                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                 ];
                 const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
-                    const raw = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
+                    const raw = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     if (!raw || raw.length > 30) return false;
                     if (!patterns.some(pat => pat.test(raw))) return false;
                     let parent = el.parentElement;
@@ -2512,7 +2512,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         for (let i = 0; i < 4; i++) {
                             if (!parent) break;
                             const pTxt = (parent.innerText || parent.textContent || '').trim().replace(/\s+/g, ' ');
-                            const match = pTxt.match(/(?:USD|\\$)\\s*(-?[\\d,]+(?:\\.\\d{1,2})?)/i);
+                            const match = pTxt.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
                             if (match) {
                                 price = parseFloat(match[1].replace(/,/g, ''));
                                 break;
@@ -2533,7 +2533,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             # JS helper: check if the "No further departures" end-of-line message
             # is visible anywhere on the page (tooltip or inline text)
             # ------------------------------------------------------------------
-            JS_IS_END_OF_QUOTES = '''() => {
+            JS_IS_END_OF_QUOTES = r'''() => {
                 const needle = 'no further departures currently available for quoting';
                 const allEls = Array.from(document.querySelectorAll('div, p, span, [class*="tooltip" i]'));
                 return allEls.some(el => {
@@ -2564,7 +2564,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             page_num = 0
 
             # JS to click the rightmost visible arrow/chevron button in the grid
-            JS_CLICK_RIGHT_ARROW = '''() => {
+            JS_CLICK_RIGHT_ARROW = r'''() => {
                 const candidates = Array.from(document.querySelectorAll('button, [role="button"], .q-btn, i, span'));
                 const visible = candidates.filter(el => {
                     const r = el.getBoundingClientRect();
@@ -2759,18 +2759,18 @@ class HapagLloydConnector(BaseCarrierConnector):
             # ------------------------------------------------------------------
             # JS helpers re-used in this method
             # ------------------------------------------------------------------
-            JS_GET_VISIBLE_DATES = '''() => {
+            JS_GET_VISIBLE_DATES = r'''() => {
                 const patterns = [
-                    /^\\d{4}-\\d{2}-\\d{2}$/,
-                    /^\\d{2}\\.\\d{2}\\.\\d{4}$/,
-                    /^\\d{2}-\\d{2}-\\d{4}$/,
-                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{4}$/i,
-                    /^\\d{2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
-                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}$/i,
-                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2},\\s+\\d{4}$/i
+                    /^\d{4}-\d{2}-\d{2}$/,
+                    /^\d{2}\.\d{2}\.\d{4}$/,
+                    /^\d{2}-\d{2}-\d{4}$/,
+                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}$/i,
+                    /^\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
+                    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                 ];
                 const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
-                    const txt = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
+                    const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
                     while (parent) {
@@ -2790,7 +2790,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 }).map(el => el.textContent.trim());
             }'''
 
-            JS_CLICK_LEFT_ARROW = '''() => {
+            JS_CLICK_LEFT_ARROW = r'''() => {
                 const candidates = Array.from(document.querySelectorAll('button, [role="button"], .q-btn, i, span'));
                 const visible = candidates.filter(el => {
                     const r = el.getBoundingClientRect();
@@ -2832,7 +2832,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 return 'not_found';
             }'''
 
-            JS_CLICK_RIGHT_ARROW = '''() => {
+            JS_CLICK_RIGHT_ARROW = r'''() => {
                 const candidates = Array.from(document.querySelectorAll('button, [role="button"], .q-btn, i, span'));
                 const visible = candidates.filter(el => {
                     const r = el.getBoundingClientRect();
