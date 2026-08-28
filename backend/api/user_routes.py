@@ -232,3 +232,20 @@ async def update_exchange_rate_endpoint(request: ExchangeRateUpdateRequest, x_ad
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+class StorageCleanupRequest(BaseModel):
+    max_age_days: Optional[int] = 7
+
+
+@admin_router.post("/cleanup-storage")
+async def manual_storage_cleanup_endpoint(request: StorageCleanupRequest = StorageCleanupRequest(), x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != "brian_infreight":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    from services.storage_cleanup import cleanup_old_debug_files
+    try:
+        res = cleanup_old_debug_files(max_age_days=request.max_age_days or 7)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+

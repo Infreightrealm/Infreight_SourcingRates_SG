@@ -63,6 +63,14 @@ async def lifespan(app: FastAPI):
     mock_mode = os.getenv("USE_MOCK_CARRIERS", "true").lower() in ("true", "1", "yes")
     print(f"[MODE] Mock mode: {'ENABLED' if mock_mode else 'DISABLED - using live connectors'}")
     print("[VERSION] RFQ Agent Version: 2.1.0-gemini-headeronly (native httpx x-goog-api-key header-only)")
+
+    # Automated storage cleanup of stale debug screenshots and temp browser profiles (> 7 days)
+    try:
+        from services.storage_cleanup import cleanup_old_debug_files
+        cleanup_old_debug_files(max_age_days=7)
+    except Exception as cleanup_err:
+        print(f"[WARN] Storage cleanup failed on startup: {cleanup_err}")
+
     yield
     print("[*] Shutting down...")
 
