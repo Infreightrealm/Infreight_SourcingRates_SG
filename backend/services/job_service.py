@@ -160,249 +160,248 @@ async def run_carrier_search(
             db_result.started_at = datetime.utcnow()
             await session.commit()
 
-        connector = None
-        try:
-            # Get the connector (mock or live based on env)
-            connector = get_connector(carrier_code)
-
-            # Set real-time status update callback
-            async def update_status_cb(new_status: CarrierResultStatus):
-                async with get_async_session_maker()() as cb_session:
-                    cb_result_query = select(CarrierSearchResult).where(
-                        CarrierSearchResult.search_id == search_id,
-                        CarrierSearchResult.carrier == carrier_code,
-                    )
-                    cb_db_result = (await cb_session.execute(cb_result_query)).scalar_one_or_none()
-                    if cb_db_result:
-                        cb_db_result.status = new_status.value
-                        await cb_session.commit()
-                        print(f"[JOB] Real-time status update for {carrier_code}: {new_status.value}")
-
-            connector.status_update_callback = update_status_cb
-
-            # Run searches sequentially for each container type in request.container_types
-            all_quotes = []
-            final_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
-            
-            c_types = request.container_types or [request.container_type]
-            
-            for c_index, c_type in enumerate(c_types):
-                print(f"[JOB] {carrier_code}: starting cycle {c_index + 1}/{len(c_types)} for container type {c_type}")
-                # Update status in database to show which type we are searching
-                async with get_async_session_maker()() as cb_session:
-                    cb_db_result = (await cb_session.execute(result_query)).scalar_one_or_none()
-                    if cb_db_result:
-                        cb_db_result.status = f"RUNNING ({c_type})"
-                        await cb_session.commit()
-
-                # Create request copy for this container type
-                req_copy = request.model_copy(update={"container_type": c_type})
-                
-                # Run the full search flow
-                status, quotes = await connector.run_full_search(req_copy)
-                
-                # Inject the current cycle container type into each quote schema if not already set
-                for q in quotes:
-                    if not q.container_type:
-                        q.container_type = c_type
-                
-                # Add the quotes to our list
-                all_quotes.extend(quotes)
-                
-                # Determine final status
-                if status == CarrierResultStatus.AVAILABLE_QUOTES_FOUND or (quotes and len(quotes) > 0):
-                    final_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
-                elif status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
-                    if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
-                        final_status = CarrierResultStatus.CONNECTOR_NOT_AVAILABLE
-                elif status == CarrierResultStatus.SERVICE_UNAVAILABLE:
-                    if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
-                        final_status = CarrierResultStatus.SERVICE_UNAVAILABLE
-                elif status == CarrierResultStatus.FAILED:
-                    if final_status not in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.CONNECTOR_NOT_AVAILABLE):
-                        final_status = CarrierResultStatus.FAILED
-                else:
-                    # Keep existing final_status if it's already successful/partially successful
-                    pass
-
-            # Update carrier result status and completed timestamp
-            db_result.status = final_status.value
-            db_result.completed_at = datetime.utcnow()
-
-            # Resolve system-level ports for observability
-            orig_matches = search_port(request.origin)
-            res_orig_name = orig_matches[0]["name"] if orig_matches else request.origin
-            res_orig_locode = orig_matches[0]["code"] if orig_matches else None
-
-            dest_matches = search_port(request.destination)
-            res_dest_name = dest_matches[0]["name"] if dest_matches else request.destination
-            res_dest_locode = dest_matches[0]["code"] if dest_matches else None
-
-            submitted_orig = getattr(connector, "submitted_origin", None) or request.origin
-            submitted_dest = getattr(connector, "submitted_destination", None) or request.destination
-            matched_orig = getattr(connector, "matched_origin", None)
-            matched_dest = getattr(connector, "matched_destination", None)
-
-            orig_mismatch = _detect_port_mismatch(res_orig_name, res_orig_locode, matched_orig)
-            dest_mismatch = _detect_port_mismatch(res_dest_name, res_dest_locode, matched_dest)
-
-            if orig_mismatch is True or dest_mismatch is True:
-                has_port_mismatch = True
-                warnings = []
-                if orig_mismatch is True:
-                    warnings.append(f"Origin mismatch: carrier matched '{matched_orig}' vs requested '{res_orig_name}' ({res_orig_locode or 'no LOCODE'})")
-                if dest_mismatch is True:
-                    warnings.append(f"Destination mismatch: carrier matched '{matched_dest}' vs requested '{res_dest_name}' ({res_dest_locode or 'no LOCODE'})")
-                mismatch_warning = "⚠️ " + "; ".join(warnings)
-            elif orig_mismatch is False and dest_mismatch is False:
-                has_port_mismatch = False
-                mismatch_warning = None
-            else:
-                has_port_mismatch = None  # UNKNOWN / Could Not Verify
-                mismatch_warning = "Port match status: Could not verify (matched port string not returned by carrier)"
-
-            db_result.raw_origin_input = request.origin
-            db_result.raw_destination_input = request.destination
-            db_result.resolved_origin_name = res_orig_name
-            db_result.resolved_origin_locode = res_orig_locode
-            db_result.resolved_destination_name = res_dest_name
-            db_result.resolved_destination_locode = res_dest_locode
-            db_result.submitted_origin = submitted_orig
-            db_result.submitted_destination = submitted_dest
-            db_result.matched_origin = matched_orig
-            db_result.matched_destination = matched_dest
-            db_result.has_port_mismatch = has_port_mismatch
-            db_result.mismatch_warning = mismatch_warning
-
-            if final_status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
-                db_result.error_message = f"Connector for {carrier_code} is not yet implemented"
-            elif final_status == CarrierResultStatus.SERVICE_UNAVAILABLE:
-                db_result.error_message = f"Carrier service/website for {carrier_code} is currently unavailable (maintenance or downtime)"
-
-
-            # Persist quotes
-            for q in all_quotes:
-                ft_val = str(q.free_time).strip() if q.free_time is not None else None
-
-                db_quote = Quote(
-                    carrier_result_id=db_result.id,
-                    carrier=carrier_code,
-                    etd=q.etd,
-                    eta=q.eta,
-                    transit_time_days=q.transit_time_days,
-                    service_name=q.service_name,
-                    vessel=q.vessel,
-                    container_type=q.container_type,
-                    container_quantity=q.container_quantity,
-                    currency=q.currency,
-                    basic_ocean_freight=q.basic_ocean_freight,
-                    discount=q.discount,
-                    final_freight_value=q.final_freight_value,
-                    validity_till=q.validity_till,
-                    free_time=ft_val,
-                    demurrage=q.demurrage,
-                    detention=q.detention,
-                    raw_data_json={
-                        "source": q.source, 
-                        "ref": q.raw_reference,
-                        "routing": q.routing,
-                        "free_time": q.free_time,
-                        "demurrage": q.demurrage,
-                        "detention": q.detention
-                    },
-                )
-                session.add(db_quote)
-                await session.flush()  # Get the quote ID
-
-                # Persist included surcharges
-                for charge in q.included_freight_surcharges:
-                    session.add(QuoteCharge(
-                        quote_id=db_quote.id,
-                        charge_name=charge.name,
-                        amount=charge.amount,
-                        currency=charge.currency,
-                        category="FREIGHT_SURCHARGE_INCLUDED",
-                        included_in_final_value=True,
-                        reason=charge.reason,
-                    ))
-
-                # Persist excluded charges
-                for charge in q.excluded_charges:
-                    session.add(QuoteCharge(
-                        quote_id=db_quote.id,
-                        charge_name=charge.name,
-                        amount=charge.amount,
-                        currency=charge.currency,
-                        category=charge.category or "ORIGIN_CHARGE_EXCLUDED",
-                        included_in_final_value=False,
-                        reason=charge.reason,
-                    ))
-
-                # Persist uncertain charges
-                for charge in q.uncertain_charges:
-                    session.add(QuoteCharge(
-                        quote_id=db_quote.id,
-                        charge_name=charge.name,
-                        amount=charge.amount,
-                        currency=charge.currency,
-                        category="UNCERTAIN_EXCLUDED",
-                        included_in_final_value=False,
-                        reason=charge.reason,
-                    ))
-
-                # Persist BOF and discount as charges too
-                if q.basic_ocean_freight:
-                    session.add(QuoteCharge(
-                        quote_id=db_quote.id,
-                        charge_name="Basic Ocean Freight",
-                        amount=q.basic_ocean_freight,
-                        currency=q.currency,
-                        category="BASIC_OCEAN_FREIGHT",
-                        included_in_final_value=True,
-                        reason="Basic ocean freight charge",
-                    ))
-
-                if q.discount:
-                    session.add(QuoteCharge(
-                        quote_id=db_quote.id,
-                        charge_name="Discount",
-                        amount=q.discount,
-                        currency=q.currency,
-                        category="DISCOUNT",
-                        included_in_final_value=True,
-                        reason="Discount/rebate",
-                    ))
-
-            await session.commit()
-            print(f"[JOB] {carrier_code}: {final_status.value} — {len(all_quotes)} quote(s)")
-
-        except BaseException as e:
-            print(f"[JOB] {carrier_code} error: {e}")
+            connector = None
             try:
-                await session.rollback()
-            except Exception:
-                pass
-            async with get_async_session_maker()() as err_session:
-                err_db_result = (await err_session.execute(result_query)).scalar_one_or_none()
-                if err_db_result:
-                    if isinstance(e, asyncio.CancelledError):
-                        err_db_result.status = CarrierResultStatus.FAILED.value
-                        err_db_result.error_message = "Search forcefully stopped by user"
+                # Get the connector (mock or live based on env)
+                connector = get_connector(carrier_code)
+
+                # Set real-time status update callback
+                async def update_status_cb(new_status: CarrierResultStatus):
+                    async with get_async_session_maker()() as cb_session:
+                        cb_result_query = select(CarrierSearchResult).where(
+                            CarrierSearchResult.search_id == search_id,
+                            CarrierSearchResult.carrier == carrier_code,
+                        )
+                        cb_db_result = (await cb_session.execute(cb_result_query)).scalar_one_or_none()
+                        if cb_db_result:
+                            cb_db_result.status = new_status.value
+                            await cb_session.commit()
+                            print(f"[JOB] Real-time status update for {carrier_code}: {new_status.value}")
+
+                connector.status_update_callback = update_status_cb
+
+                # Run searches sequentially for each container type in request.container_types
+                all_quotes = []
+                final_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
+                
+                c_types = request.container_types or [request.container_type]
+                
+                for c_index, c_type in enumerate(c_types):
+                    print(f"[JOB] {carrier_code}: starting cycle {c_index + 1}/{len(c_types)} for container type {c_type}")
+                    # Update status in database to show which type we are searching
+                    async with get_async_session_maker()() as cb_session:
+                        cb_db_result = (await cb_session.execute(result_query)).scalar_one_or_none()
+                        if cb_db_result:
+                            cb_db_result.status = f"RUNNING ({c_type})"
+                            await cb_session.commit()
+
+                    # Create request copy for this container type
+                    req_copy = request.model_copy(update={"container_type": c_type})
+                    
+                    # Run the full search flow
+                    status, quotes = await connector.run_full_search(req_copy)
+                    
+                    # Inject the current cycle container type into each quote schema if not already set
+                    for q in quotes:
+                        if not q.container_type:
+                            q.container_type = c_type
+                    
+                    # Add the quotes to our list
+                    all_quotes.extend(quotes)
+                    
+                    # Determine final status
+                    if status == CarrierResultStatus.AVAILABLE_QUOTES_FOUND or (quotes and len(quotes) > 0):
+                        final_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                    elif status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
+                        if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                            final_status = CarrierResultStatus.CONNECTOR_NOT_AVAILABLE
+                    elif status == CarrierResultStatus.SERVICE_UNAVAILABLE:
+                        if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                            final_status = CarrierResultStatus.SERVICE_UNAVAILABLE
+                    elif status == CarrierResultStatus.FAILED:
+                        if final_status not in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.CONNECTOR_NOT_AVAILABLE):
+                            final_status = CarrierResultStatus.FAILED
                     else:
-                        err_db_result.status = CarrierResultStatus.UNKNOWN_ERROR.value
-                        err_db_result.error_message = str(e)
-                    err_db_result.completed_at = datetime.utcnow()
-                    await err_session.commit()
-            if isinstance(e, asyncio.CancelledError):
-                raise
-            print(f"[JOB] {carrier_code} error: {e}")
-        finally:
-            if connector:
+                        # Keep existing final_status if it's already successful/partially successful
+                        pass
+
+                # Update carrier result status and completed timestamp
+                db_result.status = final_status.value
+                db_result.completed_at = datetime.utcnow()
+
+                # Resolve system-level ports for observability
+                orig_matches = search_port(request.origin)
+                res_orig_name = orig_matches[0]["name"] if orig_matches else request.origin
+                res_orig_locode = orig_matches[0]["code"] if orig_matches else None
+
+                dest_matches = search_port(request.destination)
+                res_dest_name = dest_matches[0]["name"] if dest_matches else request.destination
+                res_dest_locode = dest_matches[0]["code"] if dest_matches else None
+
+                submitted_orig = getattr(connector, "submitted_origin", None) or request.origin
+                submitted_dest = getattr(connector, "submitted_destination", None) or request.destination
+                matched_orig = getattr(connector, "matched_origin", None)
+                matched_dest = getattr(connector, "matched_destination", None)
+
+                orig_mismatch = _detect_port_mismatch(res_orig_name, res_orig_locode, matched_orig)
+                dest_mismatch = _detect_port_mismatch(res_dest_name, res_dest_locode, matched_dest)
+
+                if orig_mismatch is True or dest_mismatch is True:
+                    has_port_mismatch = True
+                    warnings = []
+                    if orig_mismatch is True:
+                        warnings.append(f"Origin mismatch: carrier matched '{matched_orig}' vs requested '{res_orig_name}' ({res_orig_locode or 'no LOCODE'})")
+                    if dest_mismatch is True:
+                        warnings.append(f"Destination mismatch: carrier matched '{matched_dest}' vs requested '{res_dest_name}' ({res_dest_locode or 'no LOCODE'})")
+                    mismatch_warning = "⚠️ " + "; ".join(warnings)
+                elif orig_mismatch is False and dest_mismatch is False:
+                    has_port_mismatch = False
+                    mismatch_warning = None
+                else:
+                    has_port_mismatch = None  # UNKNOWN / Could Not Verify
+                    mismatch_warning = "Port match status: Could not verify (matched port string not returned by carrier)"
+
+                db_result.raw_origin_input = request.origin
+                db_result.raw_destination_input = request.destination
+                db_result.resolved_origin_name = res_orig_name
+                db_result.resolved_origin_locode = res_orig_locode
+                db_result.resolved_destination_name = res_dest_name
+                db_result.resolved_destination_locode = res_dest_locode
+                db_result.submitted_origin = submitted_orig
+                db_result.submitted_destination = submitted_dest
+                db_result.matched_origin = matched_orig
+                db_result.matched_destination = matched_dest
+                db_result.has_port_mismatch = has_port_mismatch
+                db_result.mismatch_warning = mismatch_warning
+
+                if final_status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
+                    db_result.error_message = f"Connector for {carrier_code} is not yet implemented"
+                elif final_status == CarrierResultStatus.SERVICE_UNAVAILABLE:
+                    db_result.error_message = f"Carrier service/website for {carrier_code} is currently unavailable (maintenance or downtime)"
+
+                # Persist quotes
+                for q in all_quotes:
+                    ft_val = str(q.free_time).strip() if q.free_time is not None else None
+
+                    db_quote = Quote(
+                        carrier_result_id=db_result.id,
+                        carrier=carrier_code,
+                        etd=q.etd,
+                        eta=q.eta,
+                        transit_time_days=q.transit_time_days,
+                        service_name=q.service_name,
+                        vessel=q.vessel,
+                        container_type=q.container_type,
+                        container_quantity=q.container_quantity,
+                        currency=q.currency,
+                        basic_ocean_freight=q.basic_ocean_freight,
+                        discount=q.discount,
+                        final_freight_value=q.final_freight_value,
+                        validity_till=q.validity_till,
+                        free_time=ft_val,
+                        demurrage=q.demurrage,
+                        detention=q.detention,
+                        raw_data_json={
+                            "source": q.source, 
+                            "ref": q.raw_reference,
+                            "routing": q.routing,
+                            "free_time": q.free_time,
+                            "demurrage": q.demurrage,
+                            "detention": q.detention
+                        },
+                    )
+                    session.add(db_quote)
+                    await session.flush()  # Get the quote ID
+
+                    # Persist included surcharges
+                    for charge in q.included_freight_surcharges:
+                        session.add(QuoteCharge(
+                            quote_id=db_quote.id,
+                            charge_name=charge.name,
+                            amount=charge.amount,
+                            currency=charge.currency,
+                            category="FREIGHT_SURCHARGE_INCLUDED",
+                            included_in_final_value=True,
+                            reason=charge.reason,
+                        ))
+
+                    # Persist excluded charges
+                    for charge in q.excluded_charges:
+                        session.add(QuoteCharge(
+                            quote_id=db_quote.id,
+                            charge_name=charge.name,
+                            amount=charge.amount,
+                            currency=charge.currency,
+                            category=charge.category or "ORIGIN_CHARGE_EXCLUDED",
+                            included_in_final_value=False,
+                            reason=charge.reason,
+                        ))
+
+                    # Persist uncertain charges
+                    for charge in q.uncertain_charges:
+                        session.add(QuoteCharge(
+                            quote_id=db_quote.id,
+                            charge_name=charge.name,
+                            amount=charge.amount,
+                            currency=charge.currency,
+                            category="UNCERTAIN_EXCLUDED",
+                            included_in_final_value=False,
+                            reason=charge.reason,
+                        ))
+
+                    # Persist BOF and discount as charges too
+                    if q.basic_ocean_freight:
+                        session.add(QuoteCharge(
+                            quote_id=db_quote.id,
+                            charge_name="Basic Ocean Freight",
+                            amount=q.basic_ocean_freight,
+                            currency=q.currency,
+                            category="BASIC_OCEAN_FREIGHT",
+                            included_in_final_value=True,
+                            reason="Basic ocean freight charge",
+                        ))
+
+                    if q.discount:
+                        session.add(QuoteCharge(
+                            quote_id=db_quote.id,
+                            charge_name="Discount",
+                            amount=q.discount,
+                            currency=q.currency,
+                            category="DISCOUNT",
+                            included_in_final_value=True,
+                            reason="Discount/rebate",
+                        ))
+
+                await session.commit()
+                print(f"[JOB] {carrier_code}: {final_status.value} — {len(all_quotes)} quote(s)")
+
+            except BaseException as e:
+                print(f"[JOB] {carrier_code} error: {e}")
                 try:
-                    await connector.close()
-                    print(f"[JOB] Successfully closed connector browser for {carrier_code}")
-                except Exception as ce:
-                    print(f"[JOB] Error closing connector browser for {carrier_code}: {ce}")
+                    await session.rollback()
+                except Exception:
+                    pass
+                async with get_async_session_maker()() as err_session:
+                    err_db_result = (await err_session.execute(result_query)).scalar_one_or_none()
+                    if err_db_result:
+                        if isinstance(e, asyncio.CancelledError):
+                            err_db_result.status = CarrierResultStatus.FAILED.value
+                            err_db_result.error_message = "Search forcefully stopped by user"
+                        else:
+                            err_db_result.status = CarrierResultStatus.UNKNOWN_ERROR.value
+                            err_db_result.error_message = str(e)
+                        err_db_result.completed_at = datetime.utcnow()
+                        await err_session.commit()
+                if isinstance(e, asyncio.CancelledError):
+                    raise
+                print(f"[JOB] {carrier_code} error: {e}")
+            finally:
+                if connector:
+                    try:
+                        await connector.close()
+                        print(f"[JOB] Successfully closed connector browser for {carrier_code}")
+                    except Exception as ce:
+                        print(f"[JOB] Error closing connector browser for {carrier_code}: {ce}")
 
 
 async def update_search_status(search_id: UUID):
