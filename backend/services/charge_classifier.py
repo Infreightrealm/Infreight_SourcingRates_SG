@@ -139,6 +139,8 @@ def classify_charge(
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Operational Cost Recovery override to freight surcharge included"
     if "inland haulage" in name_clean or "haulage export" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Inland Haulage Export override to freight surcharge included"
+    if "transport additional" in name_clean:
+        return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Transport Additional override to freight surcharge included"
     if "emergency surcharge" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Surcharge override to freight surcharge"
     if "premium cargo service" in name_clean:
@@ -366,7 +368,9 @@ def classify_charge(
 
     # ── OVERRIDE BY SECTION HEADING (FALLBACK) ────────────────
     if section:
-        if "freight" in section:
+        if "surcharges" in section or "surcharge" in section:
+            return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Forced by section header: '{section_heading}'"
+        elif "freight" in section:
             return ChargeCategory.BASIC_OCEAN_FREIGHT, f"Forced by section header: '{section_heading}'"
         elif "origin" in section or "export" in section:
             return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, f"Forced by section header: '{section_heading}'"

@@ -3420,20 +3420,20 @@ class HapagLloydConnector(BaseCarrierConnector):
                     const firstCellText = (idx_name !== -1 && cells[idx_name]) ? cells[idx_name].textContent.trim() : "";
                     const lowerText = firstCellText.toLowerCase();
                     
-                    if (lowerText.includes("export surcharges") || lowerText.includes("export surcharge") || lowerText.includes("export")) {
+                    if (lowerText.includes("export surcharges") || lowerText.includes("export surcharge")) {
                         currentSection = "export_surcharges";
                         continue;
                     }
-                    if (lowerText.includes("import surcharges") || lowerText.includes("import surcharge") || lowerText.includes("import")) {
+                    if (lowerText.includes("import surcharges") || lowerText.includes("import surcharge")) {
                         currentSection = "import_surcharges";
+                        continue;
+                    }
+                    if (lowerText.includes("freight surcharges") || lowerText.includes("freight surcharge") || lowerText.trim() === "surcharges" || lowerText === "surcharges") {
+                        currentSection = "surcharges";
                         continue;
                     }
                     if (lowerText.includes("freight charges") || lowerText.includes("freight charge")) {
                         currentSection = "freight_charges";
-                        continue;
-                    }
-                    if (lowerText.includes("freight surcharges") || lowerText.includes("freight surcharge") || lowerText === "surcharges") {
-                        currentSection = "surcharges";
                         continue;
                     }
                     
@@ -3504,7 +3504,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                         let determinedCategory = null;
                         const nameClean = name.toLowerCase().replace(/\s+/g, " ");
-                        if (/origin\s*landfreight\s*rail|landfreight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail/.test(nameClean)) {
+                        if (/origin\s*landfreight\s*rail|landfreight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail|emergency\s*operational|inland\s*haulage/.test(nameClean)) {
                             determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
                         } else if (currentSection === "freight_charges") determinedCategory = "BASIC_OCEAN_FREIGHT";
                         else if (currentSection === "surcharges") determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
