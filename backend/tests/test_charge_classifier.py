@@ -136,6 +136,17 @@ def test_hapag_origin_rail_charges_surcharge_override():
     assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
 
 
+def test_maersk_inland_haulage_and_emergency_operational_cost_override():
+    cat, _ = classify_charge("Emergency Operational Cost recovery", 200, "freight charges")
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+    cat, _ = classify_charge("Inland Haulage Export", 108, "origin charges")
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+    cat, _ = classify_charge("Inland Haulage", 135, "origin charges")
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+
 if __name__ == "__main__":
     test_basic_ocean_freight()
     test_discount()
@@ -147,4 +158,5 @@ if __name__ == "__main__":
     test_section_override_precedence()
     test_short_keyword_boundaries()
     test_hapag_origin_rail_charges_surcharge_override()
+    test_maersk_inland_haulage_and_emergency_operational_cost_override()
     print("All charge classifier tests passed!")

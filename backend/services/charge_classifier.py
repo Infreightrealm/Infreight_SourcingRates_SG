@@ -135,6 +135,10 @@ def classify_charge(
 
     # ── SPECIAL OVERRIDES ────────────────────────────────────
     name_clean = " ".join(name_lower.split())
+    if "emergency operational" in name_clean or "operational cost recovery" in name_clean or "emergency operational cost" in name_clean:
+        return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Operational Cost Recovery override to freight surcharge included"
+    if "inland haulage" in name_clean or "haulage export" in name_clean:
+        return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Inland Haulage Export override to freight surcharge included"
     if "emergency surcharge" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Surcharge override to freight surcharge"
     if "premium cargo service" in name_clean:
