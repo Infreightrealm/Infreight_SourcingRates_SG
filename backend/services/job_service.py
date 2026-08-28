@@ -140,8 +140,11 @@ async def run_carrier_search(
     """
     Run a single carrier search job.
     Updates the CarrierSearchResult record throughout.
+    Uses per-carrier lock to prevent profile collisions across concurrent searches.
     """
-    async with get_async_session_maker()() as session:
+    carrier_lock = queue_manager.get_carrier_lock(carrier_code)
+    async with carrier_lock:
+        async with get_async_session_maker()() as session:
         # Find the carrier result record
         result_query = select(CarrierSearchResult).where(
             CarrierSearchResult.search_id == search_id,
@@ -575,12 +578,14 @@ async def run_vertical_batch_searches(
 
     async def run_carrier_batch(carrier_code: str):
         async with semaphore:
-            connector = get_connector(carrier_code)
-            if not connector:
-                print(f"[VERTICAL BATCH] No connector for {carrier_code}")
-                return
+            carrier_lock = queue_manager.get_carrier_lock(carrier_code)
+            async with carrier_lock:
+                connector = get_connector(carrier_code)
+                if not connector:
+                    print(f"[VERTICAL BATCH] No connector for {carrier_code}")
+                    return
 
-            print(f"[VERTICAL BATCH] [{carrier_code}] Persistent Session Started (Concurrency limit={max_concurrency})")
+                print(f"[VERTICAL BATCH] [{carrier_code}] Persistent Session Started (Concurrency limit={max_concurrency})")
 
             async def route_progress_callback(idx: int, req: RateSearchRequest, status: CarrierResultStatus, quotes: list[QuoteSchema]):
                 # Find matching search_id for this route index

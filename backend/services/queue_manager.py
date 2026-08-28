@@ -28,7 +28,15 @@ class SearchQueueManager:
         self.queue: List[str] = []
         self.queue_info: Dict[str, str] = {}
         self.search_completion_time: Dict[str, datetime] = {}
+        self.carrier_locks: Dict[str, asyncio.Lock] = {}
         self._initialized = True
+
+    def get_carrier_lock(self, carrier_code: str) -> asyncio.Lock:
+        """Returns or creates an asyncio.Lock for a specific carrier code to prevent profile collisions."""
+        code = carrier_code.upper()
+        if code not in self.carrier_locks:
+            self.carrier_locks[code] = asyncio.Lock()
+        return self.carrier_locks[code]
 
     async def enqueue_and_wait(self, search_id: str, search_info: str) -> None:
         """
