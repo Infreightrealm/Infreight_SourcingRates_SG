@@ -20,12 +20,13 @@ async def test_hapag():
     try:
         request = RateSearchRequest(
             origin="SGSIN",
-            destination="VNSGN",
+            destination="DEHAM",
             container_type="DRY 40H",
             container_quantity=2,
             weight_per_container_kg=20000,
             departure_date="tomorrow",
-            carriers=["HAPAG_LLOYD"]
+            carriers=["HAPAG_LLOYD"],
+            hapag_region="US_CA"
         )
 
         print(f"Running full search flow for request: {request.origin} -> {request.destination}...")

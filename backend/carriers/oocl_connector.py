@@ -76,8 +76,7 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
         override = resolve_port_for_carrier(text, "oocl")
         if override and override.strip().lower() != text.strip().lower():
             print(f"[OOCL] [PORT OVERRIDE MATCHED] Input '{text}' -> Override '{override}'")
-            clean_override = re.sub(r'^\[.*?\]\s*', '', override).strip()
-            locode_match = re.search(r'\[\s*([A-Za-z]{5})\s*\]', text) or re.search(r'\b([A-Za-z]{5})\b', text) or re.search(r'\b([A-Za-z]{5})\b', override)
+            locode_match = re.search(r'\[\s*([A-Za-z]{5})\s*\]', text) or re.search(r'\[\s*([A-Za-z]{5})\s*\]', override) or re.search(r'\b([A-Za-z]{5})\b', text) or re.search(r'\b([A-Za-z]{5})\b', override)
             resolved_locode = locode_match.group(1).upper() if locode_match else ""
             if not resolved_locode:
                 from services.port_manager import search_port
@@ -87,6 +86,13 @@ def resolve_oocl_port_info(text: str) -> tuple[str, str, str, str]:
             port_data = PortManager().get_port_by_code(resolved_locode) if resolved_locode else None
             c_code = port_data.get("country", "").upper() if port_data else ""
             c_name = COUNTRY_CODE_TO_NAME.get(c_code, "") if c_code else ""
+
+            # Clean override: remove brackets [MYPKG], parentheses (MYPKG) and trailing country for typing
+            clean_override = re.sub(r'\[.*?\]', '', override)
+            clean_override = re.sub(r'\(.*?\)', '', clean_override).strip()
+            if "," in clean_override:
+                clean_override = clean_override.split(",")[0].strip()
+
             return clean_override, resolved_locode, c_code, c_name
     except Exception as e:
         print(f"[OOCL] Dynamic override lookup note: {e}")
@@ -877,10 +883,22 @@ class OOCLConnector(BaseCarrierConnector):
             await self._fs_dismiss_modals(page, lock=lock)
 
             # Suggestions render as list rows
-            options = page.locator('.ant-popover:not(.ant-popover-hidden) .location-item, .ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')
+            options = page.locator(
+                '.ant-popover:not(.ant-popover-hidden) .location-item, '
+                '.ant-popover:not(.ant-popover-hidden) .location-text, '
+                '.overlay-popover-wrap .location-item, '
+                '.overlay-popover-wrap .location-text, '
+                '.location-tips .location-item, '
+                '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'
+            )
             if await options.count() == 0:
                 # Fallback: Find list items or divs inside the open popover (no anchor text dependency)
-                options = page.locator('.ant-popover:not(.ant-popover-hidden) li, .ant-popover:not(.ant-popover-hidden) div, .ant-popover:not(.ant-popover-hidden) [role="option"]')
+                options = page.locator(
+                    '.ant-popover:not(.ant-popover-hidden) li, '
+                    '.ant-popover:not(.ant-popover-hidden) div, '
+                    '.overlay-popover-wrap div, '
+                    '.ant-popover:not(.ant-popover-hidden) [role="option"]'
+                )
                 
             best = None
             try:
@@ -1184,29 +1202,34 @@ class OOCLConnector(BaseCarrierConnector):
                 await page.wait_for_timeout(500)
 
             try:
-                await details_btn.click(timeout=4000)
-            except Exception:
-                print("[OOCL] Standard Details click blocked; triggering JS click fallback...")
                 await details_btn.evaluate("el => el.click()")
+            except Exception:
+                try:
+                    await details_btn.click(timeout=2000)
+                except Exception:
+                    pass
                 
             print("[OOCL] Clicked Details button.")
 
             # 3. Wait for the details dialog to load
-            dialog = page.locator('.el-dialog, [role="dialog"]').first
-            await dialog.wait_for(state="visible", timeout=8000)
+            dialog = page.locator('.ant-modal, .el-dialog, [role="dialog"], .ant-modal-content').first
+            await dialog.wait_for(state="visible", timeout=4000)
             print("[OOCL] Details dialog appeared.")
 
             # 4. Click the "Charge Breakdown" tab
-            tab_sel = '.el-dialog__body .el-tabs__item:has-text("Charge Breakdown"), [role="tab"]:has-text("Charge Breakdown")'
+            tab_sel = '.ant-tabs-tab:has-text("Charge Breakdown"), .el-tabs__item:has-text("Charge Breakdown"), [role="tab"]:has-text("Charge Breakdown")'
             tab_btn = page.locator(tab_sel).first
-            await tab_btn.wait_for(state="visible", timeout=5000)
-            await tab_btn.click()
-            print("[OOCL] Clicked Charge Breakdown tab.")
-            await page.wait_for_timeout(2000) # Wait 2s for breakdown content to load
+            try:
+                if await tab_btn.is_visible(timeout=2000):
+                    await tab_btn.evaluate("el => el.click()")
+                    print("[OOCL] Clicked Charge Breakdown tab.")
+                    await page.wait_for_timeout(1000) # Wait 1s for breakdown content to load
+            except Exception:
+                pass
 
             # 5. Extract charges from the breakdown table inside the dialog
             extracted = await page.evaluate(r"""() => {
-                const tableRows = Array.from(document.querySelectorAll('.el-dialog tr, [role="dialog"] tr'));
+                const tableRows = Array.from(document.querySelectorAll('.ant-modal tr, .el-dialog tr, [role="dialog"] tr, .ant-table-row'));
                 let currentCode = "";
                 let currentName = "";
                 const results = [];
@@ -1303,9 +1326,9 @@ class OOCLConnector(BaseCarrierConnector):
         finally:
             # Always attempt to close the dialog to prevent overlay blocking
             try:
-                close_btn = page.locator('.el-dialog__headerbtn, button:has-text("Close"), button:has-text("Cancel")').first
+                close_btn = page.locator('.ant-modal-close, [aria-label="close" i], [aria-label="Close" i], .el-dialog__headerbtn, button:has-text("Close"), button:has-text("Cancel")').first
                 if await close_btn.is_visible(timeout=1000):
-                    await close_btn.click()
+                    await close_btn.evaluate("el => el.click()")
             except Exception:
                 try:
                     await page.keyboard.press("Escape")
@@ -1313,8 +1336,9 @@ class OOCLConnector(BaseCarrierConnector):
                     pass
             # Wait for dialog to be hidden
             try:
-                await page.locator('.el-dialog:visible, [role="dialog"]:visible').wait_for(state="hidden", timeout=5000)
+                await page.locator('.ant-modal:visible, .el-dialog:visible, [role="dialog"]:visible').wait_for(state="hidden", timeout=3000)
             except Exception:
+                pass
                 pass
             await page.wait_for_timeout(500)
 
@@ -1374,20 +1398,25 @@ class OOCLConnector(BaseCarrierConnector):
         seen = set()
 
         for c_idx in range(container_count):
-            container = containers.nth(c_idx)
-            
-            # Check if this container is an E-Spot container
-            container_text = await container.inner_text()
+            try:
+                container = containers.nth(c_idx)
+                container_text = await container.inner_text(timeout=3000)
+            except Exception:
+                continue
+
             is_espot = ("smart uno" in container_text.lower() or 
                         "smart combo" in container_text.lower() or 
                         "e-spot" in container_text.lower())
             
             # 1. Parse the main/first card in this container to extract header info
-            first_card = container.locator('.product-card').first
-            if not await first_card.is_visible():
+            try:
+                first_card = container.locator('.product-card').first
+                if not await first_card.is_visible(timeout=2000):
+                    continue
+                first_text = await first_card.inner_text(timeout=3000)
+            except Exception:
                 continue
-                
-            first_text = await first_card.inner_text()
+
             first_parsed = self._fs_parse_card(first_text, active_date=active_date)
             if not first_parsed:
                 continue
@@ -1405,12 +1434,18 @@ class OOCLConnector(BaseCarrierConnector):
             
             # 2. Parse all product-cards inside this container (which represent the sub-rows)
             sub_cards = container.locator('.product-card')
-            sub_count = await sub_cards.count()
+            try:
+                sub_count = await sub_cards.count()
+            except Exception:
+                sub_count = 0
             
             parsed_cards = []
             for s_idx in range(sub_count):
-                card = sub_cards.nth(s_idx)
-                card_text = await card.inner_text()
+                try:
+                    card = sub_cards.nth(s_idx)
+                    card_text = await card.inner_text(timeout=3000)
+                except Exception:
+                    continue
                 parsed = self._fs_parse_card(card_text, active_date=active_date)
                 if not parsed:
                     continue
@@ -1734,21 +1769,24 @@ class OOCLConnector(BaseCarrierConnector):
                 continue
 
             # Extract rows for this date
-            date_rows = await self._fs_extract_rows(page)
-            for r in date_rows:
-                r_copy = dict(r)
-                if r_copy.get("kind") != "E-Spot":
-                    r_copy["etd"] = target_date_str  # stamp E-Quote with the clicked date
-                key = (
-                    r_copy.get("kind"),
-                    r_copy.get("etd"),
-                    r_copy.get("free_time"),
-                    tuple(sorted(r_copy.get("prices", {}).items())),
-                )
-                if key in seen_keys:
-                    continue
-                seen_keys.add(key)
-                all_rows.append(r_copy)
+            try:
+                date_rows = await self._fs_extract_rows(page)
+                for r in date_rows:
+                    r_copy = dict(r)
+                    if r_copy.get("kind") != "E-Spot":
+                        r_copy["etd"] = target_date_str  # stamp E-Quote with the clicked date
+                    key = (
+                        r_copy.get("kind"),
+                        r_copy.get("etd"),
+                        r_copy.get("free_time"),
+                        tuple(sorted(r_copy.get("prices", {}).items())),
+                    )
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+                    all_rows.append(r_copy)
+            except Exception as e:
+                print(f"[OOCL] [FS] Error extracting rows for {target_date_str}: {e}")
 
         print(
             f"[OOCL] [FS] Calendar iteration complete â€” "
@@ -2034,15 +2072,30 @@ class OOCLConnector(BaseCarrierConnector):
     def _serve_for_cycle(self, request: RateSearchRequest) -> list[QuoteSchema]:
         """
         Serves one container-type cycle from the cached merged quote set:
-          - FreightSmart-priced quotes carry a real container_type â†’ return only the
+          - FreightSmart-priced quotes carry a real container_type -> return only the
             ones matching this cycle's requested type.
-          - Schedule-only quotes are untyped (container_type=None) â†’ serve a deep copy
+          - Schedule-only quotes are untyped (container_type=None) -> serve a deep copy
             stamped with the requested type (previous behavior).
         """
+        def _norm_ct(c: Optional[str]) -> str:
+            if not c:
+                return ""
+            s = c.upper().replace("'", "").replace(" ", "").replace("_", "")
+            if s in ("20GP", "20FT", "20STD", "DRY20", "20"):
+                return "20GP"
+            if s in ("40GP", "40FT", "40STD", "DRY40", "40"):
+                return "40GP"
+            if s in ("40HQ", "40HC", "40HIGH", "DRY40H", "DRY40HC", "40H"):
+                return "40HQ"
+            return s
+
+        req_ct_norm = _norm_ct(request.container_type)
+
         out: list[QuoteSchema] = []
         for q in self._cached_quotes:
-            if q.container_type == request.container_type:
-                out.append(q.model_copy(deep=True))
+            q_ct_norm = _norm_ct(q.container_type)
+            if q_ct_norm and q_ct_norm == req_ct_norm:
+                out.append(q.model_copy(deep=True, update={"container_type": request.container_type}))
             elif not q.container_type:
                 out.append(q.model_copy(deep=True, update={"container_type": request.container_type}))
         return out

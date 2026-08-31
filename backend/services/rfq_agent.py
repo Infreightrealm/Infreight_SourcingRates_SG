@@ -1233,7 +1233,7 @@ async def parse_rfq(
     is_test_env = "PYTEST_CURRENT_TEST" in os.environ or os.getenv("USE_MOCK_CARRIERS", "false").lower() in ("true", "1", "yes")
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    if (is_mock_env or is_test_env) and not gemini_key:
+    if is_mock_env or (is_test_env and not gemini_key):
         print("[RFQ Agent] Using mock parser (RFQ_AGENT_MOCK or test environment active)")
         return _run_mock_parse(raw_text or "image input", current_date_str)
 
