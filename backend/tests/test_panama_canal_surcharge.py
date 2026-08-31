@@ -40,6 +40,8 @@ def test_normalizer_panama_canal_surcharge():
 
 def test_msc_charge_extraction_logic():
     """Verify MSC charge extraction logic parses Panama Canal Surcharge properly."""
+    from carriers.msc_connector import parse_msc_modal_charges
+
     popup_text = """
 FREIGHT CHARGE
 Sea Freight (FRT) Per Equipment 2500 USD Prepaid, Collect, Elsewhere
@@ -50,71 +52,16 @@ Emission control areas [ECA] Per Equipment 15 USD Prepaid, Collect, Elsewhere
 EXPORT SURCHARGES
 Panama Canal Surcharge [PCS] Per Equipment 149 USD Prepaid, Collect, Elsewhere
 Terminal handling charge [THC] Per Equipment 245 SGD Prepaid, Collect, Elsewhere
-""".replace('\n', ' ').upper()
-
-    def extract_section(txt, current_header, next_headers):
-        start = txt.find(current_header)
-        if start == -1: return ""
-        end_indices = [txt.find(h) for h in next_headers if txt.find(h) > start]
-        end = min(end_indices) if end_indices else len(txt)
-        return txt[start:end]
-
-    sections = {
-        "FREIGHT CHARGE": ["FREIGHT SURCHARGES", "EXPORT SURCHARGES", "IMPORT SURCHARGES"],
-        "FREIGHT SURCHARGES": ["EXPORT SURCHARGES", "IMPORT SURCHARGES"],
-        "EXPORT SURCHARGES": ["IMPORT SURCHARGES"],
-        "IMPORT SURCHARGES": ["TOTAL", "SUBJECT TO CHARGES"]
-    }
-
-    charges = []
-    total_freight = 0.0
-    bof_value = 0.0
-
-    pattern = r"(.*?)(?:PER EQUIPMENT|PER BILL OF LADING|PER CONTAINER|PER TEU|PER 20'|PER 40'|PER 45FT|PER 45')\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s*(?:PREPAID|COLLECT)?"
-
-    for section_name, next_headers in sections.items():
-        section_text = extract_section(popup_text, section_name, next_headers)
-        if not section_text: continue
-
-        for match in re.finditer(pattern, section_text, re.DOTALL):
-            raw_name = match.group(1).strip()
-            clean_name = re.sub(r"^(?:,\s*ELSEWHERE|,\s*COLLECT|,\s*PREPAID|COLLECT|PREPAID)+", "", raw_name).strip()
-            clean_name = re.sub(r"^(?:FREIGHT CHARGE|FREIGHT SURCHARGES|EXPORT SURCHARGES|IMPORT SURCHARGES)", "", clean_name).strip()
-            clean_name = re.sub(r"^(?:MUST FOLLOW SAME TERMS OF PAYMENT AS FREIGHT\.?|COLLECT TERMS OF PAYMENT ONLY\.?|PREPAID TERMS OF PAYMENT ONLY\.?|TERMS OF PAYMENT ONLY\.?|ELSEWHERE\.?)", "", clean_name).strip(" ,.")
-            clean_name = re.sub(r".*?(MUST FOLLOW SAME TERMS OF PAYMENT AS FREIGHT\.?|COLLECT TERMS OF PAYMENT ONLY\.?|PREPAID TERMS OF PAYMENT ONLY\.?|TERMS OF PAYMENT ONLY\.?)\s*", "", clean_name).strip(" ,.")
-
-            if not clean_name: continue
-
-            val = float(match.group(2).replace(",", ""))
-            curr = match.group(3)
-
-            formatted_name = clean_name.title()
-            formatted_name = re.sub(r'\[([a-zA-Z0-9]+)\]', lambda m: f'[{m.group(1).upper()}]', formatted_name)
-
-            is_cdd = "cargo data declaration" in clean_name.lower() or "[cdd]" in clean_name.lower()
-            is_pcs = any(k in clean_name.lower() for k in ["panama canal", "pcs", "panama"])
-            is_freight_surcharge = (section_name == "FREIGHT SURCHARGES") or is_cdd or is_pcs
-
-            charge_obj = {
-                "name": formatted_name,
-                "amount": val,
-                "currency": curr,
-                "category": "bof" if section_name == "FREIGHT CHARGE" else ("included" if is_freight_surcharge else "excluded")
-            }
-
-            if section_name == "FREIGHT CHARGE":
-                bof_value += val
-                total_freight += val
-            elif is_freight_surcharge:
-                total_freight += val
-
-            charges.append(charge_obj)
+"""
+    charges, total_freight, bof_value, currency = parse_msc_modal_charges(popup_text)
 
     included_surcharges = [c for c in charges if c["category"] == "included"]
     assert len(included_surcharges) == 2  # ECA and PCS
-    pcs_charge = next(c for c in included_surcharges if "Pcs" in c["name"] or "Panama" in c["name"])
+    pcs_charge = next(c for c in included_surcharges if "PCS" in c["name"] or "Panama" in c["name"])
     assert pcs_charge["amount"] == 149.0
     assert total_freight == 2500 + 15 + 149  # 2664.0
+    assert bof_value == 2500.0
+
 
 
 @pytest.mark.asyncio

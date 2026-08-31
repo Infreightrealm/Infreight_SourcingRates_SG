@@ -31,6 +31,112 @@ def format_to_iso_date(date_str: str) -> Optional[str]:
         
     return date_str
 
+def parse_msc_modal_charges(popup_text: str) -> tuple[list[dict], float, float, str]:
+    """
+    Parses charges from MSC BreakdownModal text.
+    Correctly includes charges whose Comments & Conditions require 'Must follow same terms of Payment as Freight.'
+    Returns: (charges_list, total_freight, bof_value, currency)
+    """
+    def extract_section(txt: str, current_header: str, next_headers: list[str]) -> str:
+        start = txt.find(current_header)
+        if start == -1:
+            return ""
+        end_indices = [txt.find(h) for h in next_headers if txt.find(h) > start]
+        end = min(end_indices) if end_indices else len(txt)
+        return txt[start:end]
+
+    sections = {
+        "FREIGHT CHARGE": ["FREIGHT SURCHARGES", "EXPORT SURCHARGES", "IMPORT SURCHARGES"],
+        "FREIGHT SURCHARGES": ["EXPORT SURCHARGES", "IMPORT SURCHARGES"],
+        "EXPORT SURCHARGES": ["IMPORT SURCHARGES"],
+        "IMPORT SURCHARGES": ["TOTAL", "SUBJECT TO CHARGES"]
+    }
+
+    pivot_re = re.compile(
+        r"(PER\s+(?:EQUIPMENT|BILL\s+OF\s+LADING|CONTAINER|TEU|20'|40'|45FT|45'|20FT|40HC|BL|B/L|SHIPMENT|20DV|40DV))\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})",
+        re.IGNORECASE
+    )
+
+    clean_header_re = re.compile(
+        r"^(?:FREIGHT CHARGE|FREIGHT SURCHARGES|EXPORT SURCHARGES|IMPORT SURCHARGES)\s*",
+        re.IGNORECASE
+    )
+    clean_prefix_re = re.compile(
+        r"^(?:.*?(?:MUST FOLLOW SAME TERMS OF PAYMENT AS FREIGHT\.?|COLLECT TERMS OF PAYMENT ONLY\.?|PREPAID TERMS OF PAYMENT ONLY\.?|TERMS OF PAYMENT ONLY\.?|ELSEWHERE\.?|PREPAID|COLLECT)\s*)+",
+        re.IGNORECASE
+    )
+
+    charges = []
+    total_freight = 0.0
+    bof_value = 0.0
+    currency = "USD"
+
+    popup_text_upper = popup_text.replace('\n', ' ').upper()
+
+    for section_name, next_headers in sections.items():
+        sec_text = extract_section(popup_text_upper, section_name, next_headers)
+        if not sec_text:
+            continue
+
+        pivots = list(pivot_re.finditer(sec_text))
+        piv_count = len(pivots)
+        if piv_count == 0:
+            continue
+
+        for idx, match in enumerate(pivots):
+            if idx == 0:
+                raw_name = sec_text[:match.start()]
+            else:
+                prev_match = pivots[idx - 1]
+                raw_name = sec_text[prev_match.end():match.start()]
+
+            if idx + 1 < piv_count:
+                next_match = pivots[idx + 1]
+                trailing_text = sec_text[match.end():next_match.start()]
+            else:
+                trailing_text = sec_text[match.end():]
+
+            clean_name = clean_header_re.sub('', raw_name).strip()
+            clean_name = clean_prefix_re.sub('', clean_name).strip(' ,.')
+            clean_name = re.sub(r'^[,\s]+', '', clean_name).strip()
+
+            if not clean_name:
+                continue
+
+            val = float(match.group(2).replace(',', ''))
+            curr = match.group(3)
+
+            formatted_name = clean_name.title()
+            formatted_name = re.sub(r'\[([a-zA-Z0-9]+)\]', lambda m: f'[{m.group(1).upper()}]', formatted_name)
+            formatted_name = re.sub(r'\(([a-zA-Z0-9]+)\)', lambda m: f'({m.group(1).upper()})', formatted_name)
+
+            has_same_payment_terms = bool(re.search(r"same\s+terms\s+of\s+payment\s+as\s+freight", trailing_text, re.IGNORECASE))
+
+            is_cdd = "cargo data declaration" in clean_name.lower() or "[cdd]" in clean_name.lower()
+            is_pcs = any(k in clean_name.lower() for k in ["panama canal", "pcs", "panama"])
+            is_freight_surcharge = (section_name == "FREIGHT SURCHARGES") or is_cdd or is_pcs or has_same_payment_terms
+
+            category = "bof" if section_name == "FREIGHT CHARGE" else ("included" if is_freight_surcharge else "excluded")
+
+            charge_obj = {
+                "name": formatted_name,
+                "amount": val,
+                "currency": curr,
+                "category": category
+            }
+
+            if section_name == "FREIGHT CHARGE":
+                bof_value += val
+                total_freight += val
+                currency = curr
+            elif is_freight_surcharge:
+                total_freight += val
+                currency = curr
+
+            charges.append(charge_obj)
+
+    return charges, total_freight, bof_value, currency
+
 def resolve_msc_port(text: str) -> tuple[str, str]:
 
     """
@@ -512,10 +618,6 @@ class MSCConnector(BaseCarrierConnector):
 
                     # 2. Extract Charges (Tab 1)
                     self.log("Extracting charges...")
-                    charges = []
-                    total_freight = 0.0
-                    bof_value = 0.0
-                    currency = "USD"
                     
                     # Re-resolve modal fresh for EACH card to avoid stale/hidden element hangs
                     modal = self.page.locator("div[data-test-id='BreakdownModal']")
@@ -531,65 +633,13 @@ class MSCConnector(BaseCarrierConnector):
                     except Exception as e:
                         self.log(f"Timed out waiting for charges to render inside modal: {e}")
                     
-                    popup_text = (await modal.inner_text(timeout=15000)).replace('\n', ' ').upper()
+                    popup_text = await modal.inner_text(timeout=15000)
                     self.log(f"Popup text length: {len(popup_text)}")
                     
-                    def extract_section(txt, current_header, next_headers):
-                        start = txt.find(current_header)
-                        if start == -1: return ""
-                        end_indices = [txt.find(h) for h in next_headers if txt.find(h) > start]
-                        end = min(end_indices) if end_indices else len(txt)
-                        return txt[start:end]
-
-                    sections = {
-                        "FREIGHT CHARGE": ["FREIGHT SURCHARGES", "EXPORT SURCHARGES", "IMPORT SURCHARGES"],
-                        "FREIGHT SURCHARGES": ["EXPORT SURCHARGES", "IMPORT SURCHARGES"],
-                        "EXPORT SURCHARGES": ["IMPORT SURCHARGES"],
-                        "IMPORT SURCHARGES": ["TOTAL", "SUBJECT TO CHARGES"]
-                    }
-                    
-                    for section_name, next_headers in sections.items():
-                        section_text = extract_section(popup_text, section_name, next_headers)
-                        if not section_text: continue
-                        
-                        pattern = r"(.*?)(?:PER EQUIPMENT|PER BILL OF LADING|PER CONTAINER|PER TEU|PER 20'|PER 40'|PER 45FT|PER 45')\s+([\d,]+(?:\.\d+)?)\s*([A-Z]{3})\s*(?:PREPAID|COLLECT)?"
-                        
-                        for match in re.finditer(pattern, section_text, re.DOTALL):
-                            raw_name = match.group(1).strip()
-                            clean_name = re.sub(r"^(?:,\s*ELSEWHERE|,\s*COLLECT|,\s*PREPAID|COLLECT|PREPAID)+", "", raw_name).strip()
-                            clean_name = re.sub(r"^(?:FREIGHT CHARGE|FREIGHT SURCHARGES|EXPORT SURCHARGES|IMPORT SURCHARGES)", "", clean_name).strip()
-                            clean_name = re.sub(r"^(?:MUST FOLLOW SAME TERMS OF PAYMENT AS FREIGHT\.?|COLLECT TERMS OF PAYMENT ONLY\.?|PREPAID TERMS OF PAYMENT ONLY\.?|TERMS OF PAYMENT ONLY\.?|ELSEWHERE\.?)", "", clean_name).strip(" ,.")
-                            clean_name = re.sub(r".*?(MUST FOLLOW SAME TERMS OF PAYMENT AS FREIGHT\.?|COLLECT TERMS OF PAYMENT ONLY\.?|PREPAID TERMS OF PAYMENT ONLY\.?|TERMS OF PAYMENT ONLY\.?)\s*", "", clean_name).strip(" ,.")
-                            
-                            if not clean_name: continue
-                            
-                            val = float(match.group(2).replace(",", ""))
-                            curr = match.group(3)
-                            
-                            formatted_name = clean_name.title()
-                            # Preserve uppercase inside brackets like [CDD], [THC], [ECA], [PCS]
-                            formatted_name = re.sub(r'\[([a-zA-Z0-9]+)\]', lambda m: f'[{m.group(1).upper()}]', formatted_name)
-                            
-                            is_cdd = "cargo data declaration" in clean_name.lower() or "[cdd]" in clean_name.lower()
-                            is_pcs = any(k in clean_name.lower() for k in ["panama canal", "pcs", "panama"])
-                            is_freight_surcharge = (section_name == "FREIGHT SURCHARGES") or is_cdd or is_pcs
-
-                            charge_obj = {
-                                "name": formatted_name,
-                                "amount": val,
-                                "currency": curr,
-                                "category": "bof" if section_name == "FREIGHT CHARGE" else ("included" if is_freight_surcharge else "excluded")
-                            }
-                            
-                            if section_name == "FREIGHT CHARGE":
-                                bof_value += val
-                                total_freight += val
-                                currency = curr
-                            elif is_freight_surcharge:
-                                total_freight += val
-                                currency = curr
-                            
-                            charges.append(charge_obj)
+                    charges, total_freight, bof_value, currency = parse_msc_modal_charges(popup_text)
+                    self.log(f"Extracted {len(charges)} charges. BOF: {bof_value} {currency}, Final Freight: {total_freight} {currency}")
+                    for c in charges:
+                        self.log(f"  - [{c.get('category')}] {c.get('name')}: {c.get('amount')} {c.get('currency')}")
                             
                     demurrage = 0
                     detention = 0
