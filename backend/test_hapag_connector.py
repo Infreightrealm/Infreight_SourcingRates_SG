@@ -10,8 +10,14 @@ async def test_hapag():
     from dotenv import load_dotenv
     load_dotenv()
     
-    if not os.getenv("HAPAG_LLOYD_USERNAME") or not os.getenv("HAPAG_LLOYD_PASSWORD"):
-        print("[TEST] [ERROR] HAPAG_LLOYD_USERNAME and HAPAG_LLOYD_PASSWORD must be configured in your environment or a .env file.")
+    has_creds = (
+        (os.getenv("HAPAG_LLOYD_USERNAME") and os.getenv("HAPAG_LLOYD_PASSWORD")) or
+        (os.getenv("HAPAG_LLOYD_USERNAME_ROW") and os.getenv("HAPAG_LLOYD_PASSWORD_ROW")) or
+        (os.getenv("HAPAG_LLOYD_USERNAME_US_CA") and os.getenv("HAPAG_LLOYD_PASSWORD_US_CA")) or
+        (os.getenv("HAPAG_LLOYD_USERNAME_EU") and os.getenv("HAPAG_LLOYD_PASSWORD_EU"))
+    )
+    if not has_creds:
+        print("[TEST] [ERROR] Hapag-Lloyd credentials must be configured in your environment or a .env file.")
         return
 
     print("Initializing HapagLloydConnector...")

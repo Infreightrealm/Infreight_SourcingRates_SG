@@ -44,10 +44,24 @@ class HapagLloydConnector(BaseCarrierConnector):
         self.SEARCH_URL = "https://www.hapag-lloyd.com/en/online-business/quotation/quick-quotes.html"
         self.playwright = None
         self._all_quotes = []
+        self._cached_quotes = []
+        self._cached_status = None
+        self._queried_container_keys = set()
         self.master_profile_dir = None
         self.temp_profile_dir = None
         self.is_login_successful = False
         self._onboarding_dismissed = False
+
+    def _normalize_container_key(self, c_type: Optional[str]) -> str:
+        if not c_type:
+            return "DRY 40H"
+        c = c_type.strip().upper()
+        c_alias = {
+            "20GP": "DRY 20", "20'GP": "DRY 20", "20STD": "DRY 20", "20'STD": "DRY 20", "DRY 20": "DRY 20",
+            "40GP": "DRY 40", "40'GP": "DRY 40", "40STD": "DRY 40", "40'STD": "DRY 40", "DRY 40": "DRY 40",
+            "40HQ": "DRY 40H", "40HC": "DRY 40H", "40'HQ": "DRY 40H", "40'HC": "DRY 40H", "DRY 40H": "DRY 40H"
+        }
+        return c_alias.get(c, "DRY 40H")
 
     async def _check_service_unavailable(self):
         """Checks if Hapag-Lloyd API Gateway has returned 'This service is currently unavailable'."""
@@ -1939,41 +1953,36 @@ class HapagLloydConnector(BaseCarrierConnector):
             # --- CHECK IF ALREADY ON RESULTS PAGE ---
             is_results = False
             try:
-                # Check if departures calendar grid or Price Breakdown button is visible
-                results_el = self.page.locator('text=/\\d{4}-\\d{2}-\\d{2}/, button:has-text("Price Breakdown")').first
-                if await results_el.is_visible(timeout=3000):
+                # Check for elements that ONLY exist on the results / Offer Selection page (and not on the initial search form)
+                results_el = self.page.locator('button:has-text("Price Breakdown"), button:has-text("View Departure Details"), button:has-text("Change Search Criteria")').first
+                if await results_el.is_visible(timeout=1000):
                     is_results = True
-                    print("[HAPAG] Detected that browser is already on the results/Offer Selection page.")
-            except:
-                pass
+                    print("[HAPAG] Detected that browser is currently on the results / Offer Selection page.")
+            except Exception as check_err:
+                print(f"[HAPAG] Results check warning: {check_err}")
                 
             if is_results:
-                print("[HAPAG] Clicking 'Edit' button to expand search form...")
-                edit_selectors = [
-                    'button:has-text("Edit")',
-                    'span:has-text("Edit")',
-                    '.left-panel button',
-                    'div.search-summary button',
-                    'xpath=//button[contains(., "Edit")]'
-                ]
-                
-                edit_clicked = False
-                for sel in edit_selectors:
-                    try:
-                        btn = self.page.locator(sel).first
-                        if await btn.is_visible(timeout=1000):
-                            await btn.click()
-                            print(f"[HAPAG] Clicked Edit button using selector: {sel}")
-                            edit_clicked = True
-                            break
-                    except:
-                        pass
-                        
-                if edit_clicked:
-                    await self._human_delay(1500, 2500)
-                else:
-                    print("[HAPAG] Warning: Edit button not found or not clickable.")
-            
+                print("[HAPAG] Navigating to New Quote form for next container...")
+                try:
+                    # Click Quote sidebar then New Quote
+                    quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+                    if await quote_sidebar.is_visible(timeout=3000):
+                        await quote_sidebar.scroll_into_view_if_needed()
+                        await quote_sidebar.click(force=True)
+                        await self._human_delay(800, 1500)
+
+                    new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+                    if await new_quote_btn.is_visible(timeout=3000):
+                        await new_quote_btn.scroll_into_view_if_needed()
+                        await new_quote_btn.click(force=True)
+                        await self._human_delay(1500, 2500)
+                    else:
+                        await self.page.goto(self.SEARCH_URL, wait_until="domcontentloaded", timeout=30000)
+                        await self._human_delay(1500, 2500)
+
+                    await self._dismiss_hapag_modals()
+                except Exception as nav_err:
+                    print(f"[HAPAG] Navigation warning: {nav_err}")
             # --- START LOCATION (ORIGIN) ---
             if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
                 origin_locode = "NLRTM"
@@ -2015,11 +2024,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await asyncio.sleep(1)
             
             if not start_field:
-                # Before guessing at a random input, rule out the specific failure mode
-                # that caused this: a session-expiry redirect to the login page landing
-                # here mid-wait, after the entry-point check already passed. login() itself
-                # always finishes on the confirmed Quick Quote form, so no extra navigation
-                # is needed on success here (target_url=None).
                 if not await self._ensure_not_stuck_on_login(None, "Quote page"):
                     raise Exception("Redirected to login portal and re-login failed while "
                                      "waiting for Start Location on Quote page.")
@@ -2034,7 +2038,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                         pass
 
             if not start_field:
-                # Absolute fallback: first visible input
                 visible_inputs = self.page.locator('input:visible')
                 if await visible_inputs.count() > 0:
                     start_field = visible_inputs.first
@@ -2109,7 +2112,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                 await asyncio.sleep(1)
             
             if not end_field:
-                # Fallback to second visible input
                 visible_inputs = self.page.locator('input:visible')
                 if await visible_inputs.count() > 1:
                     end_field = visible_inputs.nth(1)
@@ -2164,18 +2166,25 @@ class HapagLloydConnector(BaseCarrierConnector):
             try:
                 container_selectors = [
                     'input.q-select__focus-target',
-                    'xpath=(//input[contains(@class, "q-select__focus-target")])[1]'
+                    'xpath=(//input[contains(@class, "q-select__focus-target")])[1]',
+                    'div[role="combobox"] input',
+                    'div:has-text("Container Type") input'
                 ]
                 container_box = None
-                for sel in container_selectors:
-                    try:
-                        loc = self.page.locator(sel).first
-                        if await loc.is_visible(timeout=1000):
-                            container_box = loc
-                            print(f"[HAPAG] Container select input found using: {sel}")
-                            break
-                    except:
-                        pass
+                for i in range(10):
+                    for sel in container_selectors:
+                        try:
+                            loc = self.page.locator(sel).first
+                            if await loc.is_visible(timeout=300):
+                                container_box = loc
+                                print(f"[HAPAG] Container select input found using: {sel}")
+                                break
+                        except:
+                            pass
+                    if container_box:
+                        break
+                    await asyncio.sleep(0.5)
+
                 if not container_box:
                     container_box = self.page.locator('input.q-select__focus-target').first
 
@@ -3702,14 +3711,18 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
         self.current_request = request
-        if not hasattr(self, "_cached_quotes"):
-            self._cached_quotes = None
+        if not hasattr(self, "_cached_quotes") or self._cached_quotes is None:
+            self._cached_quotes = []
             self._cached_status = None
+            self._queried_container_keys = set()
 
-        if self._cached_quotes is not None:
-            print(f"[HAPAG] Returning cached quotes for '{request.container_type}' (avoiding redundant browser search).")
-            matching_quotes = [q for q in self._cached_quotes if q.container_type == request.container_type]
-            return self._cached_status, matching_quotes
+        norm_req_c = self._normalize_container_key(request.container_type)
+
+        # If this specific container type was already submitted in the search form, return matching quotes from cache
+        if norm_req_c in self._queried_container_keys:
+            print(f"[HAPAG] Returning cached quotes for '{request.container_type}' ({norm_req_c}) (avoiding redundant browser search).")
+            matching_quotes = [q for q in self._cached_quotes if self._normalize_container_key(q.container_type) == norm_req_c]
+            return self._cached_status or CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
 
         quotes: list[QuoteSchema] = []
         
@@ -3726,92 +3739,29 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] Warning: Could not load freetime config: {e}")
 
         try:
-            # Step 1: Login
-            login_ok = await self.login()
-            if not login_ok:
-                self._cached_quotes = []
-                self._cached_status = CarrierResultStatus.LOGIN_FAILED
-                return CarrierResultStatus.LOGIN_FAILED, []
+            # Step 1: Login if not already logged in / session active
+            if not self.is_login_successful or not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                login_ok = await self.login()
+                if not login_ok:
+                    self._cached_status = CarrierResultStatus.LOGIN_FAILED
+                    return CarrierResultStatus.LOGIN_FAILED, []
 
-            # Step 2: Search Sailing Schedules
-            # HAPAG_QUERY_SCHEDULES=false skips the schedule crawl entirely (pricing
-            # only, minutes faster). Quotes then use the default vessel fallback the
-            # unmatched-schedule path already provides.
-            schedules = []
-            if os.getenv("HAPAG_QUERY_SCHEDULES", "true").strip().lower() in ("false", "0", "no"):
-                print("[HAPAG] HAPAG_QUERY_SCHEDULES=false — skipping schedule crawl (pricing matrix only).")
-            else:
-                try:
-                    schedules = await self.search_sailing_schedules(request)
-                except Exception as se:
-                    print(f"[HAPAG] Warning: Schedule crawling failed: {se}")
-
-            # Step 3: Transition to Quote Page (always go via New Quote for a fresh form)
-            print("[HAPAG] Transitioning to Quote page via New Quote...")
-            try:
-                await self.page.goto(self.QUOTE_URL)
-                try:
-                    await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-                except:
-                    pass
-                await self._human_delay(1500, 2500)
-
-                # Check if Quick Quote form is already visible
-                start_input_selector = 'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]'
-                is_form_visible = False
-                try:
-                    is_form_visible = await self.page.locator(start_input_selector).first.is_visible(timeout=2000)
-                except:
-                    pass
-
-                if is_form_visible:
-                    print("[HAPAG] Already on New Quote page after navigation. Skipping sidebar clicks.")
-                else:
-                    print("[HAPAG] Quote form not directly visible. Expanding sidebar menu to click 'New Quote'...")
-                    # Expand Quote sidebar and click New Quote
-                    quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
-                    await quote_sidebar.scroll_into_view_if_needed()
-                    await quote_sidebar.click(force=True)
-                    await self._human_delay(1000, 1800)
-
-                    new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
-                    await new_quote_btn.scroll_into_view_if_needed()
-                    await new_quote_btn.click(force=True)
-                    try:
-                        await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-                    except:
-                        pass
-                    await self._human_delay(2000, 3500)
-                print("[HAPAG] Transitioned to New Quote page.")
-            except Exception as nav_err:
-                print(f"[HAPAG] Transition to New Quote failed: {nav_err}")
-
+            # Step 2: Search quotes directly on New Quote page (no schedule crawl)
             await self._human_delay(1000, 2000)
             await self._dismiss_hapag_modals()
 
-            # Step 4: Search quotes
             search_status = await self.search_quotes(request)
             if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                 self._cached_quotes = []
                 self._cached_status = search_status
                 return search_status, []
 
-            # Step 5: Extract quote list
+            # Step 3: Extract quote list
             raw_quotes = await self.extract_quote_list()
             if not raw_quotes:
                 self._cached_quotes = []
                 self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
-
-            # Step 6: For each schedule, map the corresponding quote price
-            # Filter out past ETDs (departed sailings produce permanent [NO PRICE MATCH] noise)
-            from datetime import date as _date
-            today_str = _date.today().isoformat()  # e.g. '2026-06-11'
-            future_schedules = [s for s in schedules if s.get("etd", "") >= today_str]
-            skipped = len(schedules) - len(future_schedules)
-            if skipped:
-                print(f"[HAPAG] Skipping {skipped} past-ETD schedule(s) (before {today_str}).")
-            schedules = future_schedules
 
             quotes = []
             matched_raw_quote_etds = set()
@@ -3923,12 +3873,6 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             print(f"[HAPAG] Found {len(in_window_quotes)} quote(s) within the window ({start_date} to {horizon}).")
 
-            # Map schedules by ETD for easy lookup
-            sched_by_etd = {}
-            for s in schedules:
-                if s.get("etd") and s["etd"] not in sched_by_etd:
-                    sched_by_etd[s["etd"]] = s
-
             quotes = []
             for raw_quote in in_window_quotes:
                 try:
@@ -3939,8 +3883,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     if opened:
                         raw_charges_dict = await self.extract_charge_breakdown()
 
-                    # Find matching schedule
-                    schedule = sched_by_etd.get(sched_etd)
+                    schedule = None
 
                     for c_type in ["DRY 20", "DRY 40", "DRY 40H"]:
                         is_sold = False
@@ -4005,12 +3948,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                                             normalized.eta = None
                                 except Exception: pass
                         else:
-                            # Fallback if no matching schedule exists (OOCL style)
+                            # Direct Quote Page extraction fallback (no schedule crawl)
                             normalized.vessel = "Hapag Vessel /Performa"
-                            normalized.service_name = "Hapag Service"
-                            normalized.routing = "Direct"
-                            normalized.eta = None
-                            normalized.transit_time_days = None
+                            v_routing = raw_quote.get("via_routing") or getattr(self, "_last_parsed_via_routing", None)
+                            if v_routing:
+                                normalized.routing = v_routing
+                                normalized.service_name = f"Hapag Service (via {v_routing})"
+                            else:
+                                normalized.routing = "Direct"
+                                normalized.service_name = "Hapag Service"
+                            normalized.eta = raw_quote.get("eta") or getattr(self, "_last_parsed_eta", None)
+                            normalized.transit_time_days = raw_quote.get("transit_time_days") or getattr(self, "_last_parsed_transit_time", None)
 
                         # --- FALLBACK TRANSIT TIME & ETA FROM ESTIMATED TRANSPORTATION DAYS ---
                         fallback_tt = getattr(self, "_last_parsed_modal_transit_time", None) or getattr(self, "_last_parsed_transit_time", None)
@@ -4040,27 +3988,32 @@ class HapagLloydConnector(BaseCarrierConnector):
                     continue
 
             if quotes:
-                self._cached_quotes = quotes
+                self._queried_container_keys.add(norm_req_c)
+                
+                # Merge newly extracted quotes into _cached_quotes avoiding duplicates
+                existing_keys = {(q.etd, q.container_type, q.final_freight_value, q.service_name, getattr(q, 'is_spot', False)) for q in self._cached_quotes}
+                for q in quotes:
+                    k = (q.etd, q.container_type, q.final_freight_value, q.service_name, getattr(q, 'is_spot', False))
+                    if k not in existing_keys:
+                        self._cached_quotes.append(q)
+                        existing_keys.add(k)
+
                 self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
-                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+                matching_quotes = [q for q in quotes if self._normalize_container_key(q.container_type) == norm_req_c]
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
             else:
-                self._cached_quotes = []
+                self._queried_container_keys.add(norm_req_c)
                 self._cached_status = CarrierResultStatus.EXTRACTION_FAILED
                 return CarrierResultStatus.EXTRACTION_FAILED, []
 
         except HapagServiceUnavailableException as e:
             print(f"[HAPAG] Hapag-Lloyd service is currently unavailable: {e}")
-            self._cached_quotes = []
             self._cached_status = CarrierResultStatus.SERVICE_UNAVAILABLE
             return CarrierResultStatus.SERVICE_UNAVAILABLE, []
         except Exception as e:
             print(f"[HAPAG] Unexpected error in run_full_search: {e}")
-            self._cached_quotes = []
             self._cached_status = CarrierResultStatus.UNKNOWN_ERROR
             return CarrierResultStatus.UNKNOWN_ERROR, []
-        finally:
-            await asyncio.shield(self.close())
 
     async def close(self):
         await super().close()
