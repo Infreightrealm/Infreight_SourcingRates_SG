@@ -1080,14 +1080,12 @@ async def _call_native_gemini_api(
         tomorrow_date=tomorrow_str
     )
     
-    target_model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    target_model = (model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
     # Normalize model aliases to Google's active API endpoints
-    if target_model in ["gemini-pro-latest", "gemini-2.0-pro-exp", "gemini-2.0-pro", "gemini-2.0-pro-exp-02-05", "gemini-1.5-pro"]:
-        target_model = "gemini-pro-latest"
-    elif target_model in ["gemini-3.1-pro-preview", "gemini-3-pro"]:
-        target_model = "gemini-3.1-pro-preview"
-    elif target_model in ["gemini-2.0-flash", "gemini-flash-latest"]:
-        target_model = "gemini-flash-latest"
+    if target_model in ["gemini-3.7-flash", "gemini-3.7", "3.7-flash", "3.7"]:
+        target_model = "gemini-3.7-flash"
+    elif target_model in ["gemini-2.5-pro", "gemini-pro-latest", "gemini-1.5-pro", "gemini-pro"]:
+        target_model = "gemini-2.5-pro"
     else:
         target_model = "gemini-2.5-flash"
 
@@ -1143,7 +1141,7 @@ async def _call_native_gemini_api(
         "x-goog-api-key": gemini_key
     }
     
-    async with httpx.AsyncClient(timeout=35.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         res = await client.post(url, json=payload, headers=headers)
         if res.status_code == 404 and target_model != "gemini-2.5-flash":
             print(f"[RFQ Agent] Model '{target_model}' returned 404. Falling back to default 'gemini-2.5-flash'...")
@@ -1238,10 +1236,8 @@ async def parse_rfq(
         return _run_mock_parse(raw_text or "image input", current_date_str)
 
     if not gemini_key:
-        raise ValueError(
-            "GEMINI_API_KEY is not set in environment. "
-            "Please configure GEMINI_API_KEY in your environment or set RFQ_AGENT_MOCK=true for testing."
-        )
+        print("[RFQ Agent] GEMINI_API_KEY not configured. Falling back to local intelligent rule-based parser.")
+        return _run_mock_parse(raw_text or "image input", current_date_str)
 
     # Pre-parse check for Dual-Mode (AIR + OCEAN in one email)
     if has_text and not forced_mode:
