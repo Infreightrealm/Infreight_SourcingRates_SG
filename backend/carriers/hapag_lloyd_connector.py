@@ -619,6 +619,79 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] Error in single modal dismissal pass: {e}")
             return False
 
+    async def _ensure_on_quote_form(self) -> bool:
+        """Ensures the browser is actively on the Quick Quote form (SPA)."""
+        start_selectors = [
+            'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
+            'input[placeholder*="Start" i]',
+            '[id*="start" i] input',
+            '[class*="start" i] input',
+            'input[placeholder*="Origin" i]'
+        ]
+        # Check if already on the form
+        for sel in start_selectors:
+            try:
+                loc = self.page.locator(sel).first
+                if await loc.is_visible(timeout=1000):
+                    return True
+            except:
+                pass
+
+        print("[HAPAG] Opening Quick Quote form...")
+        
+        # 1. Try clicking 'Get your quote' button on marketing page (quick-quotes.html)
+        try:
+            get_quote_btn = self.page.locator('a:has-text("Get your quote"), button:has-text("Get your quote"), a:has-text("Get a quote"), a[href*="quick-quotes"]').first
+            if await get_quote_btn.is_visible(timeout=2000):
+                print("[HAPAG] Clicking 'Get your quote' button on landing page...")
+                await get_quote_btn.scroll_into_view_if_needed()
+                await get_quote_btn.click(force=True)
+                await self._human_delay(1500, 2500)
+        except Exception as e:
+            print(f"[HAPAG] 'Get your quote' click error: {e}")
+
+        # Check if form appeared
+        for sel in start_selectors:
+            try:
+                loc = self.page.locator(sel).first
+                if await loc.is_visible(timeout=1000):
+                    await self._dismiss_hapag_modals()
+                    return True
+            except:
+                pass
+
+        # 2. Try sidebar Quote -> New Quote
+        try:
+            print("[HAPAG] Navigating via Quote sidebar -> New Quote...")
+            quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+            if await quote_sidebar.is_visible(timeout=3000):
+                await quote_sidebar.scroll_into_view_if_needed()
+                await quote_sidebar.click(force=True)
+                await self._human_delay(800, 1500)
+
+            new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+            if await new_quote_btn.is_visible(timeout=3000):
+                await new_quote_btn.scroll_into_view_if_needed()
+                await new_quote_btn.click(force=True)
+                await self._human_delay(1500, 2500)
+        except Exception as e:
+            print(f"[HAPAG] Sidebar click error: {e}")
+
+        # 3. Wait up to 20s for the form to appear
+        for _ in range(20):
+            for sel in start_selectors:
+                try:
+                    loc = self.page.locator(sel).first
+                    if await loc.is_visible(timeout=500):
+                        print(f"[HAPAG] Quick Quote form confirmed ready using: {sel}")
+                        await self._dismiss_hapag_modals()
+                        return True
+                except:
+                    pass
+            await asyncio.sleep(1)
+
+        return False
+
     async def login(self) -> bool:
         try:
             await self._init_browser()
@@ -1963,26 +2036,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
             if is_results:
                 print("[HAPAG] Navigating to New Quote form for next container...")
-                try:
-                    # Click Quote sidebar then New Quote
-                    quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
-                    if await quote_sidebar.is_visible(timeout=3000):
-                        await quote_sidebar.scroll_into_view_if_needed()
-                        await quote_sidebar.click(force=True)
-                        await self._human_delay(800, 1500)
+                await self._ensure_on_quote_form()
 
-                    new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
-                    if await new_quote_btn.is_visible(timeout=3000):
-                        await new_quote_btn.scroll_into_view_if_needed()
-                        await new_quote_btn.click(force=True)
-                        await self._human_delay(1500, 2500)
-                    else:
-                        await self.page.goto(self.SEARCH_URL, wait_until="domcontentloaded", timeout=30000)
-                        await self._human_delay(1500, 2500)
-
-                    await self._dismiss_hapag_modals()
-                except Exception as nav_err:
-                    print(f"[HAPAG] Navigation warning: {nav_err}")
+            # Ensure Quick Quote form is actively loaded before attempting to fill fields
+            if not await self._ensure_on_quote_form():
+                print("[HAPAG] Warning: Quick Quote form not ready after ensure_on_quote_form pass.")
             # --- START LOCATION (ORIGIN) ---
             if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
                 origin_locode = "NLRTM"
