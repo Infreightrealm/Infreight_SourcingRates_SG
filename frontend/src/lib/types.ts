@@ -89,6 +89,7 @@ export interface RateSearchRequest {
   commodity: string;
   departure_date: string;
   search_window_days: number;
+  search_mode?: 'quick' | 'detailed';
   user_name?: string;
   hapag_region?: 'US_CA' | 'EU' | 'ROW';
 }

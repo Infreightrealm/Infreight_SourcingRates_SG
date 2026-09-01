@@ -1101,6 +1101,204 @@ class GreenXConnector(BaseCarrierConnector):
                 self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
+            if getattr(request, "search_mode", "detailed") == "quick" and raw_quotes:
+                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date)
+
+            # Step 4: For each quote, get breakdown, extract, and split
+            for raw_quote in raw_quotes:
+                try:
+                    opened = await self.open_price_breakdown(raw_quote)
+                    raw_charges = []
+                    if opened:
+                        raw_charges = await self.extract_charge_breakdown()
+                        
+                    split_quotes = self._split_raw_quote_by_container_types(raw_quote, raw_charges)
+                    quotes.extend(split_quotes)
+                except Exception as e:
+                    print(f"[GreenX] Error extracting quote: {e}")
+                    continue
+
+            self._cached_quotes = quotes
+            self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.EXTRACTION_FAILED
+            
+            # Filter and return quotes matching current request container type
+"40' SD": "DRY 40",
+            "40' High Cube": "DRY 40H",
+            "40' SH": "DRY 40H"
+        }
+
+        # 1. Separate container-specific charges from flat (Per B/L) charges
+        container_charges = {
+            "DRY 20": [],
+            "DRY 40": [],
+            "DRY 40H": []
+        }
+        flat_charges = []
+
+        for charge in raw_charges:
+            ct_raw = charge.get("container_type", "")
+            mapped_ct = mapping.get(ct_raw)
+            if mapped_ct:
+                container_charges[mapped_ct].append(charge)
+            else:
+                flat_charges.append(charge)
+
+        # Whitelist of surcharges to fold into the final freight value. These are
+        # taken whether GreenX bills them per-container (EUIS / ISOCC / LSS) or
+        # per-B/L (ENS / EBKF), and ONLY when billed in USD. Per-B/L charges are
+        # added in full to every container size below (e.g. a $10 ENS adds $10 to
+        # each size's total), matching how GreenX bills them once per booking.
+        INCLUDED_SURCHARGES = {
+            "EU INNOVATION SURCHARGE (EUIS)",
+            "IMO SOX COMPLIANCE CHARGE (ISOCC)",
+            "LOW SULPHUR SURCHARGE (LSS)",
+            "EU ENTRY SUMMARY DECLARATION CHARGE (ENS)",
+            "E BOOKING FEE VIA GREENX (EBKF)",
+        }
+
+        def _categorize(name: str, currency: str) -> str:
+            name_u = " ".join((name or "").upper().split())
+            if name_u == "BASIC OCEAN FREIGHT":
+                return "BASIC_OCEAN_FREIGHT"
+            if name_u in INCLUDED_SURCHARGES and (currency or "").upper() == "USD":
+                return "FREIGHT_SURCHARGE_INCLUDED"
+            return "ORIGIN_CHARGE_EXCLUDED"
+
+        # 2. For each container type that has at least one charge (specifically, Basic Ocean Freight)
+        split_quotes = []
+        for std_ct, c_charges in container_charges.items():
+            # Check if there is Basic Ocean Freight for this type
+            bof_charge = next((c for c in c_charges if c["name"].upper() == "BASIC OCEAN FREIGHT"), None)
+            if not bof_charge:
+                continue  # This container size is not available/N/A
+
+            # Build raw_charges list for this container type:
+            # Combine the container-specific charges and flat (Per B/L) charges
+            split_raw_charges = []
+            for c in c_charges:
+                split_raw_charges.append({
+                    "name": c["name"],
+                    "amount": c["amount"],
+                    "currency": c["currency"],
+                    "category": _categorize(c["name"], c.get("currency")),
+                })
+            for f in flat_charges:
+                split_raw_charges.append({
+                    "name": f["name"],
+                    "amount": f["amount"],
+                    "currency": f["currency"],
+                    "category": _categorize(f["name"], f.get("currency")),
+                })
+
+            # Create a localized raw_quote dict with the correct container type
+            local_raw_quote = raw_quote.copy()
+            local_raw_quote["container_type"] = std_ct
+
+            # Use normalize_result (or local normalization) to create QuoteSchema
+            from models.schemas import ChargeSchema
+            from services.normalizer import standardize_date_string
+            
+            basic_ocean_freight = bof_charge["amount"]
+            included_surcharges = []
+            excluded_charges = []
+            
+            for src in split_raw_charges:
+                cs = ChargeSchema(
+                    name=src["name"],
+                    amount=src["amount"],
+                    currency=src["currency"],
+                    category=src["category"]
+                )
+                if src["name"].upper() == "BASIC OCEAN FREIGHT":
+                    pass  # Already handled
+                elif src["category"] == "FREIGHT_SURCHARGE_INCLUDED":
+                    included_surcharges.append(cs)
+                else:
+                    excluded_charges.append(cs)
+
+            final_value = basic_ocean_freight + sum(c.amount for c in included_surcharges)
+
+            vessel = local_raw_quote.get("vessel_voyage") or local_raw_quote.get("vessel")
+            if local_raw_quote.get("detailed_vessel"):
+                voyage_num = ""
+                if vessel:
+                    v_parts = vessel.split()
+                    if v_parts:
+                        voyage_num = v_parts[-1]
+                vessel = f"{local_raw_quote['detailed_vessel']}"
+                if voyage_num:
+                    vessel = f"{vessel} (Voy: {voyage_num})"
+
+            # For the unique reference, append container type to avoid duplicate DB keys
+            raw_ref = local_raw_quote.get("raw_reference", "GREENX")
+            unique_ref = f"{raw_ref}-{std_ct.replace(' ', '_')}"
+
+            ft_val = local_raw_quote.get("free_time")
+            free_time_int = int(ft_val) if (ft_val is not None and str(ft_val).isdigit()) else None
+
+            quote_schema = QuoteSchema(
+                etd=local_raw_quote.get("etd_standardized"),
+                eta=local_raw_quote.get("eta_standardized"),
+                transit_time_days=local_raw_quote.get("transit_time_days"),
+                routing=local_raw_quote.get("routing", "Direct"),
+                free_time=free_time_int,
+                demurrage=local_raw_quote.get("demurrage", 0),
+                detention=local_raw_quote.get("detention", 0),
+                service_name=local_raw_quote.get("service_name"),
+                vessel=vessel,
+                currency=local_raw_quote.get("currency", "USD"),
+                container_type=std_ct,
+                basic_ocean_freight=basic_ocean_freight,
+                included_freight_surcharges=included_surcharges,
+                excluded_charges=excluded_charges,
+                final_freight_value=round(final_value, 2),
+                source="carrier_portal",
+                raw_reference=unique_ref
+            )
+            split_quotes.append(quote_schema)
+
+        return split_quotes
+
+    async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        """
+        Overrides base search runner to query all 3 sizes at once and cache the resulting quotes
+        across sequential container type cycles to save time.
+        """
+        if not hasattr(self, "_cached_quotes"):
+            self._cached_quotes = None
+            self._cached_status = None
+
+        if self._cached_quotes is not None:
+            print(f"[GreenX] Returning cached quotes for '{request.container_type}' (avoiding redundant browser search).")
+            matching_quotes = [q for q in self._cached_quotes if q.container_type == request.container_type]
+            return self._cached_status, matching_quotes
+
+        quotes: list[QuoteSchema] = []
+        try:
+            # Step 1: Login
+            login_ok = await self.login()
+            if not login_ok:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.LOGIN_FAILED
+                return CarrierResultStatus.LOGIN_FAILED, []
+
+            # Step 2: Search quotes (always searches 20' SD, 40' SD, and 40' SH with quantity 1)
+            search_status = await self.search_quotes(request)
+            if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                self._cached_quotes = []
+                self._cached_status = search_status
+                return search_status, []
+
+            # Step 3: Extract quote list
+            raw_quotes = await self.extract_quote_list()
+            if not raw_quotes:
+                self._cached_quotes = []
+                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+            if getattr(request, "search_mode", "detailed") == "quick" and raw_quotes:
+                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date)
+
             # Step 4: For each quote, get breakdown, extract, and split
             for raw_quote in raw_quotes:
                 try:
@@ -1127,14 +1325,9 @@ class GreenXConnector(BaseCarrierConnector):
             return CarrierResultStatus.UNKNOWN_ERROR, []
 
     async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
-        # Keep fallback method signature just in case
         return QuoteSchema()
 
-    async def close(self):
-        try:
-            if hasattr(self, "page") and self.page and not self.page.is_closed():
-                print("[GreenX] Graceful buffer delay before closing browser context...")
-                await self.page.wait_for_timeout(3000)
-        except Exception:
-            pass
-        await super().close()
+    async def close(self, force: bool = False, *args, **kwargs):
+        if getattr(self, "is_batch_active", False) and not force:
+            return
+        await super().close(force=force)

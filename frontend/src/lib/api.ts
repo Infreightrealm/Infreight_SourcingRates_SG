@@ -235,6 +235,8 @@ export async function createBatchRateSearch(payload: {
   routes: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>;
   carriers?: string[];
   user_name?: string;
+  search_mode?: 'quick' | 'detailed';
+  commodity?: string;
 }): Promise<{ batch_id: string; total_routes: number; carriers: string[]; search_ids: string[]; status: string }> {
   const res = await failoverFetch(`/api/rate-search/batch`, {
     method: "POST",

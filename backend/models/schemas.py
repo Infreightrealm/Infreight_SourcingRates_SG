@@ -101,6 +101,7 @@ class RateSearchRequest(BaseModel):
     commodity: str = Field(default="Furniture")
     departure_date: str = Field(default="tomorrow", description="ISO date or 'tomorrow'")
     search_window_days: int = Field(default=14, ge=1, le=28)
+    search_mode: Optional[str] = Field(default="detailed", description="'quick' (1 cheapest quote in 14 days) or 'detailed' (all quotes)")
     user_name: Optional[str] = Field(default=None, description="The name of the user making the request")
     use_mock: Optional[bool] = Field(default=None, description="Override mock/live mode for this search. None = use server default.")
     hapag_region: Optional[str] = Field(default="ROW", description="Hapag-Lloyd account region: 'US_CA', 'EU', or 'ROW'")
@@ -156,6 +157,7 @@ class BatchRateSearchRequest(BaseModel):
     carriers: list[str] = Field(default_factory=lambda: ["ALL"])
     user_name: Optional[str] = None
     commodity: str = Field(default="Furniture")
+    search_mode: Optional[str] = Field(default="quick", description="'quick' (1 cheapest quote in 14 days) or 'detailed'")
 
 
 class BatchRateSearchResponse(BaseModel):

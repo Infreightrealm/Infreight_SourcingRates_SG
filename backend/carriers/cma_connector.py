@@ -1863,6 +1863,9 @@ class CMAConnector(BaseCarrierConnector):
                 self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
+            if getattr(request, "search_mode", "detailed") == "quick" and raw_quotes:
+                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date)
+
             # Step 4: For each quote, get breakdown, extract, and split
             for raw_quote in raw_quotes:
                 try:
@@ -2022,8 +2025,10 @@ class CMAConnector(BaseCarrierConnector):
 
         return split_quotes
 
-    async def close(self):
-        await super().close()
+    async def close(self, force: bool = False, *args, **kwargs):
+        if getattr(self, "is_batch_active", False) and not force:
+            return
+        await super().close(force=force)
 
         # Sync temp profile back to master (saves login cookies for next run),
         # then clean up the temp directory — identical pattern to Maersk.

@@ -500,7 +500,14 @@ class MaerskConnector(BaseCarrierConnector):
                         
                     processed_keys.add(unique_key)
                     new_cards_processed_in_this_batch += 1
+
+                    if getattr(request, "search_mode", "detailed") == "quick" and len(quotes) >= 1:
+                        print("[MAERSK] [Quick Search] Extracted 1 cheapest quote card in 14-day window. Stopping batch early.")
+                        break
                 
+                if getattr(request, "search_mode", "detailed") == "quick" and len(quotes) >= 1:
+                    break
+
                 # Check if we reached the 4-week horizon during processing
                 if reached_horizon:
                     print("[MAERSK] Stopping expansions: 4-week search horizon exceeded.")
@@ -3285,8 +3292,10 @@ class MaerskConnector(BaseCarrierConnector):
     # BROWSER TEARDOWN
     # ────────────────────────────────────────
 
-    async def close(self):
-        await super().close()
+    async def close(self, force: bool = False, *args, **kwargs):
+        if getattr(self, "is_batch_active", False) and not force:
+            return
+        await super().close(force=force)
 
         # Concurrency cleanup: Copy successful login data back to master profile and remove temporary profile directory
         try:

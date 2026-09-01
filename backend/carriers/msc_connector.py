@@ -825,6 +825,10 @@ class MSCConnector(BaseCarrierConnector):
                         pass
                     await self.page.wait_for_timeout(500)
 
+                if getattr(request, "search_mode", "detailed") == "quick" and len(quotes) >= 1:
+                    self.log("[MSC] [Quick Search] Extracted cheapest quote from first shipping window. Stopping early.")
+                    break
+
             if quotes:
                 self._cached_quotes = quotes
                 self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND

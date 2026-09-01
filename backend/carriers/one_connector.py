@@ -35,7 +35,7 @@ class ONEConnector(BaseCarrierConnector):
 
     def __init__(self):
         super().__init__()
-        self.SEARCH_URL = "https://ecom.one-line.com/ecom/CUP_HOM_3001.do"
+        self.SEARCH_URL = "https://ecomm.one-line.com/one-ecom/prices/one-quote-booking"
         self.playwright = None
         self._cached_quotes = {}
         self._cached_status = {}
@@ -507,6 +507,9 @@ class ONEConnector(BaseCarrierConnector):
                 else:
                     in_window_raw_quotes.append(rq)
             raw_quotes = in_window_raw_quotes
+
+            if getattr(request, "search_mode", "detailed") == "quick" and raw_quotes:
+                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date)
 
             # Step 4: For each quote, get breakdown and normalize/split
             all_split_quotes = []
@@ -2111,5 +2114,7 @@ class ONEConnector(BaseCarrierConnector):
             
         return quotes
 
-    async def close(self):
-        await super().close()
+    async def close(self, force: bool = False, *args, **kwargs):
+        if getattr(self, "is_batch_active", False) and not force:
+            return
+        await super().close(force=force)

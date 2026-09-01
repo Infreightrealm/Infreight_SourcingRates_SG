@@ -117,10 +117,10 @@ async def create_batch_rate_search(
     search_ids = []
     requests_meta = []
 
-    # Enforce anti-bot safety limit of 50 routes per inquiry
-    routes = request.routes[:50]
-    if len(request.routes) > 50:
-        print(f"[VERTICAL BATCH] Enforced anti-bot safety cap: sliced {len(request.routes)} routes to first 50 max.")
+    # Enforce anti-bot safety limit of 200 routes per inquiry (supports 168 port pair RFQs)
+    routes = request.routes[:200]
+    if len(request.routes) > 200:
+        print(f"[VERTICAL BATCH] Enforced anti-bot safety cap: sliced {len(request.routes)} routes to first 200 max.")
 
     for route in routes:
         req_obj = RateSearchRequest(
@@ -131,7 +131,8 @@ async def create_batch_rate_search(
             container_types=route.container_types or ["DRY 20", "DRY 40"],
             weight_per_container_kg=route.weight_per_container_kg or 25000.0,
             commodity=request.commodity or "Furniture",
-            user_name=request.user_name
+            user_name=request.user_name,
+            search_mode=request.search_mode or "quick"
         )
         requests_meta.append(req_obj)
 

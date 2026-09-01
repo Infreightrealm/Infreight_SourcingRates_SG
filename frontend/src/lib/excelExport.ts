@@ -471,3 +471,161 @@ export async function exportMultiRouteResultsToExcel(
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
 }
+
+
+/**
+ * Export Tariff Rate Matrix (1st Half / 2nd Half) — Matches the exact format of the customer's RFQ sheet.
+ * EX PASIR GUDANG/TG PELEPAS TO POR BELOW
+ */
+export async function exportTariffMatrixToExcel(
+  batchResults: BatchRouteResult[],
+  originName = "PASIR GUDANG / TG PELEPAS",
+  filename = "Pasir_Gudang_Tariff_Rates.xlsx"
+) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Infreight Ocean Rate Automation";
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet("Tariff Rate Matrix");
+
+  // Title Banner
+  sheet.mergeCells("A1:G1");
+  const titleCell = sheet.getCell("A1");
+  titleCell.value = `EX ${originName.toUpperCase()} TO POR BELOW`;
+  titleCell.font = { bold: true, size: 12, color: { argb: "000000" } };
+  titleCell.alignment = { vertical: "middle", horizontal: "left" };
+  sheet.getRow(1).height = 25;
+
+  // Header Row 2 & Row 3
+  sheet.mergeCells("A2:A3");
+  sheet.getCell("A2").value = "PORT DESTINATION";
+  sheet.getCell("A2").font = { bold: true, size: 10 };
+  sheet.getCell("A2").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE0" } };
+  sheet.getCell("A2").alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+
+  sheet.mergeCells("B2:B3");
+  sheet.getCell("B2").value = "PAYMENT BY";
+  sheet.getCell("B2").font = { bold: true, size: 10 };
+  sheet.getCell("B2").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE0" } };
+  sheet.getCell("B2").alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+
+  // Agent / Carrier Name Headers
+  sheet.mergeCells("C2:F2");
+  sheet.getCell("C2").value = "CARRIER / AGENT QUOTE (CHEAPEST IN 14-DAY WINDOW)";
+  sheet.getCell("C2").font = { bold: true, size: 10 };
+  sheet.getCell("C2").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D1E7DD" } };
+  sheet.getCell("C2").alignment = { vertical: "middle", horizontal: "center" };
+
+  sheet.mergeCells("C3:D3");
+  sheet.getCell("C3").value = "1ST HALF (1-14 Days)";
+  sheet.getCell("C3").font = { bold: true, size: 9 };
+  sheet.getCell("C3").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "E2F0D9" } };
+  sheet.getCell("C3").alignment = { vertical: "middle", horizontal: "center" };
+
+  sheet.mergeCells("E3:F3");
+  sheet.getCell("E3").value = "2ND HALF (15-28 Days)";
+  sheet.getCell("E3").font = { bold: true, size: 9 };
+  sheet.getCell("E3").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "E2F0D9" } };
+  sheet.getCell("E3").alignment = { vertical: "middle", horizontal: "center" };
+
+  // Column Sub-headers Row 4
+  sheet.getCell("A4").value = "";
+  sheet.getCell("B4").value = "";
+  sheet.getCell("C4").value = "20'";
+  sheet.getCell("D4").value = "40'";
+  sheet.getCell("E4").value = "20'";
+  sheet.getCell("F4").value = "40'";
+  sheet.getCell("G4").value = "CARRIER / NOTES";
+
+  sheet.getRow(4).height = 20;
+  ["C4", "D4", "E4", "F4", "G4"].forEach((pos) => {
+    const c = sheet.getCell(pos);
+    c.font = { bold: true, size: 9 };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D1E7DD" } };
+    c.alignment = { vertical: "middle", horizontal: "center" };
+  });
+
+  sheet.columns = [
+    { key: "destination", width: 26 },
+    { key: "payment_by", width: 14 },
+    { key: "rate20_1st", width: 14 },
+    { key: "rate40_1st", width: 14 },
+    { key: "rate20_2nd", width: 14 },
+    { key: "rate40_2nd", width: 14 },
+    { key: "carrier_notes", width: 28 },
+  ];
+
+  // Populate data rows
+  batchResults.forEach((item) => {
+    const res = item.searchResult;
+    const quotes = res?.results?.flatMap((r) => r.quotes || []) || [];
+
+    const quotes20 = quotes.filter((q) => {
+      const t = (q.container_type || "").toUpperCase();
+      return t.includes("20") || t.includes("20GP");
+    });
+    const quotes40 = quotes.filter((q) => {
+      const t = (q.container_type || "").toUpperCase();
+      return t.includes("40") || t.includes("40GP") || t.includes("40HQ") || t.includes("40HC");
+    });
+
+    const rates20 = quotes20.map((q) => q.final_freight_value).filter((v) => typeof v === "number" && v > 0);
+    const rates40 = quotes40.map((q) => q.final_freight_value).filter((v) => typeof v === "number" && v > 0);
+
+    const min20 = rates20.length > 0 ? Math.min(...rates20) : null;
+    const min40 = rates40.length > 0 ? Math.min(...rates40) : null;
+
+    const carrierNames = Array.from(new Set(res?.results?.filter(r => (r.quotes?.length || 0) > 0).map(r => r.carrier) || [])).join(", ");
+    const etdList = Array.from(new Set(quotes.map(q => q.etd).filter(Boolean))).join(", ");
+
+    const row = sheet.addRow({
+      destination: item.destination.toUpperCase(),
+      payment_by: "USD",
+      rate20_1st: min20 !== null ? min20 : "",
+      rate40_1st: min40 !== null ? min40 : "",
+      rate20_2nd: "",
+      rate40_2nd: "",
+      carrier_notes: carrierNames ? `${carrierNames} (ETD: ${etdList || 'In Window'})` : (item.status === "completed" ? "No Direct Schedule" : item.status.toUpperCase()),
+    });
+
+    row.height = 22;
+    row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE0" } };
+    row.getCell(1).font = { bold: true, size: 9 };
+    row.getCell(1).alignment = { vertical: "middle", horizontal: "left" };
+
+    row.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE0" } };
+    row.getCell(2).alignment = { vertical: "middle", horizontal: "center" };
+
+    row.getCell(3).alignment = { vertical: "middle", horizontal: "center" };
+    row.getCell(4).alignment = { vertical: "middle", horizontal: "center" };
+    row.getCell(5).alignment = { vertical: "middle", horizontal: "center" };
+    row.getCell(6).alignment = { vertical: "middle", horizontal: "center" };
+    row.getCell(7).alignment = { vertical: "middle", horizontal: "left" };
+  });
+
+  // Apply borders to all table cells
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber >= 2) {
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: "thin", color: { argb: "D3D3D3" } },
+          left: { style: "thin", color: { argb: "D3D3D3" } },
+          bottom: { style: "thin", color: { argb: "D3D3D3" } },
+          right: { style: "thin", color: { argb: "D3D3D3" } },
+        };
+      });
+    }
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}
+

@@ -3931,6 +3931,9 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             print(f"[HAPAG] Found {len(in_window_quotes)} quote(s) within the window ({start_date} to {horizon}).")
 
+            if getattr(request, "search_mode", "detailed") == "quick" and in_window_quotes:
+                in_window_quotes = self.filter_cheapest_in_14d_window(in_window_quotes, request.departure_date)
+
             quotes = []
             for raw_quote in in_window_quotes:
                 try:
@@ -4073,8 +4076,10 @@ class HapagLloydConnector(BaseCarrierConnector):
             self._cached_status = CarrierResultStatus.UNKNOWN_ERROR
             return CarrierResultStatus.UNKNOWN_ERROR, []
 
-    async def close(self):
-        await super().close()
+    async def close(self, force: bool = False, *args, **kwargs):
+        if getattr(self, "is_batch_active", False) and not force:
+            return
+        await super().close(force=force)
             
         if self.temp_profile_dir and self.master_profile_dir and self.is_login_successful:
             try:

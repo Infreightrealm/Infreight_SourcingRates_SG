@@ -267,6 +267,92 @@ class BaseCarrierConnector(ABC):
         except:
             pass
 
+    def filter_cheapest_in_14d_window(
+        self,
+        raw_quotes: list[dict],
+        departure_date_val: Optional[str] = None
+    ) -> list[dict]:
+        """
+        Quick Search Filter:
+        1. Identifies target start date (today, tomorrow, or ISO date).
+        2. Filters raw quotes for ETD within [start_date, start_date + 14 days].
+        3. Selects the single cheapest quote card by summary price.
+        4. If none in 14 days, picks the cheapest within 28 days as fallback.
+        """
+        if not raw_quotes:
+            return []
+
+        from datetime import date, timedelta
+
+        def _resolve_start(dep_val):
+            today_d = date.today()
+            if not dep_val:
+                return today_d
+            val = str(dep_val).strip().lower()
+            if val in ("today", "now"):
+                return today_d
+            if val == "tomorrow":
+                return today_d + timedelta(days=1)
+            try:
+                return date.fromisoformat(val[:10])
+            except:
+                return today_d
+
+        start_date = _resolve_start(departure_date_val)
+        window_14d = start_date + timedelta(days=14)
+        window_28d = start_date + timedelta(days=28)
+
+        def _get_price(q: dict) -> float:
+            for p_key in ("total_price", "final_freight_value", "basic_ocean_freight", "price", "rate", "usd_price"):
+                val = q.get(p_key)
+                if val is not None:
+                    try:
+                        return float(str(val).replace(",", "").replace("$", ""))
+                    except:
+                        pass
+            return 999999.0
+
+        def _get_etd_date(q: dict) -> Optional[date]:
+            for d_key in ("etd_standardized", "etd", "etd_date", "etd_date_raw"):
+                val = q.get(d_key)
+                if val:
+                    try:
+                        val_str = str(val).strip()[:10]
+                        return date.fromisoformat(val_str)
+                    except:
+                        pass
+                    # Try MM/DD/YYYY
+                    if "/" in str(val):
+                        parts = str(val).strip().split("/")
+                        if len(parts) == 3:
+                            try:
+                                return date(int(parts[2]), int(parts[0]), int(parts[1]))
+                            except:
+                                pass
+            return None
+
+        # 1. First pass: quotes strictly within [start_date, start_date + 14 days]
+        in_14d = []
+        in_28d = []
+        for q in raw_quotes:
+            if q.get("is_sold_out"):
+                continue
+            q_date = _get_etd_date(q)
+            if q_date:
+                if start_date <= q_date <= window_14d:
+                    in_14d.append(q)
+                elif start_date <= q_date <= window_28d:
+                    in_28d.append(q)
+            else:
+                # If date could not be parsed, keep in 28d bucket
+                in_28d.append(q)
+
+        pool = in_14d if in_14d else (in_28d if in_28d else raw_quotes)
+        # Pick the lowest price quote
+        cheapest_quote = min(pool, key=_get_price)
+        print(f"[{self.carrier_code}] [Quick Search] Filtered {len(raw_quotes)} cards -> selected cheapest quote (Price: {_get_price(cheapest_quote)}, ETD: {cheapest_quote.get('etd') or cheapest_quote.get('etd_standardized')})")
+        return [cheapest_quote]
+
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
         """
         Execute the full search flow:
@@ -297,7 +383,32 @@ class BaseCarrierConnector(ABC):
             if not raw_quotes:
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
-            # Step 4: For each quote, get breakdown and normalize
+            # Apply Quick Search filter if requested
+            if getattr(request, "search_mode", "detailed") == "quick":
+                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date)
+                # ULTRA-FAST QUICK SEARCH: Capture final freight price only (no modals, no breakdown, no freetime, no TT)
+                for raw_quote in raw_quotes:
+                    price_val = float(raw_quote.get("total_price") or raw_quote.get("final_freight_value") or raw_quote.get("price") or 0.0)
+                    c_types = request.container_types or ["DRY 20", "DRY 40"]
+                    for ct in c_types:
+                        quotes.append(QuoteSchema(
+                            container_type=ct,
+                            container_quantity=1,
+                            currency=raw_quote.get("currency", "USD"),
+                            basic_ocean_freight=price_val,
+                            discount=0.0,
+                            final_freight_value=price_val,
+                            included_freight_surcharges=[],
+                            excluded_charges=[],
+                            uncertain_charges=[],
+                            source=self.carrier_code
+                        ))
+                if quotes:
+                    return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
+                else:
+                    return CarrierResultStatus.EXTRACTION_FAILED, []
+
+            # Step 4: For each quote, get breakdown and normalize (Detailed Mode)
             for raw_quote in raw_quotes:
                 try:
                     opened = await self.open_price_breakdown(raw_quote)
@@ -305,8 +416,16 @@ class BaseCarrierConnector(ABC):
                     if opened:
                         raw_charges = await self.extract_charge_breakdown()
                         
-                    normalized = await self.normalize_result(raw_quote, raw_charges)
-                    quotes.append(normalized)
+                    if hasattr(self, "_split_raw_quote_by_container_types") and callable(getattr(self, "_split_raw_quote_by_container_types")):
+                        split_res = await self._split_raw_quote_by_container_types(raw_quote, raw_charges)
+                        if split_res:
+                            quotes.extend(split_res)
+                        else:
+                            normalized = await self.normalize_result(raw_quote, raw_charges)
+                            quotes.append(normalized)
+                    else:
+                        normalized = await self.normalize_result(raw_quote, raw_charges)
+                        quotes.append(normalized)
                 except Exception as e:
                     # Log but don't fail the entire search for one quote
                     print(f"[{self.carrier_code}] Error extracting quote: {e}")
@@ -360,17 +479,47 @@ class BaseCarrierConnector(ABC):
                     if search_status == CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                         raw_quotes = await self.extract_quote_list()
                         if raw_quotes:
-                            for raw_q in raw_quotes:
-                                try:
-                                    opened = await self.open_price_breakdown(raw_q)
-                                    raw_charges = []
-                                    if opened:
-                                        raw_charges = await self.extract_charge_breakdown()
-                                    normalized = await self.normalize_result(raw_q, raw_charges)
-                                    quotes.append(normalized)
-                                except Exception as e:
-                                    print(f"[{self.carrier_code}] Error extracting batch quote: {e}")
-                                    continue
+                            # Apply Quick Search filter if requested
+                            if getattr(req, "search_mode", "quick") == "quick":
+                                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, req.departure_date)
+                                # ULTRA-FAST QUICK SEARCH: Capture final freight price only (no modals, no breakdown, no freetime, no TT)
+                                for raw_q in raw_quotes:
+                                    price_val = float(raw_q.get("total_price") or raw_q.get("final_freight_value") or raw_q.get("price") or 0.0)
+                                    c_types = req.container_types or ["DRY 20", "DRY 40"]
+                                    for ct in c_types:
+                                        quotes.append(QuoteSchema(
+                                            container_type=ct,
+                                            container_quantity=1,
+                                            currency=raw_q.get("currency", "USD"),
+                                            basic_ocean_freight=price_val,
+                                            discount=0.0,
+                                            final_freight_value=price_val,
+                                            included_freight_surcharges=[],
+                                            excluded_charges=[],
+                                            uncertain_charges=[],
+                                            source=self.carrier_code
+                                        ))
+                            else:
+                                for raw_q in raw_quotes:
+                                    try:
+                                        opened = await self.open_price_breakdown(raw_q)
+                                        raw_charges = []
+                                        if opened:
+                                            raw_charges = await self.extract_charge_breakdown()
+                                        
+                                        if hasattr(self, "_split_raw_quote_by_container_types") and callable(getattr(self, "_split_raw_quote_by_container_types")):
+                                            split_res = await self._split_raw_quote_by_container_types(raw_q, raw_charges)
+                                            if split_res:
+                                                quotes.extend(split_res)
+                                            else:
+                                                normalized = await self.normalize_result(raw_q, raw_charges)
+                                                quotes.append(normalized)
+                                        else:
+                                            normalized = await self.normalize_result(raw_q, raw_charges)
+                                            quotes.append(normalized)
+                                    except Exception as e:
+                                        print(f"[{self.carrier_code}] Error extracting batch quote: {e}")
+                                        continue
                             
                             status_res = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.EXTRACTION_FAILED
                             batch_results.append((req, status_res, quotes))

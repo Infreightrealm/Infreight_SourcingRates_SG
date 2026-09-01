@@ -1996,8 +1996,10 @@ class OOCLConnector(BaseCarrierConnector):
 
         return out
 
-    async def close(self):
-        await super().close()
+    async def close(self, force: bool = False, *args, **kwargs):
+        if getattr(self, "is_batch_active", False) and not force:
+            return
+        await super().close(force=force)
 
     async def open_price_breakdown(self, quote_ref: dict) -> bool:
         return True
@@ -2147,6 +2149,9 @@ class OOCLConnector(BaseCarrierConnector):
                 window_days=window_days,
                 espot_vessels=getattr(self, "espot_vessels", None)
             )
+
+            if getattr(request, "search_mode", "detailed") == "quick" and merged_dicts:
+                merged_dicts = self.filter_cheapest_in_14d_window(merged_dicts, request.departure_date)
 
             quotes: list[QuoteSchema] = []
             for raw in merged_dicts:

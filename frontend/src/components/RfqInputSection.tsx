@@ -7,19 +7,19 @@ import { toast } from "sonner";
 
 interface RfqInputSectionProps {
   onParsedSuccess: (parsedFields: RateSearchRequest) => void;
-  onBatchRunAll?: (allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>) => void;
+  onBatchRunAll?: (allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>, searchMode?: 'quick' | 'detailed') => void;
   selectedCarriers?: string[];
 }
 
 
 const DEMO_EXAMPLES = [
   {
-    title: "Example: Air enquiry (Lithium DG)",
-    text: "Dear All,\nPlease quote cheap and best EXW airfreight rates;\nCollect from: Hitachi Asia Ltd (ICE), 30 Pioneer Crescent #10-15, Singapore 628560\nCommodity: HITACHI PRINTERS -LITHIUM METAL BATTERIES IN COMPLIANCE WITH SECTION II OF PI 970\nDim: 64x53x74 cm/10 pkgs\nGross weight: 320 kg\nHS CODE: 84433100\nBest Regards, Mohammed Shamnad"
+    title: "Example: Ocean (Pasir Gudang to 140+ Ports Tender)",
+    text: "Hi Team,\nPlease compile ocean freight rates from ex Pasir Gudang / Tanjung Pelepas for 20' & 40' as follows.\nCommodity: Furniture & General Cargo.\n1) NAGOYA, JAPAN\n2) NAVEGANTES, BRAZIL\n3) NEW YORK, US\n4) NHAVA SHEVA, INDIA\n5) NIIGATA, JAPAN\n6) NORFOLK, US\n7) OAKLAND, US\n8) ROTTERDAM, NETHERLANDS\n9) HAMBURG, GERMANY\n10) FELIXSTOWE, UK\n11) ANTWERP, BELGIUM\n12) LEIXOES, PORTUGAL\n13) SOKHNA, EGYPT\n14) KARACHI, PAKISTAN\n15) KOPER, SLOVENIA\n16) LIVERPOOL, UK\n17) BRISTOL, UK\n18) HOUSTON, US\n19) CHITTAGONG, BANGLADESH\n20) THESSALONIKI, GREECE\n21) BUENOS AIRES, ARGENTINA\n22) MOJI, JAPAN\n23) VALENCIA, SPAIN\n24) TIHI, INDIA\n25) KAMALAPUR/DHAKA, BANGLADESH\n26) SAVANNAH, US\n27) OSAKA, JAPAN\n28) AHMEDABAD, INDIA\n29) PORT SAID WEST, EGYPT\n30) BUSAN, SOUTH KOREA\n31) SANTOS, BRAZIL\n32) BANGALORE, INDIA\n33) CEBU, PHILIPPINES\n34) YOKOHAMA, JAPAN\n35) KOBE, JAPAN\n36) MUNDRA, INDIA\n37) ISTANBUL, TURKEY\n38) JAKARTA, INDONESIA\n39) BELAWAN, INDONESIA\n40) HAIPHONG, VIETNAM\n41) MERSIN, TURKEY\n42) AMBARLI, TURKEY\n43) INCHEON, SOUTH KOREA\n44) COLOMBO, SRI LANKA\n45) CHENNAI, INDIA\n46) JEBEL ALI, UAE\n47) SURABAYA, INDONESIA\n48) BANGKOK, THAILAND\n49) LAEM CHABANG, THAILAND\n50) CAT LAI, VIETNAM\n51) DAMMAM, SAUDI ARABIA\n52) CHIBA, JAPAN\n53) KAOHSIUNG, TAIWAN"
   },
   {
-    title: "Example: Air enquiry (KUL)",
-    text: "Hi Glenn,\nGood Day\nKindly advise us air rates for below:\nPOL: Singapore Airport\nPOD: KUL\nCommodity: Machines Part Accessories\n2 Crates / Sets\nDimension: 186 x 32 x 37 cm H - 2 Crates\nGross Weight: 320.00 kgs (160 kgs x 2 crates)\nPlease provide available flight schedule and transit time. Thank you"
+    title: "Example: Air enquiry (Lithium DG)",
+    text: "Dear All,\nPlease quote cheap and best EXW airfreight rates;\nCollect from: Hitachi Asia Ltd (ICE), 30 Pioneer Crescent #10-15, Singapore 628560\nCommodity: HITACHI PRINTERS -LITHIUM METAL BATTERIES IN COMPLIANCE WITH SECTION II OF PI 970\nDim: 64x53x74 cm/10 pkgs\nGross weight: 320 kg\nHS CODE: 84433100\nBest Regards, Mohammed Shamnad"
   },
   {
     title: "Example: Ocean (Steel Plate 34 pairs)",
@@ -28,14 +28,6 @@ const DEMO_EXAMPLES = [
   {
     title: "Example: Messy email (PK to JKT)",
     text: "Hi team, need rate for 10x20GP from PK to JKT. Urgent for this week. Also have another 15x20 and 10x20 coming up next week. Using 2 forwarders currently, please try USD 70-80 target rate if possible. Thanks, Pak Shaun."
-  },
-  {
-    title: "Example: Reefer (Special Equip)",
-    text: "Hi team, please check ocean freight rate for 1x40' Reefer container from Singapore to Hamburg. Weight 18,000 kg."
-  },
-  {
-    title: "Example: LCL (Consolidation)",
-    text: "Hi team, please quote rate for 4 CBM LCL consolidation shipment from Singapore to Hamburg."
   }
 ];
 
@@ -43,6 +35,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
 
   const [rfqText, setRfqText] = useState("");
   const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [quickSearchMode, setQuickSearchMode] = useState<boolean>(true);
   const [imageMime, setImageMime] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -814,20 +807,37 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                     </span>
                   </div>
 
-                  {onBatchRunAll && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Quick Mode vs Detailed Mode Toggle */}
                     <button
                       type="button"
-                      onClick={() => onBatchRunAll(parseResult.all_parsed_pairs || [])}
-                      className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer flex-wrap"
+                      onClick={() => setQuickSearchMode(!quickSearchMode)}
+                      className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                        quickSearchMode
+                          ? "bg-amber-500/20 text-amber-800 dark:text-amber-200 border-amber-500/40 shadow-sm"
+                          : "bg-slate-200/60 dark:bg-white/10 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-white/20"
+                      }`}
+                      title={quickSearchMode ? "Quick Mode: Takes 1 cheapest quote card per carrier within first 14 days (Fastest for 168+ port RFQs)" : "Detailed Mode: Extracts all sailing quote cards in the date window"}
                     >
-                      <span>⚡ Run All {Math.min(parseResult.all_parsed_pairs?.length || parseResult.total_pairs_found, 50)} Routes Continuously</span>
-                      {selectedCarriers && selectedCarriers.length > 0 && !selectedCarriers.includes("ALL") && (
-                        <span className="px-2 py-0.5 bg-black/30 rounded-md text-[10px] font-mono text-emerald-200 border border-emerald-400/30">
-                          Carriers: {selectedCarriers.join(", ")}
-                        </span>
-                      )}
+                      <span>{quickSearchMode ? "⚡" : "🔍"}</span>
+                      <span>{quickSearchMode ? "Quick Mode (Cheapest 14d)" : "Detailed Mode (All Sailings)"}</span>
                     </button>
-                  )}
+
+                    {onBatchRunAll && (
+                      <button
+                        type="button"
+                        onClick={() => onBatchRunAll(parseResult.all_parsed_pairs || [], quickSearchMode ? 'quick' : 'detailed')}
+                        className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer flex-wrap"
+                      >
+                        <span>⚡ Run All {Math.min(parseResult.all_parsed_pairs?.length || parseResult.total_pairs_found, 200)} Routes Continuously</span>
+                        {selectedCarriers && selectedCarriers.length > 0 && !selectedCarriers.includes("ALL") && (
+                          <span className="px-2 py-0.5 bg-black/30 rounded-md text-[10px] font-mono text-emerald-200 border border-emerald-400/30">
+                            Carriers: {selectedCarriers.join(", ")}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between flex-wrap gap-2">

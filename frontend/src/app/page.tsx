@@ -14,7 +14,7 @@ import { SearchCompletionModal } from "@/components/SearchCompletionModal";
 import LoginModal from "@/components/LoginModal";
 import { createRateSearch, createBatchRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
-import { exportMultiRouteResultsToExcel, type BatchRouteResult } from "@/lib/excelExport";
+import { exportMultiRouteResultsToExcel, exportTariffMatrixToExcel, type BatchRouteResult } from "@/lib/excelExport";
 import SearchHistoryModal from "@/components/SearchHistoryModal";
 import BackendConfigModal from "@/components/BackendConfigModal";
 import { toast } from "sonner";
@@ -226,7 +226,10 @@ function HomeContent() {
     }
   };
 
-  const handleBatchRunAll = async (allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>) => {
+  const handleBatchRunAll = async (
+    allPairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }>,
+    searchMode: 'quick' | 'detailed' = 'quick'
+  ) => {
     if (!allPairs || allPairs.length === 0) return;
 
     // Clear previous search_ids query parameter from URL and clear previous search result state
@@ -235,8 +238,8 @@ function HomeContent() {
     }
     setSearchResult(null);
 
-    // Deduplicate pairs by origin + destination to prevent redundant duplicate search jobs
-    const uniquePairs: typeof allPairs = [];
+    // Deduplicate pairs by origin + destination
+    const uniquePairs: Array<{ origin: string; destination: string; container_types?: string[]; weight_per_container_kg?: number }> = [];
     const seenKeys = new Set<string>();
     for (const p of allPairs) {
       const key = `${(p.origin || "").trim().toLowerCase()}___${(p.destination || "").trim().toLowerCase()}`;
@@ -246,11 +249,11 @@ function HomeContent() {
       }
     }
 
-    // Cap to 50 unique route pairs per inquiry batch to maintain carrier anti-bot compliance
-    const cappedPairs = uniquePairs.slice(0, 50);
+    // Support up to 200 unique route pairs per inquiry batch (comfortably covers 168 port pairs)
+    const cappedPairs = uniquePairs.slice(0, 200);
 
-    if (uniquePairs.length > 50) {
-      toast.warning(`🛡️ Anti-Bot Safety Cap: Processing first 50 routes (out of ${uniquePairs.length} total) to maintain carrier compliance.`);
+    if (uniquePairs.length > 200) {
+      toast.warning(`🛡️ Anti-Bot Safety Cap: Processing first 200 routes (out of ${uniquePairs.length} total) to maintain carrier compliance.`);
     }
 
     setIsBatchRunning(true);
@@ -265,14 +268,17 @@ function HomeContent() {
 
     const activeCarriers = selectedCarriers.length > 0 ? selectedCarriers : ["ALL"];
     const carrierLabel = activeCarriers.includes("ALL") ? "All 7 Carriers" : activeCarriers.join(", ");
+    const modeLabel = searchMode === 'quick' ? '⚡ Quick Cheapest-in-14d Mode' : '🔍 Detailed All-Quotes Mode';
 
-    toast.info(`⚡ PERSISTENT BATCH ENGINE ACTIVATED: Sourcing ${cappedPairs.length} routes for [${carrierLabel}]...`);
+    toast.info(`⚡ PERSISTENT BATCH ENGINE ACTIVATED (${modeLabel}): Sourcing ${cappedPairs.length} routes for [${carrierLabel}]...`);
 
     try {
       const batchRes = await createBatchRateSearch({
         routes: cappedPairs,
         carriers: activeCarriers,
-        user_name: userName || undefined
+        user_name: userName || undefined,
+        search_mode: searchMode,
+        commodity: "Furniture"
       });
 
       const searchIds = batchRes.search_ids;
@@ -481,13 +487,24 @@ function HomeContent() {
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => exportMultiRouteResultsToExcel(batchResults)}
-                className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-500/25 transition-all flex items-center gap-2 btn-interactive cursor-pointer"
-              >
-                <span>📥</span> Export Batch to Excel (.xlsx) [Different Sheet Per Port]
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => exportTariffMatrixToExcel(batchResults, "PASIR GUDANG / TG PELEPAS", "Pasir_Gudang_168_Tariff_Rates.xlsx")}
+                  className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-bold rounded-xl text-xs shadow-lg shadow-amber-500/25 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer border border-amber-400/50"
+                  title="Export rate matrix in the exact EX PASIR GUDANG 1st Half / 2nd Half 20' & 40' layout"
+                >
+                  <span>📊</span> Export Tariff Rate Sheet (.xlsx)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportMultiRouteResultsToExcel(batchResults)}
+                  className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-500/25 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer"
+                >
+                  <span>📥</span> Full Multi-Sheet (.xlsx)
+                </button>
+              </div>
             </div>
 
             {/* Batch Progress Bar */}
