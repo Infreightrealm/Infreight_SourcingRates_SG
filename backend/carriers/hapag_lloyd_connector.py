@@ -3821,6 +3821,30 @@ class HapagLloydConnector(BaseCarrierConnector):
                 self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
+            if getattr(request, "search_mode", "detailed") == "quick":
+                cheapest_cards = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date) if raw_quotes else []
+                quick_quotes = []
+                if cheapest_cards:
+                    best = cheapest_cards[0]
+                    price = float(best.get("total_price") or 0.0)
+                    etd_val = best.get("etd")
+                    eta_val = best.get("eta")
+                    for ct in ["DRY 20", "DRY 40"]:
+                        quick_quotes.append(QuoteSchema(
+                            container_type=ct,
+                            currency="USD",
+                            basic_ocean_freight=price,
+                            final_freight_value=price,
+                            etd=etd_val,
+                            eta=eta_val,
+                            source="HAPAG_LLOYD",
+                            raw_reference=f"HAPAG-QUICK-{ct.replace(' ', '_')}"
+                        ))
+                self._cached_quotes = quick_quotes
+                self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quick_quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
+                matching_quotes = [q for q in quick_quotes if self._normalize_container_key(q.container_type) == norm_req_c]
+                return self._cached_status, matching_quotes
+
             quotes = []
             matched_raw_quote_etds = set()
 

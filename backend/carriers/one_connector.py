@@ -508,10 +508,30 @@ class ONEConnector(BaseCarrierConnector):
                     in_window_raw_quotes.append(rq)
             raw_quotes = in_window_raw_quotes
 
-            if getattr(request, "search_mode", "detailed") == "quick" and raw_quotes:
-                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date)
+            if getattr(request, "search_mode", "detailed") == "quick":
+                cheapest_cards = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date) if raw_quotes else []
+                if cheapest_cards:
+                    best = cheapest_cards[0]
+                    price = float(best.get("total_price") or 0.0)
+                    etd_val = best.get("etd")
+                    eta_val = best.get("eta")
+                    for ct in ["DRY 20", "DRY 40"]:
+                        quotes.append(QuoteSchema(
+                            container_type=ct,
+                            currency="USD",
+                            basic_ocean_freight=price,
+                            final_freight_value=price,
+                            etd=etd_val,
+                            eta=eta_val,
+                            source="ONE",
+                            raw_reference=f"ONE-QUICK-{ct.replace(' ', '_')}"
+                        ))
+                self._cached_quotes[cache_key] = quotes
+                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+                status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
+                return status, matching_quotes
 
-            # Step 4: For each quote, get breakdown and normalize/split
+            # Step 4: Detailed Mode: For each quote, get breakdown and normalize/split
             all_split_quotes = []
             for raw_quote in raw_quotes:
                 try:
