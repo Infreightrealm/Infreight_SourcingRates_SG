@@ -12,7 +12,7 @@ import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchCompletionModal } from "@/components/SearchCompletionModal";
 import LoginModal from "@/components/LoginModal";
-import { createRateSearch, createBatchRateSearch, pollRateSearch, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
+import { createRateSearch, createBatchRateSearch, pollRateSearch, pollBatchSearchStatus, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, exportTariffMatrixToExcel, type BatchRouteResult } from "@/lib/excelExport";
 import SearchHistoryModal from "@/components/SearchHistoryModal";
@@ -107,23 +107,35 @@ function HomeContent() {
             const initialCompleted = initialResults.filter(r => r.status === "completed").length;
             setBatchProgress({ current: initialCompleted, total: searchIds.length });
 
-            // Resume polling for any running items
-            const pollPromises = searchIds.map((sId, index) => {
-              return pollRateSearch(sId, (data) => {
-                const hasFinished = data?.results?.some(r => ["AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "COMPLETED", "FAILED"].includes(r.status));
-                const isTerminal = data ? (["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status) || hasFinished) : false;
-                const newStatus: BatchRouteResult["status"] = isTerminal ? "completed" : "running";
+            // Resume with ONE batch-status poll per tick (not one poller per route);
+            // full results are re-fetched once per route when it turns terminal.
+            const indexOf = new Map(searchIds.map((id, i) => [id, i]));
+            return pollBatchSearchStatus(
+              searchIds,
+              (items) => {
                 setBatchResults(prev => {
-                  const next = prev.map((item, idx) =>
-                    idx === index ? { ...item, status: newStatus, searchResult: data } : item
+                  const next = prev.map((item, idx) => {
+                    const st = items.find(i => indexOf.get(i.search_id) === idx);
+                    if (!st || item.status === "completed") return item;
+                    return { ...item, status: st.is_terminal ? "completed" as const : "running" as const };
+                  });
+                  setBatchProgress({ current: next.filter(r => r.status === "completed").length, total: searchIds.length });
+                  return next;
+                });
+              },
+              async (searchId) => {
+                const idx = indexOf.get(searchId);
+                if (idx === undefined) return;
+                const data = await getRateSearchResults(searchId).catch(() => null);
+                setBatchResults(prev => {
+                  const next = prev.map((item, i) =>
+                    i === idx ? { ...item, status: "completed" as const, searchResult: data ?? item.searchResult } : item
                   );
                   setBatchProgress({ current: next.filter(r => r.status === "completed").length, total: searchIds.length });
                   return next;
                 });
-              });
-            });
-
-            return Promise.all(pollPromises);
+              },
+            );
           })
           .then(() => {
             setBatchResults(prev => {
@@ -289,32 +301,56 @@ function HomeContent() {
         window.history.pushState({ path: newUrl }, "", newUrl);
       }
 
-      // Poll search_ids in parallel as vertical persistent carrier workers complete routes
-      const completedResults: Record<number, RateSearchResultResponse> = {};
-      let completedCount = 0;
+      if (batchRes.deduplicated_routes) {
+        toast.info(`Collapsed ${batchRes.deduplicated_routes} duplicate route(s) that resolved to the same port pair.`);
+      }
+      for (const w of batchRes.warnings || []) {
+        toast.warning(w);
+      }
 
-      const pollPromises = searchIds.map((sId, index) => {
-        return pollRateSearch(sId, (data) => {
-          if (data) {
-            const hasFinishedCarrier = data.results?.some((r: any) =>
-              ["AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "COMPLETED", "FAILED"].includes(r.status)
-            );
-            const isTerminal = ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"].includes(data.status) || hasFinishedCarrier;
-            
-            const newStatus: BatchRouteResult["status"] = isTerminal ? "completed" : "running";
-            setBatchResults(prev => {
-              const next = prev.map((item, idx) =>
-                idx === index ? { ...item, status: newStatus, searchResult: data } : item
-              );
-              setBatchProgress({ current: next.filter(r => r.status === "completed").length, total: cappedPairs.length });
-              return next;
+      // ONE batch-status poll per tick (not one poller per route), bounded by wall
+      // clock, not attempt count. Full results are fetched once per route, the first
+      // time that route is seen terminal.
+      // Rows must follow the BACKEND's search order: it de-duplicates routes by
+      // LOCODE pair, so search_ids can be fewer than cappedPairs and index-aligning
+      // the two would mislabel rows. Seed one row per search_id and fill names from
+      // the status feed.
+      const indexOf = new Map(searchIds.map((id, i) => [id, i]));
+      setBatchResults(searchIds.map((_, i) => ({
+        origin: cappedPairs[i]?.origin ?? `Route #${i + 1}`,
+        destination: cappedPairs[i]?.destination ?? `Destination #${i + 1}`,
+        status: "running" as const,
+      })));
+      setBatchProgress({ current: 0, total: searchIds.length });
+      await pollBatchSearchStatus(
+        searchIds,
+        (items) => {
+          setBatchResults(prev => {
+            const next = prev.map((item, idx) => {
+              const st = items.find(i => indexOf.get(i.search_id) === idx);
+              if (!st) return item;
+              const named = { ...item, origin: st.origin || item.origin, destination: st.destination || item.destination };
+              if (item.status === "completed") return named;
+              return { ...named, status: st.is_terminal ? "completed" as const : "running" as const };
             });
-          }
-        });
-      });
-
-      await Promise.all(pollPromises);
-      toast.success(`🎉 Vertical Persistent Batch complete! Successfully processed ${cappedPairs.length} routes.`);
+            setBatchProgress({ current: next.filter(r => r.status === "completed").length, total: searchIds.length });
+            return next;
+          });
+        },
+        async (searchId) => {
+          const idx = indexOf.get(searchId);
+          if (idx === undefined) return;
+          const data = await getRateSearchResults(searchId).catch(() => null);
+          setBatchResults(prev => {
+            const next = prev.map((item, i) =>
+              i === idx ? { ...item, status: "completed" as const, searchResult: data ?? item.searchResult } : item
+            );
+            setBatchProgress({ current: next.filter(r => r.status === "completed").length, total: searchIds.length });
+            return next;
+          });
+        },
+      );
+      toast.success(`🎉 Vertical Persistent Batch complete! Successfully processed ${searchIds.length} routes.`);
 
     } catch (err: any) {
       console.error("Vertical Batch search error:", err);

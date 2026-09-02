@@ -1101,24 +1101,12 @@ class GreenXConnector(BaseCarrierConnector):
                 self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
-            if getattr(request, "search_mode", "detailed") == "quick":
-                cheapest_cards = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date) if raw_quotes else []
-                if cheapest_cards:
-                    best = cheapest_cards[0]
-                    price = float(best.get("total_price") or 0.0)
-                    etd_val = best.get("etd")
-                    eta_val = best.get("eta")
-                    for ct in ["DRY 20", "DRY 40"]:
-                        quotes.append(QuoteSchema(
-                            container_type=ct,
-                            currency="USD",
-                            basic_ocean_freight=price,
-                            final_freight_value=price,
-                            etd=etd_val,
-                            eta=eta_val,
-                            source="GREENX",
-                            raw_reference=f"GREENX-QUICK-{ct.replace(' ', '_')}"
-                        ))
+            if (request.search_mode or "detailed") == "quick":
+                # Shared quick builder: cheapest card per window, priced PER container
+                # type via that card's Price Details split (GreenX's splitter is sync;
+                # the shared helper handles that). The previous hook stamped the card's
+                # summary total onto both 20' and 40' and hardcoded those two types.
+                quotes = await self.build_quick_quotes(request, raw_quotes)
                 self._cached_quotes = quotes
                 self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
                 matching_quotes = [q for q in quotes if q.container_type == request.container_type]

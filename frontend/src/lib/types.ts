@@ -79,6 +79,17 @@ export interface RateSearchResultResponse {
   results: CarrierResultSchema[];
 }
 
+/** Lightweight per-search status returned by GET /api/rate-search/status?ids=... */
+export interface BatchSearchStatusItem {
+  search_id: string;
+  status: string;
+  origin?: string | null;
+  destination?: string | null;
+  carriers: Record<string, string>;
+  quote_count: number;
+  is_terminal: boolean;
+}
+
 export interface RateSearchRequest {
   carriers: string[];
   origin: string;

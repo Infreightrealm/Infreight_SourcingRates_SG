@@ -563,20 +563,39 @@ export async function exportTariffMatrixToExcel(
     const res = item.searchResult;
     const quotes = res?.results?.flatMap((r) => r.quotes || []) || [];
 
-    const quotes20 = quotes.filter((q) => {
-      const t = (q.container_type || "").toUpperCase();
-      return t.includes("20") || t.includes("20GP");
-    });
-    const quotes40 = quotes.filter((q) => {
-      const t = (q.container_type || "").toUpperCase();
-      return t.includes("40") || t.includes("40GP") || t.includes("40HQ") || t.includes("40HC");
-    });
+    // Bucket every quote into the sheet's two tariff windows by ETD, relative to
+    // the search's own creation date: 1ST = days 0-14, 2ND = days 15-28. The
+    // backend's quick mode now returns the cheapest card per window, so both
+    // halves populate; previously the 2ND columns were hardcoded empty and the
+    // 1ST columns took a min across ALL quotes regardless of window.
+    const searchStart = res?.created_at ? new Date(res.created_at) : new Date();
+    const dayOffset = (etd?: string | null): number | null => {
+      if (!etd) return null;
+      const d = new Date(etd);
+      if (isNaN(d.getTime())) return null;
+      return Math.floor((d.getTime() - searchStart.getTime()) / 86_400_000);
+    };
+    const isFirstHalf = (etd?: string | null) => {
+      const off = dayOffset(etd);
+      return off === null ? true : off <= 14;   // undated -> treat as 1ST
+    };
+    const is20 = (t: string) => t.includes("20");
+    const is40 = (t: string) => t.includes("40");
 
-    const rates20 = quotes20.map((q) => q.final_freight_value).filter((v) => typeof v === "number" && v > 0);
-    const rates40 = quotes40.map((q) => q.final_freight_value).filter((v) => typeof v === "number" && v > 0);
-
-    const min20 = rates20.length > 0 ? Math.min(...rates20) : null;
-    const min40 = rates40.length > 0 ? Math.min(...rates40) : null;
+    const minRate = (pick20: boolean, firstHalf: boolean): number | null => {
+      const vals = quotes
+        .filter((q) => {
+          const t = (q.container_type || "").toUpperCase();
+          return (pick20 ? is20(t) : is40(t)) && isFirstHalf(q.etd) === firstHalf;
+        })
+        .map((q) => q.final_freight_value)
+        .filter((v): v is number => typeof v === "number" && v > 0);
+      return vals.length > 0 ? Math.min(...vals) : null;
+    };
+    const min20 = minRate(true, true);
+    const min40 = minRate(false, true);
+    const min20_2nd = minRate(true, false);
+    const min40_2nd = minRate(false, false);
 
     const carrierNames = Array.from(new Set(res?.results?.filter(r => (r.quotes?.length || 0) > 0).map(r => r.carrier) || [])).join(", ");
     const etdList = Array.from(new Set(quotes.map(q => q.etd).filter(Boolean))).join(", ");
@@ -586,8 +605,8 @@ export async function exportTariffMatrixToExcel(
       payment_by: "USD",
       rate20_1st: min20 !== null ? min20 : "",
       rate40_1st: min40 !== null ? min40 : "",
-      rate20_2nd: "",
-      rate40_2nd: "",
+      rate20_2nd: min20_2nd !== null ? min20_2nd : "",
+      rate40_2nd: min40_2nd !== null ? min40_2nd : "",
       carrier_notes: carrierNames ? `${carrierNames} (ETD: ${etdList || 'In Window'})` : (item.status === "completed" ? "No Direct Schedule" : item.status.toUpperCase()),
     });
 

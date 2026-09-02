@@ -1,7 +1,7 @@
 /**
  * API client for the Infreight Rate Automation backend.
  */
-import type { RateSearchRequest, RateSearchCreateResponse, RateSearchResultResponse, RFQParseResult } from "./types";
+import type { RateSearchRequest, RateSearchCreateResponse, RateSearchResultResponse, RFQParseResult, BatchSearchStatusItem } from "./types";
 
 
 const defaultHeaders = {
@@ -237,7 +237,7 @@ export async function createBatchRateSearch(payload: {
   user_name?: string;
   search_mode?: 'quick' | 'detailed';
   commodity?: string;
-}): Promise<{ batch_id: string; total_routes: number; carriers: string[]; search_ids: string[]; status: string }> {
+}): Promise<{ batch_id: string; total_routes: number; carriers: string[]; search_ids: string[]; status: string; deduplicated_routes?: number; warnings?: string[] }> {
   const res = await failoverFetch(`/api/rate-search/batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -256,6 +256,68 @@ export async function getRateSearchResults(searchId: string): Promise<RateSearch
     throw new Error(`API error: ${res.status}`);
   }
   return res.json();
+}
+
+/** Lightweight bulk status for a whole batch (no quote payloads). */
+export async function getBatchSearchStatus(searchIds: string[]): Promise<BatchSearchStatusItem[]> {
+  if (searchIds.length === 0) return [];
+  const res = await failoverFetch(`/api/rate-search/status?ids=${encodeURIComponent(searchIds.join(","))}`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Polls an entire batch with ONE request per tick instead of one poller per route
+ * (168 routes x a 2s poller each was ~84 req/s), and is bounded by wall-clock time
+ * rather than an attempt count — a 168-route x 7-carrier batch runs far longer than
+ * the old 450-attempt (15 min) cap, after which the UI silently stopped updating
+ * while the backend kept working.
+ *
+ * `onRouteTerminal` fires exactly once per search the first time it is seen terminal,
+ * so the caller can fetch that route's full results just once.
+ */
+export async function pollBatchSearchStatus(
+  searchIds: string[],
+  onTick: (items: BatchSearchStatusItem[]) => void,
+  onRouteTerminal: (searchId: string) => Promise<void> | void,
+  opts: { intervalMs?: number; maxDurationMs?: number } = {},
+): Promise<BatchSearchStatusItem[]> {
+  const intervalMs = opts.intervalMs ?? 4000;
+  const maxDurationMs = opts.maxDurationMs ?? 4 * 60 * 60 * 1000; // 4 hours
+  const started = Date.now();
+  const terminalSeen = new Set<string>();
+  let last: BatchSearchStatusItem[] = [];
+
+  return new Promise((resolve) => {
+    const tick = async () => {
+      try {
+        last = await getBatchSearchStatus(searchIds);
+        onTick(last);
+        for (const item of last) {
+          if (item.is_terminal && !terminalSeen.has(item.search_id)) {
+            terminalSeen.add(item.search_id);
+            try {
+              await onRouteTerminal(item.search_id);
+            } catch (e) {
+              console.warn("onRouteTerminal failed for", item.search_id, e);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Batch status poll failed (will retry):", e);
+      }
+      const allDone = last.length === searchIds.length && last.every((i) => i.is_terminal);
+      const timedOut = Date.now() - started >= maxDurationMs;
+      if (allDone || timedOut) {
+        clearInterval(timer);
+        resolve(last);
+      }
+    };
+    const timer = setInterval(tick, intervalMs);
+    void tick();
+  });
 }
 
 export async function releaseRateSearch(searchId: string): Promise<any> {

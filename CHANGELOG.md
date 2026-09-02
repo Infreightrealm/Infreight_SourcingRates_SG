@@ -229,6 +229,27 @@ Entries are grouped by date and by carrier/component. Each entry describes the p
 ### Ports — Hardcoded Dallas Override
 - **Fix:** Added port translation for Dallas to `"Dallas (Texas), United States"` for Maersk, and `"USDAL"` for ONE and all other UNCODE-based carriers (`e1d4bb9`).
 
+## [2026-07-03] — Robustness Review & Multi-Port Quick Search Fixes
+
+### Quick Search (multi-port RFQ) — Per-Container Pricing Was Wrong
+- **Bug:** Quick mode stamped each card's **summary** price onto every requested container type. On multi-container carriers (ONE, GreenX, Maersk searched with all sizes) that summary is the SUM across sizes, so a 20' and a 40' received the same, inflated number — and the tariff sheet then took a cross-carrier `Math.min` of those corrupted values. ONE and GreenX's quick hooks also hardcoded `["DRY 20","DRY 40"]`, so a requested 40HQ never appeared.
+- **Fix:** New shared `BaseCarrierConnector.build_quick_quotes()`: picks the cheapest card **per tariff window** (1ST = days 0–14, 2ND = days 15–28), opens **only that card's** breakdown and splits it per container type, returns the requested types with real per-type prices, and falls back to the summary price only when exactly one type was requested. Never fabricates a per-type price. ONE, GreenX and both base search paths now use it. `filter_cheapest_in_14d_window` is kept as a thin backward-compatible wrapper.
+- **Also fixed:** GreenX's per-container splitter is synchronous; the base batch loop `await`ed it, swallowed the `TypeError`, and silently dropped the quote — `_split_or_none()` now handles sync and async splitters.
+- **Files:** `backend/carriers/base_connector.py`, `backend/carriers/one_connector.py`, `backend/carriers/greenx_connector.py`
+
+### Batch (168-route) Execution — Isolation, Lock Scope, Polling
+- **Lock scope bug:** in `run_vertical_batch_searches` the per-carrier `carrier_lock` was released right after `get_connector()` — before `run_batch_persistent_search()` ran — so batch mode had no profile-collision protection. The lock now spans the whole batch.
+- **No per-route isolation:** one hung route stalled a carrier's entire batch, and a mid-batch session expiry killed every remaining route. Each route now runs under a hard timeout (`BATCH_ROUTE_TIMEOUT_SEC`, default 420s), gets one retry after a page reset that re-checks login, and the navigation reset no longer depends on the connector defining `SEARCH_URL`.
+- **Polling storm & premature stop:** the UI ran one 2s poller per route (168 routes ≈ 84 req/s against the full 3-level eager-load endpoint) and gave up after 450 attempts (15 min) — far shorter than a 168×7 batch, after which the UI froze while the backend kept working. Added `GET /api/rate-search/status?ids=…` (per-search + per-carrier status and quote **count**, no payloads); the UI now polls the whole batch once per tick, fetches each route's full results once when it turns terminal, and is bounded by wall clock (4h). The restore-on-refresh path uses the same poller.
+- **Multi-port hygiene:** the batch route now resolves names to LOCODEs and collapses a route only when the LOCODE pair matches **and** the names are near-identical (`SAVANNAH`/`SAVANNAH GEORGIA`, `DILIKELESI`/`DILISKELESI`), and returns `warnings` for names that barely resemble the port they resolved to (`SAKASTOON`→Sasstown, `AL-SOKHNA`→Balakhna) — `search_port()` returns a confident hit for almost any string, so the code alone is never trusted as identity. Rows in the UI now follow the backend's de-duplicated order.
+- **Tariff sheet:** the 2ND HALF (15–28 days) columns were hardcoded empty; quotes are now bucketed into 1ST/2ND by ETD relative to the search date, so both halves populate from the per-window quick results.
+- **Files:** `backend/services/job_service.py`, `backend/api/rate_search_routes.py`, `backend/models/schemas.py`, `frontend/src/lib/api.ts`, `frontend/src/lib/types.ts`, `frontend/src/app/page.tsx`, `frontend/src/lib/excelExport.ts`
+- **Verified:** 7 unit tests (per-window selection, per-type pricing, requested-types respected, sync splitter, single-type-only fallback, both windows, batch timeout/retry/continue) pass; `tsc --noEmit` clean; dedupe/warning rule checked against real `search_port` data.
+
+### Robustness Review (see `docs/ROBUSTNESS_REVIEW_2026-07.md`)
+- Measured across the 7 connectors: 264 silent `except` blocks, 216 fixed sleeps, ~121 `inner_text()` regex parse sites, 1 hashed CSS-module selector (ONE), 5 blind "first input" fallbacks (Hapag).
+- Headline finding: the AI selector-repair subsystem (`agent/safe_step.py` + selector memory + approve/reject UI) has **zero adoption** — no connector calls it — so the only self-healing machinery in the codebase is dead code. Ranked recommendations are in the review.
+
 ## [2026-07-02] — Latency Refactor: Hapag Throttles/Inputs, Event-Driven Queue, Scheduler Tuning
 
 ### OOCL — FreightSmart Price Quotes (E-Quote / E-Spot) Paired With Sailing Schedules

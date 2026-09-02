@@ -166,6 +166,23 @@ class BatchRateSearchResponse(BaseModel):
     carriers: list[str]
     search_ids: list[str]
     status: str = "QUEUED"
+    # Multi-port hygiene: routes collapsed because they resolved to the same
+    # origin/destination LOCODE pair (e.g. "SAVANNAH" and "SAVANNAH GEORGIA"),
+    # and port names that could not be resolved at all (surfaced up front rather
+    # than burning N carriers x M routes on a bad name).
+    deduplicated_routes: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BatchSearchStatusItem(BaseModel):
+    """Lightweight per-search status for batch polling (no quote/charge payloads)."""
+    search_id: str
+    status: str
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    carriers: dict[str, str] = Field(default_factory=dict, description="carrier -> status")
+    quote_count: int = 0
+    is_terminal: bool = False
 
 
 

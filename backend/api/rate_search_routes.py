@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,12 +17,14 @@ from models.database import get_session
 from models.rate_search import RateSearch, CarrierSearchResult
 from models.quote import Quote, QuoteCharge
 from services.queue_manager import queue_manager
+from services.port_manager import search_port
 from models.schemas import (
     RateSearchRequest,
     RateSearchCreateResponse,
     RateSearchResultResponse,
     BatchRateSearchRequest,
     BatchRateSearchResponse,
+    BatchSearchStatusItem,
     CarrierResultSchema,
     QuoteSchema,
     ChargeSchema,
@@ -117,10 +119,81 @@ async def create_batch_rate_search(
     search_ids = []
     requests_meta = []
 
+    # Multi-port hygiene BEFORE spending N carriers x M routes of browser time:
+    #  - resolve each name to a UN/LOCODE and de-duplicate on the LOCODE pair, so
+    #    "SAVANNAH" / "SAVANNAH GEORGIA" or "AL-SOKHNA" / "SOKHNA" don't run twice
+    #    (the frontend only dedupes on the exact lowercase string);
+    #  - surface names that resolve to nothing as warnings up front instead of
+    #    burning every carrier on a route that can only end in "no quotes".
+    import difflib
+    warnings: list[str] = []
+    deduped: list = []
+    kept: list[tuple[tuple[str, str], tuple[str, str]]] = []  # ((o_code, d_code), (o_norm, d_norm))
+
+    import re as _re
+
+    def _norm(name: str) -> str:
+        # Drop parentheticals ("Nhava Sheva (Jawaharlal Nehru)") so a legit resolution
+        # isn't penalised for the port's long official name.
+        base = _re.sub(r"\s*\([^)]*\)", "", (name or "").lower())
+        return " ".join(base.replace("-", " ").replace("/", " ").split())
+
+    def _contains(a: str, b: str) -> bool:
+        na, nb = _norm(a), _norm(b)
+        return bool(na) and bool(nb) and (na in nb or nb in na)
+
+    def _resolve(name: str) -> tuple[str, str]:
+        """(LOCODE-or-normalized-name, resolved port name). search_port() will
+        confidently return SOMETHING for almost any string (e.g. a typo of Saskatoon
+        resolves to a Liberian port), so the code alone is never trusted as identity."""
+        clean = (name or "").strip()
+        try:
+            hits = search_port(clean)
+        except Exception:
+            hits = []
+        if hits:
+            return (hits[0].get("code") or clean).upper(), str(hits[0].get("name") or "")
+        return _norm(clean), ""
+
+    def _looks_like(a: str, b: str) -> bool:
+        # Same name with a qualifier ("SAVANNAH" / "SAVANNAH GEORGIA") or a near typo
+        # ("DILIKELESI" / "DILISKELESI") both count as the same place.
+        return _contains(a, b) or difflib.SequenceMatcher(None, _norm(a), _norm(b)).ratio() >= 0.8
+
+    for route in request.routes:
+        o_code, o_port = _resolve(route.origin)
+        d_code, d_port = _resolve(route.destination)
+        # Pre-flight sanity: flag names that barely resemble the port they resolved to
+        # (a typo of Saskatoon resolving to "Sasstown", "AL-SOKHNA" to "Balakhna"), so a
+        # bad spelling is caught before it burns every carrier's browser time.
+        for label, raw, port, code in (("Origin", route.origin, o_port, o_code),
+                                       ("Destination", route.destination, d_port, d_code)):
+            if port and not _contains(raw, port) and \
+                    difflib.SequenceMatcher(None, _norm(raw), _norm(port)).ratio() < 0.75:
+                warnings.append(f"{label} '{raw}' resolved to '{port} ({code})' — please verify the spelling.")
+
+        # Collapse a route ONLY when the LOCODE pair matches AND both names are
+        # near-identical to a kept route's names (SAVANNAH vs SAVANNAH GEORGIA,
+        # DILIKELESI vs DILISKELESI). Same LOCODE with dissimilar names is left alone —
+        # it may be the resolver guessing, and a duplicate run is cheaper than a lost lane.
+        is_dup = False
+        for (kc, kn) in kept:
+            if kc == (o_code, d_code) and _looks_like(route.origin, kn[0]) and _looks_like(route.destination, kn[1]):
+                is_dup = True
+                break
+        if is_dup:
+            continue
+        kept.append(((o_code, d_code), (route.origin, route.destination)))
+        deduped.append(route)
+    deduplicated_routes = len(request.routes) - len(deduped)
+    if deduplicated_routes:
+        print(f"[VERTICAL BATCH] Collapsed {deduplicated_routes} duplicate route(s) by LOCODE pair.")
+
     # Enforce anti-bot safety limit of 200 routes per inquiry (supports 168 port pair RFQs)
-    routes = request.routes[:200]
-    if len(request.routes) > 200:
-        print(f"[VERTICAL BATCH] Enforced anti-bot safety cap: sliced {len(request.routes)} routes to first 200 max.")
+    routes = deduped[:200]
+    if len(deduped) > 200:
+        print(f"[VERTICAL BATCH] Enforced anti-bot safety cap: sliced {len(deduped)} routes to first 200 max.")
+        warnings.append(f"Only the first 200 of {len(deduped)} unique routes were queued (anti-bot cap).")
 
     for route in routes:
         req_obj = RateSearchRequest(
@@ -172,11 +245,80 @@ async def create_batch_rate_search(
 
     return BatchRateSearchResponse(
         batch_id=batch_id,
-        total_routes=len(request.routes),
+        total_routes=len(routes),
         carriers=carriers,
         search_ids=[str(s) for s in search_ids],
-        status="QUEUED"
+        status="QUEUED",
+        deduplicated_routes=deduplicated_routes,
+        warnings=warnings,
     )
+
+
+@router.get("/rate-search/status", response_model=List[BatchSearchStatusItem])
+async def get_batch_search_status(
+    ids: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Lightweight bulk status for batch polling: one request for up to 200 searches,
+    returning per-search + per-carrier status and a quote COUNT — no quote or charge
+    payloads. Replaces the per-search pollers (168 routes x one 2s poller each was
+    ~84 req/s against the full 3-level eager-load results endpoint).
+    Declared before /rate-search/{search_id} so it takes routing precedence.
+    """
+    id_list: list[UUID] = []
+    for raw in ids.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            id_list.append(UUID(raw))
+        except ValueError:
+            continue
+    id_list = id_list[:200]
+    if not id_list:
+        return []
+
+    searches = (await session.execute(
+        select(RateSearch.id, RateSearch.status, RateSearch.origin, RateSearch.destination)
+        .where(RateSearch.id.in_(id_list))
+    )).all()
+
+    carrier_rows = (await session.execute(
+        select(
+            CarrierSearchResult.search_id,
+            CarrierSearchResult.carrier,
+            CarrierSearchResult.status,
+            func.count(Quote.id),
+        )
+        .outerjoin(Quote, Quote.carrier_result_id == CarrierSearchResult.id)
+        .where(CarrierSearchResult.search_id.in_(id_list))
+        .group_by(CarrierSearchResult.search_id, CarrierSearchResult.carrier, CarrierSearchResult.status)
+    )).all()
+
+    per_search: dict[UUID, dict] = {}
+    for s_id, carrier, status, q_count in carrier_rows:
+        entry = per_search.setdefault(s_id, {"carriers": {}, "quote_count": 0})
+        entry["carriers"][carrier] = status
+        entry["quote_count"] += int(q_count or 0)
+
+    running = {"QUEUED", "RUNNING", "WAITING_FOR_HUMAN_VERIFICATION", "MANUAL_ACTION_REQUIRED"}
+    out: list[BatchSearchStatusItem] = []
+    for s_id, s_status, origin, destination in searches:
+        entry = per_search.get(s_id, {"carriers": {}, "quote_count": 0})
+        carrier_statuses = entry["carriers"]
+        has_active = any((st in running) or str(st).startswith("RUNNING") for st in carrier_statuses.values())
+        is_terminal = (s_status in ("COMPLETED", "PARTIAL_COMPLETED", "FAILED")) and not has_active
+        out.append(BatchSearchStatusItem(
+            search_id=str(s_id),
+            status=s_status,
+            origin=origin,
+            destination=destination,
+            carriers=carrier_statuses,
+            quote_count=entry["quote_count"],
+            is_terminal=is_terminal,
+        ))
+    return out
 
 
 @router.get("/rate-search/{search_id}", response_model=RateSearchResultResponse)

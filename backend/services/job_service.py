@@ -578,13 +578,21 @@ async def run_vertical_batch_searches(
     async def run_carrier_batch(carrier_code: str):
         async with semaphore:
             carrier_lock = queue_manager.get_carrier_lock(carrier_code)
+            # The per-carrier lock must be held for the ENTIRE persistent batch run —
+            # it protects the carrier's Chrome profile from a concurrent single search
+            # on the same carrier. Previously the `async with` block closed right after
+            # get_connector(), releasing the lock before run_batch_persistent_search()
+            # ever started, so batch mode had no profile-collision protection at all.
             async with carrier_lock:
-                connector = get_connector(carrier_code)
-                if not connector:
-                    print(f"[VERTICAL BATCH] No connector for {carrier_code}")
-                    return
+                await _run_carrier_batch_locked(carrier_code)
 
-                print(f"[VERTICAL BATCH] [{carrier_code}] Persistent Session Started (Concurrency limit={max_concurrency})")
+    async def _run_carrier_batch_locked(carrier_code: str):
+            connector = get_connector(carrier_code)
+            if not connector:
+                print(f"[VERTICAL BATCH] No connector for {carrier_code}")
+                return
+
+            print(f"[VERTICAL BATCH] [{carrier_code}] Persistent Session Started (Concurrency limit={max_concurrency})")
 
             async def route_progress_callback(idx: int, req: RateSearchRequest, status: CarrierResultStatus, quotes: list[QuoteSchema]):
                 # Find matching search_id for this route index

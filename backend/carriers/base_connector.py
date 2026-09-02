@@ -267,22 +267,60 @@ class BaseCarrierConnector(ABC):
         except:
             pass
 
-    def filter_cheapest_in_14d_window(
+    # ────────────────────────────────────────────────────────────────────
+    # QUICK SEARCH (multi-port RFQ) — shared, per-container-type correct
+    # ────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _card_etd_date(q: dict):
+        """Best-effort ETD date from a raw card dict (ISO, MM/DD/YYYY)."""
+        from datetime import date
+        for d_key in ("etd_standardized", "etd", "etd_date", "etd_date_raw"):
+            val = q.get(d_key)
+            if not val:
+                continue
+            s = str(val).strip()
+            try:
+                return date.fromisoformat(s[:10])
+            except Exception:
+                pass
+            if "/" in s:
+                parts = s.split("/")
+                if len(parts) == 3:
+                    try:
+                        return date(int(parts[2]), int(parts[0]), int(parts[1]))
+                    except Exception:
+                        pass
+        return None
+
+    @staticmethod
+    def _card_summary_price(q: dict) -> float:
+        """The card's summary price. NOTE: on multi-container cards this is the SUM
+        across every size on the card, not any single size's price."""
+        for p_key in ("total_price", "final_freight_value", "basic_ocean_freight", "price", "rate", "usd_price"):
+            val = q.get(p_key)
+            if val is None:
+                continue
+            try:
+                return float(str(val).replace(",", "").replace("$", ""))
+            except Exception:
+                pass
+        return 999999.0
+
+    def select_cheapest_per_window(
         self,
         raw_quotes: list[dict],
-        departure_date_val: Optional[str] = None
-    ) -> list[dict]:
+        departure_date_val: Optional[str] = None,
+    ) -> dict:
         """
-        Quick Search Filter:
-        1. Identifies target start date (today, tomorrow, or ISO date).
-        2. Filters raw quotes for ETD within [start_date, start_date + 14 days].
-        3. Selects the single cheapest quote card by summary price.
-        4. If none in 14 days, picks the cheapest within 28 days as fallback.
+        Picks the cheapest card in EACH tariff window the customer RFQ sheet needs:
+          "1ST" = [start, start+14d]      "2ND" = (start+14d, start+28d]
+        Cards are ranked by their summary price, which is a consistent basis across
+        cards of one search. Returns {"1ST": card|None, "2ND": card|None}.
         """
-        if not raw_quotes:
-            return []
-
         from datetime import date, timedelta
+        if not raw_quotes:
+            return {"1ST": None, "2ND": None}
 
         def _resolve_start(dep_val):
             today_d = date.today()
@@ -295,63 +333,113 @@ class BaseCarrierConnector(ABC):
                 return today_d + timedelta(days=1)
             try:
                 return date.fromisoformat(val[:10])
-            except:
+            except Exception:
                 return today_d
 
-        start_date = _resolve_start(departure_date_val)
-        window_14d = start_date + timedelta(days=14)
-        window_28d = start_date + timedelta(days=28)
-
-        def _get_price(q: dict) -> float:
-            for p_key in ("total_price", "final_freight_value", "basic_ocean_freight", "price", "rate", "usd_price"):
-                val = q.get(p_key)
-                if val is not None:
-                    try:
-                        return float(str(val).replace(",", "").replace("$", ""))
-                    except:
-                        pass
-            return 999999.0
-
-        def _get_etd_date(q: dict) -> Optional[date]:
-            for d_key in ("etd_standardized", "etd", "etd_date", "etd_date_raw"):
-                val = q.get(d_key)
-                if val:
-                    try:
-                        val_str = str(val).strip()[:10]
-                        return date.fromisoformat(val_str)
-                    except:
-                        pass
-                    # Try MM/DD/YYYY
-                    if "/" in str(val):
-                        parts = str(val).strip().split("/")
-                        if len(parts) == 3:
-                            try:
-                                return date(int(parts[2]), int(parts[0]), int(parts[1]))
-                            except:
-                                pass
-            return None
-
-        # 1. First pass: quotes strictly within [start_date, start_date + 14 days]
-        in_14d = []
-        in_28d = []
+        start = _resolve_start(departure_date_val)
+        end_1st = start + timedelta(days=14)
+        end_2nd = start + timedelta(days=28)
+        first, second, undated = [], [], []
         for q in raw_quotes:
             if q.get("is_sold_out"):
                 continue
-            q_date = _get_etd_date(q)
-            if q_date:
-                if start_date <= q_date <= window_14d:
-                    in_14d.append(q)
-                elif start_date <= q_date <= window_28d:
-                    in_28d.append(q)
-            else:
-                # If date could not be parsed, keep in 28d bucket
-                in_28d.append(q)
+            d = self._card_etd_date(q)
+            if d is None:
+                undated.append(q)
+            elif start <= d <= end_1st:
+                first.append(q)
+            elif end_1st < d <= end_2nd:
+                second.append(q)
+        # Undated cards can't be windowed; they only fill the 1st window if nothing else does.
+        if not first and undated:
+            first = undated
+        pick = lambda pool: min(pool, key=self._card_summary_price) if pool else None
+        return {"1ST": pick(first), "2ND": pick(second)}
 
-        pool = in_14d if in_14d else (in_28d if in_28d else raw_quotes)
-        # Pick the lowest price quote
-        cheapest_quote = min(pool, key=_get_price)
-        print(f"[{self.carrier_code}] [Quick Search] Filtered {len(raw_quotes)} cards -> selected cheapest quote (Price: {_get_price(cheapest_quote)}, ETD: {cheapest_quote.get('etd') or cheapest_quote.get('etd_standardized')})")
-        return [cheapest_quote]
+    async def _split_or_none(self, raw_quote: dict, raw_charges: list[dict]) -> list[QuoteSchema]:
+        """Calls the connector's per-container splitter whether it is sync or async
+        (GreenX's is sync; awaiting it raised TypeError and silently dropped the quote)."""
+        splitter = getattr(self, "_split_raw_quote_by_container_types", None)
+        if not callable(splitter):
+            return []
+        import inspect
+        result = splitter(raw_quote, raw_charges)
+        if inspect.isawaitable(result):
+            result = await result
+        return list(result or [])
+
+    async def build_quick_quotes(self, request: RateSearchRequest, raw_quotes: list[dict]) -> list[QuoteSchema]:
+        """
+        Quick-mode quote builder shared by every connector and both search paths.
+
+        Fixes the previous quick path, which stamped the card's SUMMARY price onto
+        every requested container type. On multi-container cards (ONE, GreenX,
+        Maersk searched with all sizes) that summary is the SUM across sizes, so a
+        20' and a 40' got the same, inflated number — and the tariff sheet then took a
+        cross-carrier min of those corrupted values.
+
+        Strategy per window (1ST / 2ND):
+          1. Pick the cheapest card.
+          2. Open ONLY that card's breakdown and split it per container type —
+             one modal per window instead of one per card, so still fast.
+          3. Return the requested types that have a real per-type price.
+          4. Fall back to the summary price only when exactly ONE type was requested
+             (then the card total genuinely is that type's price). Never fabricate a
+             per-type price for other sizes.
+        """
+        requested = list(request.container_types or ([request.container_type] if request.container_type else []))
+        if not requested:
+            requested = ["DRY 20", "DRY 40"]
+        windows = self.select_cheapest_per_window(raw_quotes, request.departure_date)
+        out: list[QuoteSchema] = []
+        for label, card in windows.items():
+            if not card:
+                continue
+            per_type: dict[str, QuoteSchema] = {}
+            try:
+                opened = await self.open_price_breakdown(card)
+                raw_charges = await self.extract_charge_breakdown() if opened else []
+                for q in await self._split_or_none(card, raw_charges):
+                    if q.container_type:
+                        per_type[q.container_type] = q
+            except Exception as e:
+                print(f"[{self.carrier_code}] [Quick {label}] Per-type breakdown unavailable: {e}")
+
+            summary = self._card_summary_price(card)
+            etd_d = self._card_etd_date(card)
+            etd_val = etd_d.isoformat() if etd_d else (card.get("etd_standardized") or card.get("etd"))
+            eta_val = card.get("eta_standardized") or card.get("eta")
+            for ct in requested:
+                ref = f"{self.carrier_code}-QUICK-{label}-{ct.replace(' ', '_')}"
+                if ct in per_type:
+                    out.append(per_type[ct].model_copy(update={"raw_reference": ref, "etd": per_type[ct].etd or etd_val, "eta": per_type[ct].eta or eta_val}))
+                elif len(requested) == 1 and summary < 999999.0:
+                    out.append(QuoteSchema(
+                        container_type=ct, container_quantity=1,
+                        currency=card.get("currency", "USD"),
+                        basic_ocean_freight=summary, discount=0.0, final_freight_value=summary,
+                        included_freight_surcharges=[], excluded_charges=[], uncertain_charges=[],
+                        etd=etd_val, eta=eta_val,
+                        transit_time_days=card.get("transit_time_days"),
+                        vessel=card.get("vessel"), service_name=card.get("service_name"),
+                        source=self.carrier_code, raw_reference=ref,
+                    ))
+                else:
+                    print(f"[{self.carrier_code}] [Quick {label}] No per-type price for {ct} on the cheapest card; "
+                          f"not fabricating one from the {summary:.2f} summary total.")
+        print(f"[{self.carrier_code}] [Quick Search] Built {len(out)} per-type quote(s) across windows "
+              f"{[k for k, v in windows.items() if v]} for types {requested}.")
+        return out
+
+    def filter_cheapest_in_14d_window(
+        self,
+        raw_quotes: list[dict],
+        departure_date_val: Optional[str] = None
+    ) -> list[dict]:
+        """Backward-compatible: the single cheapest card (1ST window, else 2ND)."""
+        w = self.select_cheapest_per_window(raw_quotes, departure_date_val)
+        card = w.get("1ST") or w.get("2ND")
+        return [card] if card else []
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
         """
@@ -383,30 +471,13 @@ class BaseCarrierConnector(ABC):
             if not raw_quotes:
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
-            # Apply Quick Search filter if requested
-            if getattr(request, "search_mode", "detailed") == "quick":
-                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date)
-                # ULTRA-FAST QUICK SEARCH: Capture final freight price only (no modals, no breakdown, no freetime, no TT)
-                for raw_quote in raw_quotes:
-                    price_val = float(raw_quote.get("total_price") or raw_quote.get("final_freight_value") or raw_quote.get("price") or 0.0)
-                    c_types = request.container_types or ["DRY 20", "DRY 40"]
-                    for ct in c_types:
-                        quotes.append(QuoteSchema(
-                            container_type=ct,
-                            container_quantity=1,
-                            currency=raw_quote.get("currency", "USD"),
-                            basic_ocean_freight=price_val,
-                            discount=0.0,
-                            final_freight_value=price_val,
-                            included_freight_surcharges=[],
-                            excluded_charges=[],
-                            uncertain_charges=[],
-                            source=self.carrier_code
-                        ))
+            # Quick mode: cheapest card per tariff window, priced PER container type
+            # (see build_quick_quotes for why the old summary-price stamping was wrong).
+            if (request.search_mode or "detailed") == "quick":
+                quotes = await self.build_quick_quotes(request, raw_quotes)
                 if quotes:
                     return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, quotes
-                else:
-                    return CarrierResultStatus.EXTRACTION_FAILED, []
+                return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
             # Step 4: For each quote, get breakdown and normalize (Detailed Mode)
             for raw_quote in raw_quotes:
@@ -443,6 +514,55 @@ class BaseCarrierConnector(ABC):
         finally:
             await asyncio.shield(self.close())
 
+    async def _run_batch_route(self, req: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
+        """One route of a persistent batch on the already-open session (no login/close)."""
+        search_status = await self.search_quotes(req)
+        if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+            return search_status, []
+        raw_quotes = await self.extract_quote_list()
+        if not raw_quotes:
+            return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
+
+        quotes: list[QuoteSchema] = []
+        if (req.search_mode or "detailed") == "quick":
+            quotes = await self.build_quick_quotes(req, raw_quotes)
+        else:
+            for raw_q in raw_quotes:
+                try:
+                    opened = await self.open_price_breakdown(raw_q)
+                    raw_charges = await self.extract_charge_breakdown() if opened else []
+                    split_res = await self._split_or_none(raw_q, raw_charges)
+                    if split_res:
+                        quotes.extend(split_res)
+                    else:
+                        quotes.append(await self.normalize_result(raw_q, raw_charges))
+                except Exception as e:
+                    print(f"[{self.carrier_code}] Error extracting batch quote: {e}")
+                    continue
+        status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
+        return status, quotes
+
+    async def _reset_between_routes(self, relogin: bool = False) -> None:
+        """
+        Returns the open session to a clean search page for the next route. With
+        relogin=True (after a route failure) it also re-runs login(), which every
+        connector implements as a cheap "already logged in?" check that only submits
+        credentials if the session was actually lost.
+        """
+        try:
+            if relogin:
+                ok = await self.login()
+                print(f"[{self.carrier_code}] Batch session re-check after failure: login_ok={ok}")
+        except Exception as le:
+            print(f"[{self.carrier_code}] Batch re-login attempt failed: {le}")
+        try:
+            reset_url = getattr(self, "SEARCH_URL", None) or getattr(self, "QUOTE_URL", None)
+            if self.page and reset_url:
+                await self.page.goto(reset_url, wait_until="domcontentloaded", timeout=15000)
+                await self.page.wait_for_timeout(1000)
+        except Exception as ne:
+            print(f"[{self.carrier_code}] Navigation reset note: {ne}")
+
     async def run_batch_persistent_search(
         self,
         requests: list[RateSearchRequest],
@@ -469,81 +589,42 @@ class BaseCarrierConnector(ABC):
                             pass
                 return batch_results
 
-            # Step 2: Loop over each route request on the SAME open browser context
+            # Step 2: Loop over each route request on the SAME open browser context.
+            # Each route is isolated: a hard per-route timeout (one hung route used to
+            # stall the whole 168-route batch), one retry after a page reset (which also
+            # re-checks login, since a mid-batch session expiry used to kill every
+            # remaining route), and a navigation reset that no longer depends on the
+            # connector defining SEARCH_URL.
+            import os
+            route_timeout = float(os.getenv("BATCH_ROUTE_TIMEOUT_SEC", "420"))
             for idx, req in enumerate(requests):
                 print(f"[{self.carrier_code}] Persistent Batch Step {idx+1}/{len(requests)}: {req.origin} -> {req.destination}")
-                quotes = []
-                try:
-                    # Execute search flow on active page
-                    search_status = await self.search_quotes(req)
-                    if search_status == CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
-                        raw_quotes = await self.extract_quote_list()
-                        if raw_quotes:
-                            # Apply Quick Search filter if requested
-                            if getattr(req, "search_mode", "quick") == "quick":
-                                raw_quotes = self.filter_cheapest_in_14d_window(raw_quotes, req.departure_date)
-                                # ULTRA-FAST QUICK SEARCH: Capture final freight price only (no modals, no breakdown, no freetime, no TT)
-                                for raw_q in raw_quotes:
-                                    price_val = float(raw_q.get("total_price") or raw_q.get("final_freight_value") or raw_q.get("price") or 0.0)
-                                    c_types = req.container_types or ["DRY 20", "DRY 40"]
-                                    for ct in c_types:
-                                        quotes.append(QuoteSchema(
-                                            container_type=ct,
-                                            container_quantity=1,
-                                            currency=raw_q.get("currency", "USD"),
-                                            basic_ocean_freight=price_val,
-                                            discount=0.0,
-                                            final_freight_value=price_val,
-                                            included_freight_surcharges=[],
-                                            excluded_charges=[],
-                                            uncertain_charges=[],
-                                            source=self.carrier_code
-                                        ))
-                            else:
-                                for raw_q in raw_quotes:
-                                    try:
-                                        opened = await self.open_price_breakdown(raw_q)
-                                        raw_charges = []
-                                        if opened:
-                                            raw_charges = await self.extract_charge_breakdown()
-                                        
-                                        if hasattr(self, "_split_raw_quote_by_container_types") and callable(getattr(self, "_split_raw_quote_by_container_types")):
-                                            split_res = await self._split_raw_quote_by_container_types(raw_q, raw_charges)
-                                            if split_res:
-                                                quotes.extend(split_res)
-                                            else:
-                                                normalized = await self.normalize_result(raw_q, raw_charges)
-                                                quotes.append(normalized)
-                                        else:
-                                            normalized = await self.normalize_result(raw_q, raw_charges)
-                                            quotes.append(normalized)
-                                    except Exception as e:
-                                        print(f"[{self.carrier_code}] Error extracting batch quote: {e}")
-                                        continue
-                            
-                            status_res = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.EXTRACTION_FAILED
-                            batch_results.append((req, status_res, quotes))
-                        else:
-                            batch_results.append((req, CarrierResultStatus.NO_QUOTES_AVAILABLE, []))
-                    else:
-                        batch_results.append((req, search_status, []))
-                except Exception as e:
-                    print(f"[{self.carrier_code}] Persistent Batch route error ({req.origin}->{req.destination}): {e}")
-                    batch_results.append((req, CarrierResultStatus.FAILED, []))
-                
+                status_res, quotes = CarrierResultStatus.FAILED, []
+                for attempt in (1, 2):
+                    try:
+                        status_res, quotes = await asyncio.wait_for(
+                            self._run_batch_route(req), timeout=route_timeout)
+                        break
+                    except asyncio.TimeoutError:
+                        status_res, quotes = CarrierResultStatus.TIMEOUT, []
+                        print(f"[{self.carrier_code}] Batch route TIMEOUT after {route_timeout:.0f}s "
+                              f"({req.origin}->{req.destination}), attempt {attempt}/2.")
+                    except Exception as e:
+                        status_res, quotes = CarrierResultStatus.FAILED, []
+                        print(f"[{self.carrier_code}] Persistent Batch route error "
+                              f"({req.origin}->{req.destination}), attempt {attempt}/2: {e}")
+                    if attempt == 1:
+                        await self._reset_between_routes(relogin=True)
+                batch_results.append((req, status_res, quotes))
+
                 if route_callback:
                     try:
-                        await route_callback(idx, req, batch_results[-1][1], quotes)
-                    except Exception:
-                        pass
+                        await route_callback(idx, req, status_res, quotes)
+                    except Exception as cb_err:
+                        print(f"[{self.carrier_code}] route_callback error (route {idx+1}): {cb_err}")
 
-                # Reset or navigate back to search page for next route without closing browser
-                try:
-                    if self.page and idx < len(requests) - 1 and getattr(self, "SEARCH_URL", None):
-                        await self.page.goto(self.SEARCH_URL, wait_until="domcontentloaded", timeout=15000)
-                        await self.page.wait_for_timeout(1000)
-                except Exception as ne:
-                    print(f"[{self.carrier_code}] Navigation reset note: {ne}")
+                if idx < len(requests) - 1:
+                    await self._reset_between_routes(relogin=False)
 
             return batch_results
 
