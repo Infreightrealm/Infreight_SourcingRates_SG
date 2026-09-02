@@ -135,14 +135,18 @@ def classify_charge(
 
     # ── SPECIAL OVERRIDES ────────────────────────────────────
     name_clean = " ".join(name_lower.split())
+    if "emergency risk" in name_clean or "gulf emergency risk" in name_clean or "risk surcharge" in name_clean or "war risk" in name_clean:
+        return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency/Gulf/War Risk Surcharge override to freight surcharge included"
     if "emergency operational" in name_clean or "operational cost recovery" in name_clean or "emergency operational cost" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Operational Cost Recovery override to freight surcharge included"
     if "inland haulage" in name_clean or "haulage export" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Inland Haulage Export override to freight surcharge included"
     if "transport additional" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Transport Additional override to freight surcharge included"
-    if "emergency surcharge" in name_clean:
+    if "emergency surcharge" in name_clean or "emergency cost" in name_clean or "emergency bunker" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Emergency Surcharge override to freight surcharge"
+    if "red sea" in name_clean or "suez" in name_clean or "gulf of aden" in name_clean or "contingency surcharge" in name_clean:
+        return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Red Sea/Suez/Gulf/Contingency Surcharge override to freight surcharge included"
     if "premium cargo service" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Premium Cargo Service override to freight surcharge"
     if re.search(r"origin\s*landfreight\s*rail|landfreight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail", name_clean):
@@ -371,7 +375,14 @@ def classify_charge(
         if "surcharges" in section or "surcharge" in section:
             return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Forced by section header: '{section_heading}'"
         elif "freight" in section:
-            return ChargeCategory.BASIC_OCEAN_FREIGHT, f"Forced by section header: '{section_heading}'"
+            # If the charge name explicitly mentions basic freight/ocean rate, it's basic ocean freight.
+            # Any other unclassified line item residing under 'freight charges' is a freight surcharge!
+            if any(k in name_lower for k in ["basic ocean freight", "ocean freight", "base freight", "sea freight", "freight rate"]) or name_lower == "freight":
+                return ChargeCategory.BASIC_OCEAN_FREIGHT, f"Basic freight under freight section: '{section_heading}'"
+            elif any(k in name_lower for k in ["discount", "rebate"]):
+                return ChargeCategory.DISCOUNT, f"Discount under freight section: '{section_heading}'"
+            else:
+                return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, f"Freight surcharge under freight section: '{section_heading}'"
         elif "origin" in section or "export" in section:
             return ChargeCategory.ORIGIN_CHARGE_EXCLUDED, f"Forced by section header: '{section_heading}'"
         elif "destination" in section or "import" in section:
