@@ -1,0 +1,40 @@
+2026/09/01-10:19:29.624 40d8 Reusing MANIFEST C:\Users\Brian\Downloads\Telegram Desktop\Infreight_Sourcing_18526\Infreight_Sourcing_New\backend\chrome_profile_cma_tmp_e2f6db3c\Default\Local Storage\leveldb/MANIFEST-000001
+2026/09/01-10:19:29.631 40d8 Recovering log #124
+2026/09/01-10:19:29.632 40d8 Level-0 table #127: started
+2026/09/01-10:19:29.642 40d8 Level-0 table #127: 12933 bytes OK
+2026/09/01-10:19:29.642 40d8 Recovering log #126
+2026/09/01-10:19:29.647 40d8 Reusing old log C:\Users\Brian\Downloads\Telegram Desktop\Infreight_Sourcing_18526\Infreight_Sourcing_New\backend\chrome_profile_cma_tmp_e2f6db3c\Default\Local Storage\leveldb/000126.log 
+2026/09/01-10:19:29.653 40d8 Delete type=0 #124
+2026/09/01-10:19:29.656 5264 Compacting 4@0 + 1@1 files
+2026/09/01-10:19:29.680 5264 Generated table #128@0: 41 keys, 142212 bytes
+2026/09/01-10:19:29.680 5264 Compacted 4@0 + 1@1 files => 142212 bytes
+2026/09/01-10:19:29.682 5264 compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/09/01-10:19:29.684 5264 Delete type=2 #117
+2026/09/01-10:19:29.684 5264 Delete type=2 #119
+2026/09/01-10:19:29.684 5264 Delete type=2 #122
+2026/09/01-10:19:29.684 5264 Delete type=2 #125
+2026/09/01-10:19:29.684 5264 Delete type=2 #127
+2026/09/01-10:21:30.415 40d8 Level-0 table #130: started
+2026/09/01-10:21:30.425 40d8 Level-0 table #130: 47168 bytes OK
+2026/09/01-10:21:30.427 40d8 Delete type=0 #126
+2026/09/01-10:23:30.415 5264 Level-0 table #132: started
+2026/09/01-10:23:30.424 5264 Level-0 table #132: 12950 bytes OK
+2026/09/01-10:23:30.426 5264 Delete type=0 #129
+2026/09/01-10:25:30.422 5264 Level-0 table #134: started
+2026/09/01-10:25:30.429 5264 Level-0 table #134: 12407 bytes OK
+2026/09/01-10:25:30.431 5264 Delete type=0 #131
+2026/09/01-10:27:30.426 5264 Level-0 table #136: started
+2026/09/01-10:27:30.537 5264 Level-0 table #136: 13075 bytes OK
+2026/09/01-10:27:30.539 5264 Delete type=0 #133
+2026/09/01-10:27:30.540 5264 Compacting 4@0 + 1@1 files
+2026/09/01-10:27:30.627 5264 Generated table #137@0: 39 keys, 176069 bytes
+2026/09/01-10:27:30.627 5264 Compacted 4@0 + 1@1 files => 176069 bytes
+2026/09/01-10:27:30.630 5264 compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/09/01-10:27:30.634 5264 Delete type=2 #128
+2026/09/01-10:27:30.634 5264 Delete type=2 #130
+2026/09/01-10:27:30.634 5264 Delete type=2 #132
+2026/09/01-10:27:30.634 5264 Delete type=2 #134
+2026/09/01-10:27:30.635 5264 Delete type=2 #136
+2026/09/01-10:29:30.410 5264 Level-0 table #139: started
+2026/09/01-10:29:30.418 5264 Level-0 table #139: 13439 bytes OK
+2026/09/01-10:29:30.421 5264 Delete type=0 #135

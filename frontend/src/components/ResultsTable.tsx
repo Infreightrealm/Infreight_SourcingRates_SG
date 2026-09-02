@@ -659,8 +659,19 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         <td className="px-1 py-2 text-right font-mono text-red-600 dark:text-red-400">
                           {row.quote.discount !== 0 ? row.quote.discount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
                         </td>
-                        <td className="px-1 py-2 text-right font-mono text-blue-600 dark:text-blue-300">
-                          {row.quote.final_freight_value === 0.0 ? "—" : surchargeTotal(row.quote).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        <td className="px-1 py-2 text-right font-mono">
+                          {row.quote.is_breakdown_unavailable ? (
+                            <div className="flex flex-col items-end">
+                              <span className="text-amber-600 dark:text-amber-400 font-semibold text-[11px]">0.00*</span>
+                              <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans leading-tight flex items-center gap-0.5" title={row.quote.warning_message || "Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date."}>
+                                ⚠️ Breakdown N/A
+                              </span>
+                            </div>
+                          ) : row.quote.final_freight_value === 0.0 ? "—" : (
+                            <span className="text-blue-600 dark:text-blue-300">
+                              {surchargeTotal(row.quote).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </span>
+                          )}
                         </td>
                         <td className="px-1 py-2 text-right">
                           {row.quote.final_freight_value === 0.0 ? (
@@ -668,12 +679,19 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                               {row.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold Out"}
                             </span>
                           ) : (
-                            <>
-                              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                            <div className="flex flex-col items-end">
+                              <span className={`font-mono font-bold text-sm ${row.quote.is_breakdown_unavailable ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                                 {row.quote.final_freight_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                               </span>
-                              <span className="block text-[10px] text-slate-500 dark:text-white/40 leading-none">{row.quote.currency}</span>
-                            </>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500 dark:text-white/40 leading-none">{row.quote.currency}</span>
+                                {row.quote.is_breakdown_unavailable && (
+                                  <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" title={row.quote.warning_message || "Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date."}>
+                                    ⚠️ Incomplete
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           )}
                         </td>
                         <td className="px-1 py-2 text-center">

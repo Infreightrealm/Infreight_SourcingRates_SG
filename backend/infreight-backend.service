@@ -1,0 +1,25 @@
+[Unit]
+Description=Infreight Sourcing FastAPI Backend
+After=network.target
+
+[Service]
+# We run as the standard pi user (update if your username is different)
+User=pi
+Group=pi
+
+# This will be replaced by the install script dynamically
+WorkingDirectory=/home/pi/Infreight_Sourcing_New/backend
+
+# Use the virtual environment Python to run the server
+ExecStart=/home/pi/Infreight_Sourcing_New/backend/.venv/bin/python run_server.py
+
+# Automatically restart if the app crashes
+Restart=always
+RestartSec=5
+
+# Playwright/Patchright needs some environment variables to find browsers and run headlessly
+Environment="PATH=/home/pi/Infreight_Sourcing_New/backend/.venv/bin:/usr/bin:/usr/local/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

@@ -1171,12 +1171,17 @@ class OOCLConnector(BaseCarrierConnector):
             "is_sold_out": is_sold_out,
         }
 
-    async def _fs_extract_dialog_charges(self, page, card) -> dict:
+    async def _fs_extract_dialog_charges(self, page, card) -> tuple[dict, bool, Optional[str]]:
         """
         Opens the Details dialog for a card, clicks the Charge Breakdown tab,
         extracts ETS and EBS surcharges, and closes the dialog.
+        Returns: (surcharges_dict, is_breakdown_unavailable, warning_message)
         """
         surcharges_dict = {}
+        is_breakdown_unavailable = False
+        warning_message = None
+        unavailable_warning_text = "Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date."
+
         try:
             # 1. Wait for any active dialog to close and dismiss overlays
             await self._fs_dismiss_modals(page)
@@ -1189,17 +1194,25 @@ class OOCLConnector(BaseCarrierConnector):
             details_btn = card.locator('button:has-text("Details")').first
             if not await details_btn.is_visible(timeout=3000):
                 print("[OOCL] Details button not visible on card.")
-                return surcharges_dict
+                return surcharges_dict, True, unavailable_warning_text
 
             await details_btn.scroll_into_view_if_needed()
             
-            # Wait up to 5s for button disabled loading state to clear
-            for _ in range(10):
+            # Wait up to 4s for button disabled loading state to clear
+            is_disabled = False
+            for _ in range(8):
                 cls = await details_btn.get_attribute("class") or ""
                 dis = await details_btn.get_attribute("disabled")
                 if "disable" not in cls.lower() and dis is None:
+                    is_disabled = False
                     break
+                else:
+                    is_disabled = True
                 await page.wait_for_timeout(500)
+
+            if is_disabled:
+                print("[OOCL] Details button is greyed out / disabled for this quote card.")
+                return surcharges_dict, True, unavailable_warning_text
 
             try:
                 await details_btn.evaluate("el => el.click()")
@@ -1213,8 +1226,12 @@ class OOCLConnector(BaseCarrierConnector):
 
             # 3. Wait for the details dialog to load
             dialog = page.locator('.ant-modal, .el-dialog, [role="dialog"], .ant-modal-content').first
-            await dialog.wait_for(state="visible", timeout=4000)
-            print("[OOCL] Details dialog appeared.")
+            try:
+                await dialog.wait_for(state="visible", timeout=3500)
+                print("[OOCL] Details dialog appeared.")
+            except Exception as dialog_err:
+                print(f"[OOCL] Details dialog did not appear (disabled / unavailable): {dialog_err}")
+                return surcharges_dict, True, unavailable_warning_text
 
             # 4. Click the "Charge Breakdown" tab
             tab_sel = '.ant-tabs-tab:has-text("Charge Breakdown"), .el-tabs__item:has-text("Charge Breakdown"), [role="tab"]:has-text("Charge Breakdown")'
@@ -1323,6 +1340,8 @@ class OOCLConnector(BaseCarrierConnector):
 
         except Exception as e:
             print(f"[OOCL] Error extracting details: {e}")
+            is_breakdown_unavailable = True
+            warning_message = unavailable_warning_text
         finally:
             # Always attempt to close the dialog to prevent overlay blocking
             try:
@@ -1339,10 +1358,9 @@ class OOCLConnector(BaseCarrierConnector):
                 await page.locator('.ant-modal:visible, .el-dialog:visible, [role="dialog"]:visible').wait_for(state="hidden", timeout=3000)
             except Exception:
                 pass
-                pass
             await page.wait_for_timeout(500)
 
-        return surcharges_dict
+        return surcharges_dict, is_breakdown_unavailable, warning_message
 
     async def _fs_extract_rows(self, page) -> List[dict]:
         """Collects result cards from the FreightSmart quote results page."""
@@ -1485,9 +1503,14 @@ class OOCLConnector(BaseCarrierConnector):
 
                 for idx, (card, parsed) in enumerate(parsed_cards):
                     if idx == cheapest_idx:
-                        parsed["dialog_charges"] = await self._fs_extract_dialog_charges(page, card)
+                        surcharges, is_unavail, warn_msg = await self._fs_extract_dialog_charges(page, card)
+                        parsed["dialog_charges"] = surcharges
+                        parsed["is_breakdown_unavailable"] = is_unavail
+                        parsed["warning_message"] = warn_msg
                     else:
                         parsed["dialog_charges"] = {}
+                        parsed["is_breakdown_unavailable"] = False
+                        parsed["warning_message"] = None
 
                     # Deduplicate
                     key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
@@ -1529,7 +1552,10 @@ class OOCLConnector(BaseCarrierConnector):
                         continue
 
                     # Extract dialog charges (surcharges) if available
-                    parsed["dialog_charges"] = await self._fs_extract_dialog_charges(page, cards.nth(i))
+                    surcharges, is_unavail, warn_msg = await self._fs_extract_dialog_charges(page, cards.nth(i))
+                    parsed["dialog_charges"] = surcharges
+                    parsed["is_breakdown_unavailable"] = is_unavail
+                    parsed["warning_message"] = warn_msg
 
                     key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
                            tuple(sorted(parsed["prices"].items())))
@@ -1971,6 +1997,8 @@ class OOCLConnector(BaseCarrierConnector):
                 "container_quantity": 1,
                 "validity_till": r.get("validity_end"),
                 "dialog_charges": r.get("dialog_charges"),
+                "is_breakdown_unavailable": r.get("is_breakdown_unavailable", False),
+                "warning_message": r.get("warning_message"),
             }
             prices = r.get("prices") or {}
             if prices:

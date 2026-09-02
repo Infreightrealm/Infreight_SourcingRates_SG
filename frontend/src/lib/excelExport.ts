@@ -208,6 +208,9 @@ export async function exportSingleSearchToExcel(
         const firstQuote = groupQuotes[0];
         const freeTimeVal = getFreeTimeValue(firstQuote, cr.carrier) ?? "-";
 
+        const hasUnavail = groupQuotes.some((q) => q.is_breakdown_unavailable);
+        const warnRemark = hasUnavail ? " [⚠️ Incomplete: Surcharges unavailable]" : "";
+
         groupedExcelRows.push({
           pol: data.origin || "",
           pod: data.destination || "",
@@ -221,7 +224,7 @@ export async function exportSingleSearchToExcel(
           eta: formatDate(firstQuote.eta),
           validity_till: formatDate(firstQuote.validity_till),
           routing: firstQuote.routing || "Direct",
-          remark: firstQuote.vessel || "-",
+          remark: `${firstQuote.vessel || "-"}${warnRemark}`,
         });
       }
     }

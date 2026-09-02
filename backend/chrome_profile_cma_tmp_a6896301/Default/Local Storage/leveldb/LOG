@@ -1,0 +1,37 @@
+2026/09/01-10:27:28.647 46c0 Reusing MANIFEST C:\Users\Brian\Downloads\Telegram Desktop\Infreight_Sourcing_18526\Infreight_Sourcing_New\backend\chrome_profile_cma_tmp_a6896301\Default\Local Storage\leveldb/MANIFEST-000001
+2026/09/01-10:27:28.662 46c0 Recovering log #124
+2026/09/01-10:27:28.672 46c0 Level-0 table #127: started
+2026/09/01-10:27:28.679 46c0 Level-0 table #127: 12933 bytes OK
+2026/09/01-10:27:28.701 46c0 Recovering log #126
+2026/09/01-10:27:28.707 46c0 Reusing old log C:\Users\Brian\Downloads\Telegram Desktop\Infreight_Sourcing_18526\Infreight_Sourcing_New\backend\chrome_profile_cma_tmp_a6896301\Default\Local Storage\leveldb/000126.log 
+2026/09/01-10:27:28.742 46c0 Delete type=0 #124
+2026/09/01-10:27:28.744 7b60 Compacting 4@0 + 1@1 files
+2026/09/01-10:27:28.876 7b60 Generated table #128@0: 41 keys, 142212 bytes
+2026/09/01-10:27:28.876 7b60 Compacted 4@0 + 1@1 files => 142212 bytes
+2026/09/01-10:27:28.877 7b60 compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/09/01-10:27:28.881 7b60 Delete type=2 #117
+2026/09/01-10:27:28.881 7b60 Delete type=2 #119
+2026/09/01-10:27:28.881 7b60 Delete type=2 #122
+2026/09/01-10:27:28.881 7b60 Delete type=2 #125
+2026/09/01-10:27:28.881 7b60 Delete type=2 #127
+2026/09/01-10:29:30.035 5fd0 Level-0 table #130: started
+2026/09/01-10:29:30.044 5fd0 Level-0 table #130: 47175 bytes OK
+2026/09/01-10:29:30.048 5fd0 Delete type=0 #126
+2026/09/01-10:31:30.027 5fd0 Level-0 table #132: started
+2026/09/01-10:31:30.036 5fd0 Level-0 table #132: 13402 bytes OK
+2026/09/01-10:31:30.040 5fd0 Delete type=0 #129
+2026/09/01-10:33:30.032 7b60 Level-0 table #134: started
+2026/09/01-10:33:30.046 7b60 Level-0 table #134: 12864 bytes OK
+2026/09/01-10:33:30.049 7b60 Delete type=0 #131
+2026/09/01-10:36:30.027 7b60 Level-0 table #136: started
+2026/09/01-10:36:30.041 7b60 Level-0 table #136: 13322 bytes OK
+2026/09/01-10:36:30.044 7b60 Delete type=0 #133
+2026/09/01-10:36:30.045 7b60 Compacting 4@0 + 1@1 files
+2026/09/01-10:36:30.059 7b60 Generated table #137@0: 40 keys, 176136 bytes
+2026/09/01-10:36:30.059 7b60 Compacted 4@0 + 1@1 files => 176136 bytes
+2026/09/01-10:36:30.060 7b60 compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/09/01-10:36:30.061 7b60 Delete type=2 #128
+2026/09/01-10:36:30.061 7b60 Delete type=2 #130
+2026/09/01-10:36:30.062 7b60 Delete type=2 #132
+2026/09/01-10:36:30.062 7b60 Delete type=2 #134
+2026/09/01-10:36:30.062 7b60 Delete type=2 #136

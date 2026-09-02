@@ -32,6 +32,8 @@ export interface QuoteSchema {
   source: string;
   raw_reference?: string;
   validity_till?: string;
+  is_breakdown_unavailable?: boolean;
+  warning_message?: string;
 }
 
 

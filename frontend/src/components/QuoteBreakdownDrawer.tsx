@@ -73,9 +73,35 @@ export default function QuoteBreakdownDrawer({ quote, carrier, onClose }: QuoteB
             ))}
           </div>
 
+          {/* Breakdown Unavailable Warning Banner */}
+          {quote.is_breakdown_unavailable && (
+            <div className="bg-amber-500/15 border border-amber-500/40 rounded-2xl p-4 text-amber-900 dark:text-amber-300 text-xs flex items-start gap-3 shadow-sm animate-fade-in-up">
+              <span className="text-xl leading-none">⚠️</span>
+              <div className="space-y-1">
+                <p className="font-bold text-sm text-amber-700 dark:text-amber-400">Quote Surcharges Incomplete</p>
+                <p className="text-slate-700 dark:text-amber-200/90 leading-relaxed">
+                  This quote cannot accurately provide the final freight value because the price breakdown is disabled on the carrier portal:
+                </p>
+                <div className="mt-1.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 font-medium italic text-[11px] text-amber-800 dark:text-amber-300">
+                  "{quote.warning_message || 'Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date.'}"
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-amber-400/80 mt-1">
+                  * Line-item surcharges (ETS, EBS, Terminal Handling) could not be scraped. The value below reflects only the basic ocean rate.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Final Freight Value */}
           <div className="bg-gradient-to-r from-blue-100 to-purple-100 dark:from-blue-600/20 dark:to-purple-600/20 border border-blue-200 dark:border-blue-500/30 rounded-xl px-5 py-4 animate-fade-in-up stagger-2 animate-gradient-shift" style={{backgroundSize: "200% 200%"}}>
-            <span className="block text-xs text-blue-700 dark:text-blue-300/80 uppercase tracking-wider font-medium">Final Freight Value</span>
+            <div className="flex items-center justify-between">
+              <span className="block text-xs text-blue-700 dark:text-blue-300/80 uppercase tracking-wider font-medium">Final Freight Value</span>
+              {quote.is_breakdown_unavailable && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                  ⚠️ Incomplete
+                </span>
+              )}
+            </div>
             <span className="block text-3xl font-bold text-slate-900 dark:text-white mt-1">
               {quote.currency} {quote.final_freight_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>

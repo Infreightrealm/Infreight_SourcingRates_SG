@@ -1,0 +1,56 @@
+--- CARD LOCATOR DETECTED: True ---
+25 May 2026
+Departure
+25 May 2026, 17:00
+Arrival
+28 Jun 2026, 01:00
+Gate-in deadline
+24 May 2026, 10:00
+Transit time
+33 days 11 hours
+Vessel/voyage
+MAERSK CAPE COAST / 622W
+Route & other details
+Route details
+Singapore
+PSA Singapore Terminal
+Departing on MAERSK CAPE COAST / 622W
+25 May 2026, 17:00
+IMO number
+9525314
+Flag
+SG
+Service
+FW2
+Call sign
+_
+Tanjung Pelepas
+Pelabuhan Tanjung Pelepas Terminal
+Arrival
+26 May 2026, 07:00
+Tanjung Pelepas
+Pelabuhan Tanjung Pelepas Terminal
+Departing on MAERSK COTONOU / 623W
+19 Jun 2026, 16:00
+IMO number
+9525297
+Flag
+SG
+Service
+308
+Call sign
+_
+Jawaharlal Nehru
+Gateway Terminals India APMT
+Arrival
+28 Jun 2026, 01:00
+Deadlines
+Date and Time
+Container Gate-in Deadline at the Load Port
+24 May 2026, 10:00
+Verified Gross Mass Submission Deadline
+24 May 2026, 10:00
+Maersk Spot
+USD 2,063.00
+Incl. 4 days of detention & 2 days of demurrage freetime
+Price breakdown & details

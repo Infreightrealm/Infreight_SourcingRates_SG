@@ -239,6 +239,8 @@ class QuoteSchema(BaseModel):
     source: str = "carrier_portal"
     raw_reference: Optional[str] = None
     validity_till: Optional[str] = None
+    is_breakdown_unavailable: bool = False
+    warning_message: Optional[str] = None
 
 
 
