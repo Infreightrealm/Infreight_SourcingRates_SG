@@ -138,7 +138,6 @@ def parse_msc_modal_charges(popup_text: str) -> tuple[list[dict], float, float, 
     return charges, total_freight, bof_value, currency
 
 def resolve_msc_port(text: str) -> tuple[str, str]:
-
     """
     Resolves input text (e.g. 'Belfast (GBBEL)' or 'GBBEL') to a tuple of (query_text, locode).
     query_text is what we type in the search input box.
@@ -149,7 +148,10 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
         
     text_lower = text.lower().strip()
     
-    # 0. Rotterdam override
+    # 0. Check dynamic carrier overrides FIRST
+    msc_override = resolve_port_for_carrier(text, "msc")
+    
+    # 0.1 Rotterdam override
     if "rotterdam" in text_lower or text_lower == "nlrtm":
         return "Rotterdam", "NLRTM"
         
@@ -165,9 +167,9 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
         
     # 1. Extract LOCODE from input text
     extracted_locode = None
-    paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+    paren_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', text) or re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
     if paren_match:
-        extracted_locode = (paren_match.group(1) + paren_match.group(2)).upper()
+        extracted_locode = (paren_match.group(1) if len(paren_match.groups()) == 1 else paren_match.group(1) + paren_match.group(2)).upper()
     else:
         word_match = re.search(r'\b([A-Za-z]{2})\s*([A-Za-z]{3})\b', text)
         if word_match:
@@ -190,11 +192,14 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
         if results:
             extracted_locode = results[0]['code'].upper()
             
-    # 3. Determine query_text (use port code directly if found, fallback to cleaned text)
-    query_text = extracted_locode if extracted_locode else re.sub(r'\s*\([^)]*\)', '', text).strip()
+    # 3. Determine query_text (use override if specified, or locode directly if found, fallback to cleaned text)
+    if msc_override and msc_override != text:
+        query_text = msc_override
+    else:
+        query_text = extracted_locode if extracted_locode else re.sub(r'\s*\([^)]*\)', '', text).strip()
         
     if not extracted_locode:
-        extracted_locode = ""
+        extracted_locode = msc_override if (msc_override and len(msc_override) == 5) else ""
         
     return query_text, extracted_locode
 
@@ -327,6 +332,9 @@ class MSCConnector(BaseCarrierConnector):
             dest_query, dest_locode = resolve_msc_port(request.destination)
             self.log(f"Filling destination: query='{dest_query}', locode='{dest_locode}' (input: '{request.destination}')")
             await self._fill_autocomplete("Select End Point", dest_query, dest_locode)
+
+            # 4. Handle delivery type selection (Ramp / Door) if MSC presents checkboxes for inland endpoints (e.g. CATOR Toronto)
+            await self._handle_msc_ramp_selection()
 
             self.log("Clicking Search Rates button...")
             search_btn = self.page.locator("button:has-text('Search Rates')")
@@ -472,6 +480,55 @@ class MSCConnector(BaseCarrierConnector):
         except Exception as e:
             self.log(f"Failed to fill autocomplete for {label_text}: {e}")
             raise
+
+    async def _handle_msc_ramp_selection(self):
+        """
+        Detects and clicks the 'Ramp' delivery/haulage option if MSC displays
+        Ramp / Door selection under Destination (or Origin) for inland rail locations (e.g. CATOR Toronto, CACAL Calgary).
+        """
+        try:
+            await self.page.wait_for_timeout(1000)
+            ramp_selectors = [
+                'label:has-text("Ramp")',
+                'xpath=//label[contains(normalize-space(.), "Ramp")]',
+                'xpath=//*[normalize-space(text())="Ramp"]/preceding-sibling::input',
+                'xpath=//*[normalize-space(text())="Ramp"]/preceding-sibling::*//input',
+                'xpath=//*[normalize-space(text())="Ramp"]/parent::*',
+                'xpath=//span[contains(normalize-space(.), "Ramp")]/preceding-sibling::input',
+                'div:has-text("Ramp") input[type="checkbox"]',
+                'div:has-text("Ramp") input[type="radio"]',
+                '[role="checkbox"]:has-text("Ramp")',
+                '[role="radio"]:has-text("Ramp")',
+                'text="Ramp"'
+            ]
+
+            for sel in ramp_selectors:
+                loc = self.page.locator(sel).first
+                if await loc.count() > 0 and await loc.is_visible(timeout=500):
+                    # Check if already checked
+                    is_checked = False
+                    try:
+                        is_checked = await loc.is_checked(timeout=300)
+                    except Exception:
+                        try:
+                            input_child = loc.locator('input')
+                            if await input_child.count() > 0:
+                                is_checked = await input_child.is_checked()
+                        except Exception:
+                            pass
+
+                    if not is_checked:
+                        self.log(f"[MSC] Detected 'Ramp' delivery option with selector '{sel}'. Clicking Ramp checkbox...")
+                        await loc.click(force=True)
+                        await self.page.wait_for_timeout(800)
+                        self.log("[MSC] Successfully selected 'Ramp' option.")
+                        return True
+                    else:
+                        self.log("[MSC] 'Ramp' option is already checked.")
+                        return True
+        except Exception as e:
+            self.log(f"[MSC] Notice: Ramp selection check encountered non-fatal error: {e}")
+        return False
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
         if not hasattr(self, "_cached_quotes"):
