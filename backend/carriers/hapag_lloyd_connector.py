@@ -3233,10 +3233,22 @@ class HapagLloydConnector(BaseCarrierConnector):
                 if isinstance(card_prices, dict):
                     self._last_parsed_card_prices = card_prices
                 
-                # Check if all are sold out
-                all_sold_out = all(v == "sold_out" or v is None for v in self._last_parsed_card_prices.values())
+                # Judge "sold out" ONLY on the container size that was actually submitted
+                # on the form. Hapag renders a price column just for the selected size, so
+                # the other two entries are legitimately None ("not shown") — counting
+                # those as sold-out meant a single failed parse of the searched size made
+                # every value None and marked the WHOLE departure sold out, dropping the
+                # quote entirely. An explicit "sold_out" for the searched size still counts.
+                searched_key = self._normalize_container_key(
+                    getattr(getattr(self, "current_request", None), "container_type", None)
+                )
+                if searched_key in self._last_parsed_card_prices:
+                    judged = {searched_key: self._last_parsed_card_prices[searched_key]}
+                else:
+                    judged = self._last_parsed_card_prices
+                all_sold_out = bool(judged) and all(v == "sold_out" for v in judged.values())
                 if all_sold_out:
-                    print(f"[HAPAG] All container types are sold out / unavailable for this departure (is_spot={is_spot}).")
+                    print(f"[HAPAG] Searched container size is sold out / unavailable for this departure (is_spot={is_spot}).")
                     quote_ref["is_sold_out"] = True
                     return False
             except Exception as pe:
@@ -3718,22 +3730,32 @@ class HapagLloydConnector(BaseCarrierConnector):
         else:
             is_searched_type = False
             if hasattr(self, "current_request") and self.current_request:
-                req_c_type = self.current_request.container_type
-                if req_c_type == container_type:
-                    is_searched_type = True
-                elif req_c_type == "DRY 20" and container_type == "DRY 20":
-                    is_searched_type = True
-                elif req_c_type == "DRY 40" and container_type == "DRY 40":
-                    is_searched_type = True
-                elif req_c_type == "DRY 40H" and container_type == "DRY 40H":
-                    is_searched_type = True
-                    
+                # Compare through the alias map so a request phrased as "40HQ"/"40HC"
+                # still matches the "DRY 40H" quote. The previous chain of raw ==
+                # comparisons only matched the already-normalized spellings.
+                is_searched_type = (
+                    self._normalize_container_key(self.current_request.container_type)
+                    == self._normalize_container_key(container_type)
+                )
+
             # Check if this container size is actually available/priced on the card
             is_available = True
             card_price = getattr(self, "_last_parsed_card_prices", {}).get(container_type)
             if card_price is None or card_price == "sold_out":
                 is_available = False
-                
+
+            # Since the form is now submitted with ONE container type, Hapag renders a
+            # price column only for that size — so a missing (None) column for the size
+            # we actually searched is a PARSE MISS, not an unavailable size. Fall back to
+            # the card's own headline total, which for a single-type search IS that
+            # size's price. Without this the searched size was forced to 0.0 and
+            # surfaced as an empty/sold-out row. An explicit "sold_out" is still honoured.
+            if is_searched_type and card_price is None and raw_quote.get("total_price"):
+                is_available = True
+                print(f"[HAPAG] No per-column price parsed for the searched size "
+                      f"{container_type}; using the card total "
+                      f"({raw_quote.get('total_price')}) instead of reporting it empty.")
+
             if is_searched_type and is_available and final_value == 0.0 and raw_quote.get("total_price"):
                 final_value = raw_quote["total_price"]
                 if basic_ocean_freight == 0.0:
