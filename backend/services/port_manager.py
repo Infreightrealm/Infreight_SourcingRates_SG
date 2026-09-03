@@ -689,6 +689,19 @@ class PortManager:
         self._user_carrier_overrides[carrier_key][key_clean] = override_text.strip()
         self._save_carrier_overrides()
 
+        # Invalidate/update any stale disk cache entry that would conflict
+        locode_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', key_clean) or re.search(r'\b([A-Za-z]{5})\b', key_clean)
+        if locode_match:
+            l_code = locode_match.group(1).upper()
+            if hasattr(self, '_carrier_ports_cache') and carrier_key in self._carrier_ports_cache:
+                self._carrier_ports_cache[carrier_key][l_code] = override_text.strip()
+                cache_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_ports_cache.json")
+                try:
+                    with open(cache_path, 'w', encoding='utf-8') as f:
+                        json.dump(self._carrier_ports_cache, f, indent=2)
+                except Exception:
+                    pass
+
     def delete_carrier_override(self, carrier: str, key: str) -> None:
         carrier_key = carrier.strip().lower()
         key_clean = key.strip().lower()
@@ -736,9 +749,21 @@ class PortManager:
         }
 
     def get_cached_carrier_port(self, carrier: str, locode: str) -> Optional[str]:
-        """Retrieve verified carrier port name from persistent cache by UN/LOCODE."""
+        """Retrieve verified carrier port name from persistent cache by UN/LOCODE, prioritizing user overrides."""
+        if not carrier or not locode:
+            return None
         carrier_key = carrier.strip().lower()
         locode_key = locode.strip().upper()
+        
+        # Priority 1: User's dynamic carrier overrides take top precedence over any disk cache!
+        if hasattr(self, '_dynamic_carrier_overrides') and carrier_key in self._dynamic_carrier_overrides:
+            c_dict = self._dynamic_carrier_overrides[carrier_key]
+            if locode_key.lower() in c_dict:
+                return c_dict[locode_key.lower()]
+            for k, v in c_dict.items():
+                if locode_key.lower() in k.lower():
+                    return v
+
         return self._carrier_ports_cache.get(carrier_key, {}).get(locode_key)
 
     def set_cached_carrier_port(self, carrier: str, locode: str, exact_name: str) -> None:
