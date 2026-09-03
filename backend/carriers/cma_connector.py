@@ -1831,36 +1831,34 @@ class CMAConnector(BaseCarrierConnector):
         Overrides base search runner to query all 3 sizes at once and cache the resulting quotes
         across sequential container type cycles to save time.
         """
-        if not hasattr(self, "_cached_quotes"):
-            self._cached_quotes = None
-            self._cached_status = None
+        cache_key = (request.origin, request.destination, request.departure_date)
+        if not hasattr(self, "_cached_quotes_by_route"):
+            self._cached_quotes_by_route = {}
 
-        if self._cached_quotes is not None:
-            print(f"[CMA] Returning cached quotes for '{request.container_type}' (avoiding redundant browser search).")
-            matching_quotes = [q for q in self._cached_quotes if q.container_type == request.container_type]
-            return self._cached_status, matching_quotes
+        if cache_key in self._cached_quotes_by_route:
+            print(f"[CMA] Returning cached quotes for {cache_key} (container_type='{request.container_type}')")
+            cached_status, cached_quotes = self._cached_quotes_by_route[cache_key]
+            matching_quotes = [q for q in cached_quotes if q.container_type == request.container_type]
+            return cached_status, matching_quotes
 
         quotes: list[QuoteSchema] = []
         try:
             # Step 1: Login
             login_ok = await self.login()
             if not login_ok:
-                self._cached_quotes = []
-                self._cached_status = CarrierResultStatus.LOGIN_FAILED
+                self._cached_quotes_by_route[cache_key] = (CarrierResultStatus.LOGIN_FAILED, [])
                 return CarrierResultStatus.LOGIN_FAILED, []
 
             # Step 2: Search quotes (always searches 20' Dry, 40' Dry, and 40' Dry High Cube with quantity 1)
             search_status = await self.search_quotes(request)
             if search_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
-                self._cached_quotes = []
-                self._cached_status = search_status
+                self._cached_quotes_by_route[cache_key] = (search_status, [])
                 return search_status, []
 
             # Step 3: Extract quote list
             raw_quotes = await self.extract_quote_list()
             if not raw_quotes:
-                self._cached_quotes = []
-                self._cached_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
+                self._cached_quotes_by_route[cache_key] = (CarrierResultStatus.NO_QUOTES_AVAILABLE, [])
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
             if getattr(request, "search_mode", "detailed") == "quick":
@@ -1870,7 +1868,7 @@ class CMAConnector(BaseCarrierConnector):
                     price = float(best.get("total_price") or 0.0)
                     etd_val = best.get("etd")
                     eta_val = best.get("eta")
-                    for ct in ["DRY 20", "DRY 40"]:
+                    for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
                         quotes.append(QuoteSchema(
                             container_type=ct,
                             currency="USD",
@@ -1881,10 +1879,10 @@ class CMAConnector(BaseCarrierConnector):
                             source="CMA_CGM",
                             raw_reference=f"CMA-QUICK-{ct.replace(' ', '_')}"
                         ))
-                self._cached_quotes = quotes
-                self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
+                result_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
+                self._cached_quotes_by_route[cache_key] = (result_status, quotes)
                 matching_quotes = [q for q in quotes if q.container_type == request.container_type]
-                return self._cached_status, matching_quotes
+                return result_status, matching_quotes
 
             # Step 4: Detailed Mode: For each quote, get breakdown, extract, and split
             for raw_quote in raw_quotes:
@@ -1900,12 +1898,12 @@ class CMAConnector(BaseCarrierConnector):
                     print(f"[CMA] Error extracting quote: {e}")
                     continue
 
-            self._cached_quotes = quotes
-            self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.EXTRACTION_FAILED
+            result_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.EXTRACTION_FAILED
+            self._cached_quotes_by_route[cache_key] = (result_status, quotes)
             
             # Filter and return quotes matching current request container type
             matching_quotes = [q for q in quotes if q.container_type == request.container_type]
-            return self._cached_status, matching_quotes
+            return result_status, matching_quotes
 
         except Exception as e:
             print(f"[CMA] Unexpected error in run_full_search: {e}")

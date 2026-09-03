@@ -3829,7 +3829,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     price = float(best.get("total_price") or 0.0)
                     etd_val = best.get("etd")
                     eta_val = best.get("eta")
-                    for ct in ["DRY 20", "DRY 40"]:
+                    for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
                         quick_quotes.append(QuoteSchema(
                             container_type=ct,
                             currency="USD",

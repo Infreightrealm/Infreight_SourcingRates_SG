@@ -183,6 +183,48 @@ PORT_NAME_KEYWORD_MAP = {
     "sudan": "SDPZU",
     "bangalore": "INBLR",
     "bengaluru": "INBLR",
+    # North American Ports & Inland Ramps (Canada & USA)
+    "toronto": "CATOR",
+    "cator": "CATOR",
+    "vancouver": "CAVAN",
+    "cavan": "CAVAN",
+    "calgary": "CACAL",
+    "cacal": "CACAL",
+    "cacgy": "CACAL",
+    "montreal": "CAMTR",
+    "camtr": "CAMTR",
+    "prince rupert": "CAPRR",
+    "caprr": "CAPRR",
+    "halifax": "CAHAL",
+    "cahal": "CAHAL",
+    "chicago": "USCHI",
+    "uschi": "USCHI",
+    "los angeles": "USLAX",
+    "uslax": "USLAX",
+    "long beach": "USLGB",
+    "uslgb": "USLGB",
+    "new york": "USNYC",
+    "usnyc": "USNYC",
+    "newark": "USNWK",
+    "usnwk": "USNWK",
+    "seattle": "USSEA",
+    "ussea": "USSEA",
+    "tacoma": "USTIW",
+    "ustiw": "USTIW",
+    "oakland": "USOAK",
+    "usoak": "USOAK",
+    "houston": "USHOU",
+    "ushou": "USHOU",
+    "savannah": "USSAV",
+    "ussav": "USSAV",
+    "norfolk": "USORF",
+    "usorf": "USORF",
+    "charleston": "USCHS",
+    "uschs": "USCHS",
+    "memphis": "USMEM",
+    "usmem": "USMEM",
+    "dallas": "USDAL",
+    "usdal": "USDAL",
 }
 
 
@@ -1074,40 +1116,39 @@ class PortManager:
 
         # Rule for CMA, ONE, and Hapag-Lloyd: Auto-translate to their PORT CODE (LOCODE)
         if carrier_key in ("cma", "one", "hapag"):
-            # A. Try matching commonly used port name keywords first
-            norm_text = text.lower().strip()
-            norm_text_clean = re.sub(r'\b(port|of|terminal|container)\b', '', norm_text)
-            norm_text_clean = re.sub(r'\s+', ' ', norm_text_clean).strip()
-
             target_locode = None
-            for keyword, locode in PORT_NAME_KEYWORD_MAP.items():
-                if keyword == norm_text_clean or keyword == norm_text:
-                    target_locode = locode
-                    break
+            # A. Extract 5-letter code from parentheses/brackets (e.g. (CATOR), [CACAL]) or direct 5-letter string
+            paren_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', text) or re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+            if paren_match:
+                code_cand = (paren_match.group(1) if len(paren_match.groups()) == 1 else paren_match.group(1) + paren_match.group(2)).upper()
+                if code_cand in self._ports or code_cand in PORT_MAP_CMA_ONE:
+                    target_locode = PORT_MAP_CMA_ONE.get(code_cand, code_cand)
 
-            # B. If not found, try to extract a 5-letter code from parentheses or direct code
             if not target_locode:
-                locode_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
-                if locode_match:
-                    extracted = (locode_match.group(1) + locode_match.group(2)).upper()
-                    if extracted in PORT_MAP_CMA_ONE:
-                        target_locode = PORT_MAP_CMA_ONE[extracted]
-                else:
-                    clean_word = text.strip()
-                    if len(clean_word) == 5 and clean_word.isalpha():
-                        extracted = clean_word.upper()
-                        if extracted in PORT_MAP_CMA_ONE:
-                            target_locode = PORT_MAP_CMA_ONE[extracted]
+                clean_word = text.strip()
+                if len(clean_word) == 5 and clean_word.isalpha():
+                    code_cand = clean_word.upper()
+                    if code_cand in self._ports or code_cand in PORT_MAP_CMA_ONE:
+                        target_locode = PORT_MAP_CMA_ONE.get(code_cand, code_cand)
 
-            # C. If still not found, search in our ports database to see if the first search result is one of the commonly used ports
+            # B. Try matching commonly used port name keywords
+            if not target_locode:
+                norm_text = text.lower().strip()
+                norm_text_clean = re.sub(r'\b(port|of|terminal|container|ramp|door)\b', '', norm_text)
+                norm_text_clean = re.sub(r'\s+', ' ', norm_text_clean).strip()
+                for keyword, locode in PORT_NAME_KEYWORD_MAP.items():
+                    if keyword == norm_text_clean or keyword == norm_text:
+                        target_locode = locode
+                        break
+
+            # C. Search in our ports database for fuzzy matches
             if not target_locode:
                 results = self.search_port(text)
                 if results:
                     first_code = results[0]['code'].upper()
-                    if first_code in PORT_MAP_CMA_ONE:
-                        target_locode = PORT_MAP_CMA_ONE[first_code]
+                    target_locode = PORT_MAP_CMA_ONE.get(first_code, first_code)
 
-            # D. If we matched a target commonly used port:
+            # D. Carrier-specific LOCODE overrides
             if target_locode:
                 # ONE special override: Ain Sukhna (EGAIS) -> Alexandria (EGALY)
                 if carrier_key == "one" and target_locode == "EGAIS":
@@ -1119,42 +1160,6 @@ class PortManager:
                 if target_locode == "CASHV":
                     return "KHKOS"
                 return target_locode
-
-            # E. Fallback: For CMA/ONE, also resolve any other valid port in the database to its standard LOCODE
-            extracted_locode = None
-            paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
-            if paren_match:
-                extracted_locode = (paren_match.group(1) + paren_match.group(2)).upper()
-            else:
-                word_match = re.search(r'\b([A-Za-z]{2})\s*([A-Za-z]{3})\b', text)
-                if word_match:
-                    candidate = (word_match.group(1) + word_match.group(2)).upper()
-                    if candidate in self._ports:
-                        extracted_locode = candidate
-
-            if not extracted_locode:
-                clean_word = text.strip()
-                if len(clean_word) == 5 and clean_word.isalpha():
-                    candidate = clean_word.upper()
-                    if candidate in self._ports:
-                        extracted_locode = candidate
-
-            if not extracted_locode or extracted_locode not in self._ports:
-                results = self.search_port(text)
-                if results:
-                    extracted_locode = results[0]['code']
-
-            if extracted_locode and extracted_locode in self._ports:
-                # ONE special override: Ain Sukhna (EGAIS) -> Alexandria (EGALY)
-                if carrier_key == "one" and extracted_locode == "EGAIS":
-                    return "EGALY"
-                # CMA special override: Sokhna (EGSOK) -> Ain Sukhna (EGAIS)
-                if carrier_key == "cma" and extracted_locode == "EGSOK":
-                    return "EGAIS"
-                # Sihanoukville override: CASHV -> KHKOS
-                if extracted_locode == "CASHV":
-                    return "KHKOS"
-                return extracted_locode
 
         # Ultimate fallback: clean up parentheses from the input text
         clean_text = re.sub(r'\s*\([^)]*\)', '', text)
