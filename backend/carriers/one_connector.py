@@ -329,6 +329,8 @@ class ONEConnector(BaseCarrierConnector):
                         opt_text = (await opt.inner_text()).strip().upper()
                         if locode == "AUMEL" and ("AUMELAS" in opt_text or "FRYUH" in opt_text):
                             continue
+                        if locode == "CAVAN" and ("IRELAND" in opt_text or "FRANCE" in opt_text or "IECVN" in opt_text or "FRCAV" in opt_text or "USVAN" in opt_text or "UNITED STATES" in opt_text):
+                            continue
                         matched_option = opt
                         matched_text = opt_text
                         break

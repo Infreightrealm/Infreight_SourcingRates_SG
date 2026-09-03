@@ -528,8 +528,10 @@ class CMAConnector(BaseCarrierConnector):
                 text = (await item.inner_text()).strip().upper()
                 if locode == "AUMEL" and ("AUMELAS" in text or "FRYUH" in text):
                     continue
+                if locode == "CAVAN" and ("IRELAND" in text or "FRANCE" in text or "IECVN" in text or "FRCAV" in text or "USVAN" in text or "UNITED STATES" in text):
+                    continue
                 
-                # Check for exact LOCODE match in parentheses first (e.g. "(AUMEL)")
+                # Check for exact LOCODE match in parentheses first (e.g. "(AUMEL)", "(CAVAN)")
                 sug_locode_match = re.search(r'\(([A-Z]{5})\)', text)
                 if sug_locode_match:
                     sug_locode = sug_locode_match.group(1)
@@ -565,6 +567,8 @@ class CMAConnector(BaseCarrierConnector):
                 text = (await item.inner_text()).strip().upper()
                 if locode == "AUMEL" and ("AUMELAS" in text or "FRYUH" in text):
                     continue
+                if locode == "CAVAN" and ("IRELAND" in text or "FRANCE" in text or "IECVN" in text or "FRCAV" in text or "USVAN" in text or "UNITED STATES" in text):
+                    continue
                 clean_locode = locode.strip().upper()
                 if re.search(rf"\b{re.escape(clean_locode)}\b", text):
                     inner_text = (await item.inner_text()).strip()
@@ -573,29 +577,20 @@ class CMAConnector(BaseCarrierConnector):
                     set_cached_carrier_port("cma", locode, inner_text)
                     return True
 
-            # Step 3: Ultimate fallback - click the first option (that is safe if AUMEL)
+            # Step 3: Ultimate fallback - click the first option (that is safe if AUMEL or CAVAN)
             if count > 0:
-                item = suggestions.nth(0)
-                inner_text = (await item.inner_text()).strip()
-                if locode == "AUMEL" and ("AUMELAS" in inner_text.upper() or "FRYUH" in inner_text.upper()):
-                    # Find first safe option
-                    found_safe = False
-                    for i in range(count):
-                        cand_item = suggestions.nth(i)
-                        cand_text = (await cand_item.inner_text()).strip().upper()
-                        if not ("AUMELAS" in cand_text or "FRYUH" in cand_text):
-                            item = cand_item
-                            inner_text = (await cand_item.inner_text()).strip()
-                            found_safe = True
-                            break
-                    if not found_safe:
-                        print(f"[CMA] [ERROR] No safe Melbourne option found in dropdown")
-                        return False
-
-                print(f"[CMA] [WARN] No exact match found for {label}. Clicking first option: '{inner_text}'")
-                await self._hover_and_click(item)
-                set_cached_carrier_port("cma", locode, inner_text)
-                return True
+                for i in range(count):
+                    item = suggestions.nth(i)
+                    inner_text = (await item.inner_text()).strip()
+                    up_text = inner_text.upper()
+                    if locode == "AUMEL" and ("AUMELAS" in up_text or "FRYUH" in up_text):
+                        continue
+                    if locode == "CAVAN" and ("IRELAND" in up_text or "FRANCE" in up_text or "IECVN" in up_text or "FRCAV" in up_text or "USVAN" in up_text or "UNITED STATES" in up_text):
+                        continue
+                    print(f"[CMA] [Last Fallback] Selected option for {label}: '{inner_text}'")
+                    await self._hover_and_click(item)
+                    set_cached_carrier_port("cma", locode, inner_text)
+                    return True
 
             print(f"[CMA] [ERROR] No suggestions found in dropdown for {label}")
             return False
@@ -1085,24 +1080,24 @@ class CMAConnector(BaseCarrierConnector):
             elif request.origin and ("xingang" in request.origin.lower() or request.origin.strip().upper() in ("CNXIP", "CNTXG")):
                 origin_locode = "CNTXG"
             else:
-                origin_locode = resolve_port_for_carrier(request.origin, "cma")
-                if origin_locode == "CNXIP":
-                    origin_locode = "CNTXG"
+                origin_resolved = resolve_port_for_carrier(request.origin, "cma")
+                if origin_resolved == "CNXIP":
+                    origin_resolved = "CNTXG"
+                origin_locode = self._extract_port_code(request.origin)
                 if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
-                    origin_locode = self._extract_port_code(request.origin)
-                    if origin_locode == "CNXIP":
-                        origin_locode = "CNTXG"
-                    if len(origin_locode) != 5 or not origin_locode.isupper():
+                    if len(origin_resolved) == 5 and origin_resolved.isupper():
+                        origin_locode = origin_resolved
+                    else:
                         from services.port_manager import search_port
                         ports = search_port(request.origin)
                         if ports:
                             origin_locode = ports[0]['code']
-                            if origin_locode == "CNXIP":
-                                origin_locode = "CNTXG"
+                        else:
+                            origin_locode = origin_resolved
+                origin_query = origin_resolved or origin_locode
 
-            # Always type the LOCODE (e.g. SGSIN) — CMA accepts port codes and shows matching suggestions.
+            # Check cache
             origin_cached = get_cached_carrier_port("cma", origin_locode) if origin_locode else None
-            origin_query = origin_locode
             
             # For Ho Chi Minh (VNSGN), user requested RAMP.DOOR selection so direct Vung Tau service / POL selection triggers!
             is_hcm_origin = (origin_locode == "VNSGN") or ("HO CHI MINH" in (request.origin.upper() if request.origin else ""))
@@ -1138,27 +1133,29 @@ class CMAConnector(BaseCarrierConnector):
             # --- DESTINATION ---
             if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
                 dest_locode = "NLRTM"
+                dest_query = "NLRTM"
             elif request.destination and ("xingang" in request.destination.lower() or request.destination.strip().upper() in ("CNXIP", "CNTXG")):
                 dest_locode = "CNTXG"
+                dest_query = "CNTXG"
             else:
-                dest_locode = resolve_port_for_carrier(request.destination, "cma")
-                if dest_locode == "CNXIP":
-                    dest_locode = "CNTXG"
+                dest_resolved = resolve_port_for_carrier(request.destination, "cma")
+                if dest_resolved == "CNXIP":
+                    dest_resolved = "CNTXG"
+                dest_locode = self._extract_port_code(request.destination)
                 if not dest_locode or len(dest_locode) != 5 or not dest_locode.isupper():
-                    dest_locode = self._extract_port_code(request.destination)
-                    if dest_locode == "CNXIP":
-                        dest_locode = "CNTXG"
-                    if len(dest_locode) != 5 or not dest_locode.isupper():
+                    if len(dest_resolved) == 5 and dest_resolved.isupper():
+                        dest_locode = dest_resolved
+                    else:
                         from services.port_manager import search_port
                         ports = search_port(request.destination)
                         if ports:
                             dest_locode = ports[0]['code']
-                            if dest_locode == "CNXIP":
-                                dest_locode = "CNTXG"
+                        else:
+                            dest_locode = dest_resolved
+                dest_query = dest_resolved or dest_locode
 
             # Check cache
             dest_cached = get_cached_carrier_port("cma", dest_locode) if dest_locode else None
-            dest_query = dest_locode
 
             # Check if Sokhna -> Ain Sukhna fallback occurred
             if "EGSOK" in (request.origin.upper() if request.origin else "") or "SOKHNA" in (request.origin.upper() if request.origin else ""):

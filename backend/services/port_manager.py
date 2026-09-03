@@ -66,6 +66,16 @@ CARRIER_PORT_OVERRIDES = {
         "INNSA": "Nhava Sheva",
         "AUMEL": "Melbourne",
         "CNXMN": "Xiamen",
+        "CAVAN": "Vancouver",
+        "CATOR": "Toronto",
+        "CACAL": "Calgary",
+        "CAMTR": "Montreal",
+    },
+    "cma": {
+        "CAVAN": "Vancouver",
+        "CATOR": "Toronto",
+        "CACAL": "Calgary",
+        "CAMTR": "Montreal",
     },
     "greenx": {
         # GreenX autocomplete accepts LOCODE directly (e.g. SGSIN, DEHAM)
@@ -1170,6 +1180,9 @@ class PortManager:
 
             # D. Carrier-specific LOCODE overrides
             if target_locode:
+                overrides = CARRIER_PORT_OVERRIDES.get(carrier_key, {})
+                if target_locode in overrides:
+                    return overrides[target_locode]
                 # ONE special override: Ain Sukhna (EGAIS) -> Alexandria (EGALY)
                 if carrier_key == "one" and target_locode == "EGAIS":
                     return "EGALY"
