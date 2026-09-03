@@ -610,22 +610,28 @@ class ONEConnector(BaseCarrierConnector):
             # Initialize fallback notice
             self.port_fallback_notice = None
 
-            # Resolve origin locode for strict dropdown selection matching
+            # Resolve origin locode and search query
             if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):
                 origin_locode = "NLRTM"
+                origin_resolved = "NLRTM"
             else:
-                origin_locode = resolve_port_for_carrier(request.origin, "one")
+                origin_resolved = resolve_port_for_carrier(request.origin, "one")
+                origin_locode = self._extract_port_code(request.origin)
                 if not origin_locode or len(origin_locode) != 5 or not origin_locode.isupper():
-                    origin_locode = self._extract_port_code(request.origin)
-                    if len(origin_locode) != 5 or not origin_locode.isupper():
+                    if len(origin_resolved) == 5 and origin_resolved.isupper():
+                        origin_locode = origin_resolved
+                    else:
                         from services.port_manager import search_port
                         ports = search_port(request.origin)
                         if ports:
                             origin_locode = ports[0]['code']
+                        else:
+                            origin_locode = origin_resolved
             
             self.origin_locode = origin_locode
 
             origin_cached = get_cached_carrier_port("one", origin_locode) if origin_locode else None
+            origin_query = origin_cached or origin_resolved or origin_locode or request.origin
             origin_selected = False
 
             await self._clear_overlays()
@@ -633,34 +639,23 @@ class ONEConnector(BaseCarrierConnector):
                 origin_field = self.page.locator('input[placeholder="Please search location"]').first
                 await origin_field.wait_for(state="attached", timeout=15000)
 
-                if origin_cached:
-                    # Use the cached carrier-specific spelling directly
-                    print(f"[ONE] Origin (cached): typing '{origin_cached}' for LOCODE '{origin_locode}'")
-                    await origin_field.click(force=True)
-                    await self._clear_overlays()
-                    await self.page.keyboard.type(origin_cached, delay=25)
-                    await self.page.wait_for_timeout(1500)
-                    origin_selected = await self._select_dropdown_option("Origin", origin_cached, origin_locode)
-
-                if not origin_selected:
-                    # Step 1: Try typing LOCODE directly (works if ONE recognises this LOCODE)
-                    origin_locode_query = origin_locode if origin_locode else request.origin
-                    print(f"[ONE] Origin (step 1): typing LOCODE '{origin_locode_query}'")
-                    await origin_field.click(force=True)
-                    await self._clear_overlays()
-                    await self.page.keyboard.press("Control+A")
-                    await self.page.keyboard.press("Backspace")
-                    await self.page.keyboard.type(origin_locode_query, delay=25)
-                    await self.page.wait_for_timeout(1500)
-                    origin_selected = await self._select_dropdown_option("Origin", origin_locode_query, origin_locode)
+                # Step 1: Type the resolved query or cached name
+                print(f"[ONE] Origin: typing '{origin_query}' (locode: '{origin_locode}')")
+                await origin_field.click(force=True)
+                await self._clear_overlays()
+                await self.page.keyboard.press("Control+A")
+                await self.page.keyboard.press("Backspace")
+                await self.page.keyboard.type(origin_query, delay=25)
+                await self.page.wait_for_timeout(1500)
+                origin_selected = await self._select_dropdown_option("Origin", origin_query, origin_locode)
 
                 if not origin_selected and origin_locode:
-                    # Step 2: LOCODE not recognised by ONE — fall back to port name from our database
+                    # Step 2: Fall back to port name from database if step 1 didn't match
                     from services.port_manager import get_port_by_code
                     port_obj = get_port_by_code(origin_locode)
                     origin_name = port_obj.get('name_ascii') or port_obj.get('name') if port_obj else None
-                    if origin_name:
-                        print(f"[ONE] Origin (step 2): LOCODE unknown to ONE, trying port name '{origin_name}'")
+                    if origin_name and origin_name.lower() != origin_query.lower():
+                        print(f"[ONE] Origin (step 2): trying port name '{origin_name}'")
                         await origin_field.click(force=True)
                         await self._clear_overlays()
                         await self.page.keyboard.press("Control+A")
@@ -676,22 +671,28 @@ class ONEConnector(BaseCarrierConnector):
                 print(f"[ONE] Origin combobox failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            # Resolve destination locode for strict dropdown selection matching
+            # Resolve destination locode and search query
             if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
                 destination_locode = "NLRTM"
+                destination_resolved = "NLRTM"
             else:
-                destination_locode = resolve_port_for_carrier(request.destination, "one")
+                destination_resolved = resolve_port_for_carrier(request.destination, "one")
+                destination_locode = self._extract_port_code(request.destination)
                 if not destination_locode or len(destination_locode) != 5 or not destination_locode.isupper():
-                    destination_locode = self._extract_port_code(request.destination)
-                    if len(destination_locode) != 5 or not destination_locode.isupper():
+                    if len(destination_resolved) == 5 and destination_resolved.isupper():
+                        destination_locode = destination_resolved
+                    else:
                         from services.port_manager import search_port
                         ports = search_port(request.destination)
                         if ports:
                             destination_locode = ports[0]['code']
+                        else:
+                            destination_locode = destination_resolved
             
             self.destination_locode = destination_locode
 
             destination_cached = get_cached_carrier_port("one", destination_locode) if destination_locode else None
+            dest_query = destination_cached or destination_resolved or destination_locode or request.destination
             destination_selected = False
 
             # Check if Ain Sukhna -> Alexandria fallback occurred
@@ -707,34 +708,23 @@ class ONEConnector(BaseCarrierConnector):
                 destination_field = self.page.locator('input[placeholder="Please search location"]').last
                 await destination_field.wait_for(state="attached", timeout=15000)
 
-                if destination_cached:
-                    # Use cached carrier-specific spelling
-                    print(f"[ONE] Destination (cached): typing '{destination_cached}' for LOCODE '{destination_locode}'")
-                    await destination_field.click(force=True)
-                    await self._clear_overlays()
-                    await self.page.keyboard.type(destination_cached, delay=25)
-                    await self.page.wait_for_timeout(1500)
-                    destination_selected = await self._select_dropdown_option("Destination", destination_cached, destination_locode)
-
-                if not destination_selected:
-                    # Step 1: Try typing LOCODE directly
-                    dest_locode_query = destination_locode if destination_locode else request.destination
-                    print(f"[ONE] Destination (step 1): typing LOCODE '{dest_locode_query}'")
-                    await destination_field.click(force=True)
-                    await self._clear_overlays()
-                    await self.page.keyboard.press("Control+A")
-                    await self.page.keyboard.press("Backspace")
-                    await self.page.keyboard.type(dest_locode_query, delay=25)
-                    await self.page.wait_for_timeout(1500)
-                    destination_selected = await self._select_dropdown_option("Destination", dest_locode_query, destination_locode)
+                # Step 1: Type the resolved query or cached name
+                print(f"[ONE] Destination: typing '{dest_query}' (locode: '{destination_locode}')")
+                await destination_field.click(force=True)
+                await self._clear_overlays()
+                await self.page.keyboard.press("Control+A")
+                await self.page.keyboard.press("Backspace")
+                await self.page.keyboard.type(dest_query, delay=25)
+                await self.page.wait_for_timeout(1500)
+                destination_selected = await self._select_dropdown_option("Destination", dest_query, destination_locode)
 
                 if not destination_selected and destination_locode:
-                    # Step 2: Fall back to port name from our database
+                    # Step 2: Fall back to port name from database if step 1 didn't match
                     from services.port_manager import get_port_by_code
                     port_obj = get_port_by_code(destination_locode)
                     dest_name = port_obj.get('name_ascii') or port_obj.get('name') if port_obj else None
-                    if dest_name:
-                        print(f"[ONE] Destination (step 2): LOCODE unknown to ONE, trying port name '{dest_name}'")
+                    if dest_name and dest_name.lower() != dest_query.lower():
+                        print(f"[ONE] Destination (step 2): trying port name '{dest_name}'")
                         await destination_field.click(force=True)
                         await self._clear_overlays()
                         await self.page.keyboard.press("Control+A")
