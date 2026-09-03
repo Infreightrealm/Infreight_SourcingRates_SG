@@ -551,16 +551,31 @@ class PortManager:
         except Exception as e:
             print(f"Error loading popular ports config: {e}")
 
-        # Load dynamic carrier overrides config
+        # Load dynamic carrier overrides (Base template + Persistent local user overrides)
         self._dynamic_carrier_overrides = {}
-        overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_overrides.json")
+        base_overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_overrides.json")
         try:
-            if os.path.exists(overrides_path):
-                with open(overrides_path, 'r', encoding='utf-8') as f:
+            if os.path.exists(base_overrides_path):
+                with open(base_overrides_path, 'r', encoding='utf-8') as f:
                     self._dynamic_carrier_overrides = json.load(f)
         except Exception as e:
-            print(f"Error loading carrier overrides: {e}")
+            print(f"Error loading base carrier overrides: {e}")
             self._dynamic_carrier_overrides = {}
+
+        # Load local user custom carrier overrides (persisted across git pulls/resets)
+        self._user_carrier_overrides = {}
+        user_overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "user_carrier_overrides.json")
+        try:
+            if os.path.exists(user_overrides_path):
+                with open(user_overrides_path, 'r', encoding='utf-8') as f:
+                    self._user_carrier_overrides = json.load(f)
+                    for car, car_dict in self._user_carrier_overrides.items():
+                        if car not in self._dynamic_carrier_overrides:
+                            self._dynamic_carrier_overrides[car] = {}
+                        self._dynamic_carrier_overrides[car].update(car_dict)
+        except Exception as e:
+            print(f"Error loading user carrier overrides: {e}")
+            self._user_carrier_overrides = {}
 
     def _load_custom_ports(self):
         custom_path = os.path.join(os.path.dirname(__file__), "..", "data", "custom_ports.json")
@@ -637,13 +652,13 @@ class PortManager:
             self._save_config()
 
     def _save_carrier_overrides(self):
-        overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "carrier_overrides.json")
+        user_overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "user_carrier_overrides.json")
         try:
-            os.makedirs(os.path.dirname(overrides_path), exist_ok=True)
-            with open(overrides_path, 'w', encoding='utf-8') as f:
-                json.dump(self._dynamic_carrier_overrides, f, indent=2)
+            os.makedirs(os.path.dirname(user_overrides_path), exist_ok=True)
+            with open(user_overrides_path, 'w', encoding='utf-8') as f:
+                json.dump(self._user_carrier_overrides, f, indent=2)
         except Exception as e:
-            print(f"Error saving carrier overrides: {e}")
+            print(f"Error saving user carrier overrides: {e}")
 
     def get_carrier_overrides(self, carrier: Optional[str] = None) -> Dict:
         if carrier:
@@ -658,7 +673,10 @@ class PortManager:
             return
         if carrier_key not in self._dynamic_carrier_overrides:
             self._dynamic_carrier_overrides[carrier_key] = {}
+        if carrier_key not in self._user_carrier_overrides:
+            self._user_carrier_overrides[carrier_key] = {}
         self._dynamic_carrier_overrides[carrier_key][key_clean] = override_text.strip()
+        self._user_carrier_overrides[carrier_key][key_clean] = override_text.strip()
         self._save_carrier_overrides()
 
     def delete_carrier_override(self, carrier: str, key: str) -> None:
@@ -666,7 +684,9 @@ class PortManager:
         key_clean = key.strip().lower()
         if carrier_key in self._dynamic_carrier_overrides:
             self._dynamic_carrier_overrides[carrier_key].pop(key_clean, None)
-            self._save_carrier_overrides()
+        if carrier_key in self._user_carrier_overrides:
+            self._user_carrier_overrides[carrier_key].pop(key_clean, None)
+        self._save_carrier_overrides()
 
     def _save_config(self):
         config_path = os.path.join(os.path.dirname(__file__), "..", "data", "popular_ports_config.json")
