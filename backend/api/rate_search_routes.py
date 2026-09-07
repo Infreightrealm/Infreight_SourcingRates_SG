@@ -384,6 +384,7 @@ async def get_rate_search(
                 final_freight_value=q.final_freight_value or 0,
                 validity_till=q.validity_till,
                 routing=q.raw_data_json.get("routing") if q.raw_data_json else "Direct",
+                port_of_discharge=q.raw_data_json.get("port_of_discharge") if q.raw_data_json else None,
 
                 free_time=getattr(q, "free_time", None) if getattr(q, "free_time", None) is not None else (q.raw_data_json.get("free_time") if q.raw_data_json else None),
                 demurrage=getattr(q, "demurrage", None) if getattr(q, "demurrage", None) is not None else (q.raw_data_json.get("demurrage") if q.raw_data_json else None),

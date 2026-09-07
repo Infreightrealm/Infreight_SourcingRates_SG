@@ -164,12 +164,18 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
         return "Bangkok", "THBKK"
     elif "bangkok" in text_lower or "thpat" in text_lower or "pat bangkok" in text_lower:
         return "Bangkok", "THPAT"
+
+    # 0.7 Check PORT_NAME_KEYWORD_MAP
+    from services.port_manager import PORT_NAME_KEYWORD_MAP
+    if text_lower in PORT_NAME_KEYWORD_MAP:
+        kw_locode = PORT_NAME_KEYWORD_MAP[text_lower]
+        return kw_locode, kw_locode
         
     # 1. Extract LOCODE from input text
     extracted_locode = None
-    paren_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', text) or re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+    paren_match = re.search(r'[\[\(]\s*([A-Za-z]{5})(?:\s+[A-Za-z]{2})?\s*[\]\)]', text) or re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
     if paren_match:
-        extracted_locode = (paren_match.group(1) if len(paren_match.groups()) == 1 else paren_match.group(1) + paren_match.group(2)).upper()
+        extracted_locode = (paren_match.group(1) if len(paren_match.groups()) == 1 or not paren_match.group(2) else paren_match.group(1) + paren_match.group(2)).upper()
     else:
         word_match = re.search(r'\b([A-Za-z]{2})\s*([A-Za-z]{3})\b', text)
         if word_match:
@@ -181,9 +187,7 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
         clean_word = text.strip()
         if len(clean_word) == 5 and clean_word.isalpha():
             candidate = clean_word.upper()
-            from services.port_manager import PortManager
-            if candidate in PortManager()._ports:
-                extracted_locode = candidate
+            extracted_locode = candidate
                 
     # 2. If not found, use search_port fallback
     if not extracted_locode:
@@ -647,8 +651,64 @@ class MSCConnector(BaseCarrierConnector):
                             card_validity = format_to_iso_date(raw_val)
                             self.log(f"Parsed Quote Expiration from card text: {card_validity}")
 
+                    # Extract Port of Discharge from card (e.g. SAVANNAH [USSAV] or CHARLESTON [USCHS])
+                    card_pod = None
+                    if card_text:
+                        pod_match = re.search(r"Port\s+of\s+Discharge\s*:?\s*\n?\s*([^\n\r]+)", card_text, re.IGNORECASE)
+                        if pod_match:
+                            cand = pod_match.group(1).strip()
+                            cand = re.split(r"(?:Destination|Transit|On-Carriage|Est\.)", cand, flags=re.IGNORECASE)[0].strip()
+                            if cand and cand.lower() not in ("destination", "n/a", "-"):
+                                card_pod = " ".join(cand.split())
+                                self.log(f"[MSC] Parsed Port of Discharge from card text: {card_pod}")
+
+                    if not card_pod and parent:
+                        try:
+                            pod_locators = [
+                                parent.locator("xpath=.//*[contains(translate(text(), 'DISCHARGE', 'discharge'), 'port of discharge')]/following::*[not(self::script)][1]"),
+                                parent.locator("xpath=.//*[contains(translate(text(), 'DISCHARGE', 'discharge'), 'port of discharge')]/.."),
+                                parent.locator("div:has-text('Port of Discharge')"),
+                            ]
+                            for ploc in pod_locators:
+                                if await ploc.count() > 0:
+                                    ptext = (await ploc.first.inner_text()).strip()
+                                    m = re.search(r"([A-Za-z\s,.'/-]+\s*\[[A-Z0-9]{5}\])", ptext)
+                                    if m:
+                                        card_pod = " ".join(m.group(1).strip().split())
+                                        self.log(f"[MSC] Parsed Port of Discharge from card DOM: {card_pod}")
+                                        break
+                        except Exception:
+                            pass
+
+                    # Detect inland destination / on-carriage vs direct port-to-port routing
+                    has_on_carriage = False
+                    if card_text and ("on-carriage" in card_text.lower() or "on carriage" in card_text.lower()):
+                        has_on_carriage = True
+
+                    card_dest = None
+                    if card_text:
+                        dest_match = re.search(r"Destination\s*:?\s*\n?\s*([^\n\r]+)", card_text, re.IGNORECASE)
+                        if dest_match:
+                            cand_d = dest_match.group(1).strip()
+                            cand_d = re.split(r"(?:Transit|Free Time|show details|Est\.)", cand_d, flags=re.IGNORECASE)[0].strip()
+                            if cand_d and cand_d.lower() not in ("n/a", "-"):
+                                card_dest = " ".join(cand_d.split())
+                                self.log(f"[MSC] Parsed Destination from card text: {card_dest}")
+
+                    is_inland_route = False
+                    if has_on_carriage:
+                        is_inland_route = True
+                    elif card_dest and card_pod and (card_dest.lower() != card_pod.lower()):
+                        is_inland_route = True
+                    elif card_pod and request.destination:
+                        pod_code_match = re.search(r'\[([A-Z0-9]{5})\]', card_pod)
+                        dest_code_match = re.search(r'\[([A-Z0-9]{5})\]', request.destination) or re.search(r'\b([A-Z0-9]{5})\b', request.destination.upper())
+                        if pod_code_match and dest_code_match:
+                            if pod_code_match.group(1) != dest_code_match.group(1):
+                                is_inland_route = True
+
                     validity_till = card_validity or window_validity
-                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type} - validity: {validity_till}")
+                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type} - POD: {card_pod} - is_inland: {is_inland_route} - validity: {validity_till}")
 
                     # Open details popup
 
@@ -841,9 +901,11 @@ class MSCConnector(BaseCarrierConnector):
                         service_name = parts[-3] if len(parts) > 3 else "MSC Service"
 
                         from models.schemas import ChargeSchema
+                        effective_routing = card_pod if (is_inland_route and card_pod) else routing_val
                         quote = QuoteSchema(
                             service_name=service_name,
-                            routing=routing_val,
+                            routing=effective_routing,
+                            port_of_discharge=card_pod,
                             transit_time_days=tt_days,
                             etd=standardize_date_string(etd) if etd else None,
                             eta=standardize_date_string(eta) if eta else None,

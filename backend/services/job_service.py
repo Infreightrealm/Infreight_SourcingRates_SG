@@ -305,6 +305,7 @@ async def run_carrier_search(
                             "source": q.source, 
                             "ref": q.raw_reference,
                             "routing": q.routing,
+                            "port_of_discharge": q.port_of_discharge,
                             "free_time": q.free_time,
                             "demurrage": q.demurrage,
                             "detention": q.detention
@@ -625,7 +626,7 @@ async def run_vertical_batch_searches(
                                     discount=q_schema.discount,
                                     final_freight_value=q_schema.final_freight_value,
                                     validity_till=q_schema.validity_till,
-                                    raw_data_json={"routing": q_schema.routing, "free_time": q_schema.free_time}
+                                    raw_data_json={"routing": q_schema.routing, "port_of_discharge": q_schema.port_of_discharge, "free_time": q_schema.free_time}
                                 )
                                 session.add(db_quote)
                             await session.commit()

@@ -78,6 +78,122 @@ function getFreeTimeValue(q: QuoteSchema, carrierName: string): string | number 
 }
 
 /**
+ * Extract clean city name from a port string (e.g. 'Taichung, Taiwan [TWTXG]' -> 'Taichung')
+ */
+export function extractCityName(portStr?: string | null): string {
+  if (!portStr || !portStr.trim()) return "Port";
+
+  const raw = portStr.trim();
+
+  // Known UN/LOCODE to clean city name mapping for fallback
+  const LOCODE_TO_CITY: Record<string, string> = {
+    TWTXG: "Taichung",
+    BEANR: "Antwerpen",
+    MYPKG: "Port_Klang",
+    MYLPK: "Port_Klang",
+    SGSIN: "Singapore",
+    DEHAM: "Hamburg",
+    NLRTM: "Rotterdam",
+    CNSHA: "Shanghai",
+    CNNGB: "Ningbo",
+    CNSZX: "Shenzhen",
+    CNTAO: "Qingdao",
+    CNXMN: "Xiamen",
+    TWKHH: "Kaohsiung",
+    TWKEL: "Keelung",
+    VNSGN: "Ho_Chi_Minh",
+    VNHPH: "Hai_Phong",
+    THBKK: "Bangkok",
+    THLCH: "Laem_Chabang",
+    THPAT: "Bangkok",
+    PKKHI: "Karachi",
+    INNSA: "Nhava_Sheva",
+    INMAA: "Chennai",
+    INCOK: "Cochin",
+    AEJEA: "Jebel_Ali",
+    SAJED: "Jeddah",
+    EGAIS: "Ain_Sukhna",
+    EGSOK: "Sokhna",
+    EGALX: "Alexandria",
+    EGALY: "Alexandria",
+    EGEDK: "Alexandria_Dekheila",
+    IDJKT: "Jakarta",
+    IDBTM: "Batam",
+    IDSUB: "Surabaya",
+    AUMEL: "Melbourne",
+    AUSYD: "Sydney",
+    KHKOS: "Sihanoukville",
+    MYPEN: "Penang",
+    MYPGU: "Pasir_Gudang",
+    MYTPP: "Tanjung_Pelepas",
+    CATOR: "Toronto",
+    CAVAN: "Vancouver",
+    CACAL: "Calgary",
+    CAMTR: "Montreal",
+    USCLT: "Charlotte",
+    USSAV: "Savannah",
+    USCHS: "Charleston",
+    USNYC: "New_York",
+    USLAX: "Los_Angeles",
+    USLGB: "Long_Beach",
+    USDAL: "Dallas",
+    USCHI: "Chicago",
+    USNWK: "Newark",
+    USSEA: "Seattle",
+    USTIW: "Tacoma",
+    USOAK: "Oakland",
+    USHOU: "Houston",
+    USORF: "Norfolk",
+    USMEM: "Memphis",
+  };
+
+  // Check if there is an embedded LOCODE like [TWTXG] or (TWTXG)
+  const locodeMatch = raw.match(/[\[\(]\s*([A-Za-z]{5})\b/);
+  const extractedLocode = locodeMatch ? locodeMatch[1].toUpperCase() : null;
+
+  // Strip brackets/parentheses and contents
+  let clean = raw.replace(/[\[\(].*?[\]\)]/g, "").trim();
+
+  // If there's a comma (e.g. 'Taichung, Taiwan'), take the city part before comma
+  if (clean.includes(",")) {
+    clean = clean.split(",")[0].trim();
+  }
+
+  // If what remains is just a 5-letter LOCODE or empty, look up in LOCODE_TO_CITY
+  const upperClean = clean.toUpperCase();
+  if (LOCODE_TO_CITY[upperClean]) {
+    clean = LOCODE_TO_CITY[upperClean];
+  } else if (extractedLocode && (!clean || (clean.length <= 5 && /^[A-Z]{5}$/.test(upperClean)))) {
+    clean = LOCODE_TO_CITY[extractedLocode] || clean;
+  }
+
+  // Remove unwanted punctuation and convert spaces to underscores
+  clean = clean.replace(/[^a-zA-Z0-9\s_-]/g, "").trim();
+  clean = clean.replace(/\s+/g, "_");
+
+  // Title case if all lower or all upper (e.g. 'taichung' -> 'Taichung', 'TAICHUNG' -> 'Taichung')
+  if (clean && (clean === clean.toLowerCase() || clean === clean.toUpperCase()) && clean.length > 2) {
+    clean = clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+  }
+
+  return clean || "Port";
+}
+
+/**
+ * Generates export filename: POL_POD_DDMMYYYY.xlsx (e.g. 'Taichung_Antwerpen_07092026.xlsx')
+ */
+export function generateRatesExportFilename(origin?: string | null, destination?: string | null): string {
+  const pol = extractCityName(origin);
+  const pod = extractCityName(destination);
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const yyyy = String(now.getFullYear());
+  const dateStr = `${dd}${mm}${yyyy}`;
+  return `${pol}_${pod}_${dateStr}.xlsx`;
+}
+
+/**
  * Single Search Rate Export — Pixel-perfect matching ResultsTable.tsx styling.
  */
 export async function exportSingleSearchToExcel(
@@ -370,9 +486,7 @@ export async function exportSingleSearchToExcel(
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  const safeOrig = (data.origin || "Origin").replace(/[^a-zA-Z0-9]/g, "_");
-  const safeDest = (data.destination || "Destination").replace(/[^a-zA-Z0-9]/g, "_");
-  a.download = customFilename || `Infreight_${safeOrig}_to_${safeDest}_Rates.xlsx`;
+  a.download = customFilename || generateRatesExportFilename(data.origin, data.destination);
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
