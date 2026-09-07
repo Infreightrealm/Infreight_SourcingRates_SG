@@ -5,6 +5,7 @@ import { CARRIERS } from "@/lib/types";
 import StatusBadge from "./StatusBadge";
 import QuoteBreakdownDrawer from "./QuoteBreakdownDrawer";
 import { Download, Inbox } from "lucide-react";
+import { generateRatesExportFilename } from "@/lib/excelExport";
 
 function formatDate(dateVal: string | null | undefined): string {
   if (!dateVal || dateVal === "—" || dateVal === "-") return "—";
@@ -446,7 +447,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `rates_${new Date().toISOString().split("T")[0]}.xlsx`;
+    link.download = generateRatesExportFilename(data.origin, data.destination);
     link.click();
     URL.revokeObjectURL(url);
   };
