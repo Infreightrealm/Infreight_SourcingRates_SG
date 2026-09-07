@@ -692,19 +692,20 @@ class CMAConnector(BaseCarrierConnector):
                     f'div:has-text("{container_name}")',
                 ]
                 for card_sel in card_selectors:
-                    card = self.page.locator(card_sel).filter(has=self.page.locator('span[name="weightPerContainer"] input')).first
+                    card = self.page.locator(card_sel).first
                     if await card.count() > 0:
-                        field = card.locator('span[name="weightPerContainer"] input').first
-                        await field.scroll_into_view_if_needed(timeout=3000)
-                        await field.click(force=True, timeout=3000)
-                        await self.page.keyboard.press("Control+A")
-                        await self.page.keyboard.press("Backspace")
-                        await self.page.keyboard.type(weight_text, delay=40)
-                        await self.page.keyboard.press("Tab")
-                        await self.page.wait_for_timeout(500)
-                        if await self._is_cma_weight_set(weight_kg):
-                            print(f"[CMA] Weight set to {weight_kg} KGM (via container-specific card selector)")
-                            return True
+                        field = card.locator('span[name="weightPerContainer"] input, input[id*="weight-container"]').first
+                        if await field.count() > 0 and await field.is_visible():
+                            await field.scroll_into_view_if_needed(timeout=3000)
+                            await field.click(force=True, timeout=3000)
+                            await self.page.keyboard.press("Control+A")
+                            await self.page.keyboard.press("Backspace")
+                            await self.page.keyboard.type(weight_text, delay=40)
+                            await self.page.keyboard.press("Tab")
+                            await self.page.wait_for_timeout(500)
+                            if await self._is_cma_weight_set(weight_kg):
+                                print(f"[CMA] Weight set to {weight_kg} KGM (via container-specific card selector)")
+                                return True
             except Exception as e:
                 print(f"[CMA] Weight specific card strategy failed: {e}")
 
@@ -1208,58 +1209,48 @@ class CMAConnector(BaseCarrierConnector):
             # --- CONTAINER TYPE & SIZE & WEIGHTS ---
             target_containers = ["20' Dry Standard", "40' Dry Standard", "40' Dry High Cube"]
             print(f"[CMA] Selecting all 3 dry container sizes: {target_containers}")
-            await self.page.wait_for_timeout(2000)
+            await self.page.wait_for_timeout(1000)
+
+            # Step A: Pre-check — ensure 45' Dry High Cube is NOT selected
+            del_45 = self.page.locator('button.delete[aria-label*="45" i]')
+            if await del_45.count() > 0 and await del_45.first.is_visible():
+                print("[CMA] 45' Dry High Cube was selected — clicking delete to remove it...")
+                await del_45.first.click(force=True)
+                await self.page.wait_for_timeout(500)
 
             async def add_cma_container(container_name: str) -> bool:
-                target_upper = container_name.upper()
-                target_parts = target_upper.replace("'", "").split()
-                
-                # Locate and click Add / +
-                try:
-                    items = self.page.locator('text=/\\d+.*(?:DRY|REEFER|FLAT|OPEN)/i')
-                    item_count = await items.count()
-                    for i in range(item_count):
-                        item = items.nth(i)
-                        item_text = (await item.inner_text(timeout=1000)).strip().upper()
-                        item_clean = item_text.replace("'", "")
-                        if all(part in item_clean for part in target_parts):
-                            parent = item.locator('..')
-                            add_btn = parent.locator('button:has-text("Add"), button:has-text("+")')
-                            if await add_btn.count() > 0 and await add_btn.first.is_visible(timeout=500):
-                                await add_btn.first.click()
-                                print(f"[CMA] Clicked Add for: '{item_text}'")
-                                return True
-                            
-                            grandparent = parent.locator('..')
-                            add_btn = grandparent.locator('button:has-text("Add"), button:has-text("+")')
-                            if await add_btn.count() > 0 and await add_btn.first.is_visible(timeout=500):
-                                await add_btn.first.click()
-                                print(f"[CMA] Clicked Add (grandparent) for: '{item_text}'")
-                                return True
-                            
-                            # If no Add button is visible, it means it is already selected!
-                            print(f"[CMA] Container '{container_name}' already added (Add button not visible).")
-                            return True
-                except Exception as e:
-                    print(f"[CMA] Error scanning Add buttons for '{container_name}': {e}")
+                # 1. Check if already selected via visible delete button
+                del_btn = self.page.locator(f'button.delete[aria-label*="{container_name}" i]')
+                if await del_btn.count() > 0 and await del_btn.first.is_visible():
+                    print(f"[CMA] Container '{container_name}' already selected.")
+                    return True
 
-                # Fallback div match
+                # 2. Click specific Add button with exact aria-label
+                add_btn = self.page.locator(f'button.add-button[aria-label*="{container_name}" i]')
+                if await add_btn.count() > 0 and await add_btn.first.is_visible():
+                    await add_btn.first.click(force=True)
+                    print(f"[CMA] Clicked Add for: '{container_name}' (via aria-label)")
+                    await self.page.wait_for_timeout(800)
+                    return True
+
+                # 3. Fallback: locate card by text and click its Add button
                 try:
-                    item_locator = self.page.locator(f'div:has-text("{container_name}")').filter(
-                        has=self.page.locator('button:has-text("Add"), button:has-text("+")')
-                    )
-                    if await item_locator.count() > 0:
-                        btn = item_locator.last.locator('button:has-text("Add"), button:has-text("+")').first
-                        if await btn.is_visible(timeout=500):
-                            await btn.click()
-                            print(f"[CMA] Selected '{container_name}' via fallback div match")
+                    card = self.page.locator(f'div.content:has-text("{container_name}"), li:has-text("{container_name}")').first
+                    if await card.count() > 0:
+                        card_add = card.locator('button.add-button, button:has-text("Add")').first
+                        if await card_add.count() > 0 and await card_add.is_visible():
+                            await card_add.click(force=True)
+                            print(f"[CMA] Clicked Add for: '{container_name}' (via card fallback)")
+                            await self.page.wait_for_timeout(800)
                             return True
-                        else:
-                            print(f"[CMA] Container '{container_name}' already added (fallback button not visible).")
+                        # If delete button is now visible inside this card, it was added
+                        card_del = card.locator('button.delete').first
+                        if await card_del.count() > 0 and await card_del.is_visible():
+                            print(f"[CMA] Container '{container_name}' confirmed added.")
                             return True
                 except Exception as e:
-                    print(f"[CMA] Fallback failed for '{container_name}': {e}")
-                
+                    print(f"[CMA] Card fallback error for '{container_name}': {e}")
+
                 return False
 
             for ct in target_containers:
@@ -1268,7 +1259,14 @@ class CMAConnector(BaseCarrierConnector):
                     print(f"[CMA] Could not add container type '{ct}'")
                     await self.page.screenshot(path="cma_container_fail.png")
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
-                await self.page.wait_for_timeout(1000)
+                await self.page.wait_for_timeout(500)
+
+            # Step B: Safety Guard — verify 45' Dry High Cube is NEVER selected
+            del_45 = self.page.locator('button.delete[aria-label*="45" i]')
+            if await del_45.count() > 0 and await del_45.first.is_visible():
+                print("[CMA] [SAFETY GUARD] 45' Dry High Cube detected as selected — removing it now...")
+                await del_45.first.click(force=True)
+                await self.page.wait_for_timeout(500)
 
             # --- CARGO WEIGHT ---
             weight_kg = max(int(request.weight_per_container_kg), 10000)
@@ -1280,18 +1278,19 @@ class CMAConnector(BaseCarrierConnector):
                     await self.page.screenshot(path="cma_weight_fail.png")
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
 
-            await self.page.wait_for_timeout(1500)
+            await self.page.wait_for_timeout(1000)
 
             # --- QUANTITY ---
-            # Quantity is already 1 by default. The +/- buttons are next to the count.
+            # Quantity is 1 by default for all selected cards.
             if request.container_quantity > 1:
                 try:
-                    # The + button is inside the selected container card
-                    qty_plus = self.page.locator('button:has-text("+")').nth(-2)  # Second-to-last + (last is the Add button for unselected containers)
-                    for _ in range(request.container_quantity - 1):
-                        await qty_plus.click()
-                        await self.page.wait_for_timeout(300)
-                    print(f"[CMA] Quantity set to: {request.container_quantity}")
+                    for ct in target_containers:
+                        inc_btn = self.page.locator(f'div.content:has-text("{ct}") button#BtnContainerInc, button#BtnContainerInc[aria-label*="{ct} increment" i]').first
+                        if await inc_btn.count() > 0 and await inc_btn.is_visible():
+                            for _ in range(request.container_quantity - 1):
+                                await inc_btn.click(force=True)
+                                await self.page.wait_for_timeout(200)
+                    print(f"[CMA] Quantity incremented to: {request.container_quantity}")
                 except Exception as e:
                     print(f"[CMA] [WARN] Could not set quantity: {e}")
 
@@ -1603,8 +1602,10 @@ class CMAConnector(BaseCarrierConnector):
                                 containerKey = 'DRY 20';
                             } else if (sizeType.includes('40ST') || (sizeType.includes('40') && !sizeType.includes('HC') && !sizeType.includes('HIGH'))) {
                                 containerKey = 'DRY 40';
-                            } else if (sizeType.includes('40HC') || sizeType.includes('HIGH CUBE') || sizeType.includes('40H')) {
+                            } else if ((sizeType.includes('40HC') || (sizeType.includes('HIGH CUBE') && !sizeType.includes('45')) || sizeType.includes('40H')) && !sizeType.includes('45')) {
                                 containerKey = 'DRY 40H';
+                            } else if (sizeType.includes('45')) {
+                                containerKey = 'DRY 45';
                             }
                             
                             if (containerKey) {
@@ -1715,7 +1716,7 @@ class CMAConnector(BaseCarrierConnector):
                 const headers = Array.from(headerRows[0].querySelectorAll('th, td')).map(el => el.innerText.trim().toUpperCase());
                 
                 // Locate columns
-                const colIndices = { name: 0, 'DRY 20': -1, 'DRY 40': -1, 'DRY 40H': -1, BL: -1, Currency: -1 };
+                const colIndices = { name: 0, 'DRY 20': -1, 'DRY 40': -1, 'DRY 40H': -1, 'DRY 45': -1, BL: -1, Currency: -1 };
                 headers.forEach((h, idx) => {
                     if (h.includes('DETAIL') || h.includes('CHARGE') || h === '') {
                         colIndices.name = idx;
@@ -1723,8 +1724,10 @@ class CMAConnector(BaseCarrierConnector):
                         colIndices['DRY 20'] = idx;
                     } else if (h.includes('40ST') || h === '40ST' || (h.includes('40') && !h.includes('HC') && !h.includes('HIGH'))) {
                         colIndices['DRY 40'] = idx;
-                    } else if (h.includes('40HC') || h.includes('HIGH CUBE') || h.includes('40H')) {
+                    } else if ((h.includes('40HC') || (h.includes('HIGH CUBE') && !h.includes('45')) || h.includes('40H')) && !h.includes('45')) {
                         colIndices['DRY 40H'] = idx;
+                    } else if (h.includes('45')) {
+                        colIndices['DRY 45'] = idx;
                     } else if (h === 'BL' || h.includes('B/L') || h.includes('LUMP')) {
                         colIndices.BL = idx;
                     } else if (h === 'CURRENCY' || h === 'CURR') {
