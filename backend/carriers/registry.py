@@ -11,6 +11,7 @@ from carriers.maersk_connector import MaerskConnector
 from carriers.one_connector import ONEConnector
 from carriers.cma_connector import CMAConnector
 from carriers.hapag_lloyd_connector import HapagLloydConnector
+from carriers.hapag_lloyd_api_connector import HapagLloydAPIConnector
 from carriers.greenx_connector import GreenXConnector
 from carriers.msc_connector import MSCConnector
 from carriers.oocl_connector import OOCLConnector
@@ -22,6 +23,7 @@ LIVE_CONNECTORS: dict[str, type[BaseCarrierConnector]] = {
     "ONE": ONEConnector,
     "CMA_CGM": CMAConnector,
     "HAPAG_LLOYD": HapagLloydConnector,
+    "HAPAG_LLOYD_API": HapagLloydAPIConnector,
     "GREENX": GreenXConnector,
     "MSC": MSCConnector,
     "OOCL": OOCLConnector,
@@ -29,7 +31,7 @@ LIVE_CONNECTORS: dict[str, type[BaseCarrierConnector]] = {
 
 # All supported carrier codes
 SUPPORTED_CARRIERS = [
-    "MAERSK", "ONE", "CMA_CGM", "HAPAG_LLOYD", "OOCL", "GREENX", "MSC"
+    "MAERSK", "ONE", "CMA_CGM", "HAPAG_LLOYD", "HAPAG_LLOYD_API", "OOCL", "GREENX", "MSC"
 ]
 
 
@@ -48,6 +50,12 @@ def get_connector(carrier_code: str) -> BaseCarrierConnector:
 
     if use_mock:
         conn = MockCarrierConnector(carrier_code)
+        ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
+        return conn
+
+    # Check if Hapag API mode is globally enabled for HAPAG_LLOYD
+    if carrier_code == "HAPAG_LLOYD" and os.getenv("HAPAG_USE_API", "false").lower() in ("true", "1", "yes"):
+        conn = HapagLloydAPIConnector()
         ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
         return conn
 
