@@ -786,15 +786,36 @@ class ONEConnector(BaseCarrierConnector):
                 field = dropdowns[idx]
                 await field.scroll_into_view_if_needed()
                 
-                # Check if already selected
-                inner_txt = await field.inner_text() or ""
-                val_txt = await field.input_value() or ""
+                # Check if already selected (safely check inner text and input value)
+                inner_txt = ""
+                try:
+                    inner_txt = (await field.inner_text()) or ""
+                except Exception:
+                    pass
+
+                val_txt = ""
+                try:
+                    tag_name = await field.evaluate("el => el.tagName.toLowerCase()")
+                    if tag_name in ("input", "textarea", "select"):
+                        val_txt = (await field.input_value()) or ""
+                    else:
+                        child = field.locator("input, textarea, select").first
+                        if await child.count() > 0:
+                            val_txt = (await child.input_value()) or ""
+                        else:
+                            val_txt = (await field.get_attribute("value")) or (await field.get_attribute("aria-label")) or ""
+                except Exception:
+                    pass
+
                 current_val = (inner_txt + " " + val_txt).lower()
                 
                 if target_name.lower() in current_val or target_name.replace(" ", "").lower() in current_val.replace(" ", ""):
                     print(f"[ONE] Card {idx} already has '{target_name}' selected (current value: '{val_txt or inner_txt}').")
                 else:
-                    await field.click()
+                    try:
+                        await field.click()
+                    except Exception:
+                        await field.click(force=True)
                     await self.page.wait_for_timeout(800)
                     
                     # Iterate through all visible options and find the best match
