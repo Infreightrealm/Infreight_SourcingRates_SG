@@ -816,18 +816,10 @@ class ONEConnector(BaseCarrierConnector):
                         await field.click()
                     except Exception:
                         await field.click(force=True)
+                    await self.page.wait_for_timeout(800)
                     
-                    # Wait for equipment options to actually render in the dropdown listbox
-                    eq_options = self.page.locator('[id*="downshift"][role="listbox"] [role="option"]:visible, [role="listbox"]:visible [role="option"]:visible')
-                    try:
-                        await eq_options.first.wait_for(state="visible", timeout=6000)
-                    except Exception:
-                        try:
-                            await field.click(force=True)
-                            await eq_options.first.wait_for(state="visible", timeout=4000)
-                        except Exception:
-                            pass
-                            
+                    # Iterate through all visible options and find the best match
+                    eq_options = self.page.locator('[role="option"]:visible')
                     eq_count = await eq_options.count()
                     print(f"[ONE] Card {idx} equipment options: {eq_count} visible")
                     eq_selected = False
@@ -837,21 +829,12 @@ class ONEConnector(BaseCarrierConnector):
                         
                     label_norm = _norm_eq(target_name)
                     
-                    async def _click_eq_option(target_loc):
-                        try:
-                            await target_loc.click(force=True, timeout=3000)
-                        except Exception:
-                            try:
-                                await target_loc.evaluate("el => el.click()")
-                            except Exception:
-                                await target_loc.click(timeout=1000)
-
                     # Pass 1: exact match
                     for i in range(eq_count):
                         opt = eq_options.nth(i)
                         opt_text = (await opt.inner_text()).strip()
                         if _norm_eq(opt_text) == label_norm:
-                            await _click_eq_option(opt)
+                            await opt.click()
                             print(f"[ONE] Equipment selected (exact): '{opt_text}'")
                             eq_selected = True
                             break
@@ -863,7 +846,7 @@ class ONEConnector(BaseCarrierConnector):
                             opt_text = (await opt.inner_text()).strip()
                             opt_norm = _norm_eq(opt_text)
                             if opt_norm.startswith(label_norm) or label_norm.startswith(opt_norm + " "):
-                                await _click_eq_option(opt)
+                                await opt.click()
                                 print(f"[ONE] Equipment selected (prefix): '{opt_text}'")
                                 eq_selected = True
                                 break
@@ -871,57 +854,29 @@ class ONEConnector(BaseCarrierConnector):
                     if not eq_selected:
                         print(f"[ONE] Card {idx}: no match for '{target_name}'. Clicking first option.")
                         if eq_count > 0:
-                            await _click_eq_option(eq_options.first)
+                            await eq_options.first.click()
                             eq_selected = True
                             
                     await self.page.wait_for_timeout(500)
-
-                # 1. Set Weight (exact ONE selector: input[id*="cargo_weight"])
-                weight_inputs = self.page.locator('input[id*="cargo_weight"]')
-                if idx < await weight_inputs.count():
-                    w_field = weight_inputs.nth(idx)
-                    try:
-                        await w_field.scroll_into_view_if_needed()
-                        await w_field.click()
-                        await w_field.fill(str(int(weight)))
-                        await w_field.press("Enter")
-                        await self.page.wait_for_timeout(300)
-                        print(f"[ONE] Card {idx} Cargo Weight set: '{await w_field.input_value()}'")
-                    except Exception as w_err:
-                        print(f"[ONE] Warning: Could not set weight on card {idx}: {w_err}")
                     
-                # 2. Set Quantity (exact ONE selector: input[name="custom-input-number"])
-                # In ONE's portal, Card 0 defaults to 1, while newly added cards default to 0.
-                # Avoid Control+A / Backspace which clears the field and triggers the red
-                # "The available quantity range is between 1 - 100" validation error.
-                qty_inputs = self.page.locator('input[name="custom-input-number"]')
-                if idx < await qty_inputs.count():
-                    q_field = qty_inputs.nth(idx)
-                    try:
-                        current_qty = (await q_field.input_value() or "").strip()
-                        target_qty_str = str(qty)
-                        target_int = int(target_qty_str)
-                        curr_int = int(current_qty) if (current_qty and current_qty.isdigit()) else 0
-                        
-                        if curr_int != target_int:
-                            inc_btns = self.page.locator('button[class*="custom-number-button-inc"]')
-                            dec_btns = self.page.locator('button[class*="custom-number-button-dec"]')
-                            if target_int > curr_int and idx < await inc_btns.count():
-                                for _ in range(target_int - curr_int):
-                                    b = inc_btns.nth(idx)
-                                    await b.scroll_into_view_if_needed()
-                                    await b.click(force=True)
-                                    await self.page.wait_for_timeout(200)
-                            elif target_int < curr_int and idx < await dec_btns.count():
-                                for _ in range(curr_int - target_int):
-                                    b = dec_btns.nth(idx)
-                                    await b.scroll_into_view_if_needed()
-                                    await b.click(force=True)
-                                    await self.page.wait_for_timeout(200)
-                                    
-                        print(f"[ONE] Card {idx} Quantity verified: '{await q_field.input_value()}'")
-                    except Exception as q_err:
-                        print(f"[ONE] Warning: Could not set quantity on card {idx}: {q_err}")
+                # Set Quantity
+                quantity_loc = self.page.locator('input[type="number"], input[aria-label*="quantity" i], input[name*="quantity" i], input[id*="quantity" i]')
+                if idx < await quantity_loc.count():
+                    q_field = quantity_loc.nth(idx)
+                    await q_field.scroll_into_view_if_needed()
+                    await q_field.click()
+                    await q_field.fill(str(qty))
+                    await self.page.wait_for_timeout(300)
+                    
+                # Set Weight
+                weight_loc = self.page.locator('input[placeholder="0"], input[aria-label*="weight" i], input[name*="weight" i], input[id*="weight" i]')
+                if idx < await weight_loc.count():
+                    w_field = weight_loc.nth(idx)
+                    await w_field.scroll_into_view_if_needed()
+                    await w_field.click()
+                    await w_field.fill(str(int(weight)))
+                    await w_field.press("Enter")
+                    await self.page.wait_for_timeout(300)
                     
                 return True
 
@@ -939,7 +894,6 @@ class ONEConnector(BaseCarrierConnector):
                             continue
                             
                     if add_btn:
-                        await add_btn.scroll_into_view_if_needed()
                         await add_btn.click(force=True)
                         await self.page.wait_for_timeout(1500)
                         print(f"[ONE] Clicked '+ Add container' button for index {idx}.")
@@ -955,20 +909,6 @@ class ONEConnector(BaseCarrierConnector):
                 )
                 if not success:
                     print(f"[ONE] Warning: Failed to fill container card {idx}.")
-
-            # Safety sweep using native stepper buttons for any remaining 0-quantity rows
-            try:
-                qty_inputs = self.page.locator('input[name="custom-input-number"]')
-                inc_btns = self.page.locator('button[class*="custom-number-button-inc"]')
-                for i in range(await qty_inputs.count()):
-                    val = (await qty_inputs.nth(i).input_value() or "").strip()
-                    if val in ["", "0"]:
-                        if i < await inc_btns.count():
-                            await inc_btns.nth(i).scroll_into_view_if_needed()
-                            await inc_btns.nth(i).click(force=True)
-                            await self.page.wait_for_timeout(200)
-            except Exception as e:
-                print(f"[ONE] Container quantity safety sweep notice: {e}")
 
             # Wait for any loading dialogs/spinners to disappear before proceeding to commodity selection (excl. persistent widgets like toast/sonner/heap/productfruits)
             try:
@@ -999,27 +939,20 @@ class ONEConnector(BaseCarrierConnector):
                 await commodity_field.wait_for(state="attached", timeout=15000)
 
                 # Wait for the commodity field to become enabled before clicking
-                for _ in range(50):
+                for _ in range(100):
                     is_disabled = await commodity_field.get_attribute("disabled")
                     cls = await commodity_field.get_attribute("class") or ""
                     if is_disabled is None and "disabled" not in cls.lower():
                         break
                     await self.page.wait_for_timeout(100)
 
-                try:
-                    await commodity_field.click(timeout=3000)
-                except Exception:
-                    print("[ONE] Normal commodity field click blocked, force-enabling via JS...")
-                    await self.page.evaluate("() => { const el = document.querySelector('input[name=\"searchCommodityByName\"], [placeholder*=\"Commodity\"]'); if (el) { el.removeAttribute('disabled'); el.classList.remove('CommodityAutocomplete_input-disabled__hldZZ'); } }")
-                    await commodity_field.click(force=True)
-                    await self.page.wait_for_timeout(100)
-
+                await commodity_field.click(timeout=5000)
                 await self.page.wait_for_timeout(200)
                 await self.page.keyboard.type(request.commodity, delay=25)
 
-                # Wait for dropdown suggestions to appear (strictly scoped to Commodity dropdown listbox)
+                # Wait for dropdown suggestions to appear
                 try:
-                    options_locator = self.page.locator('ul[class*="CommodityAutocomplete_result"] [role="option"], ul[class*="CommodityAutocomplete_result"] li, [id*="headlessui-combobox-options"] [role="option"]')
+                    options_locator = self.page.locator('[role="listbox"] [role="option"]:visible, [role="listbox"] li:visible, [role="option"]:visible')
                     
                     # Wait for at least one option that is NOT loading (max ~8 seconds)
                     for _ in range(40):
@@ -1032,39 +965,38 @@ class ONEConnector(BaseCarrierConnector):
                     # Try to find a match
                     commodity_upper = request.commodity.strip().upper()
                     opted = False
-                    opt_count = await options_locator.count()
-                    for i in range(opt_count):
+                    for i in range(await options_locator.count()):
                         try:
                             opt_text = (await options_locator.nth(i).inner_text(timeout=1000)).strip().upper()
                             if "LOADING" in opt_text:
                                 continue
                             if commodity_upper in opt_text or opt_text.startswith(commodity_upper[:6]):
-                                await options_locator.nth(i).click(force=True, timeout=2000)
-                                print(f"[ONE] Commodity matched: '{opt_text.splitlines()[0]}'")
+                                await options_locator.nth(i).click(timeout=1500)
+                                print(f"[ONE] Commodity matched: '{opt_text}'")
                                 opted = True
                                 break
                         except Exception:
                             pass
                     
-                    if not opted and opt_count > 0:
-                        # Pick the first valid commodity option from the listbox
-                        for i in range(opt_count):
+                    if not opted:
+                        # Find the first option that isn't LOADING
+                        for i in range(await options_locator.count()):
                             try:
                                 opt_text = (await options_locator.nth(i).inner_text(timeout=1000)).strip().upper()
                                 if "LOADING" not in opt_text:
-                                    await options_locator.nth(i).click(force=True, timeout=2000)
-                                    print(f"[ONE] Commodity selected first option: '{opt_text.splitlines()[0]}'")
+                                    await options_locator.nth(i).click(timeout=1500)
+                                    print(f"[ONE] Commodity: no exact match, selected fallback: '{opt_text}'")
                                     opted = True
                                     break
                             except Exception:
                                 pass
                                 
-                    if not opted:
-                        raise Exception("No valid commodity options found in listbox")
+                        if not opted:
+                            raise Exception("No valid options found to click")
 
                 except Exception as e:
                     # No dropdown appeared or click timed out — press ArrowDown then Enter and continue
-                    print(f"[ONE] Commodity: dropdown selection note ({e}), pressing ArrowDown then Enter")
+                    print(f"[ONE] Commodity: no dropdown appeared or click timed out ({e}), pressing ArrowDown then Enter")
                     await self.page.keyboard.press("ArrowDown")
                     await self.page.wait_for_timeout(200)
                     await self.page.keyboard.press("Enter")
