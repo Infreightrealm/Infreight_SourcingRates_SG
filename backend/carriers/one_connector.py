@@ -869,23 +869,59 @@ class ONEConnector(BaseCarrierConnector):
                     await self.page.wait_for_timeout(500)
                     
                 # Set Quantity
-                quantity_loc = self.page.locator('input[type="number"], input[aria-label*="quantity" i], input[name*="quantity" i], input[id*="quantity" i]')
-                if idx < await quantity_loc.count():
-                    q_field = quantity_loc.nth(idx)
-                    await q_field.scroll_into_view_if_needed()
-                    await q_field.click()
-                    await q_field.fill(str(qty))
-                    await self.page.wait_for_timeout(300)
-                    
+                # 1. Try clicking the '+' stepper button if quantity is 0
+                plus_btns = self.page.locator('button:has-text("+")')
+                if idx < await plus_btns.count():
+                    try:
+                        p_btn = plus_btns.nth(idx)
+                        await p_btn.scroll_into_view_if_needed()
+                        await p_btn.click(force=True)
+                        await self.page.wait_for_timeout(200)
+                    except Exception:
+                        pass
+
+                # 2. Also locate the quantity input directly and fill it
+                q_candidates = [
+                    self.page.locator(f'xpath=(//*[contains(text(), "Quantity")]/following::input)[{idx + 1}]'),
+                    self.page.locator(f'xpath=(//button[normalize-space(text())="+"]/preceding-sibling::input)[{idx + 1}]'),
+                    self.page.locator('input[aria-label*="quantity" i]').nth(idx),
+                    self.page.locator('input[name*="quantity" i]').nth(idx),
+                    self.page.locator('input[type="number"]').nth(idx)
+                ]
+                for q_loc in q_candidates:
+                    try:
+                        if await q_loc.count() > 0 and await q_loc.is_visible():
+                            await q_loc.scroll_into_view_if_needed()
+                            await q_loc.click(force=True)
+                            await self.page.keyboard.press("Control+A")
+                            await self.page.keyboard.press("Backspace")
+                            await q_loc.fill(str(qty))
+                            await self.page.wait_for_timeout(200)
+                            break
+                    except Exception:
+                        continue
+
                 # Set Weight
-                weight_loc = self.page.locator('input[placeholder="0"], input[aria-label*="weight" i], input[name*="weight" i], input[id*="weight" i]')
-                if idx < await weight_loc.count():
-                    w_field = weight_loc.nth(idx)
-                    await w_field.scroll_into_view_if_needed()
-                    await w_field.click()
-                    await w_field.fill(str(int(weight)))
-                    await w_field.press("Enter")
-                    await self.page.wait_for_timeout(300)
+                w_candidates = [
+                    self.page.locator(f'xpath=(//*[contains(text(), "Cargo Weight")]/following::input)[{idx + 1}]'),
+                    self.page.locator(f'xpath=(//*[contains(text(), "Cargo Weight")]/ancestor::div[1]//input)[{idx + 1}]'),
+                    self.page.locator('input[aria-label*="weight" i]').nth(idx),
+                    self.page.locator('input[name*="weight" i]').nth(idx),
+                    self.page.locator('input[placeholder="0"]').nth(idx)
+                ]
+                for w_loc in w_candidates:
+                    try:
+                        if await w_loc.count() > 0 and await w_loc.is_visible():
+                            await w_loc.scroll_into_view_if_needed()
+                            await w_loc.click(force=True)
+                            await self.page.keyboard.press("Control+A")
+                            await self.page.keyboard.press("Backspace")
+                            await w_loc.fill(str(int(weight)))
+                            await w_loc.press("Enter")
+                            await self.page.wait_for_timeout(200)
+                            break
+                    except Exception:
+                        continue
                     
                 return True
 
@@ -919,6 +955,46 @@ class ONEConnector(BaseCarrierConnector):
                 if not success:
                     print(f"[ONE] Warning: Failed to fill container card {idx}.")
 
+            # Comprehensive validation sweep: ensure NO container row has Quantity 0 or Weight 0
+            try:
+                await self.page.evaluate(f"""() => {{
+                    document.querySelectorAll('input').forEach(inp => {{
+                        const p = (inp.parentElement ? inp.parentElement.innerText : '') + ' ' + (inp.closest('div') ? inp.closest('div').innerText : '');
+                        const name = (inp.name || '') + ' ' + (inp.getAttribute('aria-label') || '') + ' ' + (inp.placeholder || '');
+                        
+                        if (p.includes('Quantity') || (inp.previousElementSibling && inp.previousElementSibling.innerText.includes('-'))) {{
+                            if (!inp.value || inp.value === '0') {{
+                                inp.value = '1';
+                                inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            }}
+                        }}
+                        
+                        if (p.includes('Cargo Weight') || name.toLowerCase().includes('weight') || inp.placeholder === '0') {{
+                            if (!inp.value || inp.value === '0') {{
+                                inp.value = '{int(request.weight_per_container_kg or 20000)}';
+                                inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            }}
+                        }}
+                    }});
+
+                    document.querySelectorAll('button').forEach(btn => {{
+                        if (btn.innerText.trim() === '+') {{
+                            const parent = btn.parentElement;
+                            if (parent) {{
+                                const inp = parent.querySelector('input');
+                                if (inp && (!inp.value || inp.value === '0')) {{
+                                    btn.click();
+                                }}
+                            }}
+                        }}
+                    }});
+                }}""")
+                await self.page.wait_for_timeout(500)
+            except Exception as e:
+                print(f"[ONE] Container validation sweep notice: {e}")
+
             # Wait for any loading dialogs/spinners to disappear before proceeding to commodity selection (excl. persistent widgets like toast/sonner/heap/productfruits)
             try:
                 loader_sel = (
@@ -948,14 +1024,21 @@ class ONEConnector(BaseCarrierConnector):
                 await commodity_field.wait_for(state="attached", timeout=15000)
 
                 # Wait for the commodity field to become enabled before clicking
-                for _ in range(100):
+                for _ in range(50):
                     is_disabled = await commodity_field.get_attribute("disabled")
                     cls = await commodity_field.get_attribute("class") or ""
                     if is_disabled is None and "disabled" not in cls.lower():
                         break
                     await self.page.wait_for_timeout(100)
 
-                await commodity_field.click(timeout=5000)
+                try:
+                    await commodity_field.click(timeout=3000)
+                except Exception:
+                    print("[ONE] Normal commodity field click blocked, force-enabling via JS...")
+                    await self.page.evaluate("() => { const el = document.querySelector('input[name=\"searchCommodityByName\"], [placeholder*=\"Commodity\"]'); if (el) { el.removeAttribute('disabled'); el.classList.remove('CommodityAutocomplete_input-disabled__hldZZ'); } }")
+                    await commodity_field.click(force=True)
+                    await self.page.wait_for_timeout(100)
+
                 await self.page.wait_for_timeout(200)
                 await self.page.keyboard.type(request.commodity, delay=25)
 
