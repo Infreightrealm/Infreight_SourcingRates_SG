@@ -857,6 +857,17 @@ class CMAConnector(BaseCarrierConnector):
                     if await el.is_visible(timeout=500):
                         txt = (await el.inner_text()).strip()
                         if txt.upper() == "RAMP" or "RAMP" in txt.upper():
+                            cls = await el.get_attribute("class") or ""
+                            aria = await el.get_attribute("aria-checked") or ""
+                            parent_cls = ""
+                            try:
+                                parent = el.locator('xpath=..')
+                                parent_cls = await parent.get_attribute("class") or ""
+                            except Exception:
+                                pass
+                            if any(k in cls.lower() or k in parent_cls.lower() for k in ["is-active", "active", "selected"]) or aria == "true":
+                                print("[CMA] [LOCATION TYPE] 'Ramp' is already active/selected.")
+                                return True
                             print(f"[CMA] [LOCATION TYPE] Explicitly clicking 'Ramp' toggle button...")
                             await el.click(force=True)
                             await self.page.wait_for_timeout(500)
@@ -914,7 +925,8 @@ class CMAConnector(BaseCarrierConnector):
                                     val = await el.inner_text(timeout=300)
                                 except: pass
                             
-                            if val and any(v in val.upper() for v in ["VNVUT", "VUNG TAU", "VNNHT", "INMUN", "INNSA"]):
+                            val_clean = val.strip().upper()
+                            if val_clean and not any(bad in val_clean for bad in ["SELECT", "CHOOSE"]) and len(val_clean) >= 3:
                                 print(f"[CMA] POL/POD already populated: '{val.strip()}' - skipping re-trigger.")
                                 return True
 
@@ -1339,8 +1351,22 @@ class CMAConnector(BaseCarrierConnector):
             # Select "NVOCC" if the "Customer account" -> "Role (you are acting as)" dropdown is present on the form
             await self._handle_cma_customer_account_role()
 
-            # --- POL / POD MANDATORY SELECTION CHECK ---
-            await self._handle_cma_pol_pod_prompts()
+            # --- PRE-SUBMIT GUARDS ---
+            # 1. Safety Guard: Ensure 45' Dry High Cube is NEVER selected before submit
+            del_45 = self.page.locator('button.delete[aria-label*="45" i]')
+            if await del_45.count() > 0 and await del_45.first.is_visible():
+                print("[CMA] [PRE-SUBMIT GUARD] 45' Dry High Cube detected as selected — removing it now...")
+                await del_45.first.click(force=True)
+                await self.page.wait_for_timeout(500)
+
+            # 2. Safety Guard: Ensure all 3 target containers are selected and weights filled
+            for ct in target_containers:
+                del_btn = self.page.locator(f'button.delete[aria-label*="{ct}" i]')
+                if await del_btn.count() == 0 or not await del_btn.first.is_visible():
+                    print(f"[CMA] [PRE-SUBMIT GUARD] Target container '{ct}' was not selected! Adding it...")
+                    await add_cma_container(ct)
+                    await self.page.wait_for_timeout(500)
+                    await self._set_cma_cargo_weight(weight_kg, ct)
 
             # --- SUBMIT ---
             print("[CMA] Clicking 'Get My Quote'...")
