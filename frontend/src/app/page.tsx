@@ -17,6 +17,9 @@ import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, exportTariffMatrixToExcel, type BatchRouteResult } from "@/lib/excelExport";
 import SearchHistoryModal from "@/components/SearchHistoryModal";
 import BackendConfigModal from "@/components/BackendConfigModal";
+import WorkspacePanel from "@/components/WorkspacePanel";
+import LaunchIntro from "@/components/LaunchIntro";
+import { usePreferences, type SavedLane } from "@/lib/preferences";
 import { Card } from "@/components/ui/card";
 import { Badge, Dot } from "@/components/ui/badge";
 import { Separator, SectionHeading } from "@/components/ui/surfaces";
@@ -24,6 +27,7 @@ import {
   Download,
   History,
   LogOut,
+  SlidersHorizontal,
   OctagonX,
   RotateCcw,
   Search,
@@ -45,6 +49,10 @@ function HomeContent() {
   const [backendUrl, setBackendUrl] = useState(getApiUrl());
   const [isBackendModalOpen, setIsBackendModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
+  const [introReplayKey, setIntroReplayKey] = useState(0);
+  const [formRoute, setFormRoute] = useState<{ origin: string; destination: string; containerTypes: string[]; weightKg: number } | null>(null);
+  const { prefs } = usePreferences();
   const [parsedRfqFields, setParsedRfqFields] = useState<RateSearchRequest | undefined>(undefined);
 
   // Continuous Batch Multi-Route Execution State
@@ -92,6 +100,14 @@ function HomeContent() {
       .then((h) => setMockMode(h.mock_mode))
       .catch(() => setMockMode(null));
   }, []);
+
+  // Stamp workspace appearance on <html> so the token overrides in globals.css
+  // apply to every surface, including portalled overlays.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.accent = prefs.accent;
+    root.dataset.density = prefs.density;
+  }, [prefs.accent, prefs.density]);
 
   // Resume polling or restore batch results if search_ids or id is in URL on mount
   useEffect(() => {
@@ -201,6 +217,22 @@ function HomeContent() {
         });
     }
   }, [searchParams]);
+
+  /** Load a pinned lane into the search form. Same shape the RFQ parser emits. */
+  const handleSelectLane = (lane: SavedLane) => {
+    setParsedRfqFields({
+      carriers: selectedCarriers.length ? selectedCarriers : ["ALL"],
+      origin: lane.origin,
+      destination: lane.destination,
+      container_types: lane.containerTypes,
+      container_quantity: 1,
+      weight_per_container_kg: lane.weightKg,
+      commodity: "Furniture",
+      departure_date: "tomorrow",
+      search_window_days: 14,
+      service_term: "CY/CY",
+    });
+  };
 
   const handleSearch = async (request: RateSearchRequest) => {
     setIsLoading(true);
@@ -470,6 +502,14 @@ function HomeContent() {
             {searchId && <StatusBadge status={searchResult?.status || "QUEUED"} size="md" />}
             
             <button
+              onClick={() => setIsWorkspaceOpen(true)}
+              className="btn-interactive inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-secondary-foreground hover:bg-accent"
+              title="Workspace — activity, saved lanes, appearance and panels"
+            >
+              <SlidersHorizontal className="size-3.5" />
+              <span className="hidden sm:inline">Workspace</span>
+            </button>
+            <button
               onClick={() => setIsHistoryModalOpen(true)}
               className="btn-interactive inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary/16"
               title="View Search History & Export Past Quotes"
@@ -507,7 +547,9 @@ function HomeContent() {
         <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
 
         {/* AI RFQ Front Door */}
-        <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} onBatchRunAll={handleBatchRunAll} selectedCarriers={selectedCarriers} />
+        {prefs.panels.rfq && (
+          <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} onBatchRunAll={handleBatchRunAll} selectedCarriers={selectedCarriers} />
+        )}
 
         {/* Batch Progress & Excel Export Panel */}
         {batchResults.length > 0 && (
@@ -613,7 +655,7 @@ function HomeContent() {
             title="Search Parameters"
             description="Pick carriers, route and equipment, then run the search."
           />
-          <RateSearchForm key={searchId || JSON.stringify(parsedRfqFields) || "new"} onSubmit={handleSearch} isLoading={isLoading} initialValues={parsedRfqFields} selectedCarriers={selectedCarriers} onCarrierChange={setSelectedCarriers} />
+          <RateSearchForm key={searchId || JSON.stringify(parsedRfqFields) || "new"} onSubmit={handleSearch} isLoading={isLoading} initialValues={parsedRfqFields} selectedCarriers={selectedCarriers} onCarrierChange={setSelectedCarriers} onRouteChange={setFormRoute} />
         </Card>
 
 
@@ -653,12 +695,14 @@ function HomeContent() {
       </footer>
 
       {/* VNC Live Browser Viewer (HITL for 2FA/CAPTCHA) */}
-      <VncViewer
-        backendUrl={backendUrl}
-        isSearching={isLoading}
-        results={searchResult?.results || []}
-      />
-      <ChatWidget backendUrl={backendUrl} />
+      {prefs.panels.liveViewer && (
+        <VncViewer
+          backendUrl={backendUrl}
+          isSearching={isLoading}
+          results={searchResult?.results || []}
+        />
+      )}
+      {prefs.panels.assistant && <ChatWidget backendUrl={backendUrl} />}
 
       {searchId && searchResult && (
         <SearchCompletionModal 
@@ -684,6 +728,25 @@ function HomeContent() {
           healthCheck().then((h) => setMockMode(h.mock_mode)).catch(() => {});
         }}
       />
+
+      <WorkspacePanel
+        isOpen={isWorkspaceOpen}
+        onClose={() => setIsWorkspaceOpen(false)}
+        userName={userName}
+        currentLane={
+          formRoute?.origin?.trim() && formRoute?.destination?.trim() ? formRoute : undefined
+        }
+        onSelectLane={handleSelectLane}
+        onReplayIntro={() => setIntroReplayKey((k) => k + 1)}
+      />
+
+      {isClient && (
+        <LaunchIntro
+          key={introReplayKey}
+          seen={prefs.introSeen}
+          force={introReplayKey > 0}
+        />
+      )}
 
       <SearchHistoryModal
         isOpen={isHistoryModalOpen}

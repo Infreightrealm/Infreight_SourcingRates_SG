@@ -22,9 +22,16 @@ interface RateSearchFormProps {
   initialValues?: Partial<RateSearchRequest>;
   selectedCarriers?: string[];
   onCarrierChange?: (carriers: string[]) => void;
+  /** Reports the route as it is edited, so it can be pinned before searching. */
+  onRouteChange?: (route: {
+    origin: string;
+    destination: string;
+    containerTypes: string[];
+    weightKg: number;
+  }) => void;
 }
 
-export default function RateSearchForm({ onSubmit, isLoading, initialValues, selectedCarriers, onCarrierChange }: RateSearchFormProps) {
+export default function RateSearchForm({ onSubmit, isLoading, initialValues, selectedCarriers, onCarrierChange, onRouteChange }: RateSearchFormProps) {
   const [carriers, setCarriers] = useState<string[]>(selectedCarriers || initialValues?.carriers || ["ALL"]);
 
   const handleCarrierChange = (newCarriers: string[]) => {
@@ -52,6 +59,13 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
       if (initialValues.weight_per_container_kg) setWeight(initialValues.weight_per_container_kg);
     }
   }, [initialValues]);
+
+  // Mirror the route upward so the workspace panel can pin it without
+  // waiting for a search to run.
+  useEffect(() => {
+    onRouteChange?.({ origin, destination, containerTypes, weightKg: weight });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin, destination, containerTypes, weight]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

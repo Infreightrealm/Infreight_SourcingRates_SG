@@ -576,7 +576,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
         ) : (
           <div className="max-h-[600px] w-full max-w-full overflow-x-auto overflow-y-auto rounded-2xl border border-border bg-card shadow-card">
 
-            <table className="w-full text-xs relative">
+            <table data-table="rates" className="w-full text-xs relative">
               <thead className="sticky top-0 z-10">
                 <tr className="border-b border-border bg-muted/95 backdrop-blur-md">
                   <th className="whitespace-nowrap px-1.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Carrier</th>

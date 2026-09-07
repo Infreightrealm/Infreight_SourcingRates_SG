@@ -704,3 +704,132 @@ body::after {
     transform: none;
   }
 }
+
+/* ============================================================================
+   Workspace preferences
+
+   Accent and density are stamped on <html> from localStorage. Each accent
+   only re-points the brand tokens, so every component follows without change.
+   ========================================================================= */
+
+[data-accent="harbour"] {
+  --primary: oklch(0.5106 0.1064 187.15);
+  --brand-from: oklch(0.5106 0.1064 187.15);
+  --brand-to: oklch(0.5985 0.1263 221.72);
+  --ring: var(--color-teal-500);
+  --shadow-brand: 0 8px 24px --alpha(var(--color-teal-600) / 24%);
+}
+.dark[data-accent="harbour"] {
+  --primary: oklch(0.7042 0.1234 182.5);
+  --brand-from: oklch(0.7042 0.1234 182.5);
+  --brand-to: oklch(0.7146 0.1257 215.22);
+  --ring: var(--color-teal-400);
+  --shadow-brand: 0 8px 28px --alpha(var(--color-teal-500) / 30%);
+}
+
+[data-accent="violet"] {
+  --primary: oklch(0.5417 0.279 292.44);
+  --brand-from: oklch(0.5417 0.279 292.44);
+  --brand-to: oklch(0.5567 0.2521 302.32);
+  --ring: var(--color-violet-500);
+  --shadow-brand: 0 8px 24px --alpha(var(--color-violet-600) / 24%);
+}
+.dark[data-accent="violet"] {
+  --primary: oklch(0.7093 0.1589 293.54);
+  --brand-from: oklch(0.7093 0.1589 293.54);
+  --brand-to: oklch(0.7238 0.1645 305.5);
+  --ring: var(--color-violet-400);
+  --shadow-brand: 0 8px 28px --alpha(var(--color-violet-500) / 32%);
+}
+
+[data-accent="sunset"] {
+  --primary: oklch(0.5827 0.2119 38.4);
+  --brand-from: oklch(0.5827 0.2119 38.4);
+  --brand-to: oklch(0.6368 0.2078 25.33);
+  --ring: var(--color-orange-500);
+  --shadow-brand: 0 8px 24px --alpha(var(--color-orange-600) / 24%);
+}
+.dark[data-accent="sunset"] {
+  --primary: oklch(0.7049 0.1867 47.6);
+  --brand-from: oklch(0.7049 0.1867 47.6);
+  --brand-to: oklch(0.7118 0.1753 22.22);
+  --ring: var(--color-orange-400);
+  --shadow-brand: 0 8px 28px --alpha(var(--color-orange-500) / 30%);
+}
+
+[data-accent="graphite"] {
+  --primary: oklch(0.4461 0.0263 256.8);
+  --brand-from: oklch(0.4461 0.0263 256.8);
+  --brand-to: oklch(0.3717 0.0392 257.29);
+  --ring: var(--color-slate-500);
+  --shadow-brand: 0 8px 24px --alpha(var(--color-slate-700) / 22%);
+}
+.dark[data-accent="graphite"] {
+  --primary: oklch(0.7137 0.0192 261.32);
+  --brand-from: oklch(0.7137 0.0192 261.32);
+  --brand-to: oklch(0.5544 0.0407 257.42);
+  --ring: var(--color-slate-400);
+  --shadow-brand: 0 8px 28px --alpha(var(--color-slate-500) / 26%);
+}
+
+/* Compact rates grid — tightens row height only, never the type size. */
+[data-density="compact"] [data-table="rates"] :is(th, td) {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+/* ============================================================================
+   Launch intro
+   ========================================================================= */
+
+@keyframes intro-veil-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes intro-mark-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The horizon line draws outward from the mark, like a sailing departing. */
+@keyframes intro-rule-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes intro-word-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes intro-sweep {
+  from {
+    transform: translateX(-130%);
+  }
+  to {
+    transform: translateX(230%);
+  }
+}
