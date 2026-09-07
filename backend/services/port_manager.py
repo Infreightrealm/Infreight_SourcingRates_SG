@@ -231,6 +231,8 @@ PORT_NAME_KEYWORD_MAP = {
     "usorf": "USORF",
     "charleston": "USCHS",
     "uschs": "USCHS",
+    "charlotte": "USCLT",
+    "usclt": "USCLT",
     "memphis": "USMEM",
     "usmem": "USMEM",
     "dallas": "USDAL",

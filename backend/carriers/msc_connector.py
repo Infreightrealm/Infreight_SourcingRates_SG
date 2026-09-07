@@ -164,12 +164,18 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
         return "Bangkok", "THBKK"
     elif "bangkok" in text_lower or "thpat" in text_lower or "pat bangkok" in text_lower:
         return "Bangkok", "THPAT"
+
+    # 0.7 Check PORT_NAME_KEYWORD_MAP
+    from services.port_manager import PORT_NAME_KEYWORD_MAP
+    if text_lower in PORT_NAME_KEYWORD_MAP:
+        kw_locode = PORT_NAME_KEYWORD_MAP[text_lower]
+        return kw_locode, kw_locode
         
     # 1. Extract LOCODE from input text
     extracted_locode = None
-    paren_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', text) or re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
+    paren_match = re.search(r'[\[\(]\s*([A-Za-z]{5})(?:\s+[A-Za-z]{2})?\s*[\]\)]', text) or re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
     if paren_match:
-        extracted_locode = (paren_match.group(1) if len(paren_match.groups()) == 1 else paren_match.group(1) + paren_match.group(2)).upper()
+        extracted_locode = (paren_match.group(1) if len(paren_match.groups()) == 1 or not paren_match.group(2) else paren_match.group(1) + paren_match.group(2)).upper()
     else:
         word_match = re.search(r'\b([A-Za-z]{2})\s*([A-Za-z]{3})\b', text)
         if word_match:
@@ -181,9 +187,7 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
         clean_word = text.strip()
         if len(clean_word) == 5 and clean_word.isalpha():
             candidate = clean_word.upper()
-            from services.port_manager import PortManager
-            if candidate in PortManager()._ports:
-                extracted_locode = candidate
+            extracted_locode = candidate
                 
     # 2. If not found, use search_port fallback
     if not extracted_locode:
