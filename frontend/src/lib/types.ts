@@ -15,6 +15,7 @@ export interface QuoteSchema {
   eta?: string;
   transit_time_days?: number;
   routing?: string;
+  port_of_discharge?: string | null;
   free_time?: number;
   demurrage?: number;
   detention?: number;

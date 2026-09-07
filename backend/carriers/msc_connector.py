@@ -647,8 +647,37 @@ class MSCConnector(BaseCarrierConnector):
                             card_validity = format_to_iso_date(raw_val)
                             self.log(f"Parsed Quote Expiration from card text: {card_validity}")
 
+                    # Extract Port of Discharge from card (e.g. SAVANNAH [USSAV] or CHARLESTON [USCHS])
+                    card_pod = None
+                    if card_text:
+                        pod_match = re.search(r"Port\s+of\s+Discharge\s*:?\s*\n?\s*([^\n\r]+)", card_text, re.IGNORECASE)
+                        if pod_match:
+                            cand = pod_match.group(1).strip()
+                            cand = re.split(r"(?:Destination|Transit|On-Carriage|Est\.)", cand, flags=re.IGNORECASE)[0].strip()
+                            if cand and cand.lower() not in ("destination", "n/a", "-"):
+                                card_pod = " ".join(cand.split())
+                                self.log(f"[MSC] Parsed Port of Discharge from card text: {card_pod}")
+
+                    if not card_pod and parent:
+                        try:
+                            pod_locators = [
+                                parent.locator("xpath=.//*[contains(translate(text(), 'DISCHARGE', 'discharge'), 'port of discharge')]/following::*[not(self::script)][1]"),
+                                parent.locator("xpath=.//*[contains(translate(text(), 'DISCHARGE', 'discharge'), 'port of discharge')]/.."),
+                                parent.locator("div:has-text('Port of Discharge')"),
+                            ]
+                            for ploc in pod_locators:
+                                if await ploc.count() > 0:
+                                    ptext = (await ploc.first.inner_text()).strip()
+                                    m = re.search(r"([A-Za-z\s,.'/-]+\s*\[[A-Z0-9]{5}\])", ptext)
+                                    if m:
+                                        card_pod = " ".join(m.group(1).strip().split())
+                                        self.log(f"[MSC] Parsed Port of Discharge from card DOM: {card_pod}")
+                                        break
+                        except Exception:
+                            pass
+
                     validity_till = card_validity or window_validity
-                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type} - validity: {validity_till}")
+                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type} - POD: {card_pod} - validity: {validity_till}")
 
                     # Open details popup
 
@@ -841,9 +870,11 @@ class MSCConnector(BaseCarrierConnector):
                         service_name = parts[-3] if len(parts) > 3 else "MSC Service"
 
                         from models.schemas import ChargeSchema
+                        effective_routing = card_pod or routing_val
                         quote = QuoteSchema(
                             service_name=service_name,
-                            routing=routing_val,
+                            routing=effective_routing,
+                            port_of_discharge=card_pod,
                             transit_time_days=tt_days,
                             etd=standardize_date_string(etd) if etd else None,
                             eta=standardize_date_string(eta) if eta else None,

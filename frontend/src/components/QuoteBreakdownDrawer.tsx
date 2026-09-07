@@ -65,6 +65,7 @@ export default function QuoteBreakdownDrawer({ quote, carrier, onClose }: QuoteB
               { label: "Vessel", value: quote.vessel || "—" },
               { label: "Container", value: quote.container_type || "—" },
               { label: "Source", value: quote.source },
+              { label: quote.port_of_discharge ? "Port of Discharge" : "Routing", value: quote.port_of_discharge || quote.routing || "—" },
             ].map((item, i) => (
               <div key={i} className={`rounded-lg px-3 py-2 ${item.label.includes("Free Time") && quote.free_time != null ? "bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/40" : "bg-slate-100 dark:bg-white/5"}`}>
                 <span className={`block text-xs ${item.label.includes("Free Time") && quote.free_time != null ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-slate-500 dark:text-white/40"}`}>{item.label}</span>
