@@ -829,12 +829,21 @@ class ONEConnector(BaseCarrierConnector):
                         
                     label_norm = _norm_eq(target_name)
                     
+                    async def _click_eq_option(target_loc):
+                        try:
+                            await target_loc.click(force=True, timeout=3000)
+                        except Exception:
+                            try:
+                                await target_loc.evaluate("el => el.click()")
+                            except Exception:
+                                await target_loc.click(timeout=1000)
+
                     # Pass 1: exact match
                     for i in range(eq_count):
                         opt = eq_options.nth(i)
                         opt_text = (await opt.inner_text()).strip()
                         if _norm_eq(opt_text) == label_norm:
-                            await opt.click()
+                            await _click_eq_option(opt)
                             print(f"[ONE] Equipment selected (exact): '{opt_text}'")
                             eq_selected = True
                             break
@@ -846,7 +855,7 @@ class ONEConnector(BaseCarrierConnector):
                             opt_text = (await opt.inner_text()).strip()
                             opt_norm = _norm_eq(opt_text)
                             if opt_norm.startswith(label_norm) or label_norm.startswith(opt_norm + " "):
-                                await opt.click()
+                                await _click_eq_option(opt)
                                 print(f"[ONE] Equipment selected (prefix): '{opt_text}'")
                                 eq_selected = True
                                 break
@@ -854,7 +863,7 @@ class ONEConnector(BaseCarrierConnector):
                     if not eq_selected:
                         print(f"[ONE] Card {idx}: no match for '{target_name}'. Clicking first option.")
                         if eq_count > 0:
-                            await eq_options.first.click()
+                            await _click_eq_option(eq_options.first)
                             eq_selected = True
                             
                     await self.page.wait_for_timeout(500)
@@ -971,7 +980,7 @@ class ONEConnector(BaseCarrierConnector):
                             if "LOADING" in opt_text:
                                 continue
                             if commodity_upper in opt_text or opt_text.startswith(commodity_upper[:6]):
-                                await options_locator.nth(i).click(timeout=1500)
+                                await options_locator.nth(i).click(force=True, timeout=2000)
                                 print(f"[ONE] Commodity matched: '{opt_text}'")
                                 opted = True
                                 break
@@ -984,7 +993,7 @@ class ONEConnector(BaseCarrierConnector):
                             try:
                                 opt_text = (await options_locator.nth(i).inner_text(timeout=1000)).strip().upper()
                                 if "LOADING" not in opt_text:
-                                    await options_locator.nth(i).click(timeout=1500)
+                                    await options_locator.nth(i).click(force=True, timeout=2000)
                                     print(f"[ONE] Commodity: no exact match, selected fallback: '{opt_text}'")
                                     opted = True
                                     break
