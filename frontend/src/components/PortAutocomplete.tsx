@@ -19,8 +19,12 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
   const [isSearching, setIsSearching] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const justSelectedRef = useRef(false);
+  // A pre-filled value (restored search, parsed RFQ, pinned lane) must not pop
+  // the suggestions open over the rest of the form on load.
+  const userEditedRef = useRef(false);
 
   useEffect(() => {
+    if (!userEditedRef.current) return;
     if (justSelectedRef.current) {
       justSelectedRef.current = false;
       return;
@@ -85,6 +89,7 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
           value={value}
           onChange={(e) => {
             justSelectedRef.current = false;
+            userEditedRef.current = true;
             onChange(e.target.value);
           }}
           className="min-h-[44px] pl-10 pr-10"

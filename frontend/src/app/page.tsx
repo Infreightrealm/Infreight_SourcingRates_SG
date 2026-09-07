@@ -424,10 +424,10 @@ function HomeContent() {
 
 
             <div>
-              <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
+              <h1 className="whitespace-nowrap text-base font-semibold tracking-tight text-foreground sm:text-lg">
                 Infreight <span className="text-gradient-brand">Ocean &amp; Air</span> Rate Automation
               </h1>
-              <p className="text-xs text-muted-foreground">Automated ocean rate searches &amp; airfreight partner routing</p>
+              <p className="hidden text-xs text-muted-foreground xl:block">Automated ocean rate searches &amp; airfreight partner routing</p>
 
             </div>
           </div>
