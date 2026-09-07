@@ -203,29 +203,29 @@ export default function SearchHistoryModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-md animate-blur-in p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] my-auto animate-scale-in-spring">
+    <div className="animate-blur-in fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-md">
+      <div className="animate-scale-in-spring my-auto flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-card-hover">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-200 dark:border-gray-800 flex items-center justify-between flex-wrap gap-4 bg-slate-50/50 dark:bg-white/[0.02]">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border bg-muted/40 px-6 py-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-500/20">
               <History className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
                 Rate Search History
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                   {filteredItems.length} Searches
                 </span>
               </h2>
-              <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 Access your past ocean freight rate queries, retrieve live breakdown tables, and export to Excel (.xlsx).
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-gray-400 bg-slate-100 dark:bg-white/5 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-white/10">
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary px-2 py-1.5 text-xs text-muted-foreground">
               <span className="font-medium text-[11px] mr-1">Show:</span>
               {[100, 250, 500].map((num) => (
                 <button
@@ -234,7 +234,7 @@ export default function SearchHistoryModal({
                   className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
                     fetchLimit === num
                       ? "bg-blue-600 text-white shadow-sm"
-                      : "text-slate-600 dark:text-gray-300 hover:bg-slate-200 dark:hover:bg-white/10"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
                   }`}
                 >
                   {num}
@@ -245,7 +245,7 @@ export default function SearchHistoryModal({
             <button
               onClick={fetchHistory}
               disabled={loading}
-              className="p-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5 transition-all text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+              className="btn-interactive flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-secondary p-2.5 text-xs font-medium text-secondary-foreground hover:bg-accent"
               title="Refresh Search History"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
@@ -253,7 +253,7 @@ export default function SearchHistoryModal({
             </button>
             <button
               onClick={onClose}
-              className="p-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all cursor-pointer"
+              className="btn-interactive cursor-pointer rounded-lg border border-border bg-secondary p-2.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <X className="w-5 h-5" />
             </button>
@@ -261,21 +261,21 @@ export default function SearchHistoryModal({
         </div>
 
         {/* Toolbar & Filter Controls */}
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-gray-800 bg-white dark:bg-[#121212] flex items-center justify-between flex-wrap gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-center gap-3 flex-1 min-w-[280px]">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
                 placeholder="Filter by origin, destination, commodity, container type, carrier..."
-                className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-full rounded-lg border border-input bg-card py-2 pl-10 pr-4 text-xs text-foreground shadow-xs outline-none transition-[color,box-shadow,border-color] placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/22 dark:bg-white/[0.04]"
               />
               {searchFilter && (
                 <button
                   onClick={() => setSearchFilter("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white text-xs"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Clear
                 </button>
@@ -283,13 +283,13 @@ export default function SearchHistoryModal({
             </div>
 
             {userName && (
-              <div className="flex items-center bg-slate-100 dark:bg-white/5 p-1 rounded-xl border border-slate-200 dark:border-white/10">
+              <div className="flex items-center rounded-lg border border-border bg-muted p-1">
                 <button
                   onClick={() => setShowOnlyMySearches(true)}
                   className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
                     showOnlyMySearches
-                      ? "bg-white dark:bg-blue-600 text-slate-900 dark:text-white shadow-sm font-semibold"
-                      : "text-slate-500 dark:text-gray-400 hover:text-slate-800 dark:hover:text-white"
+                      ? "bg-primary text-primary-foreground shadow-panel font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   My Searches ({userName})
@@ -298,8 +298,8 @@ export default function SearchHistoryModal({
                   onClick={() => setShowOnlyMySearches(false)}
                   className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
                     !showOnlyMySearches
-                      ? "bg-white dark:bg-blue-600 text-slate-900 dark:text-white shadow-sm font-semibold"
-                      : "text-slate-500 dark:text-gray-400 hover:text-slate-800 dark:hover:text-white"
+                      ? "bg-primary text-primary-foreground shadow-panel font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   All Team Searches
@@ -312,12 +312,12 @@ export default function SearchHistoryModal({
           <div className="flex items-center gap-3">
             <button
               onClick={toggleSelectAll}
-              className="text-xs text-slate-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 font-medium flex items-center gap-1.5 cursor-pointer"
+              className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
             >
               {selectedIds.size === filteredItems.length && filteredItems.length > 0 ? (
                 <CheckSquare className="w-4 h-4 text-blue-500" />
               ) : (
-                <Square className="w-4 h-4 text-slate-400" />
+                <Square className="size-4 text-muted-foreground" />
               )}
               <span>
                 {selectedIds.size === filteredItems.length && filteredItems.length > 0
@@ -344,15 +344,15 @@ export default function SearchHistoryModal({
         {/* History Item List */}
         <div className="flex-1 overflow-y-auto p-6 space-y-3">
           {loading ? (
-            <div className="py-16 text-center text-slate-400 dark:text-gray-500 space-y-3">
+            <div className="space-y-3 py-16 text-center text-muted-foreground">
               <RefreshCw className="w-8 h-8 animate-spin mx-auto text-blue-500" />
               <p className="text-sm font-medium">Loading search history...</p>
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className="py-16 text-center text-slate-400 dark:text-gray-500 space-y-3">
-              <Ship className="w-12 h-12 mx-auto text-slate-300 dark:text-gray-600" />
-              <p className="text-base font-semibold text-slate-700 dark:text-gray-300">No Rate Searches Found</p>
-              <p className="text-xs max-w-sm mx-auto text-slate-500 dark:text-gray-400">
+            <div className="space-y-3 py-16 text-center text-muted-foreground">
+              <Ship className="mx-auto size-12 text-muted-foreground/50" />
+              <p className="text-base font-semibold text-foreground">No Rate Searches Found</p>
+              <p className="mx-auto max-w-sm text-xs text-muted-foreground">
                 {searchFilter
                   ? `No search history matching "${searchFilter}". Try clearing filters.`
                   : "You haven't run any rate searches yet. Start a search on the home page!"}
@@ -371,7 +371,7 @@ export default function SearchHistoryModal({
                   className={`group relative bg-white dark:bg-white/[0.02] border rounded-2xl p-4 transition-all duration-200 hover:shadow-lg cursor-pointer flex flex-col gap-3 ${
                     isSelected
                       ? "border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 dark:bg-blue-500/[0.04]"
-                      : "border-slate-200 dark:border-gray-800/80 hover:border-blue-400/50 dark:hover:border-blue-500/40"
+                      : "border-border hover:border-primary/40"
                   }`}
                 >
                   {/* Top Line: User, Date, Status */}
@@ -379,20 +379,20 @@ export default function SearchHistoryModal({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={(e) => toggleSelectId(e, item.id)}
-                        className="text-slate-400 hover:text-blue-500 transition-colors p-0.5"
+                        className="p-0.5 text-muted-foreground transition-colors hover:text-primary"
                       >
                         {isSelected ? (
                           <CheckSquare className="w-4 h-4 text-blue-500" />
                         ) : (
-                          <Square className="w-4 h-4 text-slate-300 dark:text-gray-600" />
+                          <Square className="size-4 text-muted-foreground/60" />
                         )}
                       </button>
-                      <div className="flex items-center gap-1.5 text-slate-600 dark:text-gray-300 font-medium">
-                        <UserIcon className="w-3.5 h-3.5 text-slate-400" />
+                      <div className="flex items-center gap-1.5 font-medium text-muted-foreground">
+                        <UserIcon className="size-3.5 text-muted-foreground" />
                         <span>{item.user_name}</span>
                       </div>
-                      <span className="text-slate-300 dark:text-gray-700">•</span>
-                      <div className="flex items-center gap-1 text-slate-400 font-mono">
+                      <span className="text-border">•</span>
+                      <div className="flex items-center gap-1 font-mono text-muted-foreground">
                         <Calendar className="w-3.5 h-3.5" />
                         <span>{formatDate(item.created_at)}</span>
                       </div>
@@ -420,13 +420,13 @@ export default function SearchHistoryModal({
                         <Ship className="w-4 h-4" />
                       </div>
                       <div>
-                        <div className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <div className="flex items-center gap-2 text-base font-semibold text-foreground">
                           <span>{item.origin}</span>
                           <span className="text-blue-500 font-mono text-sm">➔</span>
                           <span>{item.destination}</span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-gray-400 font-mono flex-wrap">
-                          <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-gray-300">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1 font-semibold text-foreground">
                             <Box className="w-3.5 h-3.5 text-blue-500" />
                             {item.container_type || "20GP, 40HQ"}
                           </span>
@@ -444,7 +444,7 @@ export default function SearchHistoryModal({
                         type="button"
                         onClick={(e) => handleExportSingle(e, item)}
                         disabled={isExportingThis}
-                        className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 border border-slate-200 dark:border-white/10 hover:border-emerald-500/30 text-slate-700 dark:text-gray-200 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                        className="btn-interactive flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-secondary px-3.5 py-2 text-xs font-semibold text-secondary-foreground hover:border-success/30 hover:bg-success/10 hover:text-success-foreground"
                         title="Export this search result to Excel (.xlsx)"
                       >
                         <Download className={`w-3.5 h-3.5 ${isExportingThis ? "animate-bounce" : ""}`} />
@@ -464,8 +464,8 @@ export default function SearchHistoryModal({
 
                   {/* Carrier Results Breakdown Badges */}
                   {item.carrier_results && item.carrier_results.length > 0 && (
-                    <div className="pt-2 border-t border-slate-100 dark:border-white/5 flex items-center gap-1.5 flex-wrap text-[11px]">
-                      <span className="text-slate-400 font-mono mr-1">Carriers:</span>
+                    <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2 text-[11px]">
+                      <span className="mr-1 font-mono text-muted-foreground">Carriers:</span>
                       {item.carrier_results.map((cr, idx) => {
                         const isSucc = cr.quotes_count > 0 || cr.status === "AVAILABLE_QUOTES_FOUND";
                         return (
@@ -474,7 +474,7 @@ export default function SearchHistoryModal({
                             className={`px-2 py-0.5 rounded-lg border font-mono flex items-center gap-1 ${
                               isSucc
                                 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-medium"
-                                : "bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500"
+                                : "bg-muted border-border text-muted-foreground"
                             }`}
                           >
                             <span>{cr.carrier}</span>
@@ -491,13 +491,13 @@ export default function SearchHistoryModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-200 dark:border-gray-800 bg-slate-50/50 dark:bg-white/[0.02] flex items-center justify-between flex-wrap gap-4 text-xs text-slate-500 dark:text-gray-400">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border bg-muted/40 px-6 py-4 text-xs text-muted-foreground">
           <div>
-            Showing <strong className="text-slate-900 dark:text-white">{filteredItems.length}</strong> rate search queries from database.
+            Showing <strong className="text-foreground">{filteredItems.length}</strong> rate search queries from database.
           </div>
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/20 text-slate-700 dark:text-white font-semibold transition-all cursor-pointer"
+            className="btn-interactive cursor-pointer rounded-lg border border-border bg-secondary px-5 py-2 font-semibold text-secondary-foreground hover:bg-accent"
           >
             Close
           </button>

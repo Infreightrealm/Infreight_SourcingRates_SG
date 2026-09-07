@@ -247,7 +247,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
           "
         >
           {/* Panel Header & Tabs */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-300 dark:border-white/10 bg-slate-200 dark:bg-white/[0.03]">
+          <div className="flex items-center justify-between border-b border-border bg-muted px-4 py-2">
             {carriers.length > 0 ? (
               /* Multi-Tab Layout */
               <div className="flex items-center gap-1">
@@ -278,19 +278,19 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
               /* Legacy Single Tab Fallback */
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
-                <span className="text-xs font-medium text-slate-800 dark:text-white/70">
+                <span className="text-xs font-medium text-foreground">
                   Live Browser — Carrier Portal View
                 </span>
               </div>
             )}
             
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-slate-500 dark:text-white/30 font-mono">
+              <span className="font-mono text-[10px] text-muted-foreground">
                 MULTI-DISPLAY VNC
               </span>
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1 rounded-lg hover:bg-slate-300 dark:hover:bg-white/10 text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white/80 transition-colors"
+                className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -316,7 +316,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
           )}
 
           {/* VNC iframes (mounted concurrently to maintain state, but toggled via css visibility) */}
-          <div className="flex-1 relative bg-white dark:bg-black">
+          <div className="relative flex-1 bg-card dark:bg-black">
             {carriers.length > 0 ? (
               carriers.map((carrier) => {
                 const isActive = activeTab === carrier.code;
@@ -332,7 +332,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
                     title: "System Idle",
                     desc: "Start a new rate search to watch the live carrier portal browser automation.",
                     icon: (
-                      <svg className="w-10 h-10 text-slate-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="mb-3 size-10 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z" />
                       </svg>
                     ),
@@ -343,7 +343,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
                     title: "Not Selected",
                     desc: `${carrier.name} was not selected for this rate search.`,
                     icon: (
-                      <svg className="w-10 h-10 text-slate-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="mb-3 size-10 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                       </svg>
                     ),
@@ -384,7 +384,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
                     {!isDismissed && overlayContent && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 text-white z-10 p-6 text-center animate-in fade-in duration-200">
                         {overlayContent.spinner ? (
-                          <div className="w-10 h-10 rounded-full border-4 border-slate-700 border-t-emerald-500 animate-spin mb-4" />
+                          <div className="mb-4 size-10 animate-spin rounded-full border-4 border-slate-700 border-t-emerald-500" />
                         ) : (
                           overlayContent.icon
                         )}

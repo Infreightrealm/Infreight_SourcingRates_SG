@@ -1,5 +1,8 @@
 "use client";
 import { STATUS_MAP } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { Check, X } from "lucide-react";
 
 interface StatusBadgeProps {
   status: string;
@@ -24,30 +27,44 @@ export default function StatusBadge({ status, size = "sm" }: StatusBadgeProps) {
   if (!info) {
     info = { label: status, color: "text-gray-400", bg: "bg-gray-400/10" };
   }
-  const sizeClass = size === "sm" ? "px-2.5 py-0.5 text-xs" : "px-3 py-1 text-sm";
+
+  const isWaiting = status === "WAITING_FOR_HUMAN_VERIFICATION";
+  const isQueued = status === "QUEUED";
+  const showDot = isRunning || isQueued || isWaiting;
 
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full font-medium animate-scale-in ${isRunning ? "animate-gradient-shift" : ""} ${info.bg} ${info.color} ${sizeClass}`}
-      style={isRunning ? { background: "linear-gradient(270deg, #3b82f6, #8b5cf6, #3b82f6)", backgroundSize: "200% 200%", color: "white" } : undefined}
+    <Badge
+      size={size === "sm" ? "sm" : "default"}
+      className={cn(
+        "animate-scale-in border-transparent",
+        // A live search gets the animated brand gradient; everything else keeps
+        // the status colour from STATUS_MAP.
+        isRunning
+          ? "btn-gradient bg-gradient-to-r from-blue-500 via-violet-500 to-blue-500 text-white"
+          : cn(info.bg, info.color),
+      )}
     >
-      {(isRunning || status === "QUEUED" || status === "WAITING_FOR_HUMAN_VERIFICATION") && (
-        <span className="relative flex h-2 w-2">
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isRunning ? "bg-blue-400" : status === "WAITING_FOR_HUMAN_VERIFICATION" ? "bg-amber-400" : "bg-gray-400"}`} />
-          <span className={`relative inline-flex rounded-full h-2 w-2 ${isRunning ? "bg-blue-500" : status === "WAITING_FOR_HUMAN_VERIFICATION" ? "bg-amber-500" : "bg-gray-500"}`} />
+      {showDot && (
+        <span className="relative flex size-2 shrink-0">
+          <span
+            className={cn(
+              "absolute inline-flex size-full animate-ping rounded-full opacity-75",
+              isRunning ? "bg-white" : isWaiting ? "bg-amber-400" : "bg-slate-400",
+            )}
+          />
+          <span
+            className={cn(
+              "relative inline-flex size-2 rounded-full",
+              isRunning ? "bg-white" : isWaiting ? "bg-amber-500" : "bg-slate-500",
+            )}
+          />
         </span>
       )}
-      {status === "AVAILABLE_QUOTES_FOUND" && (
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-        </svg>
-      )}
+      {status === "AVAILABLE_QUOTES_FOUND" && <Check className="size-3.5" />}
       {(status === "FAILED" || status === "LOGIN_FAILED" || status === "UNKNOWN_ERROR") && (
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <X className="size-3.5" />
       )}
       {info.label}
-    </span>
+    </Badge>
   );
 }

@@ -3,6 +3,17 @@ import { useState, useEffect } from "react";
 import CarrierMultiSelect from "./CarrierMultiSelect";
 import PortAutocomplete from "./PortAutocomplete";
 import { CONTAINER_TYPES, type RateSearchRequest } from "@/lib/types";
+import { Card } from "@/components/ui/card";
+import { Input, Label } from "@/components/ui/input";
+import { ShimmerButton } from "@/components/ui/shimmer-button";
+import {
+  Container,
+  Eraser,
+  Loader2,
+  Search,
+  TriangleAlert,
+  Weight,
+} from "lucide-react";
 import { toast } from "sonner";
 
 interface RateSearchFormProps {
@@ -71,10 +82,6 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
     });
   };
 
-  const inputClass =
-    "w-full px-4 py-2.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/30 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all focus-glow";
-  const labelClass = "block text-sm font-medium text-slate-700 dark:text-white/80 mb-1.5";
-
   return (
     <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in-up">
       {/* Carrier Selection */}
@@ -82,11 +89,13 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
 
       {/* Hapag-Lloyd Regional Account Toggle */}
       {(carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL")) && (
-        <div className="p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl animate-fade-in-up shadow-sm">
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-2">
-            Hapag-Lloyd Contract Account Region
-          </label>
-          <div className="flex flex-col sm:flex-row gap-2 p-1 bg-slate-200/50 dark:bg-black/20 rounded-lg max-w-md">
+        <Card variant="subtle" className="animate-fade-in-up rounded-xl p-4">
+          <Label className="mb-2">Hapag-Lloyd Contract Account Region</Label>
+          <div
+            role="radiogroup"
+            aria-label="Hapag-Lloyd contract account region"
+            className="flex max-w-md flex-col gap-1 rounded-lg border border-border bg-background/60 p-1 sm:flex-row"
+          >
             {[
               { id: "US_CA", label: "US / Canada" },
               { id: "EU", label: "Europe" },
@@ -97,11 +106,13 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
                 <button
                   key={reg.id}
                   type="button"
+                  role="radio"
+                  aria-checked={active}
                   onClick={() => setHapagRegion(reg.id as any)}
-                  className={`flex-1 py-2 px-3 min-h-[44px] flex items-center justify-center rounded-md text-xs font-medium transition-all duration-200 select-none ${
-                    active 
-                      ? "bg-blue-600 text-white shadow-sm" 
-                      : "text-slate-600 dark:text-white/60 hover:text-slate-900 dark:hover:text-white hover:bg-slate-300/30 dark:hover:bg-white/5"
+                  className={`flex min-h-[40px] flex-1 select-none items-center justify-center rounded-md px-3 py-2 text-xs font-medium transition-all duration-200 ${
+                    active
+                      ? "bg-primary text-primary-foreground shadow-panel"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
                   }`}
                 >
                   {reg.label}
@@ -109,11 +120,12 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
               );
             })}
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* Route Row (Origin & Destination) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in-up stagger-1">
+      {/* Route Row (Origin & Destination) — lifted above the rows below it so
+          the port autocomplete dropdown isn't painted behind them. */}
+      <div className="relative z-20 grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in-up stagger-1">
         <PortAutocomplete
           label="Origin"
           value={origin}
@@ -131,25 +143,32 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
       </div>
 
       {destination.toLowerCase().includes("batam") && (
-        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-600 dark:text-amber-400 text-xs flex items-start gap-3 backdrop-blur-md animate-fade-in-up stagger-1 shadow-sm shadow-amber-500/5">
-          <span className="text-base flex-shrink-0">⚠️</span>
+        <Card variant="warning" className="animate-fade-in-up stagger-1 flex items-start gap-3 rounded-xl p-4 text-xs text-warning-foreground">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <div>
-            <span className="font-semibold block mb-0.5">Destination Warning</span>
+            <span className="mb-0.5 block font-semibold">Destination Warning</span>
             Batam is generally not accepted as a direct ocean destination by major carriers. Searching with Batam may result in zero quotes or failed carrier connections.
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Container Details & Weight Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 animate-fade-in-up stagger-2">
         <div className="sm:col-span-2">
-          <label className={labelClass}>Container Types</label>
-          <div className="flex flex-col sm:flex-row flex-wrap gap-2.5 sm:gap-3 mt-2.5">
+          <Label>Container Types</Label>
+          <div className="mt-2.5 flex flex-col flex-wrap gap-2.5 sm:flex-row sm:gap-3">
             {CONTAINER_TYPES.map((ct) => {
               const isSelected = containerTypes.includes(ct);
               const displayName = ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct;
               return (
-                <label key={ct} className="flex items-center gap-2.5 px-3.5 py-2.5 min-h-[44px] bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl cursor-pointer text-sm font-medium text-slate-700 dark:text-white/80 select-none transition-all hover:bg-slate-200 dark:hover:bg-white/10">
+                <label
+                  key={ct}
+                  className={`btn-interactive flex min-h-[44px] cursor-pointer select-none items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium ${
+                    isSelected
+                      ? "border-primary/40 bg-primary/10 text-primary"
+                      : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={isSelected}
@@ -164,8 +183,9 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
                         setContainerTypes([...containerTypes, ct]);
                       }
                     }}
-                    className="w-4 h-4 rounded text-blue-600 border-slate-300 dark:border-white/10 focus:ring-blue-500 bg-slate-100 dark:bg-white/5"
+                    className="size-4 rounded border-input accent-[var(--primary)] focus-visible:ring-2 focus-visible:ring-ring/40"
                   />
+                  <Container className="size-4 opacity-70" />
                   <span>{displayName}</span>
                 </label>
               );
@@ -174,33 +194,40 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
         </div>
 
         <div>
-          <label className={labelClass}>Weight PER CONTAINER (KG)</label>
-          <input
-            type="number"
-            value={weight}
-            onChange={(e) => setWeight(parseFloat(e.target.value) || 0)}
-            className={`${inputClass} min-h-[44px]`}
-            min={0}
-          />
+          <Label htmlFor="weight-per-container">Weight per container (kg)</Label>
+          <div className="relative">
+            <Weight className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="weight-per-container"
+              type="number"
+              value={weight}
+              onChange={(e) => setWeight(parseFloat(e.target.value) || 0)}
+              className="min-h-[44px] pl-10 font-mono tabular-nums"
+              min={0}
+            />
+          </div>
         </div>
       </div>
 
       {/* Submit & Clear Buttons */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <button
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <ShimmerButton
           type="submit"
           disabled={isLoading || carriers.length === 0}
-          className="flex-1 py-3.5 px-6 min-h-[44px] rounded-xl font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 btn-interactive btn-gradient shine-on-hover flex items-center justify-center"
+          className="min-h-[48px] flex-1 text-sm"
         >
           {isLoading ? (
             <span className="flex items-center justify-center gap-2">
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
               Searching…
             </span>
           ) : (
-            "🔍 Search Rates"
+            <span className="flex items-center justify-center gap-2">
+              <Search className="size-4" />
+              Search Rates
+            </span>
           )}
-        </button>
+        </ShimmerButton>
 
         <button
           type="button"
@@ -211,9 +238,10 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
             setContainerTypes(["DRY 40H"]);
             toast.info("Cleared search fields (Origin, Destination, Weight, Container Types). RFQ text preserved.");
           }}
-          className="px-4 py-3.5 min-h-[44px] rounded-xl font-medium text-xs text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 transition-all flex items-center justify-center gap-1.5"
+          className="btn-interactive flex min-h-[48px] items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-4 text-xs font-medium text-secondary-foreground hover:bg-accent"
         >
-          🧹 Clear Search Fields
+          <Eraser className="size-3.5" />
+          Clear Search Fields
         </button>
       </div>
 

@@ -59,7 +59,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} font-sans antialiased bg-slate-50 dark:bg-[#060a14] text-slate-900 dark:text-white min-h-screen transition-colors duration-300 overflow-x-hidden`}>
+      <body className={`${inter.variable} min-h-screen overflow-x-hidden bg-background font-sans text-foreground antialiased transition-colors duration-300`}>
 
         <ThemeProvider
           attribute="class"
@@ -68,7 +68,17 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-          <Toaster richColors position="top-right" />
+          <Toaster
+            richColors
+            position="top-right"
+            toastOptions={{
+              classNames: {
+                toast:
+                  "!rounded-xl !border-border !bg-popover !text-popover-foreground !shadow-card-hover",
+                description: "!text-muted-foreground",
+              },
+            }}
+          />
         </ThemeProvider>
       </body>
     </html>

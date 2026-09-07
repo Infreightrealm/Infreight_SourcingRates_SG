@@ -1,6 +1,9 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { getPortSuggestions } from "@/lib/api";
+import { Input, Label } from "@/components/ui/input";
+import { Anchor, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface PortAutocompleteProps {
   label: string;
@@ -66,50 +69,62 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
     setShowDropdown(false);
   };
 
-  const inputClass =
-    "w-full px-4 py-2.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/30 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all focus-glow";
-  const labelClass = "block text-sm font-medium text-slate-700 dark:text-white/80 mb-1.5";
+  const fieldId = `port-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
+  // Sibling form rows animate in with `fade-in-up`, whose held transform gives
+  // them their own stacking context — so the open dropdown has to be lifted
+  // above them explicitly or it renders behind the next row.
   return (
-    <div className="relative" ref={containerRef}>
-      <label className={labelClass}>{label}</label>
+    <div className={cn("relative", showDropdown && "z-50")} ref={containerRef}>
+      <Label htmlFor={fieldId}>{label}</Label>
       <div className="relative">
-        <input
+        <Anchor className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          id={fieldId}
           type="text"
           value={value}
           onChange={(e) => {
             justSelectedRef.current = false;
             onChange(e.target.value);
           }}
-          className={inputClass}
+          className="min-h-[44px] pl-10 pr-10"
           placeholder={placeholder}
           required={required}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={showDropdown && suggestions.length > 0}
+          aria-autocomplete="list"
           onFocus={() => !justSelectedRef.current && value.length >= 2 && suggestions.length > 0 && setShowDropdown(true)}
         />
         {isSearching && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="w-4 h-4 border-2 border-slate-200 dark:border-white/20 border-t-blue-500 rounded-full animate-spin" />
+          <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
+            <Loader2 className="size-4 animate-spin text-primary" />
           </div>
         )}
       </div>
 
       {showDropdown && suggestions.length > 0 && (
-        <div className="absolute z-50 left-0 right-0 mt-2 bg-white dark:bg-[#1a1c2e] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden backdrop-blur-xl max-h-64 overflow-y-auto animate-dropdown-in">
+        <div
+          role="listbox"
+          className="animate-dropdown-in absolute left-0 right-0 z-50 mt-2 max-h-64 overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-popover shadow-card-hover backdrop-blur-xl"
+        >
           {suggestions.map((port, index) => (
             <button
               key={port.code}
               type="button"
+              role="option"
+              aria-selected={false}
               onClick={() => handleSelect(port)}
-              className="w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-white/5 border-b border-slate-100 dark:border-white/5 last:border-0 transition-all duration-150 flex flex-col gap-0.5 animate-fade-in-up hover:translate-x-1"
-              style={{ animationDelay: `${index * 0.05}s` }}
+              className="animate-fade-in-up flex w-full flex-col gap-0.5 border-b border-line px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-accent"
+              style={{ animationDelay: `${index * 0.03}s` }}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-slate-900 dark:text-white font-medium text-sm">{port.name}</span>
-                <span className="text-blue-600 dark:text-blue-400 font-mono text-[10px] bg-blue-100 dark:bg-blue-500/10 px-1.5 py-0.5 rounded uppercase">{port.code}</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium text-foreground">{port.name}</span>
+                <span className="shrink-0 rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-primary">{port.code}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-slate-500 dark:text-white/40 text-xs">{port.country_name || port.country}</span>
-                {port.status === 'AI' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Approved" />}
+                <span className="text-xs text-muted-foreground">{port.country_name || port.country}</span>
+                {port.status === 'AI' && <span className="size-1.5 rounded-full bg-success" title="Approved" />}
               </div>
             </button>
           ))}

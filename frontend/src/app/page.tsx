@@ -17,6 +17,20 @@ import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, exportTariffMatrixToExcel, type BatchRouteResult } from "@/lib/excelExport";
 import SearchHistoryModal from "@/components/SearchHistoryModal";
 import BackendConfigModal from "@/components/BackendConfigModal";
+import { Card } from "@/components/ui/card";
+import { Badge, Dot } from "@/components/ui/badge";
+import { Separator, SectionHeading } from "@/components/ui/surfaces";
+import {
+  Download,
+  History,
+  LogOut,
+  OctagonX,
+  RotateCcw,
+  Search,
+  Table2,
+  UserRound,
+  Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 
 function HomeContent() {
@@ -365,27 +379,27 @@ function HomeContent() {
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
       {/* Header */}
-      <header className="border-b border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/[0.02] backdrop-blur-xl sticky top-0 z-30 transition-colors">
-        <div className="max-w-[98%] mx-auto px-6 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl transition-colors supports-[backdrop-filter]:bg-background/65">
+        <div className="mx-auto flex max-w-[98%] items-center justify-between gap-4 px-6 py-3.5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-white/80 dark:bg-white/10 p-1 flex items-center justify-center border border-slate-200/80 dark:border-white/15 shadow-sm flex-shrink-0">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-card p-1 shadow-panel sm:size-11">
               <img
                 src="/infreight_logo.png"
                 alt="Infreight Logistics"
-                className="w-full h-full object-contain"
+                className="h-full w-full object-contain"
               />
             </div>
 
 
             <div>
-              <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                Infreight Ocean & Air Rate Automation
+              <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
+                Infreight <span className="text-gradient-brand">Ocean &amp; Air</span> Rate Automation
               </h1>
-              <p className="text-xs text-slate-500 dark:text-white/40">Automated ocean rate searches & airfreight partner routing</p>
+              <p className="text-xs text-muted-foreground">Automated ocean rate searches &amp; airfreight partner routing</p>
 
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {searchId && (
               <button
                 onClick={async () => {
@@ -398,9 +412,10 @@ function HomeContent() {
                   setSearchResult(null);
                   router.push("/");
                 }}
-                className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white font-medium text-xs transition-all duration-200"
+                className="btn-interactive inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-secondary-foreground hover:bg-accent"
               >
-                🔄 New Search
+                <RotateCcw className="size-3.5" />
+                New Search
               </button>
             )}
             <button
@@ -419,24 +434,17 @@ function HomeContent() {
                   toast.error("Failed to stop searches");
                 }
               }}
-              className="px-3.5 py-1.5 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 font-medium text-xs transition-all duration-200 flex items-center gap-1.5"
+              className="btn-interactive inline-flex h-8 items-center gap-1.5 rounded-lg border border-destructive/25 bg-destructive/10 px-3 text-xs font-medium text-destructive-foreground hover:bg-destructive/16"
               title="Force stop all queued and active searches"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-              </svg>
+              <OctagonX className="size-3.5" />
               Force Stop
             </button>
             {mockMode !== null && (
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
-                mockMode
-                  ? "bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20"
-                  : "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20"
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${mockMode ? "bg-amber-400" : "bg-emerald-400"}`} />
+              <Badge variant={mockMode ? "warning" : "success"} className="h-8 px-3">
+                <Dot pulse={!mockMode} />
                 {mockMode ? "Mock Mode" : "Live Mode"}
-              </span>
+              </Badge>
             )}
             
             {(() => {
@@ -444,14 +452,14 @@ function HomeContent() {
               return (
                 <button
                   onClick={() => setIsBackendModalOpen(true)}
-                  className={`px-3 py-1 rounded-full border text-xs font-medium transition-all duration-200 flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                  className={`btn-interactive inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs font-medium ${
                     isPrimaryActive
-                      ? "border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
-                      : "border-amber-200 dark:border-amber-500/30 bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                      ? "border-success/25 bg-success/12 text-success-foreground hover:bg-success/20"
+                      : "border-warning/30 bg-warning/12 text-warning-foreground hover:bg-warning/20"
                   }`}
                   title="Click to configure backend URL or reconnect to Local/Tunnel Backend"
                 >
-                  <span className={`w-2 h-2 rounded-full ${isPrimaryActive ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
+                  <Dot pulse={!isPrimaryActive} />
                   {isPrimaryActive
                     ? (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1") ? "Local Backend" : "Local Tunnel Relay")
                     : "Cloud Backup (Configure Server)"
@@ -463,36 +471,30 @@ function HomeContent() {
             
             <button
               onClick={() => setIsHistoryModalOpen(true)}
-              className="px-3.5 py-1.5 rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-semibold text-xs transition-all duration-200 flex items-center gap-1.5 shadow-sm cursor-pointer"
+              className="btn-interactive inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary/16"
               title="View Search History & Export Past Quotes"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span>My Searches & History</span>
+              <History className="size-3.5" />
+              <span>My Searches &amp; History</span>
             </button>
-            <div className="w-px h-6 bg-slate-200 dark:bg-white/10 mx-1"></div>
+            <Separator orientation="vertical" className="mx-1" />
             {userName && (
               <button
                 onClick={() => {
                   localStorage.removeItem("userName");
                   setUserName(null);
                 }}
-                className="group px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white font-medium text-xs transition-all duration-200 flex items-center gap-1.5 relative overflow-hidden"
+                className="group relative inline-flex h-8 items-center gap-1.5 overflow-hidden rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
                 title="Change User / Logout"
               >
-                <div className="flex items-center gap-1.5 transition-transform duration-200 group-hover:-translate-y-6">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                  </svg>
+                <span className="flex items-center gap-1.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-translate-y-6">
+                  <UserRound className="size-3.5" />
                   {userName}
-                </div>
-                <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-red-500 translate-y-6 transition-transform duration-200 group-hover:translate-y-0">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-                  </svg>
+                </span>
+                <span className="absolute inset-0 flex translate-y-6 items-center justify-center gap-1.5 text-destructive-foreground transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:translate-y-0">
+                  <LogOut className="size-3.5" />
                   Logout
-                </div>
+                </span>
               </button>
             )}
             <ThemeToggle />
@@ -509,44 +511,52 @@ function HomeContent() {
 
         {/* Batch Progress & Excel Export Panel */}
         {batchResults.length > 0 && (
-          <section className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-6 backdrop-blur-md animate-fade-in-up space-y-4 shadow-sm">
-            <div className="flex items-center justify-between flex-wrap gap-3 border-b border-emerald-500/20 pb-3">
+          <Card variant="success" className="animate-fade-in-up space-y-4 p-6 backdrop-blur-md">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-success/20 pb-3">
               <div>
-                <h3 className="text-base font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-2">
-                  <span>⚡ Batch Continuous Search Execution</span>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+                  <Zap className="size-4 text-success" />
+                  <span>Batch Continuous Search Execution</span>
+                  <Badge variant="success" size="sm" className="font-mono">
                     {batchProgress.current} / {batchProgress.total} Routes Processed
-                  </span>
+                  </Badge>
                 </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Running sequential searches across all {batchResults.length} port-to-port routes for all ocean carriers.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => exportTariffMatrixToExcel(batchResults, "PASIR GUDANG / TG PELEPAS", "Pasir_Gudang_168_Tariff_Rates.xlsx")}
-                  className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-bold rounded-xl text-xs shadow-lg shadow-amber-500/25 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer border border-amber-400/50"
+                  className="btn-interactive inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/15 px-4 text-xs font-semibold text-warning-foreground hover:bg-warning/25"
                   title="Export rate matrix in the exact EX PASIR GUDANG 1st Half / 2nd Half 20' & 40' layout"
                 >
-                  <span>📊</span> Export Tariff Rate Sheet (.xlsx)
+                  <Table2 className="size-3.5" /> Export Tariff Rate Sheet (.xlsx)
                 </button>
 
                 <button
                   type="button"
                   onClick={() => exportMultiRouteResultsToExcel(batchResults)}
-                  className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-500/25 transition-all flex items-center gap-1.5 btn-interactive cursor-pointer"
+                  className="btn-interactive shine-on-hover inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-500/25 hover:brightness-110"
                 >
-                  <span>📥</span> Full Multi-Sheet (.xlsx)
+                  <Download className="size-3.5" /> Full Multi-Sheet (.xlsx)
                 </button>
               </div>
             </div>
 
             {/* Batch Progress Bar */}
-            <div className="w-full bg-slate-200 dark:bg-black/30 rounded-full h-3 overflow-hidden border border-emerald-500/20">
+            <div
+              className="h-2.5 w-full overflow-hidden rounded-full border border-success/20 bg-muted"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={batchProgress.total}
+              aria-valuenow={batchProgress.current}
+              aria-label="Batch search progress"
+            >
               <div
-                className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-300 rounded-full"
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
                 style={{ width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%` }}
               />
             </div>
@@ -554,10 +564,10 @@ function HomeContent() {
             {/* Batch Item Status Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-56 overflow-y-auto pr-1">
               {batchResults.map((item, idx) => {
-                let badgeStyle = "bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500 cursor-pointer hover:scale-[1.02]";
-                if (item.status === "running") badgeStyle = "bg-blue-500/20 border-blue-500/40 text-blue-600 dark:text-blue-300 font-bold animate-pulse cursor-pointer hover:scale-[1.02]";
-                if (item.status === "completed") badgeStyle = "bg-emerald-500/20 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold cursor-pointer hover:scale-[1.02] shadow-sm";
-                if (item.status === "failed") badgeStyle = "bg-rose-500/20 border-rose-500/40 text-rose-600 dark:text-rose-400 cursor-pointer hover:scale-[1.02]";
+                let badgeStyle = "border-border bg-card text-muted-foreground";
+                if (item.status === "running") badgeStyle = "border-info/40 bg-info/12 text-info-foreground font-bold animate-pulse";
+                if (item.status === "completed") badgeStyle = "border-success/40 bg-success/12 text-success-foreground font-semibold shadow-panel";
+                if (item.status === "failed") badgeStyle = "border-destructive/40 bg-destructive/12 text-destructive-foreground";
 
                 const isSelected = searchResult && searchResult.destination === item.destination;
 
@@ -573,17 +583,17 @@ function HomeContent() {
                         toast.info(`Route #${idx + 1} (${item.destination}) is currently ${item.status}.`);
                       }
                     }}
-                    className={`p-2 rounded-xl border text-[11px] font-mono flex flex-col gap-0.5 text-left transition-all duration-200 ${badgeStyle} ${
-                      isSelected ? "ring-2 ring-emerald-500 ring-offset-1 dark:ring-offset-slate-900 scale-[1.02]" : ""
+                    className={`card-hover flex cursor-pointer flex-col gap-0.5 rounded-xl border p-2 text-left font-mono text-[11px] ${badgeStyle} ${
+                      isSelected ? "ring-2 ring-success ring-offset-1 ring-offset-background" : ""
                     }`}
                   >
                     <div className="flex items-center justify-between text-[10px] opacity-70">
                       <span>#{idx + 1}</span>
                       <span>{item.status.toUpperCase()}</span>
                     </div>
-                    <div className="truncate font-semibold text-slate-900 dark:text-white">{item.destination}</div>
+                    <div className="truncate font-semibold text-foreground">{item.destination}</div>
                     {item.searchResult && item.searchResult.results && (
-                      <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-sans font-medium mt-0.5">
+                      <div className="mt-0.5 font-sans text-[9px] font-medium text-success-foreground">
                         {item.searchResult.results.reduce((acc, r) => acc + (r.quotes?.length || 0), 0)} quotes found ➔
                       </div>
                     )}
@@ -591,35 +601,35 @@ function HomeContent() {
                 );
               })}
             </div>
-          </section>
+          </Card>
         )}
 
 
         {/* Search Form Card */}
-        <section className="bg-white/60 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-2xl p-6 backdrop-blur-sm transition-colors shadow-sm">
-          <div className="flex items-center gap-2 mb-5">
-            <svg className="w-5 h-5 text-blue-500 dark:text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Search Parameters</h2>
-          </div>
+        <Card variant="glass" className="animate-fade-in-up stagger-1 p-6">
+          <SectionHeading
+            className="mb-5"
+            icon={<Search />}
+            title="Search Parameters"
+            description="Pick carriers, route and equipment, then run the search."
+          />
           <RateSearchForm key={searchId || JSON.stringify(parsedRfqFields) || "new"} onSubmit={handleSearch} isLoading={isLoading} initialValues={parsedRfqFields} selectedCarriers={selectedCarriers} onCarrierChange={setSelectedCarriers} />
-        </section>
+        </Card>
 
 
         {/* Queue Status Overlay */}
         {searchResult && searchResult.status === "QUEUED" && searchResult.queue_position !== undefined && (
-          <section className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-6 backdrop-blur-sm text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <h3 className="text-xl font-bold text-blue-400 mb-2">
-              {searchResult.queue_position > 0 ? `You are #${searchResult.queue_position} in line` : "Your search is starting..."}
+          <Card variant="info" className="p-6 text-center backdrop-blur-sm animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <h3 className="mb-2 text-xl font-semibold text-info-foreground">
+              {searchResult.queue_position > 0 ? `You are #${searchResult.queue_position} in line` : "Your search is starting…"}
             </h3>
             {searchResult.queue_position > 0 && searchResult.active_search_info && (
-              <p className="text-slate-400">
-                Currently processing: <span className="text-slate-300 font-medium">{searchResult.active_search_info}</span>
+              <p className="text-sm text-muted-foreground">
+                Currently processing: <span className="font-medium text-foreground">{searchResult.active_search_info}</span>
               </p>
             )}
-            <p className="text-sm text-blue-500/60 mt-4">Please leave this window open. Your search will automatically begin when it's your turn.</p>
-          </section>
+            <p className="mt-4 text-xs text-muted-foreground">Please leave this window open. Your search will automatically begin when it&apos;s your turn.</p>
+          </Card>
         )}
 
         {/* Loading */}
@@ -634,9 +644,11 @@ function HomeContent() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 dark:border-white/5 py-6 mt-auto transition-colors">
-        <div className="max-w-[98%] mx-auto px-6 text-center text-xs text-slate-500 dark:text-white/30">
-          Infreight Logistics — Ocean Carrier Rate Automation System
+      <footer className="mt-auto border-t border-border py-6 transition-colors">
+        <div className="mx-auto flex max-w-[98%] flex-wrap items-center justify-center gap-x-2 gap-y-1 px-6 text-center text-xs text-muted-foreground">
+          <span className="font-medium text-foreground/70">Infreight Logistics</span>
+          <span aria-hidden className="text-border">•</span>
+          <span>Ocean Carrier Rate Automation System</span>
         </div>
       </footer>
 

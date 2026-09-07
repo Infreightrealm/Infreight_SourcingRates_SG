@@ -1,6 +1,9 @@
 "use client";
 import { useState } from "react";
 import { getPrimaryApiUrl, setCustomPrimaryApiUrl, forceRestorePrimary, getApiUrl } from "@/lib/api";
+import { Overlay, Panel } from "@/components/ui/surfaces";
+import { Input } from "@/components/ui/input";
+import { Plug, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface BackendConfigModalProps {
@@ -44,39 +47,46 @@ export default function BackendConfigModal({ isOpen, onClose, onUrlChanged }: Ba
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="bg-slate-900 border border-slate-700/60 text-white rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-5 animate-scale-in">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🔌</span>
-            <h3 className="font-semibold text-lg">Backend Server Settings</h3>
+    <Overlay className="z-50">
+      <Panel className="max-w-md space-y-5 p-6">
+        <div className="flex items-center justify-between border-b border-line pb-3">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-muted text-primary">
+              <Plug className="size-4" />
+            </span>
+            <h3 className="text-base font-semibold tracking-tight">Backend Server Settings</h3>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-            ✕
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <X className="size-4" />
           </button>
         </div>
 
         <div className="space-y-4 text-sm">
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">
+            <label htmlFor="backend-url" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Primary Backend URL (Local Machine / ngrok Tunnel)
             </label>
-            <input
+            <Input
+              id="backend-url"
               type="text"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               placeholder="e.g. https://your-tunnel.ngrok-free.app or http://localhost:8000"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono text-xs"
+              className="font-mono text-xs"
             />
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
               If your ngrok tunnel URL changes when you restart ngrok on your computer, paste your new ngrok URL here!
             </p>
           </div>
 
-          <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/40 text-xs space-y-1">
-            <div className="flex justify-between text-slate-400">
+          <div className="space-y-1 rounded-xl border border-border bg-muted/50 p-3 text-xs">
+            <div className="flex justify-between gap-3 text-muted-foreground">
               <span>Active Backend:</span>
-              <span className="font-mono text-emerald-400 font-medium truncate max-w-[220px]">{getApiUrl()}</span>
+              <span className="max-w-[220px] truncate font-mono font-medium text-success-foreground">{getApiUrl()}</span>
             </div>
           </div>
         </div>
@@ -84,27 +94,27 @@ export default function BackendConfigModal({ isOpen, onClose, onUrlChanged }: Ba
         <div className="flex items-center justify-between pt-2">
           <button
             onClick={handleReset}
-            className="text-xs text-slate-400 hover:text-slate-200 underline"
+            className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
           >
             Reset Default
           </button>
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-all"
+              className="btn-interactive rounded-lg border border-border bg-secondary px-4 py-2 text-xs font-medium text-secondary-foreground hover:bg-accent"
             >
               Cancel
             </button>
             <button
               onClick={handleSaveAndTest}
               disabled={isTesting}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
+              className="btn-interactive rounded-lg bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-brand hover:bg-primary/90 disabled:opacity-50"
             >
               {isTesting ? "Testing..." : "Save & Connect"}
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </Panel>
+    </Overlay>
   );
 }

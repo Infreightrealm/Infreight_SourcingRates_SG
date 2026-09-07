@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import { parseRfq } from "@/lib/api";
 import type { RateSearchRequest, RFQParseResult } from "@/lib/types";
+import { Card } from "@/components/ui/card";
+import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 interface RfqInputSectionProps {
@@ -301,20 +303,20 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
   };
 
   return (
-    <section className="bg-white/80 dark:bg-white/[0.04] border border-purple-500/20 dark:border-purple-500/30 rounded-2xl p-6 backdrop-blur-md transition-all shadow-sm">
+    <Card variant="glass" className="animate-fade-in-up border-chart-4/25 p-6">
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center text-white text-sm shadow-md">
-            ✉️
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-600 text-white shadow-brand">
+            <Sparkles className="size-4.5" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+            <h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
               Quote from an email
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                Air & Ocean Reader (Text + Multimodal Vision)
+              <span className="rounded-full border border-chart-4/30 bg-chart-4/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-chart-4">
+                Air &amp; Ocean Reader (Text + Multimodal Vision)
               </span>
             </h2>
-            <p className="text-xs text-slate-500 dark:text-white/50">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Paste a customer's enquiry email or upload a screenshot — AI vision fills in the search for you.
             </p>
           </div>
@@ -322,7 +324,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
 
         {/* Preset Demo Buttons */}
         <div className="hidden lg:flex items-center gap-1.5 flex-wrap justify-end">
-          <span className="text-[11px] text-slate-400 font-medium mr-1">Examples:</span>
+          <span className="mr-1 text-[11px] font-medium text-muted-foreground">Examples:</span>
           {DEMO_EXAMPLES.map((ex, idx) => (
             <button
               key={idx}
@@ -334,7 +336,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                 setImagePreview(null);
                 setParseResult(null);
               }}
-              className="px-2 py-1 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10 transition-all select-none"
+              className="btn-interactive select-none rounded-lg border border-border bg-secondary px-2 py-1 text-[11px] font-medium text-secondary-foreground hover:bg-accent"
             >
               {ex.title}
             </button>
@@ -348,9 +350,9 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
           
           {/* Text Area (Left / Top Column: 7 cols) */}
           <div className="md:col-span-7 flex flex-col space-y-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-white/40 flex items-center justify-between">
+            <label className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <span>Paste Enquiry Text</span>
-              <span className="text-[10px] text-slate-400 font-normal">Plain text email / chat</span>
+              <span className="text-[10px] font-normal text-muted-foreground/70">Plain text email / chat</span>
             </label>
             <textarea
               value={rfqText}
@@ -360,19 +362,19 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
               }}
               placeholder={`Paste a customer enquiry here, e.g.—\n"Hi, please quote 2x40HQ from Singapore to Rotterdam, commodity furniture, ready early August."\nWorks for ocean and air enquiries, including multiple destinations.`}
               rows={4}
-              className="w-full flex-1 min-h-[110px] px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 dark:placeholder-white/40 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all font-mono resize-y"
+              className="min-h-[110px] flex-1 resize-y rounded-xl border border-input bg-card px-4 py-3 font-mono text-sm text-foreground shadow-xs outline-none transition-[color,box-shadow,border-color] placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/22 dark:bg-white/[0.04]"
             />
           </div>
 
           {/* Screenshot Drop Zone (Right / Bottom Column: 5 cols) */}
           <div className="md:col-span-5 flex flex-col space-y-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-white/40 flex items-center justify-between">
+            <label className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <span>Upload Screenshot</span>
-              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-normal">AI Vision Input</span>
+              <span className="text-[10px] font-normal text-chart-4">AI Vision Input</span>
             </label>
 
             {imagePreview ? (
-              <div className="relative border border-purple-500/30 rounded-xl p-2 bg-slate-50 dark:bg-white/5 flex flex-col items-center justify-center flex-1 min-h-[110px]">
+              <div className="relative flex min-h-[110px] flex-1 flex-col items-center justify-center rounded-xl border border-chart-4/30 bg-muted/50 p-2">
                 <img
                   src={imagePreview}
                   alt="RFQ Screenshot Preview"
@@ -386,7 +388,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                     setImagePreview(null);
                     if (parseResult) setParseResult(null);
                   }}
-                  className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1"
+                  className="mt-2 flex items-center gap-1 text-xs font-medium text-destructive-foreground hover:underline"
                 >
                   ✕ Remove Screenshot
                 </button>
@@ -396,10 +398,10 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                 onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={() => setIsDragging(false)}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center flex-1 min-h-[110px] text-center cursor-pointer transition-all ${
+                className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center flex-1 min-h-[110px] text-center cursor-pointer transition-colors ${
                   isDragging
-                    ? "border-purple-500 bg-purple-500/10"
-                    : "border-slate-300 dark:border-white/15 hover:border-purple-500/50 hover:bg-slate-100 dark:hover:bg-white/5"
+                    ? "border-chart-4 bg-chart-4/10"
+                    : "border-border hover:border-chart-4/50 hover:bg-accent"
                 }`}
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -411,10 +413,10 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                   className="hidden"
                 />
                 <span className="text-xl mb-1">📊 🖼️ 📋</span>
-                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <span className="text-xs font-semibold text-foreground">
                   Upload Excel (.xlsx, .csv), drop screenshot, or paste (Ctrl+V)
                 </span>
-                <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium mt-0.5">
+                <span className="mt-0.5 text-[10px] font-medium text-chart-4">
                   Excel Files (.xlsx, .csv) | Screenshots (PNG, JPG, WEBP) | Direct Paste
                 </span>
 
@@ -436,7 +438,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                 setImagePreview(null);
                 setParseResult(null);
               }}
-              className="px-2 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10"
+              className="rounded-lg border border-border bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground"
             >
               {ex.title}
             </button>
@@ -449,7 +451,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
               type="button"
               onClick={() => handleParse(rfqText, imageBase64, imageMime)}
               disabled={isParsing || (!rfqText.trim() && !imageBase64)}
-              className="px-6 py-3 min-h-[44px] justify-center rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md shadow-purple-500/20 flex items-center gap-2"
+              className="btn-interactive shine-on-hover flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-6 py-3 text-xs font-semibold text-white shadow-brand hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isParsing ? (
                 <>
@@ -464,21 +466,21 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
             </button>
 
             {/* AI Model Selector Dropdown */}
-            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-sm self-start sm:self-auto min-h-[44px]">
-              <span className="text-[11px] text-slate-400 font-medium">Model:</span>
+            <div className="flex min-h-[44px] items-center gap-1.5 self-start rounded-xl border border-border bg-secondary px-3 py-2 text-xs font-semibold text-secondary-foreground shadow-panel sm:self-auto">
+              <span className="text-[11px] font-medium text-muted-foreground">Model:</span>
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
-                className="bg-transparent font-bold text-purple-600 dark:text-purple-300 focus:outline-none cursor-pointer text-xs"
+                className="cursor-pointer bg-transparent text-xs font-bold text-chart-4 outline-none"
                 title="Select Gemini AI Model to read enquiry"
               >
-                <option value="gemini-2.5-flash" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                <option value="gemini-2.5-flash">
                   ⚡ Gemini 2.5 Flash (Fast, Standard RFQs)
                 </option>
-                <option value="gemini-pro-latest" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                <option value="gemini-pro-latest">
                   🧠 Gemini Pro (Active Pro Model - Deep Reasoning)
                 </option>
-                <option value="gemini-3.1-pro-preview" className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-white">
+                <option value="gemini-3.1-pro-preview">
                   🚀 Gemini 3.1 Pro (Google Flagship Pro)
                 </option>
               </select>
@@ -489,7 +491,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
             <button
               type="button"
               onClick={handleClearSearchFields}
-              className="text-xs font-medium text-slate-500 hover:text-amber-600 dark:text-slate-400 dark:hover:text-amber-300 py-2 sm:py-0 text-center flex items-center gap-1 transition-colors"
+              className="flex items-center gap-1 py-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:text-warning-foreground sm:py-0"
               title="Clear pre-filled search form fields (Origin, Destination, Weight, Container Types) while preserving pasted enquiry text"
             >
               <span>🧹</span> Clear Search Fields
@@ -500,7 +502,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
             <button
               type="button"
               onClick={handleClearAllText}
-              className="text-xs text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 py-2 sm:py-0 text-center flex items-center gap-1 transition-colors"
+              className="flex items-center gap-1 py-2 text-center text-xs text-muted-foreground transition-colors hover:text-destructive-foreground sm:py-0"
               title="Clear pasted enquiry text from the text area"
             >
               <span>✕</span> Clear Text
@@ -511,21 +513,21 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
 
         {/* Mode Indicator & Plain Caption Banner */}
         {parseResult && parseResult.status !== "unsupported_cargo" && (
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-white/10 text-xs">
-            <span className="text-slate-500 dark:text-slate-400 font-medium">Detected Mode:</span>
+          <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2 text-xs">
+            <span className="font-medium text-muted-foreground">Detected Mode:</span>
             {parseResult.mode === "air" ? (
               <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-500/20 text-sky-600 dark:text-sky-300 border border-sky-500/30 flex items-center gap-1.5" title="AI detected this is an air enquiry.">
                 ✈️ AIR FREIGHT (AI detected this is an air enquiry)
               </span>
             ) : (
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/30 flex items-center gap-1.5" title="AI detected this is an ocean enquiry.">
+              <span className="flex items-center gap-1.5 rounded-full border border-info/30 bg-info/15 px-2.5 py-1 text-xs font-bold text-info-foreground" title="AI detected this is an ocean enquiry.">
                 🚢 OCEAN FREIGHT (AI detected this is an ocean enquiry)
               </span>
             )}
 
             {parseResult.matched_keywords && parseResult.matched_keywords.length > 0 && (
-              <span className="text-[11px] text-slate-400">
-                Matched terms: <code className="text-slate-700 dark:text-slate-300">{parseResult.matched_keywords.join(", ")}</code>
+              <span className="text-[11px] text-muted-foreground">
+                Matched terms: <code className="text-foreground">{parseResult.matched_keywords.join(", ")}</code>
               </span>
             )}
           </div>
@@ -555,14 +557,14 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
 
         {/* Air Freight Dual Draft Emails Banner */}
         {parseResult && parseResult.status === "air_draft_generated" && (
-          <div className="p-5 bg-sky-500/10 border border-sky-500/30 rounded-2xl text-slate-900 dark:text-white text-xs space-y-4 backdrop-blur-md animate-fade-in-up">
+          <div className="p-5 bg-sky-500/10 border border-sky-500/30 rounded-2xl text-xs text-foreground space-y-4 backdrop-blur-md animate-fade-in-up">
             <div className="flex items-start gap-3">
               <span className="text-xl flex-shrink-0">✉️</span>
               <div className="flex-1">
                 <span className="font-bold text-sm text-sky-700 dark:text-sky-300 block mb-0.5">
                   Air Freight Partner Email Drafts
                 </span>
-                <p className="text-slate-600 dark:text-slate-300">
+                <p className="text-muted-foreground">
                   Three competing draft emails generated for human review before sending to our air-freight rate partners.
                 </p>
 
@@ -603,7 +605,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
               {parseResult.air_drafts?.map((draft, idx) => (
                 <div key={idx} className="bg-white/80 dark:bg-black/40 border border-sky-500/20 rounded-xl p-4 space-y-3 flex flex-col justify-between shadow-sm">
                   <div>
-                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-200 dark:border-white/10">
+                    <div className="flex items-center justify-between gap-2 mb-2 border-b border-line pb-2">
                       <span className="font-bold text-sky-700 dark:text-sky-300 text-xs">
                         Partner {idx + 1}: {draft.company_name} ({draft.contact_person})
                       </span>
@@ -612,9 +614,9 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                       </span>
                     </div>
 
-                    <div className="space-y-1.5 text-[11px] font-mono text-slate-800 dark:text-slate-200">
-                      <div><span className="font-semibold text-slate-500 dark:text-slate-400">Subject:</span> {draft.email_subject}</div>
-                      <pre className="p-2.5 bg-slate-100 dark:bg-black/60 rounded-lg text-[10px] leading-relaxed overflow-x-auto whitespace-pre-wrap text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-white/10">
+                    <div className="space-y-1.5 font-mono text-[11px] text-foreground">
+                      <div><span className="font-semibold text-muted-foreground">Subject:</span> {draft.email_subject}</div>
+                      <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-border bg-muted p-2.5 text-[10px] leading-relaxed text-foreground">
                         {draft.email_body}
                       </pre>
                     </div>
@@ -698,7 +700,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                     setRfqText(updatedText);
                     handleParse(updatedText, imageBase64, imageMime);
                   }}
-                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  className="btn-interactive flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-panel hover:bg-primary/90"
                 >
                   🚢 Rate-Search Ocean Freight Request
                 </button>
@@ -711,7 +713,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
                 value={clarificationInput}
                 onChange={(e) => setClarificationInput(e.target.value)}
                 placeholder="Type missing info (e.g. 'Air' or 'Ocean') and hit Enter…"
-                className="flex-1 px-3 py-2 bg-white/80 dark:bg-black/40 border border-amber-500/30 rounded-lg text-slate-900 dark:text-white text-xs focus:outline-none focus:border-amber-500"
+                className="flex-1 rounded-lg border border-warning/30 bg-card px-3 py-2 text-xs text-foreground outline-none focus-visible:border-warning focus-visible:ring-[3px] focus-visible:ring-warning/20"
               />
               <button
                 type="submit"
@@ -951,6 +953,6 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
           </div>
         )}
       </div>
-    </section>
+    </Card>
   );
 }

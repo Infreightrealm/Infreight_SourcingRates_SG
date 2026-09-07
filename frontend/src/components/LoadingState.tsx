@@ -1,35 +1,43 @@
 "use client";
 
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/surfaces";
+
 export default function LoadingState({ message = "Searching carriers…" }: { message?: string }) {
   return (
-    <div className="space-y-4 animate-fade-in-up">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="animate-fade-in-up space-y-4">
+      <div className="mb-6 flex items-center gap-3">
         <div className="orbit-spinner" />
-        <p className="text-slate-600 dark:text-white/60 text-sm font-medium animate-pulse">{message}</p>
+        <p className="animate-pulse text-sm font-medium text-muted-foreground">{message}</p>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] shadow-sm">
+      <Card className="w-full overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#1a1f2e]">
+            <tr className="border-b border-border bg-muted/50">
               {[...Array(10)].map((_, i) => (
-                <th key={i} className="px-4 py-3"><div className="h-4 bg-slate-200 dark:bg-white/10 rounded animate-shimmer w-full max-w-[80px]" /></th>
+                <th key={i} className="px-4 py-3">
+                  <Skeleton className="h-3.5 w-full max-w-[80px]" />
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {[...Array(5)].map((_, i) => (
-              <tr key={i} className="border-b border-slate-100 dark:border-white/5" style={{animationDelay: `${i * 0.1}s`}}>
+              <tr key={i} className="border-b border-line last:border-0">
                 {[...Array(10)].map((_, j) => (
                   <td key={j} className="px-4 py-4">
-                    <div className={`h-4 bg-slate-100 dark:bg-white/5 rounded animate-shimmer ${j === 0 ? "w-24" : j >= 6 ? "w-16 ml-auto" : "w-20"}`} />
+                    <Skeleton
+                      className={`h-3.5 ${j === 0 ? "w-24" : j >= 6 ? "ml-auto w-16" : "w-20"}`}
+                      style={{ animationDelay: `${(i * 10 + j) * 0.03}s` }}
+                    />
                   </td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </Card>
     </div>
   );
 }

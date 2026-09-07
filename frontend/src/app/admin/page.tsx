@@ -404,14 +404,14 @@ export default function AdminDashboard() {
 
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#0A0A0A] flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-8 shadow-xl">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md border border-border bg-card rounded-3xl p-8 shadow-xl">
           <div className="flex flex-col items-center text-center mb-8">
             <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 border border-indigo-100 dark:border-indigo-500/20">
               <ShieldCheck className="w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Admin Dashboard</h1>
-            <p className="text-slate-500 dark:text-gray-400 text-sm mt-1">Enter password to access registry management</p>
+            <h1 className="text-2xl font-bold text-foreground">Admin Dashboard</h1>
+            <p className="text-muted-foreground text-sm mt-1">Enter password to access registry management</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -421,7 +421,7 @@ export default function AdminDashboard() {
                 placeholder="Admin Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm"
+                className="w-full bg-muted/40 dark:bg-black/50 border border-border rounded-xl px-4 py-3 text-foreground placeholder-gray-400 focus:outline-none focus:ring-2 focus-visible:ring-ring transition-all text-sm"
               />
             </div>
             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
@@ -451,20 +451,20 @@ export default function AdminDashboard() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0A0A0A] p-8">
+    <div className="min-h-screen bg-background p-8">
       <div className="max-w-6xl mx-auto space-y-8">
         
         <header className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
               <ShieldCheck className="w-8 h-8 text-indigo-500" />
               Admin Registry
             </h1>
-            <p className="text-slate-500 dark:text-gray-400 mt-1">Manage platform user access, port ranking, and live carrier search overrides.</p>
+            <p className="text-muted-foreground mt-1">Manage platform user access, port ranking, and live carrier search overrides.</p>
           </div>
           <button 
             onClick={() => { setAuthenticated(false); setPassword(""); }}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/20 text-slate-700 dark:text-white rounded-xl transition-colors font-medium text-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-accent text-foreground dark:text-white rounded-xl transition-colors font-medium text-sm"
           >
             <LogOut className="w-4 h-4" />
             Lock Dashboard
@@ -473,36 +473,36 @@ export default function AdminDashboard() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
+          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
                 <Users className="w-6 h-6" />
               </div>
               <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-gray-400">Total Users</p>
-                <p className="text-2xl font-bold text-slate-900 dark:text-white">{users.length}</p>
+                <p className="text-sm font-medium text-muted-foreground">Total Users</p>
+                <p className="text-2xl font-bold text-foreground">{users.length}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
+          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
                 <Activity className="w-6 h-6" />
               </div>
               <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-gray-400">Active Users</p>
-                <p className="text-2xl font-bold text-slate-900 dark:text-white">{users.filter(u => u.is_active).length}</p>
+                <p className="text-sm font-medium text-muted-foreground">Active Users</p>
+                <p className="text-2xl font-bold text-foreground">{users.filter(u => u.is_active).length}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
+          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
                 <Sliders className="w-6 h-6" />
               </div>
               <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-gray-400">Carrier Port Overrides</p>
-                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                <p className="text-sm font-medium text-muted-foreground">Carrier Port Overrides</p>
+                <p className="text-2xl font-bold text-foreground">
                   {Object.values(carrierOverrides).reduce((acc, obj) => acc + Object.keys(obj || {}).length, 0)}
                 </p>
               </div>
@@ -511,13 +511,13 @@ export default function AdminDashboard() {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-4 border-b border-slate-200 dark:border-gray-800 pb-px flex-wrap">
+        <div className="flex gap-4 border-b border-border pb-px flex-wrap">
           <button
             onClick={() => setActiveTab("users")}
             className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
               activeTab === "users"
                 ? "text-indigo-600 dark:text-indigo-400"
-                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             User Registry
@@ -530,7 +530,7 @@ export default function AdminDashboard() {
             className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
               activeTab === "ports"
                 ? "text-indigo-600 dark:text-indigo-400"
-                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Port Ranking Config
@@ -543,7 +543,7 @@ export default function AdminDashboard() {
             className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
               activeTab === "overrides"
                 ? "text-indigo-600 dark:text-indigo-400"
-                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Carrier Port Overrides
@@ -556,7 +556,7 @@ export default function AdminDashboard() {
             className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
               activeTab === "history"
                 ? "text-indigo-600 dark:text-indigo-400"
-                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             User Search History
@@ -569,7 +569,7 @@ export default function AdminDashboard() {
             className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
               activeTab === "exchange_rates"
                 ? "text-indigo-600 dark:text-indigo-400"
-                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <span>💱 Currency Conversion Rates</span>
@@ -582,7 +582,7 @@ export default function AdminDashboard() {
             className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
               activeTab === "route_health"
                 ? "text-indigo-600 dark:text-indigo-400"
-                : "text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Route Reliability Matrix
@@ -594,9 +594,9 @@ export default function AdminDashboard() {
 
         {/* TAB 1: USER REGISTRY */}
         {activeTab === "users" && (
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-200 dark:border-gray-800 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Registered Users</h2>
+          <div className="border border-border bg-card rounded-3xl shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-border flex items-center justify-between">
+              <h2 className="text-lg font-bold text-foreground">Registered Users</h2>
               <div className="flex items-center gap-3">
                 <button
                   onClick={fetchUsers}
@@ -617,7 +617,7 @@ export default function AdminDashboard() {
                   <input 
                     type="text" 
                     placeholder="Search users..." 
-                    className="pl-9 pr-4 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 w-64"
+                    className="pl-9 pr-4 py-2 bg-muted/40 dark:bg-black/50 border border-border rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus-visible:ring-ring w-64"
                   />
                 </div>
               </div>
@@ -625,7 +625,7 @@ export default function AdminDashboard() {
             
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 dark:bg-black/40 text-slate-500 dark:text-gray-400">
+                <thead className="bg-muted/40 dark:bg-black/40 text-muted-foreground">
                   <tr>
                     <th className="px-6 py-4 font-medium">User Name</th>
                     <th className="px-6 py-4 font-medium">Status</th>
@@ -633,22 +633,22 @@ export default function AdminDashboard() {
                     <th className="px-6 py-4 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-gray-800">
+                <tbody className="divide-y divide-border">
                   {users.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-slate-500 dark:text-gray-400">
+                      <td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">
                         No users registered yet.
                       </td>
                     </tr>
                   ) : (
                     users.map((user) => (
-                      <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
+                      <tr key={user.id} className="hover:bg-accent/60 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs">
                               {user.name.charAt(0).toUpperCase()}
                             </div>
-                            <span className="font-medium text-slate-900 dark:text-white">{user.name}</span>
+                            <span className="font-medium text-foreground">{user.name}</span>
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -661,13 +661,13 @@ export default function AdminDashboard() {
                             {user.is_active ? "Active" : "Inactive"}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-slate-500 dark:text-gray-400">
+                        <td className="px-6 py-4 text-muted-foreground">
                           {new Date(user.created_at).toLocaleDateString()}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button 
                             onClick={() => deleteUser(user.id, user.name)}
-                            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                            className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
                             title="Delete User"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -688,20 +688,20 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
             {/* Column 1: Boosted Ports */}
-            <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-6 flex flex-col justify-between min-h-[500px]">
+            <div className="border border-border bg-card rounded-3xl p-6 shadow-sm space-y-6 flex flex-col justify-between min-h-[500px]">
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                     <Building2 className="w-5 h-5 text-indigo-500" />
                     Boosted Ports (Cities)
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     Configure specific port codes (UN/LOCODEs) to rank higher in searches.
                   </p>
                 </div>
 
                 {/* Add Port Form */}
-                <div className="flex items-end gap-3 bg-slate-50 dark:bg-black/40 p-4 rounded-2xl border border-slate-100 dark:border-gray-800">
+                <div className="flex items-end gap-3 rounded-2xl border border-border bg-muted/40 p-4">
                   <div className="flex-1">
                     <PortAutocomplete
                       label="Search Port to Add"
@@ -723,20 +723,20 @@ export default function AdminDashboard() {
                 {/* List of Ports */}
                 <div className="max-h-[350px] overflow-y-auto space-y-2 pr-1">
                   {popularPorts.length === 0 ? (
-                    <p className="text-sm text-slate-500 dark:text-gray-400 text-center py-8">
+                    <p className="text-sm text-muted-foreground text-center py-8">
                       No custom ports boosted yet.
                     </p>
                   ) : (
                     popularPorts.map((code) => (
                       <div
                         key={code}
-                        className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-white/[0.02] hover:bg-slate-100 dark:hover:bg-white/[0.04] border border-slate-100 dark:border-white/5 rounded-xl transition-colors"
+                        className="flex items-center justify-between px-4 py-3 bg-muted/40 hover:bg-muted dark:hover:bg-white/[0.04] border border-line rounded-xl transition-colors"
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-mono font-bold bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-1 rounded">
                             {code}
                           </span>
-                          <span className="text-sm font-medium text-slate-850 dark:text-gray-200">
+                          <span className="text-sm font-medium text-foreground">
                             {code.substring(0, 2) in countriesMap
                               ? `${countriesMap[code.substring(0, 2)]}`
                               : code.substring(0, 2)}
@@ -745,7 +745,7 @@ export default function AdminDashboard() {
                         <button
                           type="button"
                           onClick={() => handleRemovePort(code)}
-                          className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                          className="p-1.5 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -757,28 +757,28 @@ export default function AdminDashboard() {
             </div>
 
             {/* Column 2: Boosted Countries */}
-            <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-6 flex flex-col justify-between min-h-[500px]">
+            <div className="border border-border bg-card rounded-3xl p-6 shadow-sm space-y-6 flex flex-col justify-between min-h-[500px]">
               <div className="space-y-6 w-full">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                     <Globe className="w-5 h-5 text-indigo-500" />
                     Boosted Countries
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     Prioritize all ports from these countries when matching keywords.
                   </p>
                 </div>
 
                 {/* Add Country Form */}
-                <div className="flex items-end gap-3 bg-slate-50 dark:bg-black/40 p-4 rounded-2xl border border-slate-100 dark:border-gray-800">
+                <div className="flex items-end gap-3 rounded-2xl border border-border bg-muted/40 p-4">
                   <div className="flex-1 space-y-1.5">
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300">
+                    <label className="block text-xs font-semibold text-foreground">
                       Select Country to Add
                     </label>
                     <select
                       value={selectedCountry}
                       onChange={(e) => setSelectedCountry(e.target.value)}
-                      className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[42px]"
+                      className="w-full border border-input bg-card dark:bg-white/[0.04] rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring h-[42px]"
                     >
                       <option value="">-- Select Country --</option>
                       {Object.entries(countriesMap)
@@ -803,27 +803,27 @@ export default function AdminDashboard() {
                 {/* List of Boosted Countries */}
                 <div className="max-h-[350px] overflow-y-auto space-y-2 pr-1">
                   {boostedCountries.length === 0 ? (
-                    <p className="text-sm text-slate-500 dark:text-gray-400 text-center py-8">
+                    <p className="text-sm text-muted-foreground text-center py-8">
                       No custom countries boosted yet.
                     </p>
                   ) : (
                     boostedCountries.map((code) => (
                       <div
                         key={code}
-                        className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-white/[0.02] hover:bg-slate-100 dark:hover:bg-white/[0.04] border border-slate-100 dark:border-white/5 rounded-xl transition-colors"
+                        className="flex items-center justify-between px-4 py-3 bg-muted/40 hover:bg-muted dark:hover:bg-white/[0.04] border border-line rounded-xl transition-colors"
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-mono font-bold bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-1 rounded">
                             {code}
                           </span>
-                          <span className="text-sm font-medium text-slate-850 dark:text-gray-200">
+                          <span className="text-sm font-medium text-foreground">
                             {countriesMap[code] || code}
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleRemoveCountry(code)}
-                          className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                          className="p-1.5 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -834,7 +834,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Save Button */}
-              <div className="pt-4 border-t border-slate-100 dark:border-gray-800 mt-4 w-full">
+              <div className="mt-4 w-full border-t border-line pt-4">
                 <button
                   type="button"
                   disabled={savingConfig}
@@ -849,21 +849,21 @@ export default function AdminDashboard() {
           </div>
 
           {/* Bottom Card: Register / Amend Custom City & Port Code */}
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-6">
+          <div className="border border-border bg-card rounded-3xl p-6 shadow-sm space-y-6">
             <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                 <MapPin className="w-5 h-5 text-indigo-500" />
                 Register / Amend Custom City & Port Code
               </h2>
-              <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Add a brand new city with its 5-letter UN/LOCODE, or amend the display city name attached to an existing port code. Applied live immediately across all searches!
               </p>
             </div>
 
-            <form onSubmit={handleCreateCustomPort} className="bg-slate-50 dark:bg-black/40 p-5 rounded-2xl border border-slate-100 dark:border-gray-800 space-y-4">
+            <form onSubmit={handleCreateCustomPort} className="space-y-4 rounded-2xl border border-border bg-muted/40 p-5">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     UN/LOCODE (5-letter)
                   </label>
                   <input
@@ -872,13 +872,13 @@ export default function AdminDashboard() {
                     value={customCode}
                     onChange={(e) => setCustomCode(e.target.value.toUpperCase())}
                     placeholder="e.g. INKCH"
-                    className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm font-mono text-slate-900 dark:text-white uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[42px]"
+                    className="w-full border border-input bg-card dark:bg-white/[0.04] rounded-xl px-3 py-2 text-sm font-mono text-foreground uppercase focus:outline-none focus:ring-2 focus-visible:ring-ring h-[42px]"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     City / Port Display Name
                   </label>
                   <input
@@ -886,19 +886,19 @@ export default function AdminDashboard() {
                     value={customName}
                     onChange={(e) => setCustomName(e.target.value)}
                     placeholder="e.g. Cochin (KERALA)"
-                    className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[42px]"
+                    className="w-full border border-input bg-card dark:bg-white/[0.04] rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring h-[42px]"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Country
                   </label>
                   <select
                     value={customCountry}
                     onChange={(e) => setCustomCountry(e.target.value)}
-                    className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[42px]"
+                    className="w-full border border-input bg-card dark:bg-white/[0.04] rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring h-[42px]"
                     required
                   >
                     <option value="">-- Select Country --</option>
@@ -920,7 +920,7 @@ export default function AdminDashboard() {
                     value={customAliases}
                     onChange={(e) => setCustomAliases(e.target.value)}
                     placeholder="Optional Aliases (comma-separated, e.g. kochi sz, cochin freezone)"
-                    className="w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-gray-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-[38px]"
+                    className="w-full border border-input bg-card dark:bg-white/[0.04] rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring h-[38px]"
                   />
                 </div>
                 <button
@@ -936,31 +936,31 @@ export default function AdminDashboard() {
 
             {/* Registered Custom Ports Table */}
             {customPorts.length > 0 && (
-              <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-gray-800">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-gray-400">
+              <div className="space-y-3 border-t border-line pt-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Registered Custom & Amended City Port Codes ({customPorts.length})
                 </h3>
                 <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
                   {customPorts.map((cp) => (
                     <div
                       key={cp.code}
-                      className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-white/[0.02] hover:bg-slate-100 dark:hover:bg-white/[0.04] border border-slate-100 dark:border-white/5 rounded-xl transition-colors"
+                      className="flex items-center justify-between px-4 py-3 bg-muted/40 hover:bg-muted dark:hover:bg-white/[0.04] border border-line rounded-xl transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-mono font-bold bg-indigo-100 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded">
                           {cp.code}
                         </span>
-                        <span className="text-sm font-semibold text-slate-850 dark:text-gray-200">
+                        <span className="text-sm font-semibold text-foreground">
                           {cp.name}
                         </span>
-                        <span className="text-xs text-slate-400 dark:text-gray-500">
+                        <span className="text-xs text-muted-foreground">
                           ({countriesMap[cp.country] || cp.country})
                         </span>
                       </div>
                       <button
                         type="button"
                         onClick={() => handleDeleteCustomPort(cp.code, cp.name)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                        className="p-1.5 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -975,14 +975,14 @@ export default function AdminDashboard() {
 
         {/* TAB 3: CARRIER PORT OVERRIDES (NEW!) */}
         {activeTab === "overrides" && (
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-gray-800 pb-4">
+          <div className="border border-border bg-card rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex items-center justify-between border-b border-border pb-4">
               <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                   <Sliders className="w-5 h-5 text-indigo-500" />
                   Carrier Port Overrides
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Dynamically map city keywords and LOCODEs to exact carrier autocomplete search strings (e.g. Maersk: &apos;El Dekheila&apos; &rarr; &apos;Alexandria Dekheila, Egypt&apos;). Applied live without code redeployment!
                 </p>
               </div>
@@ -997,20 +997,20 @@ export default function AdminDashboard() {
             </div>
 
             {/* Add New Override Form */}
-            <form onSubmit={handleAddOverride} className="bg-slate-50 dark:bg-black/40 p-5 rounded-2xl border border-slate-200 dark:border-gray-800 space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300 flex items-center gap-1.5">
+            <form onSubmit={handleAddOverride} className="bg-muted/40 dark:bg-black/40 p-5 rounded-2xl border border-border space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
                 <Plus className="w-4 h-4 text-indigo-500" />
                 Add / Update Carrier Port Override
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Select Target Carrier
                   </label>
                   <select
                     value={selectedCarrier}
                     onChange={(e) => setSelectedCarrier(e.target.value)}
-                    className="w-full bg-white dark:bg-black/60 border border-slate-300 dark:border-gray-700 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/22 dark:bg-white/[0.04]"
                   >
                     <option value="maersk">Maersk</option>
                     <option value="one">ONE (Ocean Network Express)</option>
@@ -1023,7 +1023,7 @@ export default function AdminDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Trigger Keyword / LOCODE
                   </label>
                   <input
@@ -1031,12 +1031,12 @@ export default function AdminDashboard() {
                     placeholder="e.g. El Dekheila or EGEDK"
                     value={overrideKey}
                     onChange={(e) => setOverrideKey(e.target.value)}
-                    className="w-full bg-white dark:bg-black/60 border border-slate-300 dark:border-gray-700 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/22 dark:bg-white/[0.04]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-gray-300 mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Target Autocomplete Search Text
                   </label>
                   <input
@@ -1044,7 +1044,7 @@ export default function AdminDashboard() {
                     placeholder="e.g. Alexandria Dekheila, Egypt"
                     value={overrideText}
                     onChange={(e) => setOverrideText(e.target.value)}
-                    className="w-full bg-white dark:bg-black/60 border border-slate-300 dark:border-gray-700 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full rounded-lg border border-input bg-card px-3 py-2.5 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/22 dark:bg-white/[0.04]"
                   />
                 </div>
               </div>
@@ -1070,7 +1070,7 @@ export default function AdminDashboard() {
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${
                       carrierFilter === c
                         ? "bg-indigo-600 text-white shadow-sm"
-                        : "bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/10"
+                        : "bg-muted text-muted-foreground hover:bg-accent"
                     }`}
                   >
                     {c}
@@ -1085,47 +1085,47 @@ export default function AdminDashboard() {
                   placeholder="Search overrides..."
                   value={overrideSearch}
                   onChange={(e) => setOverrideSearch(e.target.value)}
-                  className="pl-9 pr-4 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 w-full"
+                  className="pl-9 pr-4 py-2 bg-muted/40 dark:bg-black/50 border border-border rounded-xl text-sm text-white focus:outline-none focus:ring-1 focus-visible:ring-ring w-full"
                 />
               </div>
             </div>
 
             {/* Overrides Table */}
-            <div className="overflow-x-auto border border-slate-200 dark:border-gray-800 rounded-2xl">
+            <div className="overflow-x-auto border border-border rounded-2xl">
               <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-black/40 text-slate-500 dark:text-gray-400 text-xs font-semibold">
+                  <tr className="border-b border-border bg-muted/40 dark:bg-black/40 text-muted-foreground text-xs font-semibold">
                     <th className="px-4 py-3">Carrier</th>
                     <th className="px-4 py-3">Trigger Keyword / Code</th>
                     <th className="px-4 py-3">Target Autocomplete Search Text</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-gray-800/80">
+                <tbody className="divide-y divide-line">
                   {allOverrideList.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-slate-500 dark:text-gray-400 text-sm">
+                      <td colSpan={4} className="px-6 py-8 text-center text-muted-foreground text-sm">
                         No carrier port overrides match your current filter.
                       </td>
                     </tr>
                   ) : (
                     allOverrideList.map(({ carrier, key, text }) => (
-                      <tr key={`${carrier}-${key}`} className="hover:bg-slate-50/70 dark:hover:bg-white/[0.02] transition-colors">
+                      <tr key={`${carrier}-${key}`} className="hover:bg-muted/40/70 dark:hover:bg-white/[0.02] transition-colors">
                         <td className="px-4 py-3">
                           <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold font-mono uppercase bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
                             {carrier}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white font-mono">
+                        <td className="px-4 py-3 font-semibold text-foreground font-mono">
                           {key}
                         </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-gray-200 font-medium">
+                        <td className="px-4 py-3 text-foreground font-medium">
                           {text}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => handleDeleteOverride(carrier, key)}
-                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                            className="p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
                             title="Delete Override"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1142,14 +1142,14 @@ export default function AdminDashboard() {
 
         {/* TAB: USER SEARCH HISTORY */}
         {activeTab === "history" && (
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden p-6 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-gray-800 pb-5">
+          <div className="border border-border bg-card rounded-3xl shadow-sm overflow-hidden p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-5">
               <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
                   <Clock className="w-5 h-5 text-indigo-500" />
                   User Search History Log
                 </h2>
-                <p className="text-sm text-slate-500 dark:text-gray-400">
+                <p className="text-sm text-muted-foreground">
                   Track what each individual team member searched, on what day, and at what exact time.
                 </p>
               </div>
@@ -1166,13 +1166,13 @@ export default function AdminDashboard() {
             {/* Filter Pills & Search */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold text-slate-500 dark:text-gray-400 uppercase tracking-wider mr-1">Filter User:</span>
+                <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider mr-1">Filter User:</span>
                 <button
                   onClick={() => { setHistoryUserFilter("all"); fetchSearchHistory("all"); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                     historyUserFilter === "all"
                       ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
-                      : "bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300 hover:bg-slate-200"
+                      : "bg-muted dark:bg-gray-800 text-muted-foreground hover:bg-secondary"
                   }`}
                 >
                   All Users
@@ -1184,7 +1184,7 @@ export default function AdminDashboard() {
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       historyUserFilter === u.name
                         ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
-                        : "bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300 hover:bg-slate-200"
+                        : "bg-muted dark:bg-gray-800 text-muted-foreground hover:bg-secondary"
                     }`}
                   >
                     {u.name}
@@ -1199,29 +1199,29 @@ export default function AdminDashboard() {
                   placeholder="Filter by route, port, commodity..."
                   value={historyQuery}
                   onChange={(e) => setHistoryQuery(e.target.value)}
-                  className="pl-9 pr-4 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 w-full sm:w-64"
+                  className="pl-9 pr-4 py-2 bg-muted/40 dark:bg-black/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-1 focus-visible:ring-ring w-full sm:w-64"
                 />
               </div>
             </div>
 
             {/* History Table */}
             {loadingHistory ? (
-              <div className="py-16 text-center text-slate-400 dark:text-gray-500 flex flex-col items-center gap-3">
+              <div className="py-16 text-center text-muted-foreground flex flex-col items-center gap-3">
                 <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
                 <p className="text-sm font-medium">Loading search history logs...</p>
               </div>
             ) : searchHistory.length === 0 ? (
-              <div className="py-16 text-center text-slate-400 dark:text-gray-500 bg-slate-50 dark:bg-black/20 rounded-2xl border border-dashed border-slate-200 dark:border-gray-800">
-                <Clock className="w-10 h-10 mx-auto text-slate-300 dark:text-gray-600 mb-2" />
-                <p className="text-base font-semibold text-slate-700 dark:text-gray-300">No search logs found</p>
-                <p className="text-xs text-slate-400 dark:text-gray-500 max-w-md mx-auto mt-1">
+              <div className="py-16 text-center text-muted-foreground bg-muted/40 dark:bg-black/20 rounded-2xl border border-dashed border-border">
+                <Clock className="w-10 h-10 mx-auto mb-2 text-muted-foreground/60" />
+                <p className="text-base font-semibold text-foreground">No search logs found</p>
+                <p className="text-xs text-muted-foreground max-w-md mx-auto mt-1">
                   When team members run rate searches on the main platform, their exact queries, timestamps, and carrier results will be logged here.
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-gray-800">
-                <table className="w-full text-left text-sm text-slate-600 dark:text-gray-300">
-                  <thead className="bg-slate-50 dark:bg-[#18181b] text-xs uppercase text-slate-500 dark:text-gray-400 font-semibold">
+              <div className="overflow-x-auto rounded-2xl border border-border">
+                <table className="w-full text-left text-sm text-muted-foreground">
+                  <thead className="bg-muted/60 text-xs font-semibold uppercase text-muted-foreground">
                     <tr>
                       <th className="px-5 py-3.5">User</th>
                       <th className="px-5 py-3.5">Date & Time</th>
@@ -1231,7 +1231,7 @@ export default function AdminDashboard() {
                       <th className="px-5 py-3.5">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-gray-800">
+                  <tbody className="divide-y divide-border">
                     {searchHistory
                       .filter((item) => {
                         if (!historyQuery.trim()) return true;
@@ -1254,36 +1254,36 @@ export default function AdminDashboard() {
                           : "";
 
                         return (
-                          <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/40 transition-colors">
-                            <td className="px-5 py-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                          <tr key={item.id} className="hover:bg-muted/40/50 dark:hover:bg-gray-800/40 transition-colors">
+                            <td className="px-5 py-4 font-semibold text-foreground whitespace-nowrap">
                               <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
                                 <Users className="w-3.5 h-3.5" />
                                 {item.user_name}
                               </span>
                             </td>
                             <td className="px-5 py-4 whitespace-nowrap">
-                              <div className="text-xs font-semibold text-slate-900 dark:text-gray-200">{formattedDate}</div>
-                              <div className="text-[11px] text-slate-400 dark:text-gray-500 font-mono">{formattedTime}</div>
+                              <div className="text-xs font-semibold text-foreground">{formattedDate}</div>
+                              <div className="text-[11px] text-muted-foreground font-mono">{formattedTime}</div>
                             </td>
                             <td className="px-5 py-4">
-                              <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 text-xs">
+                              <div className="font-semibold text-foreground flex items-center gap-1.5 text-xs">
                                 <span className="truncate max-w-[120px]">{item.origin}</span>
                                 <span className="text-indigo-500 font-bold">➔</span>
                                 <span className="truncate max-w-[120px]">{item.destination}</span>
                               </div>
                             </td>
                             <td className="px-5 py-4 whitespace-nowrap">
-                              <div className="text-xs font-medium text-slate-800 dark:text-gray-300">
+                              <div className="text-xs font-medium text-foreground">
                                 {item.container_quantity}x {item.container_type}
                               </div>
-                              <div className="text-[11px] text-slate-400 dark:text-gray-500">
+                              <div className="text-[11px] text-muted-foreground">
                                 {item.weight_per_container_kg ? item.weight_per_container_kg.toLocaleString() : "0"} KG • {item.commodity}
                               </div>
                             </td>
                             <td className="px-5 py-4">
                               <div className="flex flex-wrap gap-1">
                                 {(item.selected_carriers || []).map((c: string) => (
-                                  <span key={c} className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-300">
+                                  <span key={c} className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-muted dark:bg-gray-800 text-foreground">
                                     {c}
                                   </span>
                                 ))}
@@ -1314,15 +1314,15 @@ export default function AdminDashboard() {
 
         {/* TAB 4: ROUTE RELIABILITY MATRIX */}
         {activeTab === "route_health" && (
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl shadow-sm overflow-hidden p-6">
+          <div className="border border-border bg-card rounded-3xl shadow-sm overflow-hidden p-6">
 
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                   <Activity className="w-5 h-5 text-indigo-500" />
                   Route Reliability &amp; Port Match Matrix
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Historical search outcomes and port resolution health per carrier.
                 </p>
               </div>
@@ -1336,18 +1336,18 @@ export default function AdminDashboard() {
             </div>
 
             {loadingHealth && !routeHealth ? (
-              <div className="py-12 text-center text-slate-500 dark:text-gray-400 text-sm">
+              <div className="py-12 text-center text-muted-foreground text-sm">
                 Loading route reliability matrix...
               </div>
             ) : !routeHealth || routeHealth.routes.length === 0 ? (
-              <div className="py-12 text-center text-slate-500 dark:text-gray-400 text-sm">
+              <div className="py-12 text-center text-muted-foreground text-sm">
                 No route health logs recorded yet. Run carrier searches to populate route health metrics.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-black/40 text-slate-500 dark:text-gray-400">
+                    <tr className="border-b border-border bg-muted/40 dark:bg-black/40 text-muted-foreground">
                       <th className="px-4 py-3 font-semibold">Origin -&gt; Destination Route</th>
 
                       {routeHealth.carriers.map((carrier) => (
@@ -1357,18 +1357,18 @@ export default function AdminDashboard() {
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-gray-800/60">
+                  <tbody className="divide-y divide-line">
                     {routeHealth.routes.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors">
+                      <tr key={idx} className="hover:bg-muted/40/50 dark:hover:bg-white/5 transition-colors">
 
-                        <td className="px-4 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">
+                        <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">
                           {row.route_key}
                         </td>
                         {routeHealth.carriers.map((carrier) => {
                           const health = row.carrier_health[carrier];
                           if (!health) {
                             return (
-                              <td key={carrier} className="px-3 py-3 text-center text-slate-400 dark:text-gray-600">
+                              <td key={carrier} className="px-3 py-3 text-center text-muted-foreground/60">
                                 -
                               </td>
                             );
@@ -1390,7 +1390,7 @@ export default function AdminDashboard() {
                                     {health.quotes_count && health.quotes_count > 0 ? `SUCCESS (${health.quotes_count} quotes)` : "SUCCESS"}
                                   </span>
                                 ) : isNoQuotes ? (
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-gray-300">
+                                  <span className="rounded border border-border bg-muted px-2 py-0.5 text-[10px] font-bold text-foreground">
                                     NO QUOTES
                                   </span>
                                 ) : (
@@ -1400,7 +1400,7 @@ export default function AdminDashboard() {
                                 )}
 
                                 {isUnknownMismatch && !isMismatch && (
-                                  <span className="text-[9px] text-gray-400 dark:text-gray-500" title="Carrier port string not returned">
+                                  <span className="text-[9px] text-muted-foreground" title="Carrier port string not returned">
                                     (Unverified)
                                   </span>
                                 )}
@@ -1419,13 +1419,13 @@ export default function AdminDashboard() {
 
         {/* Exchange Rates Tab */}
         {activeTab === "exchange_rates" && (
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-gray-800 rounded-3xl p-8 shadow-sm space-y-6">
-            <div className="flex items-center justify-between flex-wrap gap-4 border-b border-slate-200 dark:border-gray-800 pb-4">
+          <div className="border border-border bg-card rounded-3xl p-8 shadow-sm space-y-6">
+            <div className="flex items-center justify-between flex-wrap gap-4 border-b border-border pb-4">
               <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
                   <span>💱 Currency Exchange Rates Management</span>
                 </h2>
-                <p className="text-slate-500 dark:text-gray-400 text-sm mt-1">
+                <p className="text-muted-foreground text-sm mt-1">
                   View and manually update currency exchange rates relative to USD. Rates are automatically saved for currency conversions.
                 </p>
               </div>
@@ -1436,11 +1436,11 @@ export default function AdminDashboard() {
                   placeholder="Search currency (USD, INR, EUR)..."
                   value={rateSearch}
                   onChange={(e) => setRateSearch(e.target.value)}
-                  className="bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-gray-800 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
+                  className="bg-muted/40 dark:bg-black/50 border border-border rounded-xl px-4 py-2 text-sm text-foreground placeholder-gray-400 focus:outline-none focus:ring-2 focus-visible:ring-ring w-64"
                 />
                 <button
                   onClick={fetchExchangeRates}
-                  className="p-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-white rounded-xl transition-colors"
+                  className="p-2.5 bg-muted hover:bg-accent text-foreground dark:text-white rounded-xl transition-colors"
                   title="Refresh rates"
                 >
                   <RefreshCw className={`w-4 h-4 ${loadingRates ? "animate-spin" : ""}`} />
@@ -1449,7 +1449,7 @@ export default function AdminDashboard() {
             </div>
 
             {loadingRates ? (
-              <div className="text-center py-12 text-slate-500 dark:text-gray-400 font-mono text-sm animate-pulse">
+              <div className="text-center py-12 text-muted-foreground font-mono text-sm animate-pulse">
                 Loading live exchange rates...
               </div>
             ) : (
@@ -1459,11 +1459,11 @@ export default function AdminDashboard() {
                   .map(([code, info]) => {
                     const isUsd = code === "USD";
                     return (
-                      <div key={code} className="bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-gray-800 rounded-2xl p-5 space-y-3 flex flex-col justify-between hover:border-indigo-500/40 transition-colors">
+                      <div key={code} className="bg-muted/40 dark:bg-black/30 border border-border rounded-2xl p-5 space-y-3 flex flex-col justify-between hover:border-indigo-500/40 transition-colors">
                         <div className="flex items-center justify-between">
                           <div>
-                            <span className="text-lg font-bold text-slate-900 dark:text-white font-mono">{code}</span>
-                            <span className="text-xs text-slate-500 dark:text-gray-400 ml-2">({info.symbol})</span>
+                            <span className="text-lg font-bold text-foreground font-mono">{code}</span>
+                            <span className="text-xs text-muted-foreground ml-2">({info.symbol})</span>
                           </div>
                           <span className="text-xs px-2 py-0.5 rounded font-medium bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
                             {info.name}
@@ -1471,7 +1471,7 @@ export default function AdminDashboard() {
                         </div>
 
                         <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-slate-500 dark:text-gray-400">
+                          <label className="text-xs font-medium text-muted-foreground">
                             1 USD = X {code}
                           </label>
                           <div className="flex items-center gap-2">
@@ -1481,7 +1481,7 @@ export default function AdminDashboard() {
                               disabled={isUsd}
                               value={rateInputs[code] ?? info.rate_per_usd}
                               onChange={(e) => setRateInputs({ ...rateInputs, [code]: e.target.value })}
-                              className="w-full bg-white dark:bg-[#181818] border border-slate-300 dark:border-gray-700 rounded-xl px-3 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                              className="w-full rounded-lg border border-input bg-card px-3 py-2 font-mono text-sm font-bold text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/22 disabled:opacity-50 dark:bg-white/[0.04]"
                             />
                             {!isUsd && (
                               <button
@@ -1494,7 +1494,7 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        <div className="text-[11px] text-slate-400 dark:text-gray-500 font-mono pt-1 border-t border-slate-200 dark:border-gray-800 flex justify-between">
+                        <div className="text-[11px] text-muted-foreground font-mono pt-1 border-t border-border flex justify-between">
                           <span>Inverse: 1 {code} = ${(info.usd_per_unit).toFixed(6)} USD</span>
                         </div>
                       </div>

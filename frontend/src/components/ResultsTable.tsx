@@ -4,7 +4,9 @@ import type { RateSearchResultResponse, QuoteSchema } from "@/lib/types";
 import { CARRIERS } from "@/lib/types";
 import StatusBadge from "./StatusBadge";
 import QuoteBreakdownDrawer from "./QuoteBreakdownDrawer";
-import { Download, Inbox } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { CalendarDays, CircleDollarSign, Download, Inbox, MoveRight, Timer, TriangleAlert } from "lucide-react";
 
 function formatDate(dateVal: string | null | undefined): string {
   if (!dateVal || dateVal === "—" || dateVal === "-") return "—";
@@ -455,23 +457,25 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     <>
       <div className="space-y-4 animate-fade-in-up">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <h2 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-lg font-semibold tracking-tight text-foreground">
               Search Results
               {data.origin && data.destination && (
-                <span className="text-slate-500 dark:text-white/50 font-normal text-sm ml-2">
-                  {data.origin} → {data.destination}
+                <span className="inline-flex items-center gap-1.5 text-sm font-normal text-muted-foreground">
+                  {data.origin}
+                  <MoveRight className="size-4 shrink-0 text-primary" />
+                  {data.destination}
                 </span>
               )}
             </h2>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <StatusBadge status={data.status} size="md" />
-              <div className="flex gap-1.5 flex-wrap">
+              <div className="flex flex-wrap gap-1.5">
                 {sortContainerTypes(data.container_types || (data.container_type ? [data.container_type] : [])).map((ct) => (
-                  <span key={ct} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white/70">
+                  <Badge key={ct} size="sm" variant="outline" className="rounded-md font-mono">
                     {ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct} × {data.container_quantity}
-                  </span>
+                  </Badge>
                 ))}
               </div>
             </div>
@@ -482,13 +486,13 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             {/* Container Type Filter */}
             {uniqueContainerTypes.length > 1 && (
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                <span className="text-xs text-slate-500 dark:text-white/40">Container:</span>
+                <span className="text-xs font-medium text-muted-foreground">Container:</span>
                 <button
                   onClick={() => setContainerFilter("ALL")}
-                  className={`px-3 py-1.5 min-h-[36px] sm:min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium btn-interactive transition-all ${
+                  className={`btn-interactive flex min-h-[34px] items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
                     containerFilter === "ALL"
-                      ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
+                      ? "border border-primary/30 bg-primary/12 text-primary shadow-panel"
+                      : "border border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                   }`}
                 >
                   All
@@ -497,10 +501,10 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                   <button
                     key={ct}
                     onClick={() => setContainerFilter(ct)}
-                    className={`px-3 py-1.5 min-h-[36px] sm:min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium btn-interactive transition-all ${
+                    className={`btn-interactive flex min-h-[34px] items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
                       containerFilter === ct
-                        ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
+                        ? "border border-primary/30 bg-primary/12 text-primary shadow-panel"
+                        : "border border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                     }`}
                   >
                     {getContainerDisplayName(ct)}
@@ -510,18 +514,20 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             )}
 
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              <span className="text-xs text-slate-500 dark:text-white/40">Sort by:</span>
+              <span className="text-xs font-medium text-muted-foreground">Sort by:</span>
               {(["freight", "etd", "transit"] as const).map((key) => (
                 <button
                   key={key}
                   onClick={() => setSortBy(key)}
-                  className={`px-3 py-1.5 min-h-[36px] sm:min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium btn-interactive transition-all ${
+                  className={`btn-interactive flex min-h-[34px] items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
                     sortBy === key 
-                      ? "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-600/30 dark:text-blue-300 border dark:border-blue-500/30" 
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent dark:bg-white/5 dark:text-white/50 dark:hover:text-white/70"
+                      ? "border border-primary/30 bg-primary/12 text-primary shadow-panel" 
+                      : "border border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                   }`}
                 >
-                  {key === "freight" ? "💰 Price" : key === "etd" ? "📅 ETD" : "⏱ Transit"}
+                  {key === "freight" ? <><CircleDollarSign className="size-3.5" /> Price</>
+                    : key === "etd" ? <><CalendarDays className="size-3.5" /> ETD</>
+                    : <><Timer className="size-3.5" /> Transit</>}
                 </button>
               ))}
             </div>
@@ -529,7 +535,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             {quoteRows.length > 0 && (
               <button
                 onClick={exportToExcel}
-                className="flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 dark:border-white/10 transition-colors btn-interactive shine-on-hover"
+                className="btn-interactive shine-on-hover flex min-h-[34px] items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-3.5 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-accent"
               >
                 <Download className="w-3.5 h-3.5" />
                 Export Excel
@@ -540,66 +546,66 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
         {/* Mismatch Warning Banner */}
         {data.results.some((cr) => cr.has_port_mismatch === true) && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-amber-900 dark:text-amber-300 text-xs flex items-start gap-3 shadow-sm animate-in fade-in duration-300">
-            <span className="text-lg leading-none">⚠️</span>
+          <Card variant="warning" className="flex items-start gap-3 p-4 text-xs text-warning-foreground animate-in fade-in duration-300">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
             <div className="space-y-1">
               <p className="font-bold text-sm">Port Selection Mismatch Warning</p>
-              <p className="text-slate-600 dark:text-amber-400/90">The carrier matched a port that differs from your requested port location. Please review:</p>
+              <p className="text-muted-foreground">The carrier matched a port that differs from your requested port location. Please review:</p>
               <div className="mt-2 space-y-1">
                 {data.results.filter((cr) => cr.has_port_mismatch === true).map((cr) => (
-                  <div key={cr.carrier} className="font-mono text-[11px] bg-amber-500/10 px-2.5 py-1 rounded-lg">
+                  <div key={cr.carrier} className="rounded-lg bg-warning/10 px-2.5 py-1 font-mono text-[11px]">
                     <strong className="font-semibold">{cr.carrier.replace("_", " ")}:</strong> {cr.mismatch_warning || "Carrier matched a different port than requested."}
                   </div>
                 ))}
               </div>
             </div>
-          </div>
+          </Card>
         )}
 
         {/* Table / Empty State */}
         {sortedRows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 bg-white/50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-2xl">
-            <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center mb-4 animate-float">
-              <Inbox className="w-8 h-8 text-slate-400 dark:text-white/30" />
+          <Card variant="glass" className="flex flex-col items-center justify-center px-6 py-20 text-center">
+            <div className="animate-float mb-4 flex size-16 items-center justify-center rounded-full border border-border bg-muted">
+              <Inbox className="size-8 text-muted-foreground" />
             </div>
             <div className="animate-fade-in-up">
-              <h3 className="text-slate-700 dark:text-white/80 font-medium text-lg">No Results Found</h3>
-              <p className="text-slate-500 dark:text-white/40 text-sm mt-1">Try adjusting your search parameters or selecting different carriers.</p>
+              <h3 className="text-lg font-medium text-foreground">No Results Found</h3>
+              <p className="mt-1 text-sm text-muted-foreground">Try adjusting your search parameters or selecting different carriers.</p>
             </div>
-          </div>
+          </Card>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.02] max-h-[600px] overflow-y-auto w-full max-w-full">
+          <div className="max-h-[600px] w-full max-w-full overflow-x-auto overflow-y-auto rounded-2xl border border-border bg-card shadow-card">
 
             <table className="w-full text-xs relative">
               <thead className="sticky top-0 z-10">
-                <tr className="border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#1a1f2e] backdrop-blur-md">
-                  <th className="px-1 py-2 text-left text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Carrier</th>
-                  <th className="px-1 py-2 text-left text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Status</th>
-                  <th className="px-1 py-2 text-left text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Container</th>
-                  <th className="px-1 py-2 text-left text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">ETD POL</th>
-                  <th className="px-1 py-2 text-left text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">ETA POD</th>
-                  <th className="px-1 py-2 text-left text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Validity</th>
+                <tr className="border-b border-border bg-muted/95 backdrop-blur-md">
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Carrier</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Container</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">ETD POL</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">ETA POD</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Validity</th>
 
-                  <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Transit</th>
-                  <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Free Time</th>
-                  <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Demurrage</th>
-                  <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Detention</th>
-                  <th className="px-1 py-2 text-left text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Service / Vessel</th>
-                  <th className="px-1 py-2 text-right text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">BOF</th>
-                  <th className="px-1 py-2 text-right text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Discount</th>
-                  <th className="px-1 py-2 text-right text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Surcharges</th>
-                  <th className="px-1 py-2 text-right text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Final Value</th>
-                  <th className="px-1 py-2 text-center text-[11px] font-semibold text-slate-600 dark:text-white/60 whitespace-nowrap">Actions</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Transit</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Free Time</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Demurrage</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Detention</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Service / Vessel</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">BOF</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Discount</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Surcharges</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Final Value</th>
+                  <th className="whitespace-nowrap px-1.5 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedRows.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-all duration-200 hover:-translate-y-[1px] row-enter" style={{animationDelay: `${i * 0.04}s`}}>
+                  <tr key={i} className="row-enter border-b border-line transition-colors last:border-0 hover:bg-accent/60" style={{animationDelay: `${i * 0.04}s`}}>
                     {/* Carrier */}
                     <td className="px-1 py-2">
                       <div className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full flex-shrink-0 shadow-sm" style={{ backgroundColor: row.carrierColor }} />
-                        <span className="font-medium text-slate-900 dark:text-white/90">{row.carrier.replace("_", " ")}</span>
+                        <span className="font-medium text-foreground">{row.carrier.replace("_", " ")}</span>
                       </div>
                     </td>
 
@@ -608,7 +614,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                       <div className="flex flex-col gap-1">
                         <StatusBadge status={row.status} />
                         {row.hasPortMismatch === true && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-1.5 py-0.5 rounded" title={row.mismatchWarning || "Port Mismatch"}>
+                          <span className="inline-flex items-center gap-1 rounded border border-warning/25 bg-warning/12 px-1.5 py-0.5 text-[10px] font-semibold text-warning-foreground" title={row.mismatchWarning || "Port Mismatch"}>
                             ⚠️ Mismatch
                           </span>
                         )}
@@ -620,40 +626,40 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                       <>
                         {/* Container */}
                         <td className="px-1 py-2">
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 dark:bg-white/10 dark:text-white/80">
+                          <span className="inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium text-foreground">
                             {row.quote.container_type === "DRY 20" ? "20GP" : row.quote.container_type === "DRY 40" ? "40GP" : row.quote.container_type === "DRY 40H" ? "40HQ" : row.quote.container_type || "—"}
                           </span>
                         </td>
-                        <td className="px-1 py-2 text-slate-600 dark:text-white/70 font-mono text-[11px] whitespace-nowrap">{formatDate(row.quote.etd)}</td>
-                        <td className="px-1 py-2 text-slate-600 dark:text-white/70 font-mono text-[11px] whitespace-nowrap">{formatDate(row.quote.eta)}</td>
-                        <td className="px-1 py-2 text-slate-600 dark:text-white/70 font-mono text-[11px] whitespace-nowrap">{formatDate(row.quote.validity_till)}</td>
-                        <td className="px-1 py-2 text-center text-slate-600 dark:text-white/70 whitespace-nowrap">{row.quote.transit_time_days ? `${row.quote.transit_time_days}d` : "—"}</td>
+                        <td className="whitespace-nowrap px-1.5 py-2 font-mono text-[11px] text-muted-foreground">{formatDate(row.quote.etd)}</td>
+                        <td className="whitespace-nowrap px-1.5 py-2 font-mono text-[11px] text-muted-foreground">{formatDate(row.quote.eta)}</td>
+                        <td className="whitespace-nowrap px-1.5 py-2 font-mono text-[11px] text-muted-foreground">{formatDate(row.quote.validity_till)}</td>
+                        <td className="whitespace-nowrap px-1.5 py-2 text-center tabular-nums text-muted-foreground">{row.quote.transit_time_days ? `${row.quote.transit_time_days}d` : "—"}</td>
                         <td className="px-1 py-2 text-center">
                           {row.quote.free_time != null ? (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            <span className="inline-flex items-center rounded border border-success/25 bg-success/12 px-1.5 py-0.5 text-[11px] font-semibold text-success-foreground">
                               {String(row.quote.free_time).endsWith("d") || String(row.quote.free_time).includes(" ") ? row.quote.free_time : `${row.quote.free_time}d`}
                             </span>
-                          ) : <span className="text-slate-400 dark:text-white/25 text-[11px]">—</span>}
+                          ) : <span className="text-[11px] text-muted-foreground/50">—</span>}
                         </td>
                         <td className="px-1 py-2 text-center font-mono text-[11px]">
                           {row.quote.demurrage ? (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
                               {row.quote.demurrage}d
                             </span>
-                          ) : <span className="text-slate-400 dark:text-white/25 text-[11px]">—</span>}
+                          ) : <span className="text-[11px] text-muted-foreground/50">—</span>}
                         </td>
                         <td className="px-1 py-2 text-center font-mono text-[11px]">
                           {row.quote.detention ? (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300">
                               {row.quote.detention}d
                             </span>
-                          ) : <span className="text-slate-400 dark:text-white/25 text-[11px]">—</span>}
+                          ) : <span className="text-[11px] text-muted-foreground/50">—</span>}
                         </td>
                         <td className="px-1 py-2">
-                          <div className="text-slate-700 dark:text-white/70 text-[11px] font-medium leading-tight">{row.quote.service_name || "—"}</div>
-                          <div className="text-slate-500 dark:text-white/40 text-[10px] leading-none mt-0.5">{row.quote.vessel || ""}</div>
+                          <div className="text-[11px] font-medium leading-tight text-foreground">{row.quote.service_name || "—"}</div>
+                          <div className="mt-0.5 text-[10px] leading-none text-muted-foreground">{row.quote.vessel || ""}</div>
                         </td>
-                        <td className="px-1 py-2 text-right font-mono text-slate-700 dark:text-white/80">
+                        <td className="px-1.5 py-2 text-right font-mono tabular-nums text-foreground">
                           {row.quote.final_freight_value === 0.0 ? "—" : row.quote.basic_ocean_freight.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-1 py-2 text-right font-mono text-red-600 dark:text-red-400">
@@ -662,8 +668,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         <td className="px-1 py-2 text-right font-mono">
                           {row.quote.is_breakdown_unavailable ? (
                             <div className="flex flex-col items-end">
-                              <span className="text-amber-600 dark:text-amber-400 font-semibold text-[11px]">0.00*</span>
-                              <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans leading-tight flex items-center gap-0.5" title={row.quote.warning_message || "Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date."}>
+                              <span className="text-[11px] font-semibold text-warning-foreground">0.00*</span>
+                              <span className="flex items-center gap-0.5 font-sans text-[9px] leading-tight text-warning-foreground" title={row.quote.warning_message || "Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date."}>
                                 ⚠️ Breakdown N/A
                               </span>
                             </div>
@@ -675,18 +681,18 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         </td>
                         <td className="px-1 py-2 text-right">
                           {row.quote.final_freight_value === 0.0 ? (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400">
+                            <span className="inline-flex items-center rounded border border-destructive/25 bg-destructive/12 px-1.5 py-0.5 text-[10px] font-medium text-destructive-foreground">
                               {row.carrier.toUpperCase() === "OOCL" ? "Offline rates" : "Sold Out"}
                             </span>
                           ) : (
                             <div className="flex flex-col items-end">
-                              <span className={`font-mono font-bold text-sm ${row.quote.is_breakdown_unavailable ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                              <span className={`font-mono font-bold text-sm ${row.quote.is_breakdown_unavailable ? "text-warning-foreground" : "text-success-foreground"}`}>
                                 {row.quote.final_freight_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                               </span>
                               <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-slate-500 dark:text-white/40 leading-none">{row.quote.currency}</span>
+                                <span className="text-[10px] leading-none text-muted-foreground">{row.quote.currency}</span>
                                 {row.quote.is_breakdown_unavailable && (
-                                  <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" title={row.quote.warning_message || "Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date."}>
+                                  <span className="rounded border border-warning/25 bg-warning/12 px-1 py-0.5 text-[9px] font-medium text-warning-foreground" title={row.quote.warning_message || "Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date."}>
                                     ⚠️ Incomplete
                                   </span>
                                 )}
@@ -698,14 +704,14 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                           {row.quote.final_freight_value === 0.0 ? (
                             <button
                               disabled
-                              className="px-2 py-1 rounded bg-slate-100 text-slate-400 dark:bg-white/5 dark:text-white/20 text-[10px] font-medium cursor-not-allowed border border-transparent shadow-sm"
+                              className="cursor-not-allowed rounded-md border border-border bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground/60"
                             >
                               Unavailable
                             </button>
                           ) : (
                             <button
                               onClick={() => setSelectedQuote({ quote: row.quote!, carrier: row.carrier })}
-                              className="px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-600/20 dark:text-blue-300 text-[10px] font-medium dark:hover:bg-blue-600/30 border border-blue-200 dark:border-blue-500/20 hover:border-blue-300 dark:hover:border-blue-500/40 transition-all shadow-sm"
+                              className="btn-interactive rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/18"
                             >
                               View
                             </button>
@@ -715,11 +721,11 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                     ) : (
                       <td colSpan={12} className="px-1 py-2 text-[11px] text-center">
                         {row.status === "WAITING_FOR_HUMAN_VERIFICATION" ? (
-                          <span className="text-amber-600 dark:text-amber-400 font-semibold animate-pulse">
+                          <span className="animate-pulse font-semibold text-warning-foreground">
                             ⚠️ Cloudflare Security Check / CAPTCHA: Solve in VNC tab to resume crawler
                           </span>
                         ) : (
-                          <span className="text-slate-500 dark:text-white/40 italic">
+                          <span className="italic text-muted-foreground">
                             {row.error || (row.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not yet implemented" : "No quotes returned")}
                           </span>
                         )}

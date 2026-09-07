@@ -80,10 +80,8 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
-          flex items-center gap-2 px-4 py-2.5 rounded-full 
-          bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700
-          text-white shadow-xl shadow-indigo-500/20 hover:scale-105 active:scale-95
-          transition-all duration-200 border border-white/20
+          btn-interactive flex items-center gap-2 rounded-full border border-white/15
+          bg-gradient-brand px-4 py-2.5 text-white shadow-brand hover:brightness-110
           ${!isOpen ? 'animate-glow-pulse' : ''}
         `}
         title="Open Infreight Assistant"
@@ -116,18 +114,17 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
           className="
             absolute bottom-16 left-0
             w-80 sm:w-96 h-[480px]
-            bg-slate-50/95 dark:bg-[#0b0c14]/95 backdrop-blur-xl
-            border border-slate-300 dark:border-white/10 rounded-2xl
-            shadow-2xl shadow-black/25 dark:shadow-black/50
+            bg-popover/95 backdrop-blur-xl
+            border border-border rounded-2xl shadow-card-hover
             flex flex-col overflow-hidden
             animate-scale-in-spring
           "
           style={{ transformOrigin: 'bottom left' }}
         >
           {/* Header */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-white flex items-center justify-between">
+          <div className="bg-gradient-brand flex items-center justify-between px-4 py-3 text-white">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <div className="size-2 animate-pulse rounded-full bg-emerald-300" />
               <div>
                 <h3 className="text-xs font-bold tracking-wide">INFREIGHT ASSISTANT</h3>
                 <p className="text-[10px] text-white/70">Powered by Gemini AI</p>
@@ -144,7 +141,7 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
           </div>
 
           {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-white/10">
+          <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {messages.map((msg, idx) => (
               <div
                 key={idx}
@@ -156,8 +153,8 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
                     max-w-[85%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed shadow-sm
                     ${
                       msg.role === "user"
-                        ? "bg-blue-600 text-white rounded-br-none"
-                        : "bg-slate-200 dark:bg-white/5 text-slate-800 dark:text-white/95 rounded-bl-none border border-slate-300/30 dark:border-white/5"
+                        ? "bg-primary text-primary-foreground rounded-br-none"
+                        : "bg-muted text-foreground rounded-bl-none border border-border"
                     }
                   `}
                 >
@@ -169,11 +166,11 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
             {/* Typing indicator */}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-slate-200 dark:bg-white/5 border border-slate-300/30 dark:border-white/5 text-slate-800 dark:text-white/95 rounded-2xl rounded-bl-none px-4 py-2.5 shadow-sm">
+                <div className="rounded-2xl rounded-bl-none border border-border bg-muted px-4 py-2.5 text-foreground shadow-panel">
                   <div className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-wave" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-wave" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-white/50 animate-wave" style={{ animationDelay: "300ms" }} />
+                    <span className="animate-wave size-1.5 rounded-full bg-muted-foreground" style={{ animationDelay: "0ms" }} />
+                    <span className="animate-wave size-1.5 rounded-full bg-muted-foreground" style={{ animationDelay: "150ms" }} />
+                    <span className="animate-wave size-1.5 rounded-full bg-muted-foreground" style={{ animationDelay: "300ms" }} />
                   </div>
                 </div>
               </div>
@@ -182,18 +179,17 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
           </div>
 
           {/* Form Input */}
-          <form onSubmit={handleSend} className="p-3 border-t border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-white/[0.01] flex gap-2">
+          <form onSubmit={handleSend} className="flex gap-2 border-t border-border bg-muted/40 p-3">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask a question..."
               className="
-                flex-1 px-3.5 py-2 rounded-xl text-xs
-                bg-white dark:bg-black/40 border border-slate-300 dark:border-white/10
-                text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-white/30
-                focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500
-                transition-all duration-150 focus-glow
+                flex-1 rounded-xl border border-input bg-card px-3.5 py-2 text-xs
+                text-foreground shadow-xs outline-none transition-[color,box-shadow,border-color]
+                placeholder:text-muted-foreground/70
+                focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/22
               "
               disabled={isLoading}
             />
@@ -201,9 +197,9 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
               type="submit"
               disabled={!input.trim() || isLoading}
               className="
-                px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs
-                disabled:opacity-50 disabled:hover:bg-blue-600 transition-all duration-150
-                flex items-center justify-center shadow-md shadow-blue-500/10 btn-interactive
+                btn-interactive flex items-center justify-center rounded-xl bg-primary px-3
+                text-xs font-medium text-primary-foreground shadow-panel
+                hover:bg-primary/90 disabled:opacity-50
               "
             >
               <svg className="w-4 h-4 transform rotate-90" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
