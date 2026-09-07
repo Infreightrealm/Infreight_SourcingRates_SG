@@ -680,8 +680,35 @@ class MSCConnector(BaseCarrierConnector):
                         except Exception:
                             pass
 
+                    # Detect inland destination / on-carriage vs direct port-to-port routing
+                    has_on_carriage = False
+                    if card_text and ("on-carriage" in card_text.lower() or "on carriage" in card_text.lower()):
+                        has_on_carriage = True
+
+                    card_dest = None
+                    if card_text:
+                        dest_match = re.search(r"Destination\s*:?\s*\n?\s*([^\n\r]+)", card_text, re.IGNORECASE)
+                        if dest_match:
+                            cand_d = dest_match.group(1).strip()
+                            cand_d = re.split(r"(?:Transit|Free Time|show details|Est\.)", cand_d, flags=re.IGNORECASE)[0].strip()
+                            if cand_d and cand_d.lower() not in ("n/a", "-"):
+                                card_dest = " ".join(cand_d.split())
+                                self.log(f"[MSC] Parsed Destination from card text: {card_dest}")
+
+                    is_inland_route = False
+                    if has_on_carriage:
+                        is_inland_route = True
+                    elif card_dest and card_pod and (card_dest.lower() != card_pod.lower()):
+                        is_inland_route = True
+                    elif card_pod and request.destination:
+                        pod_code_match = re.search(r'\[([A-Z0-9]{5})\]', card_pod)
+                        dest_code_match = re.search(r'\[([A-Z0-9]{5})\]', request.destination) or re.search(r'\b([A-Z0-9]{5})\b', request.destination.upper())
+                        if pod_code_match and dest_code_match:
+                            if pod_code_match.group(1) != dest_code_match.group(1):
+                                is_inland_route = True
+
                     validity_till = card_validity or window_validity
-                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type} - POD: {card_pod} - validity: {validity_till}")
+                    self.log(f"Processing quote card {j+1}/{detail_btn_count} - container type: {container_type} - POD: {card_pod} - is_inland: {is_inland_route} - validity: {validity_till}")
 
                     # Open details popup
 
@@ -874,7 +901,7 @@ class MSCConnector(BaseCarrierConnector):
                         service_name = parts[-3] if len(parts) > 3 else "MSC Service"
 
                         from models.schemas import ChargeSchema
-                        effective_routing = card_pod or routing_val
+                        effective_routing = card_pod if (is_inland_route and card_pod) else routing_val
                         quote = QuoteSchema(
                             service_name=service_name,
                             routing=effective_routing,
