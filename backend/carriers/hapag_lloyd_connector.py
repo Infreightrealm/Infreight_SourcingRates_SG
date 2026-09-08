@@ -2009,6 +2009,80 @@ class HapagLloydConnector(BaseCarrierConnector):
                     
         return best_match
 
+    def _parse_left_panel_route(self, text: str) -> dict:
+        """
+        Parses Hapag-Lloyd left search/summary panel for:
+        - PoD (Port of Discharge), e.g. 'Vancouver, BC'
+        - Destination terminal/ramp, e.g. 'Winnipeg, MB'
+        - Transshipment indicators, e.g. '+ 2 more'
+        - Estimated Transit Time, e.g. 49 days
+        """
+        if not text:
+            return {}
+        pod = None
+        m_pod = re.search(r'\bPoD\s*[:\n]?\s*([^\n\r]+)', text, re.IGNORECASE)
+        if m_pod:
+            cand = m_pod.group(1).strip()
+            cand = re.split(r'(?:Terminal|Ramp|Estimated|Transit|Edit|\+)', cand, flags=re.IGNORECASE)[0].strip()
+            if cand and cand.lower() not in ('n/a', '-', 'none'):
+                pod = cand
+
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        dest = None
+        for i, line in enumerate(lines):
+            if re.search(r'Terminal\s*/\s*Ramp', line, re.IGNORECASE) and not re.search(r'\(PoL\)', line, re.IGNORECASE):
+                if i + 1 < len(lines):
+                    cand_d = re.split(r'(?:Estimated|Transit|Edit|\+)', lines[i + 1], flags=re.IGNORECASE)[0].strip()
+                    if cand_d and cand_d.lower() not in ('n/a', '-', 'none'):
+                        dest = cand_d
+                        break
+
+        has_transshipment = bool(re.search(r'\+\s*\d+\s*more', text, re.IGNORECASE))
+
+        tt = None
+        tt_match = re.search(r'Estimated Transit Time\s*(\d+)\s*days?', text, re.IGNORECASE)
+        if not tt_match:
+            tt_match = re.search(r'(\d+)\s*days?', text, re.IGNORECASE)
+        if tt_match:
+            try:
+                tt = int(tt_match.group(1))
+            except Exception:
+                pass
+
+        via_routing = ""
+        via_match = re.search(r'via\s*:\s*([^\n\r]+)', text, re.IGNORECASE)
+        if via_match:
+            via_routing = via_match.group(1).strip()
+
+        req_dest = getattr(self.current_request, "destination", "") if hasattr(self, "current_request") and self.current_request else ""
+        is_inland = False
+        if dest and pod and (dest.lower() != pod.lower()):
+            is_inland = True
+        elif pod and req_dest:
+            clean_req = re.sub(r'\[.*?\]|\(.*?\)', '', req_dest).strip().lower()
+            clean_pod = re.sub(r'\[.*?\]|\(.*?\)', '', pod).strip().lower()
+            if clean_pod and clean_req and (clean_pod not in clean_req and clean_req not in clean_pod):
+                is_inland = True
+
+        if is_inland and pod:
+            routing = pod
+        elif via_routing:
+            routing = via_routing
+        elif has_transshipment:
+            routing = "Transshipment"
+        else:
+            routing = "Direct"
+
+        return {
+            "pod": pod,
+            "dest": dest,
+            "has_transshipment": has_transshipment,
+            "tt": tt,
+            "via_routing": via_routing,
+            "is_inland": is_inland,
+            "routing": routing
+        }
+
     async def search_quotes(self, request: RateSearchRequest) -> CarrierResultStatus:
         try:
             # Check if page is currently on the login portal
@@ -2516,6 +2590,23 @@ class HapagLloydConnector(BaseCarrierConnector):
             except:
                 pass
 
+            # Early check for route & Port of Discharge from the left panel / summary
+            try:
+                left_panel = self.page.locator('div:has-text("Estimated Transit Time"), div:has-text("PoD"), [class*="search" i], [class*="summary" i]').first
+                if await left_panel.count() > 0:
+                    lp_text = await left_panel.inner_text()
+                    early_info = self._parse_left_panel_route(lp_text)
+                    if early_info.get("pod"):
+                        self._last_parsed_pod = early_info["pod"]
+                    if early_info.get("routing"):
+                        self._last_parsed_routing = early_info["routing"]
+                    if early_info.get("tt"):
+                        self._last_parsed_transit_time = early_info["tt"]
+                    if getattr(self, "_last_parsed_pod", None):
+                        print(f"[HAPAG] Early parsed PoD from left panel: '{self._last_parsed_pod}', routing: '{getattr(self, '_last_parsed_routing', None)}', tt: {getattr(self, '_last_parsed_transit_time', None)}d")
+            except Exception as early_err:
+                print(f"[HAPAG] Warning during early left panel check: {early_err}")
+
             print("[HAPAG] Paginating through all departure columns in calendar grid...")
             # Wait for calendar grid / departure dates to appear using a robust fallback sequence
             date_selectors = [
@@ -2776,8 +2867,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                     "raw_date": raw_date_str,
                     "etd": normalized_date,
                     "eta": None,
-                    "transit_time_days": None,
+                    "transit_time_days": getattr(self, "_last_parsed_transit_time", None),
                     "via_routing": "",
+                    "routing": getattr(self, "_last_parsed_routing", "Direct"),
+                    "port_of_discharge": getattr(self, "_last_parsed_pod", None),
                     "service_name": "Hapag Service",
                     "vessel": "Hapag Vessel",
                     "total_price": grid_price,
@@ -2793,8 +2886,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                     "raw_date": raw_date_str,
                     "etd": normalized_date,
                     "eta": None,
-                    "transit_time_days": None,
+                    "transit_time_days": getattr(self, "_last_parsed_transit_time", None),
                     "via_routing": "",
+                    "routing": getattr(self, "_last_parsed_routing", "Direct"),
+                    "port_of_discharge": getattr(self, "_last_parsed_pod", None),
                     "service_name": "Hapag Service Spot",
                     "vessel": "Hapag Vessel",
                     "total_price": 0.0,
@@ -2951,12 +3046,18 @@ class HapagLloydConnector(BaseCarrierConnector):
                 # Retrieve cached transit time / via routing
                 tt = getattr(self, "_last_parsed_transit_time", None)
                 via_routing = getattr(self, "_last_parsed_via_routing", "")
+                pod = getattr(self, "_last_parsed_pod", None)
+                routing = getattr(self, "_last_parsed_routing", "Direct")
                 if tt:
                     quote_ref["transit_time_days"] = tt
                     quote_ref["eta"] = getattr(self, "_last_parsed_eta", None)
                 if via_routing:
                     quote_ref["via_routing"] = via_routing
                     quote_ref["service_name"] = f"Hapag Service (via {via_routing})"
+                if pod:
+                    quote_ref["port_of_discharge"] = pod
+                if routing:
+                    quote_ref["routing"] = routing
             else:
                 # ------------------------------------------------------------------
                 # Step 1: navigate left or right until target date is visible in the grid
@@ -3092,18 +3193,30 @@ class HapagLloydConnector(BaseCarrierConnector):
                 tt = None
                 via_routing = ""
                 try:
-                    left_panel = self.page.locator('div:has-text("Estimated Transit Time"), [class*="search" i], [class*="summary" i]').first
-                    left_panel_text = await left_panel.inner_text()
+                    left_panel = self.page.locator('div:has-text("Estimated Transit Time"), div:has-text("PoD"), [class*="search" i], [class*="summary" i]').first
+                    left_panel_text = ""
+                    if await left_panel.count() > 0:
+                        left_panel_text = await left_panel.inner_text()
                     
-                    tt_match = re.search(r'Estimated Transit Time\s*(\d+)\s*days?', left_panel_text, re.IGNORECASE)
-                    if not tt_match:
-                        tt_match = re.search(r'(\d+)\s*days?', left_panel_text, re.IGNORECASE)
-                    if tt_match:
-                        tt = int(tt_match.group(1))
-                        
-                    via_match = re.search(r'via\s*:\s*([^\n\r]+)', left_panel_text, re.IGNORECASE)
-                    if via_match:
-                        via_routing = via_match.group(1).strip()
+                    route_info = self._parse_left_panel_route(left_panel_text)
+                    if not route_info.get("pod"):
+                        try:
+                            body_text = await self.page.locator("body").inner_text()
+                            body_info = self._parse_left_panel_route(body_text)
+                            if body_info.get("pod"):
+                                route_info.update(body_info)
+                        except Exception:
+                            pass
+
+                    tt = route_info.get("tt")
+                    via_routing = route_info.get("via_routing", "")
+                    card_pod = route_info.get("pod")
+                    effective_routing = route_info.get("routing", "Direct")
+
+                    if card_pod:
+                        self._last_parsed_pod = card_pod
+                    if effective_routing:
+                        self._last_parsed_routing = effective_routing
                 except Exception as left_err:
                     print(f"[HAPAG] Warning: Left panel parsing failed: {left_err}")
                     
@@ -3118,6 +3231,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 if via_routing:
                     quote_ref["via_routing"] = via_routing
                     quote_ref["service_name"] = f"Hapag Service (via {via_routing})"
+                if getattr(self, "_last_parsed_pod", None):
+                    quote_ref["port_of_discharge"] = self._last_parsed_pod
+                if getattr(self, "_last_parsed_routing", None):
+                    quote_ref["routing"] = self._last_parsed_routing
                     
                 # Cache the parsed transit info
                 self._last_parsed_transit_time = tt
@@ -3126,7 +3243,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
                 self._last_selected_date = raw_date
                 
-                print(f"[HAPAG] Parsed transit time: {tt} days, via: '{via_routing}'")
+                print(f"[HAPAG] Parsed transit time: {tt} days, POD: '{getattr(self, '_last_parsed_pod', None)}', routing: '{getattr(self, '_last_parsed_routing', None)}'")
             
             # --- CARD LEVEL PRICE EXTRACTION ---
             # Locate standard vs spot card container
@@ -3770,6 +3887,8 @@ class HapagLloydConnector(BaseCarrierConnector):
             vessel = f"{vessel} (Sold out)"
 
         validity_till = getattr(self, "_last_parsed_validity_till", None)
+        card_pod = raw_quote.get("port_of_discharge") or getattr(self, "_last_parsed_pod", None)
+        card_routing = raw_quote.get("routing") or getattr(self, "_last_parsed_routing", "Direct")
 
         return QuoteSchema(
             etd=raw_quote.get("etd"),
@@ -3777,6 +3896,8 @@ class HapagLloydConnector(BaseCarrierConnector):
             transit_time_days=raw_quote.get("transit_time_days"),
             service_name=raw_quote.get("service_name"),
             vessel=vessel,
+            routing=card_routing,
+            port_of_discharge=card_pod,
             currency="USD",
             container_type=container_type,
             basic_ocean_freight=basic_ocean_freight,
@@ -3851,6 +3972,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                     price = float(best.get("total_price") or 0.0)
                     etd_val = best.get("etd")
                     eta_val = best.get("eta")
+                    quick_pod = best.get("port_of_discharge") or getattr(self, "_last_parsed_pod", None)
+                    quick_routing = best.get("routing") or getattr(self, "_last_parsed_routing", "Direct")
                     for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
                         quick_quotes.append(QuoteSchema(
                             container_type=ct,
@@ -3859,6 +3982,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                             final_freight_value=price,
                             etd=etd_val,
                             eta=eta_val,
+                            routing=quick_routing,
+                            port_of_discharge=quick_pod,
                             source="HAPAG_LLOYD",
                             raw_reference=f"HAPAG-QUICK-{ct.replace(' ', '_')}"
                         ))
@@ -4020,12 +4145,22 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                         normalized = await self.normalize_result(raw_quote, c_charges, container_type=c_type, is_sold_out=False)
 
+                        card_pod = raw_quote.get("port_of_discharge") or getattr(self, "_last_parsed_pod", None)
+                        card_routing = raw_quote.get("routing") or getattr(self, "_last_parsed_routing", None)
+                        if card_pod:
+                            normalized.port_of_discharge = card_pod
+
                         if schedule:
                             vessel_str = schedule["vessel"]
                             if schedule["voyage"]:
                                 vessel_str = f"{vessel_str} (Voyage {schedule['voyage']})"
                             normalized.vessel = vessel_str
-                            normalized.routing = schedule.get("routing", "Direct")
+                            if card_routing and card_routing != "Direct":
+                                normalized.routing = card_routing
+                            elif schedule.get("routing") and schedule["routing"] != "Direct":
+                                normalized.routing = schedule["routing"]
+                            else:
+                                normalized.routing = card_routing or schedule.get("routing", "Direct")
                             
                             service_str = schedule["service"]
                             cutoffs = []
@@ -4058,11 +4193,17 @@ class HapagLloydConnector(BaseCarrierConnector):
                             # Direct Quote Page extraction fallback (no schedule crawl)
                             normalized.vessel = "Hapag Vessel /Performa"
                             v_routing = raw_quote.get("via_routing") or getattr(self, "_last_parsed_via_routing", None)
-                            if v_routing:
+                            if card_routing:
+                                normalized.routing = card_routing
+                            elif v_routing:
                                 normalized.routing = v_routing
-                                normalized.service_name = f"Hapag Service (via {v_routing})"
+                            elif card_pod:
+                                normalized.routing = card_pod
                             else:
                                 normalized.routing = "Direct"
+                            if v_routing:
+                                normalized.service_name = f"Hapag Service (via {v_routing})"
+                            else:
                                 normalized.service_name = "Hapag Service"
                             normalized.eta = raw_quote.get("eta") or getattr(self, "_last_parsed_eta", None)
                             normalized.transit_time_days = raw_quote.get("transit_time_days") or getattr(self, "_last_parsed_transit_time", None)
