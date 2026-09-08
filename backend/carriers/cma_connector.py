@@ -430,6 +430,59 @@ class CMAConnector(BaseCarrierConnector):
             return clean
         return text
 
+    @staticmethod
+    def _clean_pod_string(raw: Optional[str]) -> Optional[str]:
+        if not raw:
+            return None
+        # Strip after bullet, pipe, or em-dash
+        pod = re.split(r'[\u2022•|—]', raw)[0].strip()
+        # Strip leading POD badge text or punctuation
+        pod = re.sub(r'^(?:POD\s*[:\n\r-]*)+', '', pod, flags=re.IGNORECASE).strip()
+        # Strip trailing transportation modes or step markers (Rail, RAMP, DOOR, day of week)
+        pod = re.sub(r'\s+(?:Rail|RAMP|DOOR|Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday).*$', '', pod, flags=re.IGNORECASE).strip()
+        # Collapse multiple spaces / newlines
+        pod = " ".join(pod.split()).strip()
+        # Strip trailing punctuation
+        pod = pod.rstrip(',.- ')
+        return pod if len(pod) >= 3 else None
+
+    async def _extract_header_breadcrumb(self) -> Optional[str]:
+        """
+        Extracts POD from top route breadcrumb if available,
+        e.g. 'PORT KLANG ▶ vancouver • CALGARY, AB' -> 'VANCOUVER'.
+        """
+        try:
+            if not self.page:
+                return None
+            header_selectors = [
+                'h1', 'h2', 'h3',
+                'div[class*="breadcrumb"]',
+                'div[class*="header-route"]',
+                'div[class*="route-summary"]',
+                'div[class*="search-summary"]',
+                'div[class*="title"]'
+            ]
+            for sel in header_selectors:
+                loc = self.page.locator(sel).first
+                if await loc.is_visible(timeout=200):
+                    txt = (await loc.inner_text()).strip()
+                    m = re.search(r'([A-Za-z\s,.-]+?)\s*[\u25b6\u25ba>▶►•\-]\s*([A-Za-z\s,.-]+?)\s*[\u25b6\u25ba>▶►•\-]\s*([A-Za-z\s,.-]+)', txt)
+                    if m:
+                        pod_cand = self._clean_pod_string(m.group(2))
+                        if pod_cand and pod_cand.lower() not in ("search", "results", "pricing", "schedules", "shipping", "solutions"):
+                            return pod_cand.upper()
+
+            body_text = await self.page.locator("body").inner_text()
+            first_chunk = body_text[:3000]
+            m = re.search(r'([A-Za-z\s,.-]+?)\s*[\u25b6\u25ba>▶►•\-]\s*([A-Za-z\s,.-]+?)\s*[\u25b6\u25ba>▶►•\-]\s*([A-Za-z\s,.-]+)', first_chunk)
+            if m:
+                pod_cand = self._clean_pod_string(m.group(2))
+                if pod_cand and pod_cand.lower() not in ("search", "results", "pricing", "schedules", "shipping", "solutions"):
+                    return pod_cand.upper()
+        except Exception as e:
+            print(f"[CMA] Error extracting header breadcrumb: {e}")
+        return None
+
     async def _dismiss_cma_modals(self):
         """
         Dismisses any informational popups/modals that appear on CMA CGM (e.g.
@@ -1417,6 +1470,15 @@ class CMAConnector(BaseCarrierConnector):
             # First scroll and click "More results" repeatedly to load all cards
             await self._handle_more_results()
 
+            # Check for header route breadcrumb fallback (e.g. "PORT KLANG ▶ vancouver • CALGARY, AB")
+            try:
+                header_pod = await self._extract_header_breadcrumb()
+                if header_pod:
+                    self._header_pod = header_pod
+                    print(f"[CMA] Detected route breadcrumb discharge port: {header_pod}")
+            except Exception as e:
+                print(f"[CMA] Header breadcrumb check: {e}")
+
             cards_sel = 'article.card-route-horizontal, article[class*="card-route-horizontal"], div[class*="schedules-result"], div[class*="sailing-result"]'
             cards = self.page.locator(cards_sel)
             count = await cards.count()
@@ -1500,6 +1562,7 @@ class CMAConnector(BaseCarrierConnector):
                     "eta": eta.isoformat() if eta else None,
                     "transit_time_days": transit_time,
                     "routing": routing,
+                    "port_of_discharge": getattr(self, "_header_pod", None),
                     "service_name": service,
                     "vessel": vessel,
                     "total_price": total_price,
@@ -1562,6 +1625,87 @@ class CMAConnector(BaseCarrierConnector):
             await self._hover_and_click(details_btn)
             await self._human_delay(1500, 2500)
             await self._dismiss_cma_modals()
+
+            # --- Extract Port of Discharge (POD) & Route from Route tab ---
+            try:
+                await self._dismiss_cma_modals()
+                route_tab = card.locator('button:has-text("Route"), [role="tab"]:has-text("Route"), a:has-text("Route"), label:has-text("Route")').first
+                if await route_tab.is_visible(timeout=1500):
+                    await self._hover_and_click(route_tab)
+                    await self._human_delay(500, 1000)
+                    
+                    # 1. Scoped JS evaluation to extract POD from Route timeline
+                    pod_from_js = await card.evaluate('''card => {
+                        const allEls = Array.from(card.querySelectorAll('*'));
+                        const podEl = allEls.find(el => {
+                            const t = (el.innerText || el.textContent || '').trim().toUpperCase();
+                            return t === 'POD';
+                        });
+                        if (podEl) {
+                            if (podEl.nextElementSibling) {
+                                const nextTxt = (podEl.nextElementSibling.innerText || podEl.nextElementSibling.textContent || '').trim();
+                                if (nextTxt && !nextTxt.toUpperCase().includes('RAIL') && !nextTxt.toUpperCase().includes('RAMP')) {
+                                    return nextTxt;
+                                }
+                            }
+                            const parent = podEl.parentElement;
+                            if (parent) {
+                                const lines = (parent.innerText || parent.textContent || '').split('\\n').map(s => s.trim()).filter(Boolean);
+                                const idx = lines.findIndex(l => l.toUpperCase() === 'POD');
+                                if (idx !== -1 && idx + 1 < lines.length) {
+                                    return lines[idx + 1];
+                                }
+                                const cleaned = (parent.innerText || parent.textContent || '').replace(/\\bPOD\\b/i, '').trim();
+                                if (cleaned) return cleaned.split('\\n')[0].trim();
+                            }
+                            let sib = podEl.nextSibling;
+                            while (sib) {
+                                const txt = (sib.textContent || '').trim();
+                                if (txt && !txt.toUpperCase().includes('RAIL') && !txt.toUpperCase().includes('RAMP')) {
+                                    return txt;
+                                }
+                                sib = sib.nextSibling;
+                            }
+                        }
+                        return null;
+                    }''')
+                    
+                    route_text = await card.inner_text()
+                    pod_candidate = pod_from_js
+                    if not pod_candidate:
+                        pod_match = re.search(r'\bPOD\b\s*[:\n\r\t-]*\s*([^\n\r]+?)(?:\r?\n|$)', route_text, re.IGNORECASE)
+                        if pod_match:
+                            pod_candidate = pod_match.group(1).strip()
+                    
+                    if pod_candidate:
+                        clean_pod = self._clean_pod_string(pod_candidate)
+                        if clean_pod:
+                            quote_ref["port_of_discharge"] = clean_pod
+                            print(f"[CMA] Extracted Port of Discharge (POD) from Route tab: {clean_pod}")
+
+                    # Extract Voyage Ref from Route tab if present
+                    voy_match = re.search(r'Voyage\s+Ref\.?\s*([A-Z0-9]+)', route_text, re.IGNORECASE)
+                    if voy_match:
+                        self._current_voyage = voy_match.group(1).strip()
+                        print(f"[CMA] Extracted Voyage Ref from Route tab: {self._current_voyage}")
+
+                    # Detect transshipment port(s) if routing is still 'Direct'
+                    port_transits = re.findall(r'\bPORT\b\s*[:\n\r\t-]*\s*([^\n\r]+?)(?:\r?\n|$)', route_text, re.IGNORECASE)
+                    if port_transits:
+                        valid_transits = []
+                        for pt in port_transits:
+                            clean_pt = self._clean_pod_string(pt)
+                            if clean_pt and clean_pt != quote_ref.get("port_of_discharge") and "RAMP" not in clean_pt.upper() and "KLANG" not in clean_pt.upper():
+                                valid_transits.append(clean_pt)
+                        if valid_transits and quote_ref.get("routing") == "Direct":
+                            quote_ref["routing"] = f"Transit - {', '.join(valid_transits)}"
+                            print(f"[CMA] Updated routing from Route tab: {quote_ref['routing']}")
+            except Exception as e:
+                print(f"[CMA] Error extracting from Route tab: {e}")
+
+            if not quote_ref.get("port_of_discharge") and getattr(self, "_header_pod", None):
+                quote_ref["port_of_discharge"] = self._header_pod
+                print(f"[CMA] Using header breadcrumb POD fallback: {self._header_pod}")
 
             # --- Extract Free Time from D&D tab ---
             try:
@@ -1894,6 +2038,7 @@ class CMAConnector(BaseCarrierConnector):
                     price = float(best.get("total_price") or 0.0)
                     etd_val = best.get("etd")
                     eta_val = best.get("eta")
+                    quick_pod = best.get("port_of_discharge") or getattr(self, "_header_pod", None)
                     for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
                         quotes.append(QuoteSchema(
                             container_type=ct,
@@ -1902,6 +2047,8 @@ class CMAConnector(BaseCarrierConnector):
                             final_freight_value=price,
                             etd=etd_val,
                             eta=eta_val,
+                            port_of_discharge=quick_pod,
+                            routing=best.get("routing", "Direct"),
                             source="CMA_CGM",
                             raw_reference=f"CMA-QUICK-{ct.replace(' ', '_')}"
                         ))
@@ -1984,11 +2131,13 @@ class CMAConnector(BaseCarrierConnector):
             else:
                 vessel = f"({self.port_fallback_notice})"
 
+        card_pod = raw_quote.get("port_of_discharge") or getattr(self, "_header_pod", None)
         return QuoteSchema(
             etd=standardize_date_string(raw_quote.get("etd")),
             eta=standardize_date_string(raw_quote.get("eta")),
             transit_time_days=raw_quote.get("transit_time_days"),
             routing=raw_quote.get("routing", "Direct"),
+            port_of_discharge=card_pod,
             free_time=raw_quote.get("free_time"),
             demurrage=raw_quote.get("demurrage"),
             detention=raw_quote.get("detention"),
