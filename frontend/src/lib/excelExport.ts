@@ -53,21 +53,6 @@ function sanitizeSheetName(name: string, index: number): string {
   return `${index + 1}. ${clean}`;
 }
 
-export function getEffectiveRouting(quote: QuoteSchema, destination?: string): string {
-  if (quote.port_of_discharge) {
-    if (!destination) return quote.port_of_discharge;
-    const cleanPod = quote.port_of_discharge.replace(/\[.*?\]|\(.*?\)/g, "").trim().toLowerCase();
-    const cleanDest = destination.replace(/\[.*?\]|\(.*?\)/g, "").trim().toLowerCase();
-    const podCity = cleanPod.split(",")[0].trim();
-    const destCity = cleanDest.split(",")[0].trim();
-    if (podCity && destCity && (cleanDest.includes(podCity) || cleanPod.includes(destCity))) {
-      return quote.routing || "Direct";
-    }
-    return quote.port_of_discharge;
-  }
-  return quote.routing || "Direct";
-}
-
 const CARRIERS_LIST = [
   { code: "maersk", name: "Maersk" },
   { code: "cma", name: "CMA CGM" },
@@ -301,8 +286,7 @@ export async function exportSingleSearchToExcel(
     } else {
       const scheduleGroups: Record<string, QuoteSchema[]> = {};
       for (const q of cr.quotes) {
-        const effectiveRouting = getEffectiveRouting(q, data.destination);
-        const key = `${q.etd || ""}|${q.eta || ""}|${(q.vessel || "").trim().toLowerCase()}|${effectiveRouting.trim().toLowerCase()}`;
+        const key = `${q.etd || ""}|${q.eta || ""}|${(q.vessel || "").trim().toLowerCase()}|${(q.port_of_discharge || q.routing || "").trim().toLowerCase()}`;
         if (!scheduleGroups[key]) {
           scheduleGroups[key] = [];
         }
@@ -355,7 +339,7 @@ export async function exportSingleSearchToExcel(
           validity: formatDate(firstQuote.etd),
           eta: formatDate(firstQuote.eta),
           validity_till: formatDate(firstQuote.validity_till),
-          routing: getEffectiveRouting(firstQuote, data.destination),
+          routing: firstQuote.port_of_discharge || firstQuote.routing || "Direct",
           remark: `${firstQuote.vessel || "-"}${warnRemark}`,
         });
       }

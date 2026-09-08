@@ -42,21 +42,6 @@ class CMAConnector(BaseCarrierConnector):
         self.is_login_successful = False
         self._current_voyage = None
 
-    def _normalize_container_key(self, ct_str: Optional[str]) -> str:
-        if not ct_str:
-            return "DRY 40H"
-        s = ct_str.upper().strip()
-        if s in ("DRY 20", "20GP", "20'", "20' DRY STANDARD", "20' STANDARD DRY", "20ST"):
-            return "DRY 20"
-        if s in ("DRY 40", "40GP", "40'", "40' DRY STANDARD", "40' STANDARD DRY", "40ST"):
-            return "DRY 40"
-        if s in ("DRY 40H", "DRY 40HC", "40HQ", "40HC", "40'HQ", "40'HC", "40' DRY HIGH CUBE", "40' HIGH CUBE", "40' HIGH"):
-            return "DRY 40H"
-        for k, v in self.CONTAINER_TYPE_MAP.items():
-            if v.upper() == s or k.upper() == s:
-                return k
-        return s
-
     async def _init_browser(self):
         import uuid
         import shutil
@@ -444,59 +429,6 @@ class CMAConnector(BaseCarrierConnector):
         if len(clean) == 5 and clean.isupper():
             return clean
         return text
-
-    @staticmethod
-    def _clean_pod_string(raw: Optional[str]) -> Optional[str]:
-        if not raw:
-            return None
-        # Strip after bullet, pipe, or em-dash
-        pod = re.split(r'[\u2022•|—]', raw)[0].strip()
-        # Strip leading POD badge text or punctuation
-        pod = re.sub(r'^(?:POD\s*[:\n\r-]*)+', '', pod, flags=re.IGNORECASE).strip()
-        # Strip trailing transportation modes or step markers (Rail, RAMP, DOOR, day of week)
-        pod = re.sub(r'\s+(?:Rail|RAMP|DOOR|Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday).*$', '', pod, flags=re.IGNORECASE).strip()
-        # Collapse multiple spaces / newlines
-        pod = " ".join(pod.split()).strip()
-        # Strip trailing punctuation
-        pod = pod.rstrip(',.- ')
-        return pod if len(pod) >= 3 else None
-
-    async def _extract_header_breadcrumb(self) -> Optional[str]:
-        """
-        Extracts POD from top route breadcrumb if available,
-        e.g. 'PORT KLANG ▶ vancouver • CALGARY, AB' -> 'VANCOUVER'.
-        """
-        try:
-            if not self.page:
-                return None
-            header_selectors = [
-                'h1', 'h2', 'h3',
-                'div[class*="breadcrumb"]',
-                'div[class*="header-route"]',
-                'div[class*="route-summary"]',
-                'div[class*="search-summary"]',
-                'div[class*="title"]'
-            ]
-            for sel in header_selectors:
-                loc = self.page.locator(sel).first
-                if await loc.is_visible(timeout=200):
-                    txt = (await loc.inner_text()).strip()
-                    m = re.search(r'([A-Za-z\s,.-]+?)\s*[\u25b6\u25ba>▶►•\-]\s*([A-Za-z\s,.-]+?)\s*[\u25b6\u25ba>▶►•\-]\s*([A-Za-z\s,.-]+)', txt)
-                    if m:
-                        pod_cand = self._clean_pod_string(m.group(2))
-                        if pod_cand and pod_cand.lower() not in ("search", "results", "pricing", "schedules", "shipping", "solutions"):
-                            return pod_cand.upper()
-
-            body_text = await self.page.locator("body").inner_text()
-            first_chunk = body_text[:3000]
-            m = re.search(r'([A-Za-z\s,.-]+?)\s*[\u25b6\u25ba>▶►•\-]\s*([A-Za-z\s,.-]+?)\s*[\u25b6\u25ba>▶►•\-]\s*([A-Za-z\s,.-]+)', first_chunk)
-            if m:
-                pod_cand = self._clean_pod_string(m.group(2))
-                if pod_cand and pod_cand.lower() not in ("search", "results", "pricing", "schedules", "shipping", "solutions"):
-                    return pod_cand.upper()
-        except Exception as e:
-            print(f"[CMA] Error extracting header breadcrumb: {e}")
-        return None
 
     async def _dismiss_cma_modals(self):
         """
@@ -1466,7 +1398,6 @@ class CMAConnector(BaseCarrierConnector):
             try:
                 await self.page.wait_for_selector('article.card-route-horizontal, article[class*="card-route-horizontal"], div[class*="schedules-result"], div[class*="sailing-result"]', timeout=20000)
                 print("[CMA] Results loaded.")
-                await self._dismiss_cma_modals()
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
             except Exception:
                 page_text = await self.page.inner_text('body')
@@ -1485,15 +1416,6 @@ class CMAConnector(BaseCarrierConnector):
         try:
             # First scroll and click "More results" repeatedly to load all cards
             await self._handle_more_results()
-
-            # Check for header route breadcrumb fallback (e.g. "PORT KLANG ▶ vancouver • CALGARY, AB")
-            try:
-                header_pod = await self._extract_header_breadcrumb()
-                if header_pod:
-                    self._header_pod = header_pod
-                    print(f"[CMA] Detected route breadcrumb discharge port: {header_pod}")
-            except Exception as e:
-                print(f"[CMA] Header breadcrumb check: {e}")
 
             cards_sel = 'article.card-route-horizontal, article[class*="card-route-horizontal"], div[class*="schedules-result"], div[class*="sailing-result"]'
             cards = self.page.locator(cards_sel)
@@ -1566,20 +1488,6 @@ class CMAConnector(BaseCarrierConnector):
                 price_match = re.search(r'(\d[\d,]*)\s*USD', text)
                 total_price = float(price_match.group(1).replace(",", "")) if price_match else 0.0
 
-                # Container-specific pill prices (e.g. "per 20ST 3336 USD", "per 40ST 4349 USD", "per 40HC 4349 USD")
-                container_prices = {}
-                p20 = re.search(r'(?:per\s+)?20(?:ST|GP|[\'\s])\s*[\n\r\s]*(\d[\d,]*)\s*USD', text, re.IGNORECASE)
-                if p20:
-                    container_prices["DRY 20"] = float(p20.group(1).replace(",", ""))
-
-                p40 = re.search(r'(?:per\s+)?40(?:ST|GP|[\'\s])\s*[\n\r\s]*(\d[\d,]*)\s*USD', text, re.IGNORECASE)
-                if p40:
-                    container_prices["DRY 40"] = float(p40.group(1).replace(",", ""))
-
-                p40h = re.search(r'(?:per\s+)?40(?:HC|HQ|H|[\'\s]*HIGH)\s*[\n\r\s]*(\d[\d,]*)\s*USD', text, re.IGNORECASE)
-                if p40h:
-                    container_prices["DRY 40H"] = float(p40h.group(1).replace(",", ""))
-
                 # Tags
                 tags = []
                 if "EARLIEST ARRIVAL" in text: tags.append("EARLIEST ARRIVAL")
@@ -1592,11 +1500,9 @@ class CMAConnector(BaseCarrierConnector):
                     "eta": eta.isoformat() if eta else None,
                     "transit_time_days": transit_time,
                     "routing": routing,
-                    "port_of_discharge": getattr(self, "_header_pod", None),
                     "service_name": service,
                     "vessel": vessel,
                     "total_price": total_price,
-                    "container_prices": container_prices,
                     "currency": "USD",
                     "tags": tags,
                     "card_locator": card,
@@ -1656,87 +1562,6 @@ class CMAConnector(BaseCarrierConnector):
             await self._hover_and_click(details_btn)
             await self._human_delay(1500, 2500)
             await self._dismiss_cma_modals()
-
-            # --- Extract Port of Discharge (POD) & Route from Route tab ---
-            try:
-                await self._dismiss_cma_modals()
-                route_tab = card.locator('button:has-text("Route"), [role="tab"]:has-text("Route"), a:has-text("Route"), label:has-text("Route")').first
-                if await route_tab.is_visible(timeout=1500):
-                    await self._hover_and_click(route_tab)
-                    await self._human_delay(500, 1000)
-                    
-                    # 1. Scoped JS evaluation to extract POD from Route timeline
-                    pod_from_js = await card.evaluate('''card => {
-                        const allEls = Array.from(card.querySelectorAll('*'));
-                        const podEl = allEls.find(el => {
-                            const t = (el.innerText || el.textContent || '').trim().toUpperCase();
-                            return t === 'POD';
-                        });
-                        if (podEl) {
-                            if (podEl.nextElementSibling) {
-                                const nextTxt = (podEl.nextElementSibling.innerText || podEl.nextElementSibling.textContent || '').trim();
-                                if (nextTxt && !nextTxt.toUpperCase().includes('RAIL') && !nextTxt.toUpperCase().includes('RAMP')) {
-                                    return nextTxt;
-                                }
-                            }
-                            const parent = podEl.parentElement;
-                            if (parent) {
-                                const lines = (parent.innerText || parent.textContent || '').split('\\n').map(s => s.trim()).filter(Boolean);
-                                const idx = lines.findIndex(l => l.toUpperCase() === 'POD');
-                                if (idx !== -1 && idx + 1 < lines.length) {
-                                    return lines[idx + 1];
-                                }
-                                const cleaned = (parent.innerText || parent.textContent || '').replace(/\\bPOD\\b/i, '').trim();
-                                if (cleaned) return cleaned.split('\\n')[0].trim();
-                            }
-                            let sib = podEl.nextSibling;
-                            while (sib) {
-                                const txt = (sib.textContent || '').trim();
-                                if (txt && !txt.toUpperCase().includes('RAIL') && !txt.toUpperCase().includes('RAMP')) {
-                                    return txt;
-                                }
-                                sib = sib.nextSibling;
-                            }
-                        }
-                        return null;
-                    }''')
-                    
-                    route_text = await card.inner_text()
-                    pod_candidate = pod_from_js
-                    if not pod_candidate:
-                        pod_match = re.search(r'\bPOD\b\s*[:\n\r\t-]*\s*([^\n\r]+?)(?:\r?\n|$)', route_text, re.IGNORECASE)
-                        if pod_match:
-                            pod_candidate = pod_match.group(1).strip()
-                    
-                    if pod_candidate:
-                        clean_pod = self._clean_pod_string(pod_candidate)
-                        if clean_pod:
-                            quote_ref["port_of_discharge"] = clean_pod
-                            print(f"[CMA] Extracted Port of Discharge (POD) from Route tab: {clean_pod}")
-
-                    # Extract Voyage Ref from Route tab if present
-                    voy_match = re.search(r'Voyage\s+Ref\.?\s*([A-Z0-9]+)', route_text, re.IGNORECASE)
-                    if voy_match:
-                        self._current_voyage = voy_match.group(1).strip()
-                        print(f"[CMA] Extracted Voyage Ref from Route tab: {self._current_voyage}")
-
-                    # Detect transshipment port(s) if routing is still 'Direct'
-                    port_transits = re.findall(r'\bPORT\b\s*[:\n\r\t-]*\s*([^\n\r]+?)(?:\r?\n|$)', route_text, re.IGNORECASE)
-                    if port_transits:
-                        valid_transits = []
-                        for pt in port_transits:
-                            clean_pt = self._clean_pod_string(pt)
-                            if clean_pt and clean_pt != quote_ref.get("port_of_discharge") and "RAMP" not in clean_pt.upper() and "KLANG" not in clean_pt.upper():
-                                valid_transits.append(clean_pt)
-                        if valid_transits and quote_ref.get("routing") == "Direct":
-                            quote_ref["routing"] = f"Transit - {', '.join(valid_transits)}"
-                            print(f"[CMA] Updated routing from Route tab: {quote_ref['routing']}")
-            except Exception as e:
-                print(f"[CMA] Error extracting from Route tab: {e}")
-
-            if not quote_ref.get("port_of_discharge") and getattr(self, "_header_pod", None):
-                quote_ref["port_of_discharge"] = self._header_pod
-                print(f"[CMA] Using header breadcrumb POD fallback: {self._header_pod}")
 
             # --- Extract Free Time from D&D tab ---
             try:
@@ -1879,23 +1704,18 @@ class CMAConnector(BaseCarrierConnector):
             self._current_voyage = None
             try:
                 voyage_loc = self.current_card.locator('dt:has-text("Voyage Ref") + dd').first
-                if await voyage_loc.is_visible(timeout=500):
-                    voy_text = (await voyage_loc.text_content() or "").strip()
-                    if voy_text:
-                        self._current_voyage = voy_text
-                        print(f"[CMA] Found Voyage Ref via sibling locator: {self._current_voyage}")
+                voy_text = (await voyage_loc.text_content() or "").strip()
+                if voy_text:
+                    self._current_voyage = voy_text
+                    print(f"[CMA] Found Voyage Ref via sibling locator: {self._current_voyage}")
             except Exception:
                 pass
 
             if not self._current_voyage:
                 raw_text = await self.current_card.text_content()
-                voyage_match = re.search(r'Voyage\s+Ref\b.*?(\b[A-Z0-9]{6,12}\b)', raw_text, re.IGNORECASE)
+                voyage_match = re.search(r'Voyage\s+Ref\b.*?(\b[A-Z0-9]+)', raw_text, re.IGNORECASE)
                 if voyage_match:
-                    v_val = voyage_match.group(1)
-                    for day in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"):
-                        if v_val.endswith(day):
-                            v_val = v_val[:-len(day)]
-                    self._current_voyage = v_val
+                    self._current_voyage = voyage_match.group(1)
                     print(f"[CMA] Found Voyage Ref via text_content regex: {self._current_voyage}")
             
             # Evaluate using JavaScript within the card context to parse the details table
@@ -1905,7 +1725,7 @@ class CMAConnector(BaseCarrierConnector):
                 // Find headers table (Table 0)
                 const headerTable = tables.find(t => {
                     const text = t.innerText.toUpperCase();
-                    return text.includes('CHARGES DETAILS') || text.includes('20ST') || text.includes('40ST') || text.includes('40HC');
+                    return text.includes('CHARGES DETAILS') || text.includes('20ST');
                 });
                 if (!headerTable) return null;
                 
@@ -1941,15 +1761,12 @@ class CMAConnector(BaseCarrierConnector):
                     }
                 });
                 
-                // Only fall back to default column order if NO container size headers were matched at all
-                const hasAnyContainerCol = colIndices['DRY 20'] !== -1 || colIndices['DRY 40'] !== -1 || colIndices['DRY 40H'] !== -1;
-                if (!hasAnyContainerCol) {
-                    colIndices['DRY 20'] = 1;
-                    colIndices['DRY 40'] = 2;
-                    colIndices['DRY 40H'] = 3;
-                    if (colIndices.BL === -1) colIndices.BL = 4;
-                    if (colIndices.Currency === -1) colIndices.Currency = 5;
-                }
+                // Fallback if index not found
+                if (colIndices['DRY 20'] === -1) colIndices['DRY 20'] = 1;
+                if (colIndices['DRY 40'] === -1) colIndices['DRY 40'] = 2;
+                if (colIndices['DRY 40H'] === -1) colIndices['DRY 40H'] = 3;
+                if (colIndices.BL === -1) colIndices.BL = 4;
+                if (colIndices.Currency === -1) colIndices.Currency = 5;
                 
                 const rows = Array.from(rowsTable.querySelectorAll('tr'));
                 const list = [];
@@ -1966,19 +1783,16 @@ class CMAConnector(BaseCarrierConnector):
                     
                     // Extract container-specific charges
                     ['DRY 20', 'DRY 40', 'DRY 40H'].forEach(ct => {
-                        const colIdx = colIndices[ct];
-                        if (colIdx !== -1 && colIdx < cells.length) {
-                            const valStr = cells[colIdx];
-                            if (valStr) {
-                                const val = parseFloat(valStr.replace(/,/g, ''));
-                                if (!isNaN(val) && val > 0) {
-                                    list.push({
-                                        name: name,
-                                        amount: val,
-                                        currency: curr,
-                                        container_type: ct
-                                    });
-                                }
+                        const valStr = cells[colIndices[ct]];
+                        if (valStr) {
+                            const val = parseFloat(valStr.replace(/,/g, ''));
+                            if (!isNaN(val) && val > 0) {
+                                list.push({
+                                    name: name,
+                                    amount: val,
+                                    currency: curr,
+                                    container_type: ct
+                                });
                             }
                         }
                     });
@@ -2047,13 +1861,10 @@ class CMAConnector(BaseCarrierConnector):
         if not hasattr(self, "_cached_quotes_by_route"):
             self._cached_quotes_by_route = {}
 
-        target_ct = self._normalize_container_key(request.container_type)
         if cache_key in self._cached_quotes_by_route:
             print(f"[CMA] Returning cached quotes for {cache_key} (container_type='{request.container_type}')")
             cached_status, cached_quotes = self._cached_quotes_by_route[cache_key]
-            matching_quotes = [q for q in cached_quotes if self._normalize_container_key(q.container_type) == target_ct]
-            if not matching_quotes and cached_quotes:
-                matching_quotes = cached_quotes
+            matching_quotes = [q for q in cached_quotes if q.container_type == request.container_type]
             return cached_status, matching_quotes
 
         quotes: list[QuoteSchema] = []
@@ -2078,34 +1889,25 @@ class CMAConnector(BaseCarrierConnector):
 
             if getattr(request, "search_mode", "detailed") == "quick":
                 cheapest_cards = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date) if raw_quotes else []
-                if not cheapest_cards and raw_quotes:
-                    cheapest_cards = [raw_quotes[0]]
                 if cheapest_cards:
                     best = cheapest_cards[0]
-                    c_prices = best.get("container_prices", {})
-                    default_price = float(best.get("total_price") or 0.0)
+                    price = float(best.get("total_price") or 0.0)
                     etd_val = best.get("etd")
                     eta_val = best.get("eta")
-                    quick_pod = best.get("port_of_discharge") or getattr(self, "_header_pod", None)
                     for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
-                        ct_price = c_prices.get(ct, default_price)
                         quotes.append(QuoteSchema(
                             container_type=ct,
                             currency="USD",
-                            basic_ocean_freight=ct_price,
-                            final_freight_value=ct_price,
+                            basic_ocean_freight=price,
+                            final_freight_value=price,
                             etd=etd_val,
                             eta=eta_val,
-                            port_of_discharge=quick_pod,
-                            routing=best.get("routing", "Direct"),
                             source="CMA_CGM",
                             raw_reference=f"CMA-QUICK-{ct.replace(' ', '_')}"
                         ))
                 result_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
                 self._cached_quotes_by_route[cache_key] = (result_status, quotes)
-                matching_quotes = [q for q in quotes if self._normalize_container_key(q.container_type) == target_ct]
-                if not matching_quotes and quotes:
-                    matching_quotes = quotes
+                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
                 return result_status, matching_quotes
 
             # Step 4: Detailed Mode: For each quote, get breakdown, extract, and split
@@ -2126,9 +1928,7 @@ class CMAConnector(BaseCarrierConnector):
             self._cached_quotes_by_route[cache_key] = (result_status, quotes)
             
             # Filter and return quotes matching current request container type
-            matching_quotes = [q for q in quotes if self._normalize_container_key(q.container_type) == target_ct]
-            if not matching_quotes and quotes:
-                matching_quotes = quotes
+            matching_quotes = [q for q in quotes if q.container_type == request.container_type]
             return result_status, matching_quotes
 
         except Exception as e:
@@ -2184,13 +1984,11 @@ class CMAConnector(BaseCarrierConnector):
             else:
                 vessel = f"({self.port_fallback_notice})"
 
-        card_pod = raw_quote.get("port_of_discharge") or getattr(self, "_header_pod", None)
         return QuoteSchema(
             etd=standardize_date_string(raw_quote.get("etd")),
             eta=standardize_date_string(raw_quote.get("eta")),
             transit_time_days=raw_quote.get("transit_time_days"),
             routing=raw_quote.get("routing", "Direct"),
-            port_of_discharge=card_pod,
             free_time=raw_quote.get("free_time"),
             demurrage=raw_quote.get("demurrage"),
             detention=raw_quote.get("detention"),
@@ -2231,35 +2029,24 @@ class CMAConnector(BaseCarrierConnector):
         for std_ct, c_charges in container_charges.items():
             # Check if there is Basic Ocean Freight for this type
             bof_charge = next((c for c in c_charges if c["category"] == ChargeCategory.BASIC_OCEAN_FREIGHT.value), None)
-            
-            # If no BOF found in table breakdown, check if card pill has a price for this container type
-            card_c_price = raw_quote.get("container_prices", {}).get(std_ct)
-            if not bof_charge and not card_c_price:
+            if not bof_charge:
                 continue  # This container size is not available/N/A
 
             # Build raw_charges list for this container type
             split_raw_charges = []
-            if bof_charge:
-                for c in c_charges:
-                    split_raw_charges.append({
-                        "name": c["name"],
-                        "amount": c["amount"],
-                        "currency": c["currency"],
-                        "category": c["category"]
-                    })
-                for f in flat_charges:
-                    split_raw_charges.append({
-                        "name": f["name"],
-                        "amount": f["amount"],
-                        "currency": f["currency"],
-                        "category": f["category"]
-                    })
-            else:
+            for c in c_charges:
                 split_raw_charges.append({
-                    "name": "Ocean Freight",
-                    "amount": card_c_price,
-                    "currency": raw_quote.get("currency", "USD"),
-                    "category": ChargeCategory.BASIC_OCEAN_FREIGHT.value
+                    "name": c["name"],
+                    "amount": c["amount"],
+                    "currency": c["currency"],
+                    "category": c["category"]
+                })
+            for f in flat_charges:
+                split_raw_charges.append({
+                    "name": f["name"],
+                    "amount": f["amount"],
+                    "currency": f["currency"],
+                    "category": f["category"]
                 })
 
             # Create local raw_quote dict with the correct container type

@@ -7,7 +7,7 @@ import QuoteBreakdownDrawer from "./QuoteBreakdownDrawer";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CalendarDays, CircleDollarSign, Download, Inbox, MoveRight, Timer, TriangleAlert } from "lucide-react";
-import { generateRatesExportFilename, getEffectiveRouting } from "@/lib/excelExport";
+import { generateRatesExportFilename } from "@/lib/excelExport";
 
 function formatDate(dateVal: string | null | undefined): string {
   if (!dateVal || dateVal === "—" || dateVal === "-") return "—";
@@ -260,8 +260,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
       } else {
         const scheduleGroups: Record<string, QuoteSchema[]> = {};
         for (const q of cr.quotes) {
-          const effectiveRouting = getEffectiveRouting(q, data.destination);
-          const key = `${q.etd || ""}|${q.eta || ""}|${(q.vessel || "").trim().toLowerCase()}|${effectiveRouting.trim().toLowerCase()}`;
+          const key = `${q.etd || ""}|${q.eta || ""}|${(q.vessel || "").trim().toLowerCase()}|${(q.port_of_discharge || q.routing || "").trim().toLowerCase()}`;
           if (!scheduleGroups[key]) {
             scheduleGroups[key] = [];
           }
@@ -305,7 +304,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             validity: formatDate(firstQuote.etd),
             eta: formatDate(firstQuote.eta),
             validity_till: formatDate(firstQuote.validity_till),
-            routing: getEffectiveRouting(firstQuote, data.destination),
+            routing: firstQuote.port_of_discharge || firstQuote.routing || "Direct",
             remark: firstQuote.vessel || "-"
           });
         }
