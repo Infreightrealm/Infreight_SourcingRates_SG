@@ -2009,33 +2009,78 @@ class HapagLloydConnector(BaseCarrierConnector):
                     
         return best_match
 
+    @staticmethod
+    def _sanitize_route_value(val: str | None, default: str | None = None) -> str | None:
+        if not val:
+            return default
+        s = str(val).strip(" \t\r\n:()[]-")
+        if not re.search(r'[a-zA-Z]{2,}', s) or s.lower() in ('n/a', '-', 'none', 'null', 'pod', 'pol', 'terminal', 'ramp', 'days'):
+            return default
+        return str(val).strip(" \t\r\n:-\t")
+
     def _parse_left_panel_route(self, text: str) -> dict:
         """
         Parses Hapag-Lloyd left search/summary panel for:
-        - PoD (Port of Discharge), e.g. 'Vancouver, BC'
+        - PoD (Port of Discharge), e.g. 'Vancouver, BC' or 'Hamburg (DEHAM)'
         - Destination terminal/ramp, e.g. 'Winnipeg, MB'
         - Transshipment indicators, e.g. '+ 2 more'
         - Estimated Transit Time, e.g. 49 days
         """
         if not text:
             return {}
-        pod = None
-        m_pod = re.search(r'\bPoD\s*[:\n]?\s*([^\n\r]+)', text, re.IGNORECASE)
-        if m_pod:
-            cand = m_pod.group(1).strip()
-            cand = re.split(r'(?:Terminal|Ramp|Estimated|Transit|Edit|\+)', cand, flags=re.IGNORECASE)[0].strip()
-            if cand and cand.lower() not in ('n/a', '-', 'none'):
-                pod = cand
+
+        def is_valid_port(val: str) -> bool:
+            if not val:
+                return False
+            cleaned = val.strip(" \t\r\n:()[]-")
+            if not re.search(r'[a-zA-Z]{2,}', cleaned):
+                return False
+            if cleaned.lower() in ('n/a', '-', 'none', 'null', 'pod', 'pol', 'terminal', 'ramp', 'estimated', 'transit', 'days'):
+                return False
+            return True
 
         lines = [l.strip() for l in text.splitlines() if l.strip()]
+        pod = None
         dest = None
+
         for i, line in enumerate(lines):
+            # Case 1: Line containing '(PoD)', e.g. 'Delivered to Terminal/Ramp (PoD)'
+            if re.search(r'\(PoD\)', line, re.IGNORECASE):
+                after_pod = re.split(r'\(PoD\)', line, flags=re.IGNORECASE)[-1].strip(" :-\t")
+                cand = re.split(r'(?:Terminal|Ramp|Estimated|Transit|Edit|\+)', after_pod, flags=re.IGNORECASE)[0].strip(" :-\t")
+                if is_valid_port(cand):
+                    pod = cand
+                elif i + 1 < len(lines):
+                    next_cand = re.split(r'(?:Terminal|Ramp|Estimated|Transit|Edit|\+)', lines[i + 1], flags=re.IGNORECASE)[0].strip(" :-\t")
+                    if is_valid_port(next_cand):
+                        pod = next_cand
+
+            # Case 2: Standalone 'PoD' or 'Port of Discharge' (not inside parentheses)
+            if not pod and re.search(r'(?<!\()\b(?:PoD|Port of Discharge)\b(?!\))', line, re.IGNORECASE):
+                m = re.search(r'(?<!\()\b(?:PoD|Port of Discharge)\b(?!\))\s*[:\s]?\s*(.*)$', line, re.IGNORECASE)
+                after = m.group(1).strip(" :-\t") if m else ""
+                cand = re.split(r'(?:Terminal|Ramp|Estimated|Transit|Edit|\+)', after, flags=re.IGNORECASE)[0].strip(" :-\t")
+                if is_valid_port(cand):
+                    pod = cand
+                elif i + 1 < len(lines):
+                    next_cand = re.split(r'(?:Terminal|Ramp|Estimated|Transit|Edit|\+)', lines[i + 1], flags=re.IGNORECASE)[0].strip(" :-\t")
+                    if is_valid_port(next_cand):
+                        pod = next_cand
+
+            # Case 3: Destination Terminal / Ramp (excluding PoL)
             if re.search(r'Terminal\s*/\s*Ramp', line, re.IGNORECASE) and not re.search(r'\(PoL\)', line, re.IGNORECASE):
-                if i + 1 < len(lines):
-                    cand_d = re.split(r'(?:Estimated|Transit|Edit|\+)', lines[i + 1], flags=re.IGNORECASE)[0].strip()
-                    if cand_d and cand_d.lower() not in ('n/a', '-', 'none'):
-                        dest = cand_d
-                        break
+                parts = re.split(r':', line, maxsplit=1)
+                if len(parts) > 1:
+                    cand = re.split(r'(?:Estimated|Transit|Edit|\+)', parts[1], flags=re.IGNORECASE)[0].strip(" :-\t")
+                    if is_valid_port(cand):
+                        dest = cand
+                if not dest and i + 1 < len(lines):
+                    next_cand = re.split(r'(?:Terminal|Ramp|Estimated|Transit|Edit|\+)', lines[i + 1], flags=re.IGNORECASE)[0].strip(" :-\t")
+                    if is_valid_port(next_cand):
+                        dest = next_cand
+
+        pod = self._sanitize_route_value(pod)
+        dest = self._sanitize_route_value(dest)
 
         has_transshipment = bool(re.search(r'\+\s*\d+\s*more', text, re.IGNORECASE))
 
@@ -2055,14 +2100,25 @@ class HapagLloydConnector(BaseCarrierConnector):
             via_routing = via_match.group(1).strip()
 
         req_dest = getattr(self.current_request, "destination", "") if hasattr(self, "current_request") and self.current_request else ""
+
+        def clean_loc(s: str) -> str:
+            return re.sub(r'\[.*?\]|\(.*?\)|[^a-zA-Z\s]', '', s).strip().lower()
+
         is_inland = False
-        if dest and pod and (dest.lower() != pod.lower()):
-            is_inland = True
-        elif pod and req_dest:
-            clean_req = re.sub(r'\[.*?\]|\(.*?\)', '', req_dest).strip().lower()
-            clean_pod = re.sub(r'\[.*?\]|\(.*?\)', '', pod).strip().lower()
-            if clean_pod and clean_req and (clean_pod not in clean_req and clean_req not in clean_pod):
+        clean_p = clean_loc(pod) if pod else ""
+        clean_d = clean_loc(dest) if dest else ""
+        clean_r = clean_loc(req_dest) if req_dest else ""
+
+        if clean_p and clean_d:
+            if clean_p not in clean_d and clean_d not in clean_p:
                 is_inland = True
+        elif clean_p and clean_r:
+            if clean_p not in clean_r and clean_r not in clean_p:
+                is_inland = True
+
+        # If not inland and pod was not explicitly found, but dest is present, pod is dest
+        if not pod and dest and not is_inland:
+            pod = dest
 
         if is_inland and pod:
             routing = pod
@@ -2072,6 +2128,8 @@ class HapagLloydConnector(BaseCarrierConnector):
             routing = "Transshipment"
         else:
             routing = "Direct"
+
+        routing = self._sanitize_route_value(routing, default="Direct")
 
         return {
             "pod": pod,
@@ -2093,6 +2151,10 @@ class HapagLloydConnector(BaseCarrierConnector):
             print("[HAPAG] Starting Quick Quote search...")
             self.current_request = request
             self._last_selected_date = None
+            self._last_parsed_pod = None
+            self._last_parsed_routing = "Direct"
+            self._last_parsed_transit_time = None
+            self._last_parsed_via_routing = None
             
             # Dismiss any active modals (like "Recently Searched") before form filling
             await self._dismiss_hapag_modals()
@@ -3887,8 +3949,8 @@ class HapagLloydConnector(BaseCarrierConnector):
             vessel = f"{vessel} (Sold out)"
 
         validity_till = getattr(self, "_last_parsed_validity_till", None)
-        card_pod = raw_quote.get("port_of_discharge") or getattr(self, "_last_parsed_pod", None)
-        card_routing = raw_quote.get("routing") or getattr(self, "_last_parsed_routing", "Direct")
+        card_pod = self._sanitize_route_value(raw_quote.get("port_of_discharge")) or self._sanitize_route_value(getattr(self, "_last_parsed_pod", None))
+        card_routing = self._sanitize_route_value(raw_quote.get("routing")) or self._sanitize_route_value(getattr(self, "_last_parsed_routing", None)) or "Direct"
 
         return QuoteSchema(
             etd=raw_quote.get("etd"),
@@ -3972,8 +4034,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                     price = float(best.get("total_price") or 0.0)
                     etd_val = best.get("etd")
                     eta_val = best.get("eta")
-                    quick_pod = best.get("port_of_discharge") or getattr(self, "_last_parsed_pod", None)
-                    quick_routing = best.get("routing") or getattr(self, "_last_parsed_routing", "Direct")
+                    quick_pod = self._sanitize_route_value(best.get("port_of_discharge")) or self._sanitize_route_value(getattr(self, "_last_parsed_pod", None))
+                    quick_routing = self._sanitize_route_value(best.get("routing")) or self._sanitize_route_value(getattr(self, "_last_parsed_routing", None)) or "Direct"
                     for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
                         quick_quotes.append(QuoteSchema(
                             container_type=ct,
@@ -4145,8 +4207,8 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                         normalized = await self.normalize_result(raw_quote, c_charges, container_type=c_type, is_sold_out=False)
 
-                        card_pod = raw_quote.get("port_of_discharge") or getattr(self, "_last_parsed_pod", None)
-                        card_routing = raw_quote.get("routing") or getattr(self, "_last_parsed_routing", None)
+                        card_pod = self._sanitize_route_value(raw_quote.get("port_of_discharge")) or self._sanitize_route_value(getattr(self, "_last_parsed_pod", None))
+                        card_routing = self._sanitize_route_value(raw_quote.get("routing")) or self._sanitize_route_value(getattr(self, "_last_parsed_routing", None)) or "Direct"
                         if card_pod:
                             normalized.port_of_discharge = card_pod
 
@@ -4197,8 +4259,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                                 normalized.routing = card_routing
                             elif v_routing:
                                 normalized.routing = v_routing
-                            elif card_pod:
-                                normalized.routing = card_pod
                             else:
                                 normalized.routing = "Direct"
                             if v_routing:
