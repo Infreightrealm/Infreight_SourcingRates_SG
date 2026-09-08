@@ -42,6 +42,21 @@ class CMAConnector(BaseCarrierConnector):
         self.is_login_successful = False
         self._current_voyage = None
 
+    def _normalize_container_key(self, ct_str: Optional[str]) -> str:
+        if not ct_str:
+            return "DRY 40H"
+        s = ct_str.upper().strip()
+        if s in ("DRY 20", "20GP", "20'", "20' DRY STANDARD", "20' STANDARD DRY", "20ST"):
+            return "DRY 20"
+        if s in ("DRY 40", "40GP", "40'", "40' DRY STANDARD", "40' STANDARD DRY", "40ST"):
+            return "DRY 40"
+        if s in ("DRY 40H", "DRY 40HC", "40HQ", "40HC", "40'HQ", "40'HC", "40' DRY HIGH CUBE", "40' HIGH CUBE", "40' HIGH"):
+            return "DRY 40H"
+        for k, v in self.CONTAINER_TYPE_MAP.items():
+            if v.upper() == s or k.upper() == s:
+                return k
+        return s
+
     async def _init_browser(self):
         import uuid
         import shutil
@@ -1451,6 +1466,7 @@ class CMAConnector(BaseCarrierConnector):
             try:
                 await self.page.wait_for_selector('article.card-route-horizontal, article[class*="card-route-horizontal"], div[class*="schedules-result"], div[class*="sailing-result"]', timeout=20000)
                 print("[CMA] Results loaded.")
+                await self._dismiss_cma_modals()
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND
             except Exception:
                 page_text = await self.page.inner_text('body')
@@ -1550,6 +1566,20 @@ class CMAConnector(BaseCarrierConnector):
                 price_match = re.search(r'(\d[\d,]*)\s*USD', text)
                 total_price = float(price_match.group(1).replace(",", "")) if price_match else 0.0
 
+                # Container-specific pill prices (e.g. "per 20ST 3336 USD", "per 40ST 4349 USD", "per 40HC 4349 USD")
+                container_prices = {}
+                p20 = re.search(r'(?:per\s+)?20(?:ST|GP|[\'\s])\s*[\n\r\s]*(\d[\d,]*)\s*USD', text, re.IGNORECASE)
+                if p20:
+                    container_prices["DRY 20"] = float(p20.group(1).replace(",", ""))
+
+                p40 = re.search(r'(?:per\s+)?40(?:ST|GP|[\'\s])\s*[\n\r\s]*(\d[\d,]*)\s*USD', text, re.IGNORECASE)
+                if p40:
+                    container_prices["DRY 40"] = float(p40.group(1).replace(",", ""))
+
+                p40h = re.search(r'(?:per\s+)?40(?:HC|HQ|H|[\'\s]*HIGH)\s*[\n\r\s]*(\d[\d,]*)\s*USD', text, re.IGNORECASE)
+                if p40h:
+                    container_prices["DRY 40H"] = float(p40h.group(1).replace(",", ""))
+
                 # Tags
                 tags = []
                 if "EARLIEST ARRIVAL" in text: tags.append("EARLIEST ARRIVAL")
@@ -1566,6 +1596,7 @@ class CMAConnector(BaseCarrierConnector):
                     "service_name": service,
                     "vessel": vessel,
                     "total_price": total_price,
+                    "container_prices": container_prices,
                     "currency": "USD",
                     "tags": tags,
                     "card_locator": card,
@@ -1848,18 +1879,23 @@ class CMAConnector(BaseCarrierConnector):
             self._current_voyage = None
             try:
                 voyage_loc = self.current_card.locator('dt:has-text("Voyage Ref") + dd').first
-                voy_text = (await voyage_loc.text_content() or "").strip()
-                if voy_text:
-                    self._current_voyage = voy_text
-                    print(f"[CMA] Found Voyage Ref via sibling locator: {self._current_voyage}")
+                if await voyage_loc.is_visible(timeout=500):
+                    voy_text = (await voyage_loc.text_content() or "").strip()
+                    if voy_text:
+                        self._current_voyage = voy_text
+                        print(f"[CMA] Found Voyage Ref via sibling locator: {self._current_voyage}")
             except Exception:
                 pass
 
             if not self._current_voyage:
                 raw_text = await self.current_card.text_content()
-                voyage_match = re.search(r'Voyage\s+Ref\b.*?(\b[A-Z0-9]+)', raw_text, re.IGNORECASE)
+                voyage_match = re.search(r'Voyage\s+Ref\b.*?(\b[A-Z0-9]{6,12}\b)', raw_text, re.IGNORECASE)
                 if voyage_match:
-                    self._current_voyage = voyage_match.group(1)
+                    v_val = voyage_match.group(1)
+                    for day in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"):
+                        if v_val.endswith(day):
+                            v_val = v_val[:-len(day)]
+                    self._current_voyage = v_val
                     print(f"[CMA] Found Voyage Ref via text_content regex: {self._current_voyage}")
             
             # Evaluate using JavaScript within the card context to parse the details table
@@ -1869,7 +1905,7 @@ class CMAConnector(BaseCarrierConnector):
                 // Find headers table (Table 0)
                 const headerTable = tables.find(t => {
                     const text = t.innerText.toUpperCase();
-                    return text.includes('CHARGES DETAILS') || text.includes('20ST');
+                    return text.includes('CHARGES DETAILS') || text.includes('20ST') || text.includes('40ST') || text.includes('40HC');
                 });
                 if (!headerTable) return null;
                 
@@ -1905,12 +1941,15 @@ class CMAConnector(BaseCarrierConnector):
                     }
                 });
                 
-                // Fallback if index not found
-                if (colIndices['DRY 20'] === -1) colIndices['DRY 20'] = 1;
-                if (colIndices['DRY 40'] === -1) colIndices['DRY 40'] = 2;
-                if (colIndices['DRY 40H'] === -1) colIndices['DRY 40H'] = 3;
-                if (colIndices.BL === -1) colIndices.BL = 4;
-                if (colIndices.Currency === -1) colIndices.Currency = 5;
+                // Only fall back to default column order if NO container size headers were matched at all
+                const hasAnyContainerCol = colIndices['DRY 20'] !== -1 || colIndices['DRY 40'] !== -1 || colIndices['DRY 40H'] !== -1;
+                if (!hasAnyContainerCol) {
+                    colIndices['DRY 20'] = 1;
+                    colIndices['DRY 40'] = 2;
+                    colIndices['DRY 40H'] = 3;
+                    if (colIndices.BL === -1) colIndices.BL = 4;
+                    if (colIndices.Currency === -1) colIndices.Currency = 5;
+                }
                 
                 const rows = Array.from(rowsTable.querySelectorAll('tr'));
                 const list = [];
@@ -1927,16 +1966,19 @@ class CMAConnector(BaseCarrierConnector):
                     
                     // Extract container-specific charges
                     ['DRY 20', 'DRY 40', 'DRY 40H'].forEach(ct => {
-                        const valStr = cells[colIndices[ct]];
-                        if (valStr) {
-                            const val = parseFloat(valStr.replace(/,/g, ''));
-                            if (!isNaN(val) && val > 0) {
-                                list.push({
-                                    name: name,
-                                    amount: val,
-                                    currency: curr,
-                                    container_type: ct
-                                });
+                        const colIdx = colIndices[ct];
+                        if (colIdx !== -1 && colIdx < cells.length) {
+                            const valStr = cells[colIdx];
+                            if (valStr) {
+                                const val = parseFloat(valStr.replace(/,/g, ''));
+                                if (!isNaN(val) && val > 0) {
+                                    list.push({
+                                        name: name,
+                                        amount: val,
+                                        currency: curr,
+                                        container_type: ct
+                                    });
+                                }
                             }
                         }
                     });
@@ -2005,10 +2047,13 @@ class CMAConnector(BaseCarrierConnector):
         if not hasattr(self, "_cached_quotes_by_route"):
             self._cached_quotes_by_route = {}
 
+        target_ct = self._normalize_container_key(request.container_type)
         if cache_key in self._cached_quotes_by_route:
             print(f"[CMA] Returning cached quotes for {cache_key} (container_type='{request.container_type}')")
             cached_status, cached_quotes = self._cached_quotes_by_route[cache_key]
-            matching_quotes = [q for q in cached_quotes if q.container_type == request.container_type]
+            matching_quotes = [q for q in cached_quotes if self._normalize_container_key(q.container_type) == target_ct]
+            if not matching_quotes and cached_quotes:
+                matching_quotes = cached_quotes
             return cached_status, matching_quotes
 
         quotes: list[QuoteSchema] = []
@@ -2033,18 +2078,22 @@ class CMAConnector(BaseCarrierConnector):
 
             if getattr(request, "search_mode", "detailed") == "quick":
                 cheapest_cards = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date) if raw_quotes else []
+                if not cheapest_cards and raw_quotes:
+                    cheapest_cards = [raw_quotes[0]]
                 if cheapest_cards:
                     best = cheapest_cards[0]
-                    price = float(best.get("total_price") or 0.0)
+                    c_prices = best.get("container_prices", {})
+                    default_price = float(best.get("total_price") or 0.0)
                     etd_val = best.get("etd")
                     eta_val = best.get("eta")
                     quick_pod = best.get("port_of_discharge") or getattr(self, "_header_pod", None)
                     for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
+                        ct_price = c_prices.get(ct, default_price)
                         quotes.append(QuoteSchema(
                             container_type=ct,
                             currency="USD",
-                            basic_ocean_freight=price,
-                            final_freight_value=price,
+                            basic_ocean_freight=ct_price,
+                            final_freight_value=ct_price,
                             etd=etd_val,
                             eta=eta_val,
                             port_of_discharge=quick_pod,
@@ -2054,7 +2103,9 @@ class CMAConnector(BaseCarrierConnector):
                         ))
                 result_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
                 self._cached_quotes_by_route[cache_key] = (result_status, quotes)
-                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+                matching_quotes = [q for q in quotes if self._normalize_container_key(q.container_type) == target_ct]
+                if not matching_quotes and quotes:
+                    matching_quotes = quotes
                 return result_status, matching_quotes
 
             # Step 4: Detailed Mode: For each quote, get breakdown, extract, and split
@@ -2075,7 +2126,9 @@ class CMAConnector(BaseCarrierConnector):
             self._cached_quotes_by_route[cache_key] = (result_status, quotes)
             
             # Filter and return quotes matching current request container type
-            matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+            matching_quotes = [q for q in quotes if self._normalize_container_key(q.container_type) == target_ct]
+            if not matching_quotes and quotes:
+                matching_quotes = quotes
             return result_status, matching_quotes
 
         except Exception as e:
@@ -2178,24 +2231,35 @@ class CMAConnector(BaseCarrierConnector):
         for std_ct, c_charges in container_charges.items():
             # Check if there is Basic Ocean Freight for this type
             bof_charge = next((c for c in c_charges if c["category"] == ChargeCategory.BASIC_OCEAN_FREIGHT.value), None)
-            if not bof_charge:
+            
+            # If no BOF found in table breakdown, check if card pill has a price for this container type
+            card_c_price = raw_quote.get("container_prices", {}).get(std_ct)
+            if not bof_charge and not card_c_price:
                 continue  # This container size is not available/N/A
 
             # Build raw_charges list for this container type
             split_raw_charges = []
-            for c in c_charges:
+            if bof_charge:
+                for c in c_charges:
+                    split_raw_charges.append({
+                        "name": c["name"],
+                        "amount": c["amount"],
+                        "currency": c["currency"],
+                        "category": c["category"]
+                    })
+                for f in flat_charges:
+                    split_raw_charges.append({
+                        "name": f["name"],
+                        "amount": f["amount"],
+                        "currency": f["currency"],
+                        "category": f["category"]
+                    })
+            else:
                 split_raw_charges.append({
-                    "name": c["name"],
-                    "amount": c["amount"],
-                    "currency": c["currency"],
-                    "category": c["category"]
-                })
-            for f in flat_charges:
-                split_raw_charges.append({
-                    "name": f["name"],
-                    "amount": f["amount"],
-                    "currency": f["currency"],
-                    "category": f["category"]
+                    "name": "Ocean Freight",
+                    "amount": card_c_price,
+                    "currency": raw_quote.get("currency", "USD"),
+                    "category": ChargeCategory.BASIC_OCEAN_FREIGHT.value
                 })
 
             # Create local raw_quote dict with the correct container type
