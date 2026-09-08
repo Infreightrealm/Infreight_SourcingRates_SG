@@ -65,11 +65,41 @@ export default function QuoteBreakdownDrawer({ quote, carrier, onClose }: QuoteB
               { label: "Vessel", value: quote.vessel || "—" },
               { label: "Container", value: quote.container_type || "—" },
               { label: "Source", value: quote.source },
-              { label: quote.port_of_discharge ? "Port of Discharge" : "Routing", value: quote.port_of_discharge || quote.routing || "—" },
+              ...(quote.port_of_discharge
+                ? [
+                    { label: "Port of Discharge", value: quote.port_of_discharge },
+                    { label: "Routing", value: quote.routing || "Direct", fullWidth: true },
+                  ]
+                : [
+                    { label: "Routing", value: quote.routing || "Direct" },
+                  ]),
             ].map((item, i) => (
-              <div key={i} className={`rounded-lg px-3 py-2 ${item.label.includes("Free Time") && quote.free_time != null ? "border border-success/25 bg-success/10" : "border border-border bg-muted/50"}`}>
-                <span className={`block text-xs ${item.label.includes("Free Time") && quote.free_time != null ? "font-semibold text-success-foreground" : "text-muted-foreground"}`}>{item.label}</span>
-                <span className={`block text-sm font-medium ${item.label.includes("Free Time") && quote.free_time != null ? "text-success-foreground" : "text-foreground"}`}>{item.value}</span>
+              <div
+                key={i}
+                className={`rounded-lg px-3 py-2 ${item.fullWidth ? "col-span-2" : ""} ${
+                  item.label.includes("Free Time") && quote.free_time != null
+                    ? "border border-success/25 bg-success/10"
+                    : "border border-border bg-muted/50"
+                }`}
+              >
+                <span
+                  className={`block text-xs ${
+                    item.label.includes("Free Time") && quote.free_time != null
+                      ? "font-semibold text-success-foreground"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {item.label}
+                </span>
+                <span
+                  className={`block text-sm font-medium ${
+                    item.label.includes("Free Time") && quote.free_time != null
+                      ? "text-success-foreground"
+                      : "text-foreground"
+                  }`}
+                >
+                  {item.value}
+                </span>
               </div>
             ))}
           </div>

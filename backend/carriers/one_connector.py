@@ -1372,17 +1372,32 @@ class ONEConnector(BaseCarrierConnector):
                         vessel = sv_match.group(2).strip()
                         service_name = f"{service_lane} / {vessel}"
                     
-                    pol_match = re.search(r"POL\s+(.+?)(?:\s+POD|\s+Status|\s+USD)", normalized_text)
-                    if pol_match:
-                        pol = pol_match.group(1).strip()
+                    pol_locode_match = re.search(r"\bPOL\s*[:\n]?\s*([A-Za-z0-9\s,.'/-]+?\s*\([A-Z0-9]{5}\))", card_text, re.IGNORECASE)
+                    if pol_locode_match:
+                        pol = pol_locode_match.group(1).strip()
+                    else:
+                        pol_match = re.search(r"POL\s+(.+?)(?:\s+POD|\s+Status|\s+USD)", normalized_text)
+                        if pol_match:
+                            pol = pol_match.group(1).strip()
                         
-                    pod_match = re.search(r"POD\s+(.+?)(?:\s+USD|\s+Status)", normalized_text)
-                    if pod_match:
-                        pod = pod_match.group(1).strip()
+                    pod_locode_match = re.search(r"\bPOD\s*[:\n]?\s*([A-Za-z0-9\s,.'/-]+?\s*\([A-Z0-9]{5}\))", card_text, re.IGNORECASE)
+                    if pod_locode_match:
+                        pod = pod_locode_match.group(1).strip()
+                    else:
+                        pod_match = re.search(r"POD\s+(.+?)(?:\s+USD|\s+Status|\s+Accept|\s+Notify|\s*$)", normalized_text)
+                        if pod_match:
+                            pod = pod_match.group(1).strip()
 
                     status_match = re.search(r"Status\s+([A-Za-z ]+?)(?:\s+POL|\s+POD|\s+USD)", normalized_text)
                     if status_match:
                         status = status_match.group(1).strip()
+
+                if not pol:
+                    pol_m = re.search(r"\bPOL\s*[:\n]?\s*([A-Za-z0-9\s,.'/-]+?\s*\([A-Z0-9]{5}\))", card_text, re.IGNORECASE)
+                    if pol_m: pol = pol_m.group(1).strip()
+                if not pod:
+                    pod_m = re.search(r"\bPOD\s*[:\n]?\s*([A-Za-z0-9\s,.'/-]+?\s*\([A-Z0-9]{5}\))", card_text, re.IGNORECASE)
+                    if pod_m: pod = pod_m.group(1).strip()
 
                 # RULE: Sold-out sailings are not bookable and must be excluded entirely.
                 # ONE flags them with a "Notify Me" button (bookable sailings show an
@@ -1417,6 +1432,7 @@ class ONEConnector(BaseCarrierConnector):
                     "status": status,
                     "pol": pol,
                     "pod": pod,
+                    "port_of_discharge": pod,
                     "total_price": total_price,
                 })
             return quotes
@@ -1434,7 +1450,7 @@ class ONEConnector(BaseCarrierConnector):
             card = quote_cards.nth(idx)
             self.current_card = quote_cards.nth(idx)
             self.current_pol = (quote_ref.get("pol") or "").strip().upper()
-            self.current_pod = (quote_ref.get("pod") or "").strip().upper()
+            self.current_pod = (quote_ref.get("port_of_discharge") or quote_ref.get("pod") or "").strip().upper()
             self.current_routing = "Direct"
             
             all_details_buttons = self.page.locator('button.NewQuoteSummary_breakdown-button__oIAYJ')
@@ -1996,6 +2012,9 @@ class ONEConnector(BaseCarrierConnector):
         quote_schema = normalize_quote(self.carrier_code, raw_quote, raw_charges)
         if hasattr(self, "current_routing") and self.current_routing:
             quote_schema.routing = self.current_routing
+        card_pod = getattr(self, "current_pod", None) or raw_quote.get("port_of_discharge") or raw_quote.get("pod")
+        if card_pod:
+            quote_schema.port_of_discharge = card_pod
         if hasattr(self, 'port_fallback_notice') and self.port_fallback_notice:
             if quote_schema.vessel:
                 quote_schema.vessel = f"{quote_schema.vessel} ({self.port_fallback_notice})"

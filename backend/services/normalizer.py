@@ -232,6 +232,7 @@ def normalize_quote(
         service_name=raw_quote.get("service_name"),
         vessel=raw_quote.get("vessel"),
         routing=raw_quote.get("routing", "Direct"),
+        port_of_discharge=raw_quote.get("port_of_discharge") or raw_quote.get("pod"),
         free_time=raw_quote.get("free_time"),
         container_type=raw_quote.get("container_type"),
         container_quantity=raw_quote.get("container_quantity"),

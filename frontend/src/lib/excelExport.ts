@@ -286,7 +286,7 @@ export async function exportSingleSearchToExcel(
     } else {
       const scheduleGroups: Record<string, QuoteSchema[]> = {};
       for (const q of cr.quotes) {
-        const key = `${q.etd || ""}|${q.eta || ""}|${(q.vessel || "").trim().toLowerCase()}|${(q.routing || "").trim().toLowerCase()}`;
+        const key = `${q.etd || ""}|${q.eta || ""}|${(q.vessel || "").trim().toLowerCase()}|${(q.port_of_discharge || q.routing || "").trim().toLowerCase()}`;
         if (!scheduleGroups[key]) {
           scheduleGroups[key] = [];
         }
@@ -339,7 +339,7 @@ export async function exportSingleSearchToExcel(
           validity: formatDate(firstQuote.etd),
           eta: formatDate(firstQuote.eta),
           validity_till: formatDate(firstQuote.validity_till),
-          routing: firstQuote.routing || "Direct",
+          routing: firstQuote.port_of_discharge || firstQuote.routing || "Direct",
           remark: `${firstQuote.vessel || "-"}${warnRemark}`,
         });
       }

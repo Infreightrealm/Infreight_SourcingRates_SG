@@ -423,6 +423,8 @@ class BaseCarrierConnector(ABC):
                         transit_time_days=card.get("transit_time_days"),
                         vessel=card.get("vessel"), service_name=card.get("service_name"),
                         source=self.carrier_code, raw_reference=ref,
+                        routing=card.get("routing", "Direct"),
+                        port_of_discharge=card.get("port_of_discharge") or card.get("pod"),
                     ))
                 else:
                     print(f"[{self.carrier_code}] [Quick {label}] No per-type price for {ct} on the cheapest card; "
