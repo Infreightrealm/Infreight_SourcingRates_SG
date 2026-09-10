@@ -226,24 +226,86 @@ class CMAConnector(BaseCarrierConnector):
             except Exception:
                 await locator.evaluate("el => el.click()")
 
+    async def _human_drag(self, start_x: float, start_y: float, target_x: float, target_y: float):
+        import math
+        await self.page.mouse.move(start_x, start_y)
+        await asyncio.sleep(0.1 + random.random() * 0.1)
+        await self.page.mouse.down()
+        await asyncio.sleep(0.1 + random.random() * 0.1)
+
+        steps = random.randint(30, 50)
+        dx = target_x - start_x
+        dy = target_y - start_y
+
+        for i in range(1, steps + 1):
+            t = i / steps
+            ease = math.sin(t * math.pi / 2)
+            curr_x = start_x + dx * ease
+            curr_y = start_y + dy * ease + (random.random() - 0.5) * 2.0
+            await self.page.mouse.move(curr_x, curr_y)
+            await asyncio.sleep(random.uniform(0.01, 0.03))
+
+        await asyncio.sleep(0.15 + random.random() * 0.1)
+        await self.page.mouse.up()
+        await asyncio.sleep(0.5)
+
     async def _solve_datadome_slider(self) -> bool:
         """
-        Human-in-the-Loop (HITL) CAPTCHA Bypass.
-        Immediately pauses the automation script and waits up to 90 seconds for the user
-        to manually slide the CAPTCHA inside the opened browser window.
+        Human-in-the-Loop (HITL) CAPTCHA Bypass with automated drag attempt.
+        First attempts automated human-like drag of the DataDome slider.
+        Falls back to manual resolution if automated drag doesn't pass.
         """
         frame_selector = 'iframe[src*="captcha-delivery.net"], iframe[src*="datadome.co"], iframe[src*="captcha-delivery.com"]'
-        captcha_iframe = self.page.locator(frame_selector).first
 
         try:
             self.captcha_detected = True
+            print("[CMA] DataDome verification detected. Attempting automated slider drag...")
+
+            frame_el = await self.page.query_selector(frame_selector)
+            if frame_el:
+                frame = await frame_el.content_frame()
+                if frame:
+                    slider = await frame.query_selector('.slider')
+                    target = await frame.query_selector('.sliderTarget')
+                    if slider:
+                        slider_box = await slider.bounding_box()
+                        target_box = await target.bounding_box() if target else None
+                        if slider_box:
+                            start_x = slider_box['x'] + slider_box['width'] / 2
+                            start_y = slider_box['y'] + slider_box['height'] / 2
+                            if target_box:
+                                end_x = target_box['x'] + target_box['width'] / 2
+                                end_y = target_box['y'] + target_box['height'] / 2
+                            else:
+                                end_x = start_x + 222
+                                end_y = start_y
+                            print(f"[CMA] Performing human-like drag from ({start_x:.1f}, {start_y:.1f}) to ({end_x:.1f}, {end_y:.1f})...")
+                            await self._human_drag(start_x, start_y, end_x, end_y)
+                            await asyncio.sleep(4)
+
+                            if "auth.cma-cgm.com" in self.page.url:
+                                print("[CMA] [SUCCESS] Automated DataDome slider solved and redirected to auth!")
+                                return True
+                            try:
+                                is_still_vis = await self.page.locator(frame_selector).is_visible()
+                                if not is_still_vis:
+                                    print("[CMA] [SUCCESS] DataDome iframe cleared!")
+                                    return True
+                            except Exception:
+                                print("[CMA] [SUCCESS] DataDome iframe dismissed!")
+                                return True
+
             print("[CMA] [WARN] [ACTION REQUIRED] DataDome CAPTCHA/Verification Page Detected!")
             print("[CMA] [WARN] Please look at the opened Chrome browser window on your VNC display.")
             print("[CMA] [WARN] Manually DRAG the slider handle to the right to solve the CAPTCHA.")
-            print("[CMA] [WARN] Waiting up to 3 minutes for manual resolution...")
+            print("[CMA] [WARN] Waiting up to 90 seconds for manual resolution...")
 
-            for i in range(180):
+            captcha_iframe = self.page.locator(frame_selector).first
+            for i in range(90):
                 await asyncio.sleep(1)
+                if "auth.cma-cgm.com" in self.page.url:
+                    print("[CMA] [SUCCESS] Redirected to auth!")
+                    return True
                 try:
                     is_visible = await captcha_iframe.is_visible(timeout=500)
                     if not is_visible:
@@ -253,16 +315,17 @@ class CMAConnector(BaseCarrierConnector):
                     print("[CMA] [SUCCESS] CAPTCHA resolved! Resuming automation...")
                     return True
 
-                remaining = 180 - i - 1
-                if remaining % 5 == 0 and remaining > 0:
+                remaining = 90 - i - 1
+                if remaining % 15 == 0 and remaining > 0:
                     print(f"[CMA] Waiting for CAPTCHA solve... {remaining}s remaining. Drag the slider NOW.")
 
-            print("[CMA] [TIMEOUT] CAPTCHA not solved within 3 minutes.")
+            print("[CMA] [TIMEOUT] CAPTCHA not solved within 90 seconds.")
             return False
 
         except Exception as e:
-            print(f"[CMA] Error during manual CAPTCHA check: {e}")
+            print(f"[CMA] Error during CAPTCHA solve: {e}")
             return False
+
 
     async def login(self) -> bool:
         username = os.getenv("CMA_USERNAME") or os.getenv("CMA_CGM_USERNAME") or "BOOKINGSG@IN-FREIGHT.COM"
