@@ -1644,9 +1644,31 @@ class CMAConnector(BaseCarrierConnector):
                 vessel_match = re.search(r'Vessel\s+(.+?)\s+CO2', text)
                 vessel = vessel_match.group(1).strip() if vessel_match else None
 
-                # Total price
-                price_match = re.search(r'(\d[\d,]*)\s*USD', text)
-                total_price = float(price_match.group(1).replace(",", "")) if price_match else 0.0
+                # Total price & per-container pricing
+                prices_by_type = {}
+                found_prices = re.findall(r'(?:per\s+)?(20ST|40ST|40HC|20\'|40\'|40H)\b[^\d]*?(\d[\d,]*)\s*USD', text, re.IGNORECASE)
+                for ct_label, amt_str in found_prices:
+                    c_price = float(amt_str.replace(",", ""))
+                    if c_price <= 0:
+                        continue
+                    label_upper = ct_label.upper()
+                    if "20" in label_upper:
+                        prices_by_type["DRY 20"] = c_price
+                    elif "40HC" in label_upper or "40H" in label_upper:
+                        prices_by_type["DRY 40H"] = c_price
+                    elif "40" in label_upper:
+                        prices_by_type["DRY 40"] = c_price
+                        if "DRY 40H" not in prices_by_type:
+                            prices_by_type["DRY 40H"] = c_price
+
+                if "DRY 40H" in prices_by_type and "DRY 40" not in prices_by_type:
+                    prices_by_type["DRY 40"] = prices_by_type["DRY 40H"]
+
+                if prices_by_type:
+                    total_price = prices_by_type.get("DRY 40H") or prices_by_type.get("DRY 40") or prices_by_type.get("DRY 20") or 0.0
+                else:
+                    price_match = re.search(r'(\d[\d,]*)\s*USD', text)
+                    total_price = float(price_match.group(1).replace(",", "")) if price_match else 0.0
 
                 # Tags
                 tags = []
@@ -1663,6 +1685,7 @@ class CMAConnector(BaseCarrierConnector):
                     "service_name": service,
                     "vessel": vessel,
                     "total_price": total_price,
+                    "prices_by_type": prices_by_type,
                     "currency": "USD",
                     "tags": tags,
                     "card_locator": card,
@@ -2049,24 +2072,28 @@ class CMAConnector(BaseCarrierConnector):
                 return CarrierResultStatus.NO_QUOTES_AVAILABLE, []
 
             if getattr(request, "search_mode", "detailed") == "quick":
-                cheapest_cards = self.filter_cheapest_in_14d_window(raw_quotes, request.departure_date) if raw_quotes else []
+                valid_raw_quotes = [q for q in raw_quotes if (q.get("total_price") or 0) > 0 or q.get("prices_by_type")]
+                cards_to_filter = valid_raw_quotes if valid_raw_quotes else raw_quotes
+                cheapest_cards = self.filter_cheapest_in_14d_window(cards_to_filter, request.departure_date) if cards_to_filter else []
                 if cheapest_cards:
                     best = cheapest_cards[0]
-                    price = float(best.get("total_price") or 0.0)
+                    p_by_type = best.get("prices_by_type") or {}
+                    card_summary_price = float(best.get("total_price") or 0.0)
                     etd_val = best.get("etd")
                     eta_val = best.get("eta")
                     for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
+                        c_price = p_by_type.get(ct, card_summary_price)
                         quotes.append(QuoteSchema(
                             container_type=ct,
                             currency="USD",
-                            basic_ocean_freight=price,
-                            final_freight_value=price,
+                            basic_ocean_freight=c_price,
+                            final_freight_value=c_price,
                             etd=etd_val,
                             eta=eta_val,
                             source="CMA_CGM",
                             raw_reference=f"CMA-QUICK-{ct.replace(' ', '_')}"
                         ))
-                result_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
+                result_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quotes and any(q.final_freight_value > 0 for q in quotes) else CarrierResultStatus.NO_QUOTES_AVAILABLE
                 self._cached_quotes_by_route[cache_key] = (result_status, quotes)
                 matching_quotes = [q for q in quotes if q.container_type == request.container_type]
                 return result_status, matching_quotes

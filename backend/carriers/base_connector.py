@@ -302,7 +302,9 @@ class BaseCarrierConnector(ABC):
             if val is None:
                 continue
             try:
-                return float(str(val).replace(",", "").replace("$", ""))
+                p = float(str(val).replace(",", "").replace("$", ""))
+                if p > 0:
+                    return p
             except Exception:
                 pass
         return 999999.0
