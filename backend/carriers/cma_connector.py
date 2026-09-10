@@ -1499,58 +1499,7 @@ class CMAConnector(BaseCarrierConnector):
             # --- CUSTOMER ACCOUNT / ROLE SELECTION ---
             # Select "NVOCC" if the "Customer account" -> "Role (you are acting as)" dropdown is present on the form
             await self._handle_cma_customer_account_role()
-
-            # --- PRE-SUBMIT GUARDS ---
-            # 1. Safety Guard: Ensure any Route / POL / POD field is completed before container finalization
-            handled_late_route = await self._handle_cma_pol_pod_prompts()
-            if handled_late_route:
-                await self.page.wait_for_timeout(1000)
-
-            # 2. Safety Guard: Ensure 45' Dry High Cube is NEVER selected before submit
-            del_45 = self.page.locator('button.delete[aria-label*="45" i], div.content:has-text("45\'") button.delete')
-            if await del_45.count() > 0 and await del_45.first.is_visible():
-                print("[CMA] [PRE-SUBMIT GUARD] 45' Dry High Cube detected as selected — removing it now...")
-                await del_45.first.click(force=True)
-                await self.page.wait_for_timeout(500)
-
-            # 3. Safety Guard: Ensure all 3 target containers are selected and weights filled
-            for ct in target_containers:
-                del_btn = self.page.locator(f'button.delete[aria-label*="{ct}" i]')
-                if await del_btn.count() == 0 or not await del_btn.first.is_visible():
-                    print(f"[CMA] [PRE-SUBMIT GUARD] Target container '{ct}' was not selected! Adding it...")
-                    await add_cma_container(ct)
-                    await self.page.wait_for_timeout(500)
-                    await self._set_cma_cargo_weight(weight_kg, ct)
-
-            # 4. Final Absolute Guard: Re-confirm 45' Dry High Cube is deleted right before clicking submit
-            try:
-                final_del_45 = self.page.locator('button.delete[aria-label*="45" i], div.content:has-text("45\'") button.delete, li:has-text("45\'") button.delete, button[aria-label*="Delete 45" i]')
-                if await final_del_45.count() > 0 and await final_del_45.first.is_visible():
-                    print("[CMA] [FINAL PRE-SUBMIT GUARD] Re-removing 45' Dry High Cube right before submit...")
-                    await final_del_45.first.click(force=True)
-                    await self.page.wait_for_timeout(400)
-
-                # DOM JS check to guarantee NO selected card with 45 remains
-                removed_via_js = await self.page.evaluate('''() => {
-                    let clicked = false;
-                    const elements = Array.from(document.querySelectorAll('li, div.content, div.container-card, [class*="container"]'));
-                    for (const el of elements) {
-                        const txt = (el.innerText || el.textContent || '').trim();
-                        if (txt.includes("45'") || txt.includes("45 Dry") || txt.includes("45HC")) {
-                            const delBtn = el.querySelector('button.delete, button[aria-label*="delete" i], button[aria-label*="45" i], .icon-delete, [class*="delete"]');
-                            if (delBtn) {
-                                delBtn.click();
-                                clicked = true;
-                            }
-                        }
-                    }
-                    return clicked;
-                }''')
-                if removed_via_js:
-                    print("[CMA] [FINAL PRE-SUBMIT GUARD] JS evaluation removed 45' Dry High Cube container!")
-                    await self.page.wait_for_timeout(400)
-            except Exception as e:
-                print(f"[CMA] Pre-submit 45 guard note: {e}")
+            await self.page.wait_for_timeout(500)
 
             # --- SUBMIT ---
             print("[CMA] Clicking 'Get My Quote'...")
