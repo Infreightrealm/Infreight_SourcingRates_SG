@@ -1523,16 +1523,44 @@ class CMAConnector(BaseCarrierConnector):
                     await self._set_cma_cargo_weight(weight_kg, ct)
 
             # 4. Final Absolute Guard: Re-confirm 45' Dry High Cube is deleted right before clicking submit
-            if await del_45.count() > 0 and await del_45.first.is_visible():
-                print("[CMA] [FINAL PRE-SUBMIT GUARD] Re-removing 45' Dry High Cube right before submit...")
-                await del_45.first.click(force=True)
-                await self.page.wait_for_timeout(400)
+            try:
+                final_del_45 = self.page.locator('button.delete[aria-label*="45" i], div.content:has-text("45\'") button.delete, li:has-text("45\'") button.delete, button[aria-label*="Delete 45" i]')
+                if await final_del_45.count() > 0 and await final_del_45.first.is_visible():
+                    print("[CMA] [FINAL PRE-SUBMIT GUARD] Re-removing 45' Dry High Cube right before submit...")
+                    await final_del_45.first.click(force=True)
+                    await self.page.wait_for_timeout(400)
+
+                # DOM JS check to guarantee NO selected card with 45 remains
+                removed_via_js = await self.page.evaluate('''() => {
+                    let clicked = false;
+                    const elements = Array.from(document.querySelectorAll('li, div.content, div.container-card, [class*="container"]'));
+                    for (const el of elements) {
+                        const txt = (el.innerText || el.textContent || '').trim();
+                        if (txt.includes("45'") || txt.includes("45 Dry") || txt.includes("45HC")) {
+                            const delBtn = el.querySelector('button.delete, button[aria-label*="delete" i], button[aria-label*="45" i], .icon-delete, [class*="delete"]');
+                            if (delBtn) {
+                                delBtn.click();
+                                clicked = true;
+                            }
+                        }
+                    }
+                    return clicked;
+                }''')
+                if removed_via_js:
+                    print("[CMA] [FINAL PRE-SUBMIT GUARD] JS evaluation removed 45' Dry High Cube container!")
+                    await self.page.wait_for_timeout(400)
+            except Exception as e:
+                print(f"[CMA] Pre-submit 45 guard note: {e}")
 
             # --- SUBMIT ---
             print("[CMA] Clicking 'Get My Quote'...")
             try:
                 submit_btn = self.page.locator('button:has-text("Get My Quote")').first
-                await self._hover_and_click(submit_btn)
+                await submit_btn.scroll_into_view_if_needed(timeout=3000)
+                try:
+                    await submit_btn.click(timeout=3000)
+                except Exception:
+                    await submit_btn.evaluate("el => el.click()")
                 print("[CMA] Search submitted!")
                 await self._human_delay(5000, 8000)
             except Exception as e:
