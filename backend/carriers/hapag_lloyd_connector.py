@@ -202,6 +202,8 @@ class HapagLloydConnector(BaseCarrierConnector):
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-infobars",
+            "--disable-session-crashed-bubble",
+            "--hide-crash-restore-bubble",
             "--disable-component-update",
             "--disable-default-apps",
             "--disable-background-timer-throttling",
@@ -841,10 +843,12 @@ class HapagLloydConnector(BaseCarrierConnector):
                 # Also print a status update every 5 seconds
                 elapsed = int(asyncio.get_event_loop().time() - settle_start_time)
                 if elapsed > 0 and elapsed % 5 == 0:
+                    is_prod_env = os.name != "nt"
+                    target_disp = "in VNC" if is_prod_env else "in visible Chrome window on your screen"
                     if self.captcha_detected:
-                        print(f"[HAPAG] [ACTION REQUIRED] Still blocked by CAPTCHA/Turnstile. Please solve it in the VNC window. (elapsed {elapsed}s)")
+                        print(f"[HAPAG] [ACTION REQUIRED] Still blocked by CAPTCHA/Turnstile. Please solve it {target_disp}. (elapsed {elapsed}s)")
                     else:
-                        print(f"[HAPAG] Still waiting for page to settle... (elapsed {elapsed}s). Solve Cloudflare in VNC if prompted.")
+                        print(f"[HAPAG] Still waiting for page to settle... (elapsed {elapsed}s). Solve Cloudflare {target_disp} if prompted.")
 
                 # Check for active challenge/captcha
                 await self._wait_for_captcha_resolution()
