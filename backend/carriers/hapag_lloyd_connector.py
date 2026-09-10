@@ -766,23 +766,47 @@ class HapagLloydConnector(BaseCarrierConnector):
                 else:
                     print("[HAPAG] On login page. Skipping sidebar clicks.")
             else:
+                # Check for prominent 'Log In' button (e.g. top-right on home.html)
                 try:
-                    # Expand Quote Sidebar
-                    print("[HAPAG] Expanding 'Quote' sidebar menu...")
-                    quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
-                    if await quote_sidebar.is_visible(timeout=5000):
-                        await quote_sidebar.scroll_into_view_if_needed()
-                        await quote_sidebar.click(force=True)
-                        await self._human_delay(1000, 1800)
-
-                        # Click 'New Quote'
-                        print("[HAPAG] Clicking 'New Quote' sub-menu...")
-                        new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
-                        await new_quote_btn.scroll_into_view_if_needed()
-                        await new_quote_btn.click(force=True)
+                    login_btn = self.page.locator('a:has-text("Log In"), a:has-text("Log in"), button:has-text("Log In"), button:has-text("Log in"), [class*="login" i]:has-text("Log"), [href*="login" i]').first
+                    if await login_btn.is_visible(timeout=2000):
+                        print("[HAPAG] 'Log In' button detected on page. Clicking to navigate to login portal...")
+                        await login_btn.scroll_into_view_if_needed()
+                        await login_btn.click(force=True)
                         await self._human_delay(1500, 2500)
-                except Exception as sidebar_err:
-                    print(f"[HAPAG] Sidebar navigation encountered error (likely redirecting to login): {sidebar_err}")
+                except Exception as login_btn_err:
+                    print(f"[HAPAG] Error clicking 'Log In' button: {login_btn_err}")
+
+                # If still not on login page, also try expanding Quote sidebar
+                if not "identity.hapag-lloyd.com" in self.page.url:
+                    try:
+                        # Expand Quote Sidebar
+                        print("[HAPAG] Expanding 'Quote' sidebar menu...")
+                        quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+                        if await quote_sidebar.is_visible(timeout=3000):
+                            await quote_sidebar.scroll_into_view_if_needed()
+                            await quote_sidebar.click(force=True)
+                            await self._human_delay(1000, 1800)
+
+                            # Click 'New Quote'
+                            print("[HAPAG] Clicking 'New Quote' sub-menu...")
+                            new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+                            if await new_quote_btn.is_visible(timeout=2000):
+                                await new_quote_btn.scroll_into_view_if_needed()
+                                await new_quote_btn.click(force=True)
+                                await self._human_delay(1500, 2500)
+                    except Exception as sidebar_err:
+                        print(f"[HAPAG] Sidebar navigation encountered error: {sidebar_err}")
+
+                # If still on home.html, directly navigate to SEARCH_URL
+                if "home.html" in (self.page.url or "") and not "identity.hapag-lloyd.com" in (self.page.url or ""):
+                    print(f"[HAPAG] Navigating directly to Quick Quotes URL: {self.SEARCH_URL}")
+                    try:
+                        await self.page.goto(self.SEARCH_URL, timeout=30000)
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+                        await self._human_delay(1000, 2000)
+                    except Exception as goto_err:
+                        print(f"[HAPAG] Direct navigation to SEARCH_URL error: {goto_err}")
 
             # Wait for either the login form (credentials required) or the Quick Quote page (already logged in) to settle
             print("[HAPAG] Waiting for page to settle (up to 180s) to detect if login is required or already logged in...")
@@ -840,8 +864,29 @@ class HapagLloydConnector(BaseCarrierConnector):
                     settled = True
                     break
 
-                # Also print a status update every 5 seconds
+                # If still on home.html or any page with a visible 'Log In' button, click it
+                try:
+                    login_btn = self.page.locator('a:has-text("Log In"), a:has-text("Log in"), button:has-text("Log In"), button:has-text("Log in"), [class*="login" i]:has-text("Log")').first
+                    if await login_btn.is_visible(timeout=300):
+                        print("[HAPAG] Found visible 'Log In' button during settle check. Clicking it...")
+                        await login_btn.click(force=True)
+                        await self._human_delay(1500, 2500)
+                        continue
+                except Exception:
+                    pass
+
+                # If stuck on home.html after 5s, navigate directly to SEARCH_URL
                 elapsed = int(asyncio.get_event_loop().time() - settle_start_time)
+                if elapsed >= 5 and "home.html" in (self.page.url or "") and not "identity.hapag-lloyd.com" in (self.page.url or ""):
+                    print("[HAPAG] Settle loop still on home.html. Navigating directly to Quick Quotes...")
+                    try:
+                        await self.page.goto(self.SEARCH_URL, timeout=30000)
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+                        await self._human_delay(1000, 2000)
+                    except Exception:
+                        pass
+
+                # Also print a status update every 5 seconds
                 if elapsed > 0 and elapsed % 5 == 0:
                     is_prod_env = os.name != "nt"
                     target_disp = "in VNC" if is_prod_env else "in visible Chrome window on your screen"
