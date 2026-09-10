@@ -875,6 +875,20 @@ class CMAConnector(BaseCarrierConnector):
                     break
 
             if pod_field:
+                # Check if Route/POD is already selected/populated
+                val = ""
+                try:
+                    val = await pod_field.input_value(timeout=300)
+                except Exception:
+                    try:
+                        val = await pod_field.inner_text(timeout=300)
+                    except Exception:
+                        pass
+                val_clean = val.strip().upper()
+                if val_clean and not any(bad in val_clean for bad in ["SELECT", "CHOOSE", "PLEASE"]) and len(val_clean) >= 3:
+                    print(f"[CMA] Route/POD already populated: '{val.strip()}' - skipping re-opening.")
+                    return True
+
                 print("[CMA] Opening Route/POD dropdown...")
                 await pod_field.scroll_into_view_if_needed(timeout=3000)
                 await pod_field.click(force=True)
@@ -916,8 +930,13 @@ class CMAConnector(BaseCarrierConnector):
                 if chosen_item:
                     inner_text = (await chosen_item.inner_text()).strip()
                     print(f"[CMA] [SUCCESS] Selected Route/POD option: '{inner_text}'")
-                    await self._hover_and_click(chosen_item)
-                    await self.page.wait_for_timeout(800)
+                    # Direct click without random mouse moves across the page
+                    try:
+                        await chosen_item.scroll_into_view_if_needed(timeout=2000)
+                        await chosen_item.click(timeout=2000)
+                    except Exception:
+                        await chosen_item.evaluate("el => el.click()")
+                    await self.page.wait_for_timeout(1000)
                     return True
                 else:
                     print("[CMA] [WARN] No valid Route/POD port option found in dropdown.")
@@ -1075,8 +1094,13 @@ class CMAConnector(BaseCarrierConnector):
                                     if chosen:
                                         c_text = (await chosen.inner_text()).strip()
                                         print(f"[CMA] [SUCCESS] Selected Route/POL/POD option: '{c_text}'")
-                                        await self._hover_and_click(chosen)
-                                        await self.page.wait_for_timeout(500)
+                                        # Direct click without random mouse moves across the page
+                                        try:
+                                            await chosen.scroll_into_view_if_needed(timeout=2000)
+                                            await chosen.click(timeout=2000)
+                                        except Exception:
+                                            await chosen.evaluate("el => el.click()")
+                                        await self.page.wait_for_timeout(1000)
                                         return True
                 except Exception:
                     pass
@@ -1317,10 +1341,14 @@ class CMAConnector(BaseCarrierConnector):
             print(f"[CMA] Destination selected: {dest_locode}")
 
             # Allow form rules to render any dynamic Route / POL / POD fields
-            await self.page.wait_for_timeout(1500)
-
-            # --- IMMEDIATE ROUTE / POL / POD SELECTION (e.g. Ho Chi Minh -> Detroit requiring Route * via Vancouver) ---
-            await self._handle_cma_pol_pod_prompts()
+            print("[CMA] Checking for dynamic Route / POL / POD prompts or Ramp requirements...")
+            for wait_idx in range(6):
+                await self.page.wait_for_timeout(800)
+                handled = await self._handle_cma_pol_pod_prompts()
+                if handled:
+                    print(f"[CMA] Dynamic Route/POD prompt handled immediately after Destination selection (pass {wait_idx + 1}).")
+                    await self.page.wait_for_timeout(1500)
+                    break
 
             # --- IMMEDIATE FORM RAMP BANNER CHECK ---
             await self.page.wait_for_timeout(1000)
@@ -1465,14 +1493,19 @@ class CMAConnector(BaseCarrierConnector):
             await self._handle_cma_customer_account_role()
 
             # --- PRE-SUBMIT GUARDS ---
-            # 1. Safety Guard: Ensure 45' Dry High Cube is NEVER selected before submit
-            del_45 = self.page.locator('button.delete[aria-label*="45" i]')
+            # 1. Safety Guard: Ensure any Route / POL / POD field is completed before container finalization
+            handled_late_route = await self._handle_cma_pol_pod_prompts()
+            if handled_late_route:
+                await self.page.wait_for_timeout(1000)
+
+            # 2. Safety Guard: Ensure 45' Dry High Cube is NEVER selected before submit
+            del_45 = self.page.locator('button.delete[aria-label*="45" i], div.content:has-text("45\'") button.delete')
             if await del_45.count() > 0 and await del_45.first.is_visible():
                 print("[CMA] [PRE-SUBMIT GUARD] 45' Dry High Cube detected as selected — removing it now...")
                 await del_45.first.click(force=True)
                 await self.page.wait_for_timeout(500)
 
-            # 2. Safety Guard: Ensure all 3 target containers are selected and weights filled
+            # 3. Safety Guard: Ensure all 3 target containers are selected and weights filled
             for ct in target_containers:
                 del_btn = self.page.locator(f'button.delete[aria-label*="{ct}" i]')
                 if await del_btn.count() == 0 or not await del_btn.first.is_visible():
@@ -1481,8 +1514,11 @@ class CMAConnector(BaseCarrierConnector):
                     await self.page.wait_for_timeout(500)
                     await self._set_cma_cargo_weight(weight_kg, ct)
 
-            # 3. Safety Guard: Ensure any Route / POL / POD field is completed before submitting
-            await self._handle_cma_pol_pod_prompts()
+            # 4. Final Absolute Guard: Re-confirm 45' Dry High Cube is deleted right before clicking submit
+            if await del_45.count() > 0 and await del_45.first.is_visible():
+                print("[CMA] [FINAL PRE-SUBMIT GUARD] Re-removing 45' Dry High Cube right before submit...")
+                await del_45.first.click(force=True)
+                await self.page.wait_for_timeout(400)
 
             # --- SUBMIT ---
             print("[CMA] Clicking 'Get My Quote'...")
