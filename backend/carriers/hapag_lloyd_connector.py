@@ -41,7 +41,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
     def __init__(self):
         super().__init__()
-        self.SEARCH_URL = "https://www.hapag-lloyd.com/en/online-business/quotation/quick-quotes.html"
+        self.SEARCH_URL = "https://www.hapag-lloyd.com/solutions/new-quote/#/simple?language=en"
         self.playwright = None
         self._all_quotes = []
         self._cached_quotes = []
@@ -627,6 +627,7 @@ class HapagLloydConnector(BaseCarrierConnector):
     async def _ensure_on_quote_form(self) -> bool:
         """Ensures the browser is actively on the Quick Quote form (SPA)."""
         start_selectors = [
+            'input[aria-label*="Start Location" i]',
             'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
             'input[placeholder*="Start" i]',
             '[id*="start" i] input',
@@ -644,13 +645,12 @@ class HapagLloydConnector(BaseCarrierConnector):
 
         print("[HAPAG] Opening Quick Quote form...")
         
-        # If not currently on quick quotes page, navigate directly to SEARCH_URL
+        # If not currently on new-quote or quick quotes page, navigate directly to SEARCH_URL
         current_url = self.page.url or ""
-        if "quick-quotes" not in current_url:
+        if "new-quote" not in current_url and "quick-quotes" not in current_url:
             print(f"[HAPAG] Not on Quick Quotes URL (current: {current_url}). Navigating directly to {self.SEARCH_URL}...")
             try:
-                await self.page.goto(self.SEARCH_URL, timeout=30000)
-                await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+                await self.page.goto(self.SEARCH_URL, timeout=30000, wait_until="domcontentloaded")
                 await self._human_delay(1500, 2500)
             except Exception as e:
                 print(f"[HAPAG] Direct navigation to SEARCH_URL error: {e}")
@@ -686,20 +686,26 @@ class HapagLloydConnector(BaseCarrierConnector):
             except:
                 pass
 
-        # 2. Try sidebar Quote -> New Quote
+        # 2. Try sidebar Quote -> New Quote, or direct re-navigation if 404/not found
         try:
-            print("[HAPAG] Navigating via Quote sidebar -> New Quote...")
-            quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
-            if await quote_sidebar.is_visible(timeout=3000):
-                await quote_sidebar.scroll_into_view_if_needed()
-                await quote_sidebar.click(force=True)
-                await self._human_delay(800, 1500)
-
-            new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
-            if await new_quote_btn.is_visible(timeout=3000):
-                await new_quote_btn.scroll_into_view_if_needed()
-                await new_quote_btn.click(force=True)
+            cur_url = self.page.url or ""
+            if "not-found" in cur_url or "404" in cur_url or "home.html" in cur_url:
+                print(f"[HAPAG] Page is '{cur_url}'. Re-navigating to {self.SEARCH_URL}...")
+                await self.page.goto(self.SEARCH_URL, timeout=30000, wait_until="domcontentloaded")
                 await self._human_delay(1500, 2500)
+            else:
+                print("[HAPAG] Navigating via Quote sidebar -> New Quote...")
+                quote_sidebar = self.page.locator('span:has-text("Quote"), li:has-text("Quote"), a:has-text("Quote")').first
+                if await quote_sidebar.is_visible(timeout=3000):
+                    await quote_sidebar.scroll_into_view_if_needed()
+                    await quote_sidebar.click(force=True)
+                    await self._human_delay(800, 1500)
+
+                new_quote_btn = self.page.locator('a:has-text("New Quote"), span:has-text("New Quote")').first
+                if await new_quote_btn.is_visible(timeout=3000):
+                    await new_quote_btn.scroll_into_view_if_needed()
+                    await new_quote_btn.click(force=True)
+                    await self._human_delay(1500, 2500)
         except Exception as e:
             print(f"[HAPAG] Sidebar click error: {e}")
 
@@ -867,6 +873,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                 # Check for quick quote form selectors (already logged in)
                 quote_selectors = [
+                    'input[aria-label*="Start Location" i]',
                     'input[placeholder*="Start" i]',
                     '[id*="start" i] input',
                     '[class*="start" i] input',
@@ -1068,6 +1075,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             try:
                 print("[HAPAG] Confirming Quick Quote form loading...")
                 quote_selectors = [
+                    'input[aria-label*="Start Location" i]',
                     'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
                     'input[placeholder*="Start" i]',
                     '[id*="start" i] input',
@@ -1086,11 +1094,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
                 # Check current URL immediately: if login is complete (no longer on identity portal), navigate to Quick Quotes
                 cur_url = self.page.url or ""
-                if "identity.hapag-lloyd.com" not in cur_url and ("quick-quotes" not in cur_url or "home.html" in cur_url):
+                if "identity.hapag-lloyd.com" not in cur_url and ("new-quote" not in cur_url and "quick-quotes" not in cur_url or "home.html" in cur_url):
                     print(f"[HAPAG] Current URL is '{cur_url}'. Navigating directly to Quick Quotes: {self.SEARCH_URL}")
                     try:
-                        await self.page.goto(self.SEARCH_URL, timeout=30000)
-                        await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+                        await self.page.goto(self.SEARCH_URL, timeout=30000, wait_until="domcontentloaded")
                         await self._human_delay(1500, 2500)
                     except Exception as nav_e:
                         print(f"[HAPAG] Navigation to Quick Quotes error: {nav_e}")
@@ -1101,11 +1108,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                     
                     # If we left login portal and are on home.html or outside quick-quotes, navigate
                     if "identity.hapag-lloyd.com" not in cur_url:
-                        if "home.html" in cur_url or "quick-quotes" not in cur_url:
+                        if "home.html" in cur_url or ("new-quote" not in cur_url and "quick-quotes" not in cur_url):
                             print(f"[HAPAG] Post-login URL '{cur_url}' detected. Navigating to Quick Quotes: {self.SEARCH_URL}")
                             try:
-                                await self.page.goto(self.SEARCH_URL, timeout=30000)
-                                await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+                                await self.page.goto(self.SEARCH_URL, timeout=30000, wait_until="domcontentloaded")
                                 await self._human_delay(1500, 2500)
                             except Exception as nav_e:
                                 print(f"[HAPAG] Nav error: {nav_e}")
@@ -2310,6 +2316,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Find Start Location text input
             start_selectors = [
+                'input[aria-label*="Start Location" i]',
                 'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
                 'input[placeholder*="Start" i]',
                 'input[placeholder*="Origin" i]',
@@ -2398,6 +2405,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             # Find End Location text input
             end_selectors = [
+                'input[aria-label*="End Location" i]',
                 'xpath=(//*[contains(text(), "End Location")])[1]/following::input[1]',
                 'input[placeholder*="End" i]',
                 'input[placeholder*="Destination" i]',
@@ -2473,6 +2481,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             # Always select container type — Hapag default is 20' GP, not 40' HC
             try:
                 container_selectors = [
+                    'input[aria-label*="Container Type" i]',
                     'input.q-select__focus-target',
                     'xpath=(//input[contains(@class, "q-select__focus-target")])[1]',
                     'div[role="combobox"] input',
@@ -2530,6 +2539,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] Setting Container Quantity: {request.container_quantity}")
             try:
                 qty_selectors = [
+                    'input[aria-label*="Container Quantity" i]',
                     'xpath=(//input[@type="number"])[1]',
                     'input[type="number"]',
                     'div:has-text("Container Quantity") input[type="number"]'
@@ -2563,6 +2573,7 @@ class HapagLloydConnector(BaseCarrierConnector):
             print(f"[HAPAG] Setting Cargo Weight: {weight_val} kg")
             try:
                 weight_selectors = [
+                    'input[aria-label*="Weight per Container" i]',
                     'xpath=(//input[@type="number"])[2]',
                     'xpath=(//input[@type="number" or @class="q-field__native q-placeholder"])[2]',
                     'div:has-text("Weight per Container") input[type="number"]'
@@ -2669,9 +2680,19 @@ class HapagLloydConnector(BaseCarrierConnector):
                     except Exception as ss_err:
                         print(f"[HAPAG] Diagnostic screenshot failed: {ss_err}")
                 
+                # Check and dismiss results overlay modal (e.g. Customize Your Price Breakdown)
+                try:
+                    close_btn = self.page.locator('button:has-text("Close"), .q-dialog button:has-text("Close")').first
+                    if await close_btn.is_visible(timeout=200):
+                        print("[HAPAG] Dismissing results overlay/modal (Close button)...")
+                        await close_btn.click()
+                        await self._human_delay(400, 800)
+                except Exception:
+                    pass
+
                 # Check if results are visible
                 try:
-                    # Check for date format YYYY-MM-DD or Price Breakdown or Select button
+                    # Check for date format YYYY-MM-DD or Price Breakdown or Select button or QUICK QUOTES
                     results_selectors = [
                         'text=/\\d{4}-\\d{2}-\\d{2}/',
                         'text=/\\d{2}\\.\\d{2}\\.\\d{4}/',
@@ -2681,7 +2702,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                         '[class*="sailing" i]',
                         '[class*="price" i]',
                         'button:has-text("Select")',
-                        'button:has-text("Price Breakdown")'
+                        'button:has-text("Price Breakdown")',
+                        'text="QUICK QUOTES"'
                     ]
                     
                     found_selector = None
@@ -2721,14 +2743,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                         print("[HAPAG] Hapag-Lloyd anti-bot blocked the request (Service is currently unavailable popup detected).")
                         no_rates_found = True
                         break
-                    if any(msg in text_lower for msg in [
-                        "no result", 
-                        "no schedule", 
-                        "no rate",
-                        "no offer",
+                    if not results_found and any(msg in text_lower for msg in [
                         "no routing found",
-                        "could not be found",
-                        "is not available"
+                        "no schedule found",
+                        "no schedules found",
+                        "no rates available",
+                        "no quotes available",
+                        "we are unable to provide a quote",
+                        "there are no results for your search"
                     ]):
                         print("[HAPAG] Explicitly reported: No quotes available.")
                         no_rates_found = True
