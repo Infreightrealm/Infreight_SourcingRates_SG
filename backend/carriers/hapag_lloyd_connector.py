@@ -391,7 +391,9 @@ class HapagLloydConnector(BaseCarrierConnector):
             if any(k in str(e).lower() for k in ("closed", "crashed", "target")):
                 raise
 
-        print("[HAPAG] [ACTION REQUIRED] CAPTCHA / bot challenge page detected! Pausing crawler. Please look at the VNC tab to solve it.")
+        is_prod_env = os.name != "nt"
+        target_disp = "the VNC tab" if is_prod_env else "the visible Chrome window on your screen"
+        print(f"[HAPAG] [ACTION REQUIRED] CAPTCHA / bot challenge page detected! Pausing crawler. Please look at {target_disp} to solve it.")
         
         # Trigger WAITING_FOR_HUMAN_VERIFICATION status in DB
         self.captcha_detected = True
@@ -405,7 +407,8 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             elapsed = int(asyncio.get_event_loop().time() - start_time)
             if elapsed > 0 and elapsed % 5 == 0:
-                print(f"[HAPAG] Still waiting for CAPTCHA resolution in VNC window... ({elapsed}s elapsed)")
+                target_win = "in VNC window" if is_prod_env else "in visible Chrome window"
+                print(f"[HAPAG] Still waiting for CAPTCHA resolution {target_win}... ({elapsed}s elapsed)")
 
             await asyncio.sleep(1.0)
 
@@ -641,6 +644,27 @@ class HapagLloydConnector(BaseCarrierConnector):
 
         print("[HAPAG] Opening Quick Quote form...")
         
+        # If not currently on quick quotes page, navigate directly to SEARCH_URL
+        current_url = self.page.url or ""
+        if "quick-quotes" not in current_url:
+            print(f"[HAPAG] Not on Quick Quotes URL (current: {current_url}). Navigating directly to {self.SEARCH_URL}...")
+            try:
+                await self.page.goto(self.SEARCH_URL, timeout=30000)
+                await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+                await self._human_delay(1500, 2500)
+            except Exception as e:
+                print(f"[HAPAG] Direct navigation to SEARCH_URL error: {e}")
+
+        # Check if form appeared after direct navigation
+        for sel in start_selectors:
+            try:
+                loc = self.page.locator(sel).first
+                if await loc.is_visible(timeout=1000):
+                    await self._dismiss_hapag_modals()
+                    return True
+            except:
+                pass
+
         # 1. Try clicking 'Get your quote' button on marketing page (quick-quotes.html)
         try:
             get_quote_btn = self.page.locator('a:has-text("Get your quote"), button:has-text("Get your quote"), a:has-text("Get a quote"), a[href*="quick-quotes"]').first
@@ -741,13 +765,13 @@ class HapagLloydConnector(BaseCarrierConnector):
             except Exception:
                 pass
 
-            # Check if already logged in (look for sign-out or profile buttons)
+            # Check if already logged in (look for sign-out or profile buttons / user avatar)
             is_logged_in = False
             try:
-                signout_loc = self.page.locator('a:has-text("Log out"), button:has-text("Log out"), button:has-text("Sign out")')
+                signout_loc = self.page.locator('a:has-text("Log out"), button:has-text("Log out"), button:has-text("Sign out"), [class*="user-profile" i], [class*="avatar" i], [class*="user-menu" i], text="INFREIGHT LOGISTICS"')
                 if await signout_loc.count() > 0 and await signout_loc.first.is_visible(timeout=1000):
                     is_logged_in = True
-                    print("[HAPAG] Already logged in.")
+                    print("[HAPAG] Already logged in (profile/sign-out element detected).")
             except:
                 pass
 
@@ -1044,22 +1068,62 @@ class HapagLloydConnector(BaseCarrierConnector):
             try:
                 print("[HAPAG] Confirming Quick Quote form loading...")
                 quote_selectors = [
+                    'xpath=(//*[contains(text(), "Start Location")])[1]/following::input[1]',
+                    'input[placeholder*="Start" i]',
+                    '[id*="start" i] input',
+                    '[class*="start" i] input',
+                    'input[placeholder*="Origin" i]',
                     'text="Start Location"',
                     'text="End Location"',
                     'text="New Quote"',
-                    'input[placeholder*="Start" i]',
                     'div:has-text("Start Location")'
                 ]
                 
                 form_loaded = False
                 confirm_start_time = asyncio.get_event_loop().time()
+                is_prod_env = os.name != "nt"
+                target_disp = "in VNC" if is_prod_env else "in visible Chrome window on your screen"
                 
+                # Check current URL immediately: if login is complete (no longer on identity portal), navigate to Quick Quotes
+                cur_url = self.page.url or ""
+                if "identity.hapag-lloyd.com" not in cur_url and ("quick-quotes" not in cur_url or "home.html" in cur_url):
+                    print(f"[HAPAG] Current URL is '{cur_url}'. Navigating directly to Quick Quotes: {self.SEARCH_URL}")
+                    try:
+                        await self.page.goto(self.SEARCH_URL, timeout=30000)
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+                        await self._human_delay(1500, 2500)
+                    except Exception as nav_e:
+                        print(f"[HAPAG] Navigation to Quick Quotes error: {nav_e}")
+
                 # Poll for up to 240 seconds (4 minutes) for redirect/loading of the Quote form (handling 2FA human in the loop)
                 while asyncio.get_event_loop().time() - confirm_start_time < 240:
+                    cur_url = self.page.url or ""
+                    
+                    # If we left login portal and are on home.html or outside quick-quotes, navigate
+                    if "identity.hapag-lloyd.com" not in cur_url:
+                        if "home.html" in cur_url or "quick-quotes" not in cur_url:
+                            print(f"[HAPAG] Post-login URL '{cur_url}' detected. Navigating to Quick Quotes: {self.SEARCH_URL}")
+                            try:
+                                await self.page.goto(self.SEARCH_URL, timeout=30000)
+                                await self.page.wait_for_load_state("domcontentloaded", timeout=12000)
+                                await self._human_delay(1500, 2500)
+                            except Exception as nav_e:
+                                print(f"[HAPAG] Nav error: {nav_e}")
+                        elif "quick-quotes" in cur_url:
+                            # Try clicking "Get your quote" button if visible on landing page
+                            try:
+                                get_quote_btn = self.page.locator('a:has-text("Get your quote"), button:has-text("Get your quote"), a:has-text("Get a quote"), a[href*="quick-quotes"]').first
+                                if await get_quote_btn.is_visible(timeout=500):
+                                    print("[HAPAG] Clicking 'Get your quote' button on landing page...")
+                                    await get_quote_btn.click(force=True)
+                                    await self._human_delay(1500, 2500)
+                            except Exception:
+                                pass
+
                     for sel in quote_selectors:
                         try:
                             loc = self.page.locator(sel).first
-                            if await loc.is_visible():
+                            if await loc.is_visible(timeout=300):
                                 print(f"[HAPAG] Confirmed Quick Quote page loaded using: {sel}")
                                 form_loaded = True
                                 break
@@ -1071,9 +1135,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                     elapsed = int(asyncio.get_event_loop().time() - confirm_start_time)
                     if elapsed > 0 and elapsed % 5 == 0:
                         if self.captcha_detected:
-                            print(f"[HAPAG] [ACTION REQUIRED] Still blocked by CAPTCHA/Turnstile. Please solve it in the VNC window. (elapsed {elapsed}s)")
+                            print(f"[HAPAG] [ACTION REQUIRED] Still blocked by CAPTCHA/Turnstile. Please solve it {target_disp}. (elapsed {elapsed}s)")
                         else:
-                            print(f"[HAPAG] Still waiting for Quick Quote page to load... (elapsed {elapsed}s). Solve 2FA / Verification code in VNC if prompted.")
+                            print(f"[HAPAG] Still waiting for Quick Quote page to load... (elapsed {elapsed}s). Solve 2FA / Verification code {target_disp} if prompted.")
                         
                     # Check for active challenge/captcha
                     await self._wait_for_captcha_resolution()
@@ -1081,12 +1145,13 @@ class HapagLloydConnector(BaseCarrierConnector):
                 
                 if not form_loaded:
                     # Try a fallback general wait for any input, but make sure it is not the login page
-                    is_login_page = "identity.hapag-lloyd.com" in self.page.url
-                    for sel in login_selectors:
+                    is_login_page = "identity.hapag-lloyd.com" in (self.page.url or "")
+                    if not is_login_page:
                         try:
-                            if await self.page.locator(sel).first.is_visible(timeout=200):
-                                is_login_page = True
-                                break
+                            for sel in login_selectors:
+                                if await self.page.locator(sel).first.is_visible(timeout=200):
+                                    is_login_page = True
+                                    break
                         except:
                             pass
                             
