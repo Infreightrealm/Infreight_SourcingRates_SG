@@ -75,6 +75,7 @@ CARRIER_PORT_OVERRIDES = {
         "CAVAN": "Vancouver",
         "CATOR": "Toronto",
         "CACAL": "Calgary",
+        "CACLG": "Calgary",
         "CAMTR": "Montreal",
     },
     "greenx": {
