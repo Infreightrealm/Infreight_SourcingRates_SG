@@ -411,7 +411,15 @@ class CMAConnector(BaseCarrierConnector):
                 print(f"[CMA] Redirected to auth: {self.page.url}")
             except Exception:
                 print(f"[CMA] Redirect to auth page timed out or did not happen. Current URL: {self.page.url}")
-                # We might already be logged in or redirect was too fast
+                # We might already be logged in
+                origin_sel = 'input[placeholder*="Name / Code / Port" i], input[placeholder*="Origin" i], div:has(label:has-text("Origin")) input, input[name*="origin" i]'
+                try:
+                    if await self.page.locator(origin_sel).first.is_visible(timeout=3000):
+                        print("[CMA] Already logged in, quote form is loaded and ready.")
+                        self.is_login_successful = True
+                        return True
+                except Exception:
+                    pass
 
             # Login fields
             email_sel = 'input[type="email"], input[name="Email"], input[placeholder*="email" i], input[id*="email" i]'
@@ -2021,11 +2029,12 @@ class CMAConnector(BaseCarrierConnector):
 
         quotes: list[QuoteSchema] = []
         try:
-            # Step 1: Login
-            login_ok = await self.login()
-            if not login_ok:
-                self._cached_quotes_by_route[cache_key] = (CarrierResultStatus.LOGIN_FAILED, [])
-                return CarrierResultStatus.LOGIN_FAILED, []
+            # Step 1: Login if not already logged in
+            if not self.is_login_successful or not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
+                login_ok = await self.login()
+                if not login_ok:
+                    self._cached_quotes_by_route[cache_key] = (CarrierResultStatus.LOGIN_FAILED, [])
+                    return CarrierResultStatus.LOGIN_FAILED, []
 
             # Step 2: Search quotes (always searches 20' Dry, 40' Dry, and 40' Dry High Cube with quantity 1)
             search_status = await self.search_quotes(request)
