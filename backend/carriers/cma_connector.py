@@ -269,11 +269,15 @@ class CMAConnector(BaseCarrierConnector):
         password = os.getenv("CMA_PASSWORD") or os.getenv("CMA_CGM_PASSWORD") or "IFSGb2020"
 
         try:
-            await self._init_browser()
+            if not self.page:
+                await self._init_browser()
 
             # Step 1: Warm up session on homepage first (going straight to quote page triggers DataDome)
             print("[CMA] Warming up session on homepage...")
-            await self.page.goto("https://www.cma-cgm.com", wait_until="domcontentloaded")
+            try:
+                await self.page.goto("https://www.cma-cgm.com", timeout=20000, wait_until="domcontentloaded")
+            except Exception as warmup_err:
+                print(f"[CMA] Homepage warmup note (proceeding): {warmup_err}")
             await self._human_delay(2000, 4000)
             await self._random_mouse_move()
 
@@ -390,7 +394,10 @@ class CMAConnector(BaseCarrierConnector):
                     await self._human_delay(2000, 3000)
 
             print("[CMA] Navigating to quote form...")
-            await self.page.goto(self.QUOTE_URL, wait_until="domcontentloaded")
+            try:
+                await self.page.goto(self.QUOTE_URL, timeout=45000, wait_until="domcontentloaded")
+            except Exception as quote_nav_err:
+                print(f"[CMA] Quote form navigation note: {quote_nav_err}")
             await self._human_delay(4000, 7000)
 
             # Final check for CAPTCHA
@@ -399,7 +406,7 @@ class CMAConnector(BaseCarrierConnector):
                 print("[CMA] CAPTCHA appeared after login. Attempting to solve...")
                 await self._solve_datadome_slider()
 
-            origin_sel = 'input[placeholder*="Name / Code / Port" i]'
+            origin_sel = 'input[placeholder*="Name / Code / Port" i], input[placeholder*="Origin" i], div:has(label:has-text("Origin")) input, input[name*="origin" i]'
             try:
                 await self.page.wait_for_selector(origin_sel, timeout=20000)
                 print("[CMA] Login successful, form loaded.")
@@ -775,64 +782,84 @@ class CMAConnector(BaseCarrierConnector):
 
     async def _handle_cma_pod_selection(self, target_pod_locode: Optional[str] = None) -> bool:
         """
-        Handles selecting a POD (Port of Discharge) when CMA CGM destination is set to RAMP.
-        CMA CGM requires selecting a POD (e.g. Fujairah AEJFR or Khor Fakkan AEKLF for Jebel Ali AEJEA).
+        Handles selecting a Route / POD (Port of Discharge) when CMA CGM prompts for Route or when destination is set to RAMP.
+        CMA CGM requires selecting a Route/POD (e.g. Vancouver for Detroit/Chicago, or Fujairah/Khor Fakkan for Jebel Ali).
         """
         try:
-            print("[CMA] Looking for POD dropdown field...")
+            print("[CMA] Looking for Route / POD dropdown field...")
             pod_selectors = [
+                'div:has(label:has-text("Route")) .el-select',
+                'div:has(label:has-text("Route")) input',
+                'div:has(label:has-text("Route")) [class*="select" i]',
+                'xpath=//*[text()[contains(normalize-space(.), "Route")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
+                'xpath=//label[contains(text(), "Route")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
+                'xpath=//label[contains(text(), "Route")]/following::input[1]',
+                '.el-form-item:has(label:has-text("Route")) .el-select',
                 'div:has(label:has-text("POD")) .el-select',
                 'div:has(label:has-text("POD")) input',
                 'input[placeholder*="POD" i]',
+                'input[placeholder*="Port of Discharge" i]',
+                'xpath=//*[text()[contains(normalize-space(.), "POD")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
+                'xpath=//label[contains(text(), "POD")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
                 '.el-select:has-text("Select")',
             ]
             
             pod_field = None
             for sel in pod_selectors:
                 loc = self.page.locator(sel).first
-                if await loc.count() > 0 and await loc.is_visible(timeout=1000):
+                if await loc.count() > 0 and await loc.is_visible(timeout=500):
                     pod_field = loc
                     break
 
             if pod_field:
-                print("[CMA] Opening POD dropdown...")
+                print("[CMA] Opening Route/POD dropdown...")
                 await pod_field.scroll_into_view_if_needed(timeout=3000)
                 await pod_field.click(force=True)
-                await self.page.wait_for_timeout(1500)
+                await self.page.wait_for_timeout(1000)
                 
-                suggestion_sel = 'ul[role="listbox"] li:visible, .el-select-dropdown:visible .el-select-dropdown__item, li[role="option"]:visible'
+                suggestion_sel = 'ul[role="listbox"] li:visible, .el-select-dropdown:visible .el-select-dropdown__item:visible, li[role="option"]:visible, div[role="option"]:visible'
                 suggestions = self.page.locator(suggestion_sel)
                 count = await suggestions.count()
-                print(f"[CMA] Found {count} options in visible POD dropdown.")
+                print(f"[CMA] Found {count} options in visible Route/POD dropdown.")
                 
                 valid_pod_item = None
+                first_usable = None
                 for i in range(count):
                     item = suggestions.nth(i)
+                    if not await item.is_visible(timeout=300):
+                        continue
                     text = (await item.inner_text()).strip().upper()
                     
-                    # Ignore header menu links
-                    if any(bad in text for bad in ["CMA CGM", "SEARCH IN NEWS", "TRACKING", "VOYAGE", "ENGLISH", "FRANCAIS", "ESPAOL", "PORTUGUS"]):
+                    # Ignore header menu links / invalid options
+                    if not text or any(bad in text for bad in ["SELECT", "CMA CGM", "SEARCH IN NEWS", "TRACKING", "VOYAGE", "ENGLISH", "FRANCAIS", "ESPAOL", "PORTUGUS"]):
                         continue
                     
-                    # If specific target POD requested (e.g. AEJFR or AEKLF)
+                    if not first_usable:
+                        first_usable = item
+
+                    # If specific target POD requested (e.g. VANCOUVER, AEJFR, AEKLF, etc.)
                     if target_pod_locode and target_pod_locode.strip().upper() in text:
                         valid_pod_item = item
-                        print(f"[CMA] [SUCCESS] Found target POD option: '{await item.inner_text()}'")
+                        print(f"[CMA] [SUCCESS] Found target Route/POD option: '{await item.inner_text()}'")
                         break
                     
-                    # Otherwise pick first option containing a 5-letter locode or valid port
-                    if not valid_pod_item and (re.search(r'\([A-Z]{5}\)', text) or any(p in text for p in ["AEJFR", "AEKLF", "AEJEA", "AEKHL", "FUJAIRAH", "KHOR", "JEBEL", "KHALIFA"])):
+                    # Prefer standard coastal gateways if present (Vancouver for US Midwest/Detroit/Chicago)
+                    if any(p in text for p in ["VANCOUVER", "CAVAN", "PRINCE RUPERT", "CAPRR", "LOS ANGELES", "USLAX", "LONG BEACH", "USLGB", "AEJFR", "AEKLF", "AEJEA", "FUJAIRAH", "KHOR", "VUNG TAU", "VNVUT"]):
                         valid_pod_item = item
+                        print(f"[CMA] [SUCCESS] Matched preferred gateway Route/POD option: '{await item.inner_text()}'")
+                        break
 
-                if valid_pod_item:
-                    inner_text = (await valid_pod_item.inner_text()).strip()
-                    print(f"[CMA] [SUCCESS] Selected POD option: '{inner_text}'")
-                    await self._hover_and_click(valid_pod_item)
+                chosen_item = valid_pod_item or first_usable
+                if chosen_item:
+                    inner_text = (await chosen_item.inner_text()).strip()
+                    print(f"[CMA] [SUCCESS] Selected Route/POD option: '{inner_text}'")
+                    await self._hover_and_click(chosen_item)
+                    await self.page.wait_for_timeout(800)
                     return True
                 else:
-                    print("[CMA] [WARN] No valid POD port option found in dropdown.")
+                    print("[CMA] [WARN] No valid Route/POD port option found in dropdown.")
         except Exception as e:
-            print(f"[CMA] POD selection error: {e}")
+            print(f"[CMA] Route/POD selection error: {e}")
         return False
 
     async def _ensure_cma_location_type_ramp(self) -> bool:
@@ -876,11 +903,11 @@ class CMAConnector(BaseCarrierConnector):
             print(f"[CMA] Location type Ramp toggle note: {e}")
         return False
 
-    async def _handle_cma_pol_pod_prompts(self) -> bool:
+    async def _handle_cma_pol_pod_prompts(self, target_pod: Optional[str] = None) -> bool:
         """
-        Scans for POL (Port of Loading) or POD (Port of Discharge) dropdown prompts on CMA CGM SpotOn Search.
-        Certain inland/feeder routes (e.g. Pasir Gudang -> Ahmedabad or Ho Chi Minh Ramp.Door -> Southampton)
-        require selecting a coastal POL or POD (e.g. Vung Tau, Mundra, or Nhava Sheva).
+        Scans for Route, POL (Port of Loading), or POD (Port of Discharge) dropdown prompts on CMA CGM SpotOn Search.
+        Certain inland/feeder/intermodal routes (e.g. Ho Chi Minh -> Detroit MI requiring Route * via Vancouver/LA,
+        Pasir Gudang -> Ahmedabad, or Ho Chi Minh Ramp.Door -> Southampton) require selecting intermediate Route / POL / POD.
         """
         if not self.page:
             return False
@@ -888,24 +915,41 @@ class CMAConnector(BaseCarrierConnector):
         try:
             # First, check if Ramp toggle is needed
             await self._ensure_cma_location_type_ramp()
+            await self.page.wait_for_timeout(600)
 
-            # Look for visible POD / POL dropdown boxes or elements containing 'Select' near POD / POL labels
+            # 1. First delegate to dedicated Route / POD handler
+            if await self._handle_cma_pod_selection(target_pod_locode=target_pod):
+                await self.page.wait_for_timeout(500)
+                return True
+
+            # 2. Look for any visible Route / POD / POL dropdown boxes or elements containing 'Select'
             pod_pol_triggers = [
+                # Route triggers
+                'div:has(label:has-text("Route")) .el-select',
+                'div:has(label:has-text("Route")) input',
+                'div:has(label:has-text("Route")) [class*="select" i]',
+                'xpath=//*[text()[contains(normalize-space(.), "Route")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
+                'xpath=//label[contains(text(), "Route")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
+                'xpath=//label[contains(text(), "Route")]/following::input[1]',
+                '.el-form-item:has(label:has-text("Route")) .el-select',
+                # POL triggers
                 'xpath=//*[text()[contains(normalize-space(.), "POL")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
-                'xpath=//*[text()[contains(normalize-space(.), "POD")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
                 'xpath=//label[contains(text(), "POL")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
-                'xpath=//label[contains(text(), "POD")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
                 'div:has(label:has-text("POL")) .el-select',
-                'div:has(label:has-text("POD")) .el-select',
                 'div:has(label:has-text("POL")) input',
-                'div:has(label:has-text("POD")) input',
                 'input[placeholder*="Port of Loading" i]',
-                'input[placeholder*="Port of Discharge" i]',
                 'input[placeholder*="POL" i]',
-                'input[placeholder*="POD" i]',
                 '.el-select:has-text("Choose a POL")',
-                '.el-select:has-text("Select")',
                 'span:has-text("Choose a POL")',
+                # POD triggers
+                'xpath=//*[text()[contains(normalize-space(.), "POD")]]/following::*[contains(text(), "Select") or contains(@class, "select") or self::input][1]',
+                'xpath=//label[contains(text(), "POD")]/following::div[contains(@class, "select") or contains(text(), "Select")][1]',
+                'div:has(label:has-text("POD")) .el-select',
+                'div:has(label:has-text("POD")) input',
+                'input[placeholder*="Port of Discharge" i]',
+                'input[placeholder*="POD" i]',
+                # Generic unselected select triggers
+                '.el-select:has-text("Select")',
                 'span:has-text("Select")',
             ]
 
@@ -916,7 +960,7 @@ class CMAConnector(BaseCarrierConnector):
                     for i in range(count):
                         el = elements.nth(i)
                         if await el.is_visible(timeout=300):
-                            # Check if input already has a valid value (e.g. Vung Tau VNVUT, Mundra INMUN)
+                            # Check if input already has a valid value
                             val = ""
                             try:
                                 val = await el.input_value(timeout=300)
@@ -927,52 +971,55 @@ class CMAConnector(BaseCarrierConnector):
                             
                             val_clean = val.strip().upper()
                             if val_clean and not any(bad in val_clean for bad in ["SELECT", "CHOOSE"]) and len(val_clean) >= 3:
-                                print(f"[CMA] POL/POD already populated: '{val.strip()}' - skipping re-trigger.")
+                                print(f"[CMA] Route/POL/POD already populated: '{val.strip()}' - skipping re-trigger.")
                                 return True
 
-                            print(f"[CMA] [SPOTON POD/POL] Opening POL/POD dropdown trigger matching '{sel}'...")
+                            print(f"[CMA] [SPOTON ROUTE/POD/POL] Opening dropdown trigger matching '{sel}'...")
                             await el.scroll_into_view_if_needed(timeout=1000)
                             await el.click(force=True)
-                            await self.page.wait_for_timeout(500)
+                            await self.page.wait_for_timeout(800)
 
-                            # Target expanded options (e.g. Vung Tau VNVUT, Nhon Trach VNNHT, Mundra INMUN, Nhava Sheva INNSA, Khor Fakkan AEKLF, etc.)
                             option_selectors = [
-                                '.el-select-dropdown:visible .el-select-dropdown__item',
+                                '.el-select-dropdown:visible .el-select-dropdown__item:visible',
                                 'ul[role="listbox"] li:visible',
                                 'li[role="option"]:visible',
-                                'div[class*="option"]:visible',
-                                'li:has-text("Vung Tau")',
-                                'li:has-text("VNVUT")',
-                                'li:has-text("Nhon Trach")',
-                                'li:has-text("VNNHT")',
-                                'li:has-text("Mundra")',
-                                'li:has-text("Nhava Sheva")',
-                                'div:has-text("Vung Tau")',
-                                'div:has-text("VNVUT")',
-                                'div:has-text("Mundra")',
-                                'div:has-text("Nhava Sheva")',
-                                'li:has-text("INMUN")',
-                                'li:has-text("INNSA")',
+                                'div[role="option"]:visible',
                             ]
                             
                             for opt_sel in option_selectors:
                                 options = self.page.locator(opt_sel)
                                 opt_count = await options.count()
                                 if opt_count > 0:
+                                    best_opt = None
+                                    first_opt = None
                                     for j in range(opt_count):
                                         opt_item = options.nth(j)
                                         if await opt_item.is_visible(timeout=300):
                                             opt_text = (await opt_item.inner_text()).strip()
-                                            if opt_text and not any(bad in opt_text.upper() for bad in ["SELECT", "CMA CGM", "SEARCH"]):
-                                                print(f"[CMA] [SUCCESS] Selected POL/POD option: '{opt_text}'")
-                                                await self._hover_and_click(opt_item)
-                                                await self.page.wait_for_timeout(500)
-                                                return True # Return immediately once selected! No multi-trigger stutter!
-                except Exception as e_inner:
+                                            if not opt_text or any(bad in opt_text.upper() for bad in ["SELECT", "CMA CGM", "SEARCH", "CHOOSE"]):
+                                                continue
+                                            if not first_opt:
+                                                first_opt = opt_item
+                                            if target_pod and target_pod.upper() in opt_text.upper():
+                                                best_opt = opt_item
+                                                break
+                                            # Prioritize standard coastal gateways / feeder ports
+                                            if any(k in opt_text.upper() for k in ["VANCOUVER", "CAVAN", "PRINCE RUPERT", "CAPRR", "LOS ANGELES", "USLAX", "LONG BEACH", "USLGB", "VUNG TAU", "VNVUT", "MUNDRA", "NHAVA SHEVA", "AEKLF", "AEJFR"]):
+                                                best_opt = opt_item
+                                                break
+                                    
+                                    chosen = best_opt or first_opt
+                                    if chosen:
+                                        c_text = (await chosen.inner_text()).strip()
+                                        print(f"[CMA] [SUCCESS] Selected Route/POL/POD option: '{c_text}'")
+                                        await self._hover_and_click(chosen)
+                                        await self.page.wait_for_timeout(500)
+                                        return True
+                except Exception:
                     pass
             return False
         except Exception as e:
-            print(f"[CMA] Error handling POL/POD prompts: {e}")
+            print(f"[CMA] Error handling Route/POL/POD prompts: {e}")
             return False
 
     async def _clear_cma_destination_and_reselect_ramp(self, dest_locode: str, prefer_pod: Optional[str] = None) -> bool:
@@ -1206,7 +1253,10 @@ class CMAConnector(BaseCarrierConnector):
             
             print(f"[CMA] Destination selected: {dest_locode}")
 
-            # --- IMMEDIATE POL / POD SELECTION (e.g. Pasir Gudang -> Ahmedabad requiring coastal POD) ---
+            # Allow form rules to render any dynamic Route / POL / POD fields
+            await self.page.wait_for_timeout(1500)
+
+            # --- IMMEDIATE ROUTE / POL / POD SELECTION (e.g. Ho Chi Minh -> Detroit requiring Route * via Vancouver) ---
             await self._handle_cma_pol_pod_prompts()
 
             # --- IMMEDIATE FORM RAMP BANNER CHECK ---
@@ -1367,6 +1417,9 @@ class CMAConnector(BaseCarrierConnector):
                     await add_cma_container(ct)
                     await self.page.wait_for_timeout(500)
                     await self._set_cma_cargo_weight(weight_kg, ct)
+
+            # 3. Safety Guard: Ensure any Route / POL / POD field is completed before submitting
+            await self._handle_cma_pol_pod_prompts()
 
             # --- SUBMIT ---
             print("[CMA] Clicking 'Get My Quote'...")
