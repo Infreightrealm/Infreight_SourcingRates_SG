@@ -13,12 +13,12 @@
 :root {
   --radius: 0.75rem;
 
-  /* Surfaces */
-  --background: oklch(0.9821 0.0035 247.86);
+  /* Surfaces — Calibrated to comfortable normal brightness by default */
+  --background: oklch(0.962 0.0055 248);
   --foreground: oklch(0.2077 0.0398 265.75);
-  --card: oklch(1 0 0);
+  --card: oklch(0.998 0.001 248);
   --card-foreground: var(--foreground);
-  --popover: oklch(1 0 0);
+  --popover: oklch(0.998 0.001 248);
   --popover-foreground: var(--foreground);
 
   /* Brand — Infreight marine blue */
@@ -77,8 +77,8 @@
   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
 
   /* Ambient page decoration */
-  --bg-grid-color: rgba(15, 23, 42, 0.045);
-  --bg-glow-color: rgba(59, 130, 246, 0.16);
+  --bg-grid-color: rgba(15, 23, 42, 0.04);
+  --bg-glow-color: rgba(59, 130, 246, 0.08);
 }
 
 .dark {
@@ -776,6 +776,76 @@ body::after {
 [data-density="compact"] [data-table="rates"] :is(th, td) {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
+}
+
+/* ============================================================================
+   Brightness & Tone adjustments (applied via [data-brightness] on <html>)
+   ========================================================================= */
+
+/* --- Soft (Low Glare / Mellow Eye-Care) --- */
+[data-brightness="soft"] {
+  --background: oklch(0.942 0.007 246);
+  --card: oklch(0.982 0.003 246);
+  --popover: oklch(0.982 0.003 246);
+  --secondary: --alpha(var(--color-slate-900) / 7%);
+  --muted: --alpha(var(--color-slate-900) / 6%);
+  --border: --alpha(var(--color-slate-900) / 12%);
+  --bg-grid-color: rgba(15, 23, 42, 0.035);
+  --bg-glow-color: rgba(59, 130, 246, 0.05);
+}
+.dark[data-brightness="soft"] {
+  --background: #111827;
+  --card: #1c2436;
+  --popover: #202b3f;
+  --secondary: --alpha(var(--color-white) / 8%);
+  --muted: --alpha(var(--color-white) / 7%);
+  --border: --alpha(var(--color-white) / 11%);
+  --bg-grid-color: rgba(255, 255, 255, 0.035);
+  --bg-glow-color: rgba(59, 130, 246, 0.08);
+}
+
+/* --- Normal (Balanced Comfort - Default) --- */
+[data-brightness="normal"] {
+  --background: oklch(0.962 0.0055 248);
+  --card: oklch(0.998 0.001 248);
+  --popover: oklch(0.998 0.001 248);
+  --secondary: --alpha(var(--color-slate-900) / 5%);
+  --muted: --alpha(var(--color-slate-900) / 4%);
+  --border: --alpha(var(--color-slate-900) / 10%);
+  --bg-grid-color: rgba(15, 23, 42, 0.04);
+  --bg-glow-color: rgba(59, 130, 246, 0.08);
+}
+.dark[data-brightness="normal"] {
+  --background: #070b14;
+  --card: #0d1220;
+  --popover: #111828;
+  --secondary: --alpha(var(--color-white) / 6%);
+  --muted: --alpha(var(--color-white) / 5%);
+  --border: --alpha(var(--color-white) / 9%);
+  --bg-grid-color: rgba(255, 255, 255, 0.028);
+  --bg-glow-color: rgba(59, 130, 246, 0.1);
+}
+
+/* --- Vivid (High Clarity & Maximum Contrast) --- */
+[data-brightness="vivid"] {
+  --background: oklch(0.9821 0.0035 247.86);
+  --card: oklch(1 0 0);
+  --popover: oklch(1 0 0);
+  --secondary: --alpha(var(--color-slate-900) / 4%);
+  --muted: --alpha(var(--color-slate-900) / 3%);
+  --border: --alpha(var(--color-slate-900) / 8%);
+  --bg-grid-color: rgba(15, 23, 42, 0.05);
+  --bg-glow-color: rgba(59, 130, 246, 0.14);
+}
+.dark[data-brightness="vivid"] {
+  --background: #020408;
+  --card: #080c14;
+  --popover: #0b101c;
+  --secondary: --alpha(var(--color-white) / 5%);
+  --muted: --alpha(var(--color-white) / 4%);
+  --border: --alpha(var(--color-white) / 8%);
+  --bg-grid-color: rgba(255, 255, 255, 0.02);
+  --bg-glow-color: rgba(59, 130, 246, 0.08);
 }
 
 /* ============================================================================

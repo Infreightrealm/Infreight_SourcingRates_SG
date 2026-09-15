@@ -15,14 +15,17 @@ import {
   Pin,
   PlayCircle,
   RotateCcw,
+  Sparkles,
   Sun,
+  SunDim,
+  SunMedium,
   Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import UsageStats from "./UsageStats";
-import { ACCENTS, laneLabel, usePreferences, type SavedLane } from "@/lib/preferences";
+import { ACCENTS, BRIGHTNESS_LEVELS, laneLabel, usePreferences, type SavedLane } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 
 interface WorkspacePanelProps {
@@ -302,6 +305,72 @@ export default function WorkspacePanel({
                       <span className="text-xs font-medium text-foreground">{opt.label}</span>
                     </ChoiceCard>
                   ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Brightness &amp; Tone
+                  </p>
+                  <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-foreground">
+                    {prefs.brightness === "soft"
+                      ? "Soft (Eye-care)"
+                      : prefs.brightness === "vivid"
+                        ? "Vivid (High Contrast)"
+                        : "Normal (Default)"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {BRIGHTNESS_LEVELS.map((b) => {
+                    const selected = prefs.brightness === b.id;
+                    const isDark = theme === "dark";
+                    return (
+                      <ChoiceCard
+                        key={b.id}
+                        selected={selected}
+                        onClick={() => setPreferences({ brightness: b.id })}
+                      >
+                        <span className="text-muted-foreground [&_svg]:size-4">
+                          {b.id === "soft" ? <SunDim /> : b.id === "vivid" ? <Sparkles /> : <SunMedium />}
+                        </span>
+                        <div>
+                          <span className="block text-xs font-medium text-foreground">{b.label}</span>
+                          <span className="block text-[10px] text-muted-foreground leading-tight mt-0.5">
+                            {isDark ? b.darkDesc : b.lightDesc}
+                          </span>
+                        </div>
+                      </ChoiceCard>
+                    );
+                  })}
+                </div>
+                {/* Visual Brightness Slider */}
+                <div className="mt-2.5 rounded-xl border border-border bg-card/60 px-3.5 py-2.5">
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <SunDim className="size-3 text-muted-foreground" /> Soft
+                    </span>
+                    <span className="flex items-center gap-1 font-medium text-foreground">
+                      <SunMedium className="size-3 text-primary" /> Normal (Default)
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="size-3 text-amber-500" /> Vivid
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="3"
+                    step="1"
+                    value={prefs.brightness === "soft" ? 1 : prefs.brightness === "vivid" ? 3 : 2}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      const nextBrightness = v === 1 ? "soft" : v === 3 ? "vivid" : "normal";
+                      setPreferences({ brightness: nextBrightness });
+                    }}
+                    className="mt-2 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary focus:outline-none"
+                    aria-label="Adjust brightness level"
+                  />
                 </div>
               </div>
 

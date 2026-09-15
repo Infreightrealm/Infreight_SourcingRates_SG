@@ -107,7 +107,8 @@ function HomeContent() {
     const root = document.documentElement;
     root.dataset.accent = prefs.accent;
     root.dataset.density = prefs.density;
-  }, [prefs.accent, prefs.density]);
+    root.dataset.brightness = prefs.brightness;
+  }, [prefs.accent, prefs.density, prefs.brightness]);
 
   // Resume polling or restore batch results if search_ids or id is in URL on mount
   useEffect(() => {

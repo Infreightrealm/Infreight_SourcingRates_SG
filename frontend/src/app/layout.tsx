@@ -60,7 +60,21 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} min-h-screen overflow-x-hidden bg-background font-sans text-foreground antialiased transition-colors duration-300`}>
-
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const raw = localStorage.getItem('infreight.workspace.v1');
+                if (raw) {
+                  const p = JSON.parse(raw);
+                  if (p.accent) document.documentElement.dataset.accent = p.accent;
+                  if (p.density) document.documentElement.dataset.density = p.density;
+                  if (p.brightness) document.documentElement.dataset.brightness = p.brightness;
+                }
+              } catch (e) {}
+            `,
+          }}
+        />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

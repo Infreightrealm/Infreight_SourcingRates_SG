@@ -12,6 +12,39 @@ import { useCallback, useSyncExternalStore } from "react";
 
 export type AccentId = "marine" | "harbour" | "violet" | "sunset" | "graphite";
 export type Density = "comfortable" | "compact";
+export type BrightnessLevel = "soft" | "normal" | "vivid";
+
+export interface BrightnessOption {
+  id: BrightnessLevel;
+  label: string;
+  hint: string;
+  lightDesc: string;
+  darkDesc: string;
+}
+
+export const BRIGHTNESS_LEVELS: BrightnessOption[] = [
+  {
+    id: "soft",
+    label: "Soft",
+    hint: "Mellow & eye-friendly",
+    lightDesc: "Warm low-glare surface",
+    darkDesc: "Soft charcoal contrast",
+  },
+  {
+    id: "normal",
+    label: "Normal",
+    hint: "Balanced (Default)",
+    lightDesc: "Crisp cards on soft slate",
+    darkDesc: "Midnight navy slate",
+  },
+  {
+    id: "vivid",
+    label: "Vivid",
+    hint: "High clarity & contrast",
+    lightDesc: "Maximum daylight contrast",
+    darkDesc: "Deep OLED pitch black",
+  },
+];
 
 export interface SavedLane {
   id: string;
@@ -34,6 +67,7 @@ export interface Preferences {
   version: number;
   accent: AccentId;
   density: Density;
+  brightness: BrightnessLevel;
   panels: PanelVisibility;
   lanes: SavedLane[];
   /** Set once the launch intro has played; gates it to first visit. */
@@ -54,6 +88,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   version: 1,
   accent: "marine",
   density: "comfortable",
+  brightness: "normal",
   panels: { rfq: true, liveViewer: true, assistant: true },
   lanes: [],
   introSeen: false,
@@ -79,6 +114,10 @@ function coerce(raw: unknown): Preferences {
     version: DEFAULT_PREFERENCES.version,
     accent: isAccent(r.accent) ? r.accent : DEFAULT_PREFERENCES.accent,
     density: r.density === "compact" ? "compact" : "comfortable",
+    brightness:
+      r.brightness === "soft" || r.brightness === "vivid" || r.brightness === "normal"
+        ? r.brightness
+        : DEFAULT_PREFERENCES.brightness,
     panels: {
       rfq: panels.rfq !== false,
       liveViewer: panels.liveViewer !== false,
