@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, Building2, Save, Sliders, RefreshCw, Clock, MapPin } from "lucide-react";
+import { 
+  User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, 
+  Building2, Save, Sliders, RefreshCw, Clock, MapPin, BarChart3, TrendingUp, 
+  Award, AlertTriangle, CheckCircle2, DollarSign, Filter, ArrowUpRight, 
+  ArrowDownRight, Sparkles, Layers 
+} from "lucide-react";
 import { API_URL } from "@/lib/api";
 import PortAutocomplete from "@/components/PortAutocomplete";
 import { toast } from "sonner";
@@ -21,7 +26,16 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates">("users");
+  const [activeTab, setActiveTab] = useState<"analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates">("analytics");
+
+  // Consolidated Analytics state
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [analyticsTimeRange, setAnalyticsTimeRange] = useState<"all" | "30d" | "14d" | "7d" | "today">("all");
+  const [analyticsUserFilter, setAnalyticsUserFilter] = useState<string>("all");
+  const [analyticsCarrierFilter, setAnalyticsCarrierFilter] = useState<string>("all");
+  const [hoveredDay, setHoveredDay] = useState<number | null>(null);
+  const [laneSearchQuery, setLaneSearchQuery] = useState<string>("");
 
   // Ports config state
   const [popularPorts, setPopularPorts] = useState<string[]>([]);
@@ -133,9 +147,33 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchAnalytics = async (
+    timeRange = analyticsTimeRange,
+    userFilter = analyticsUserFilter,
+    carrierFilter = analyticsCarrierFilter
+  ) => {
+    setLoadingAnalytics(true);
+    try {
+      const { getAdminAnalytics } = await import("@/lib/api");
+      const data = await getAdminAnalytics({
+        timeRange,
+        userName: userFilter,
+        carrier: carrierFilter,
+      });
+      setAnalyticsData(data);
+    } catch (e) {
+      console.error("Failed to fetch analytics data", e);
+      toast.error("Failed to load consolidated analytics");
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
   useEffect(() => {
     if (authenticated) {
-      if (activeTab === "users") {
+      if (activeTab === "analytics") {
+        fetchAnalytics();
+      } else if (activeTab === "users") {
         fetchUsers();
       } else if (activeTab === "route_health") {
         fetchRouteHealth();
@@ -161,6 +199,7 @@ export default function AdminDashboard() {
       });
       if (!res.ok) throw new Error("Invalid password");
       setAuthenticated(true);
+      fetchAnalytics();
       fetchUsers();
       fetchPortsConfig();
       fetchOverrides();
@@ -513,6 +552,20 @@ export default function AdminDashboard() {
         {/* Tab Navigation */}
         <div className="flex gap-4 border-b border-border pb-px flex-wrap">
           <button
+            onClick={() => setActiveTab("analytics")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              activeTab === "analytics"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Consolidated Analytics
+            {activeTab === "analytics" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab("users")}
             className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
               activeTab === "users"
@@ -591,6 +644,603 @@ export default function AdminDashboard() {
             )}
           </button>
         </div>
+
+        {/* TAB 0: CONSOLIDATED GLOBAL ANALYTICS */}
+        {activeTab === "analytics" && (
+          <div className="space-y-6">
+            {/* Controls & Filter Bar */}
+            <div className="border border-border bg-card rounded-2xl p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-foreground flex items-center gap-2.5">
+                  <BarChart3 className="w-6 h-6 text-indigo-500" />
+                  Global Sourcing Intelligence
+                </h2>
+                <p className="text-muted-foreground text-xs mt-1">
+                  Cross-account sourcing activity, trade lane popularity rankings, carrier accuracy diagnostics, and freight pricing spectrum.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Time Range Filter Pills */}
+                <div className="flex items-center bg-muted/60 dark:bg-black/40 border border-border p-1 rounded-xl gap-1">
+                  {[
+                    { id: "all", label: "All Time" },
+                    { id: "30d", label: "Last 30 Days" },
+                    { id: "14d", label: "Last 14 Days" },
+                    { id: "7d", label: "Last 7 Days" },
+                    { id: "today", label: "Today" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setAnalyticsTimeRange(item.id as any);
+                        fetchAnalytics(item.id as any, analyticsUserFilter, analyticsCarrierFilter);
+                      }}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                        analyticsTimeRange === item.id
+                          ? "bg-indigo-600 text-white shadow-xs"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* User Filter Dropdown */}
+                <select
+                  value={analyticsUserFilter}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAnalyticsUserFilter(val);
+                    fetchAnalytics(analyticsTimeRange, val, analyticsCarrierFilter);
+                  }}
+                  className="bg-muted/40 dark:bg-black/50 border border-border rounded-xl px-3 py-1.5 text-xs text-foreground font-medium outline-none focus:ring-2 focus-visible:ring-ring cursor-pointer"
+                >
+                  <option value="all">All Accounts (Global)</option>
+                  {(analyticsData?.all_users || []).map((u: string) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+
+                {/* Refresh Button */}
+                <button
+                  onClick={() => fetchAnalytics(analyticsTimeRange, analyticsUserFilter, analyticsCarrierFilter)}
+                  disabled={loadingAnalytics}
+                  className="p-2 border border-border bg-card hover:bg-accent text-foreground rounded-xl transition-colors disabled:opacity-50"
+                  title="Refresh Analytics"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingAnalytics ? "animate-spin text-indigo-500" : ""}`} />
+                </button>
+              </div>
+            </div>
+
+            {loadingAnalytics && !analyticsData ? (
+              <div className="text-center py-20 text-muted-foreground font-mono text-sm animate-pulse border border-border bg-card rounded-3xl">
+                Crunching global sourcing intelligence and carrier metrics...
+              </div>
+            ) : (
+              <>
+                {/* Global KPI Hero Grid (Matching workspace reference style) */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <div className="rounded-xl border border-border bg-card px-4 py-3.5 shadow-sm">
+                    <div className="font-mono text-2xl font-bold tabular-nums text-indigo-600 dark:text-indigo-400">
+                      {analyticsData?.summary?.total_searches?.toLocaleString() || "0"}
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-muted-foreground">Searches run</div>
+                    <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">
+                      Across {analyticsData?.summary?.active_users_count || 0} active accounts
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-card px-4 py-3.5 shadow-sm">
+                    <div className="font-mono text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {analyticsData?.summary?.total_quotes?.toLocaleString() || "0"}
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-muted-foreground">Quotes returned</div>
+                    <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">
+                      Live freight rates
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-card px-4 py-3.5 shadow-sm">
+                    <div className="font-mono text-2xl font-bold tabular-nums text-foreground">
+                      {analyticsData?.summary?.hit_rate_percent || 0}%
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-muted-foreground">Returned ≥1 quote</div>
+                    <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">
+                      {analyticsData?.summary?.searches_with_quotes?.toLocaleString() || 0} successful hits
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-card px-4 py-3.5 shadow-sm">
+                    <div className="font-mono text-2xl font-bold tabular-nums text-purple-600 dark:text-purple-400">
+                      {analyticsData?.summary?.distinct_lanes?.toLocaleString() || "0"}
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-muted-foreground">Distinct lanes</div>
+                    <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">
+                      Unique port pairings
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-card px-4 py-3.5 shadow-sm">
+                    <div className="font-mono text-sm font-bold truncate text-foreground" title={analyticsData?.summary?.most_active_lane?.display_lane || "N/A"}>
+                      {analyticsData?.summary?.most_active_lane?.display_lane || "None"}
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-muted-foreground">Most active lane</div>
+                    <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">
+                      {analyticsData?.summary?.most_active_lane?.search_count || 0} searches ({analyticsData?.summary?.most_active_lane?.volume_percentage || 0}%)
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-card px-4 py-3.5 shadow-sm">
+                    <div className="font-mono text-base font-bold truncate text-amber-600 dark:text-amber-400" title={analyticsData?.summary?.top_user?.user_name || "N/A"}>
+                      {analyticsData?.summary?.top_user?.user_name || "None"}
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-muted-foreground">Top sourcing user</div>
+                    <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">
+                      {analyticsData?.summary?.top_user?.search_count || 0} searches ({analyticsData?.summary?.top_user?.volume_percentage || 0}%)
+                    </div>
+                  </div>
+                </div>
+
+                {/* Global Activity Timeline (Searches Per Day) */}
+                <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+                  <div className="mb-3 flex items-baseline justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-indigo-500" />
+                        Searches per day (Global volume)
+                      </h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Timeline of company sourcing requests and extracted live quotes
+                      </p>
+                    </div>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      last {analyticsData?.timeline?.days_count || 14} days
+                    </span>
+                  </div>
+
+                  <div className="relative mt-4">
+                    <div className="flex h-24 items-end gap-[3px]" onMouseLeave={() => setHoveredDay(null)}>
+                      {(analyticsData?.timeline?.per_day || []).map((day: any, i: number) => {
+                        const busiest = analyticsData?.timeline?.busiest_day || 1;
+                        const pct = Math.min(100, Math.max(3, (day.searches / busiest) * 100));
+                        return (
+                          <div
+                            key={day.iso}
+                            className="group relative flex h-full flex-1 cursor-default items-end"
+                            onMouseEnter={() => setHoveredDay(i)}
+                          >
+                            <div
+                              className="mx-auto w-full max-w-[22px] rounded-t-[4px] transition-all"
+                              style={{
+                                height: day.searches ? `${pct}%` : "2px",
+                                background: day.searches
+                                  ? hoveredDay === i
+                                    ? "rgb(99 102 241)"
+                                    : "rgba(99, 102, 241, 0.65)"
+                                  : "var(--border)",
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Baseline */}
+                    <div className="mt-1 h-px w-full bg-border" />
+
+                    <div className="mt-2 flex justify-between font-mono text-xs text-muted-foreground">
+                      <span>{analyticsData?.timeline?.per_day?.[0]?.label}</span>
+                      <span className="text-indigo-600 dark:text-indigo-400 font-medium">
+                        {hoveredDay !== null && analyticsData?.timeline?.per_day?.[hoveredDay]
+                          ? `${analyticsData.timeline.per_day[hoveredDay].label} · ${analyticsData.timeline.per_day[hoveredDay].searches} searches · ${analyticsData.timeline.per_day[hoveredDay].quotes} quotes`
+                          : `peak ${analyticsData?.timeline?.busiest_day || 0}/day`}
+                      </span>
+                      <span>{analyticsData?.timeline?.per_day?.[analyticsData?.timeline?.per_day?.length - 1]?.label}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Carrier Accuracy & Reliability Section */}
+                <div className="border border-border bg-card rounded-2xl p-6 shadow-sm space-y-5">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-border pb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                        <Award className="w-5 h-5 text-indigo-500" />
+                        Carrier Extraction Accuracy & Failure Analysis
+                      </h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Performance benchmarks: identifying our most reliable vs most inaccurate/fragile carrier connections.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Highlights: Most Accurate vs Most Inaccurate */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Most Accurate */}
+                    <div className="border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-xl p-4 flex items-start gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                            🏆 Most Accurate Carrier
+                          </span>
+                          <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                            {analyticsData?.summary?.most_accurate_carrier?.accuracy_percent || 0}% Accuracy
+                          </span>
+                        </div>
+                        <h4 className="text-base font-bold text-foreground mt-0.5">
+                          {analyticsData?.summary?.most_accurate_carrier?.carrier_name || analyticsData?.summary?.most_accurate_carrier?.carrier || "None"}
+                        </h4>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Successfully extracted quotes on {analyticsData?.summary?.most_accurate_carrier?.quotes_found_count || 0} searches ({analyticsData?.summary?.most_accurate_carrier?.total_queries || 0} total queries).
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Most Inaccurate */}
+                    <div className="border border-rose-500/30 bg-rose-500/5 dark:bg-rose-500/10 rounded-xl p-4 flex items-start gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                        <AlertTriangle className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                            ⚠️ Most Inaccurate / Problematic
+                          </span>
+                          <span className="font-mono text-sm font-bold text-rose-600 dark:text-rose-400">
+                            {analyticsData?.summary?.most_inaccurate_carrier?.failure_percent || 0}% Failure Rate
+                          </span>
+                        </div>
+                        <h4 className="text-base font-bold text-foreground mt-0.5">
+                          {analyticsData?.summary?.most_inaccurate_carrier?.carrier_name || analyticsData?.summary?.most_inaccurate_carrier?.carrier || "None"}
+                        </h4>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Encountered {analyticsData?.summary?.most_inaccurate_carrier?.failure_count || 0} portal errors, timeouts, or empty extractions across {analyticsData?.summary?.most_inaccurate_carrier?.total_queries || 0} queries.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Carrier Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-border text-muted-foreground font-semibold">
+                          <th className="py-2.5 px-3">Carrier Line</th>
+                          <th className="py-2.5 px-3">Total Requests</th>
+                          <th className="py-2.5 px-3 w-56">Extraction Reliability</th>
+                          <th className="py-2.5 px-3 text-right">Accuracy Rate</th>
+                          <th className="py-2.5 px-3 text-right">No Quotes Found</th>
+                          <th className="py-2.5 px-3 text-right">Failures & Errors</th>
+                          <th className="py-2.5 px-3 text-right">Port Mismatches</th>
+                          <th className="py-2.5 px-3 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {(analyticsData?.carrier_ranking || []).map((c: any) => (
+                          <tr key={c.carrier} className="hover:bg-muted/40 transition-colors font-medium">
+                            <td className="py-3 px-3">
+                              <span className="font-bold text-foreground">{c.carrier_name}</span>
+                              <span className="ml-1.5 text-[10px] text-muted-foreground font-mono">({c.carrier})</span>
+                            </td>
+                            <td className="py-3 px-3 font-mono tabular-nums text-foreground">
+                              {c.total_queries.toLocaleString()}
+                            </td>
+                            <td className="py-3 px-3 w-56">
+                              <div className="h-2 w-full bg-muted rounded-full overflow-hidden flex">
+                                <div
+                                  className="bg-emerald-500 h-full"
+                                  style={{ width: `${c.accuracy_percent}%` }}
+                                  title={`Quotes found: ${c.quotes_found_count} (${c.accuracy_percent}%)`}
+                                />
+                                <div
+                                  className="bg-amber-400 h-full"
+                                  style={{ width: `${c.no_quotes_percent}%` }}
+                                  title={`No quotes: ${c.no_quotes_count} (${c.no_quotes_percent}%)`}
+                                />
+                                <div
+                                  className="bg-rose-500 h-full"
+                                  style={{ width: `${c.failure_percent}%` }}
+                                  title={`Failures: ${c.failure_count} (${c.failure_percent}%)`}
+                                />
+                              </div>
+                              <div className="flex justify-between text-[9px] text-muted-foreground mt-1 font-mono">
+                                <span className="text-emerald-500">{c.accuracy_percent}% succ</span>
+                                <span className="text-amber-500">{c.no_quotes_percent}% empty</span>
+                                <span className="text-rose-500">{c.failure_percent}% err</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold text-foreground">
+                              {c.accuracy_percent}%
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums text-muted-foreground">
+                              {c.no_quotes_count}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums text-rose-500 font-semibold">
+                              {c.failure_count}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono tabular-nums">
+                              {c.port_mismatch_count > 0 ? (
+                                <span className="text-amber-500 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded">
+                                  {c.port_mismatch_count}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">0</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                c.reliability_tier === "High"
+                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                  : c.reliability_tier === "Moderate"
+                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                  : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                              }`}>
+                                {c.reliability_tier}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Most-Searched Port-to-Port Pairings (Trade Lanes) */}
+                <div className="border border-border bg-card rounded-2xl p-6 shadow-sm space-y-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-border pb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-indigo-500" />
+                        Most-Searched Port-to-Port Pairings (Trade Lanes)
+                      </h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Ranked trade lanes by employee search volume, platform volume share, and live quote hit rates.
+                      </p>
+                    </div>
+
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Filter port or trade lane..."
+                        value={laneSearchQuery}
+                        onChange={(e) => setLaneSearchQuery(e.target.value)}
+                        className="pl-8 pr-3 py-1.5 text-xs bg-muted/40 dark:bg-black/40 border border-border rounded-xl text-foreground placeholder-muted-foreground outline-none focus:ring-2 focus-visible:ring-ring w-64"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-border text-muted-foreground font-semibold">
+                          <th className="py-2.5 px-3">#</th>
+                          <th className="py-2.5 px-3">Trade Lane</th>
+                          <th className="py-2.5 px-3 w-48">Sourcing Requests</th>
+                          <th className="py-2.5 px-3 text-right">Hit Rate</th>
+                          <th className="py-2.5 px-3 text-right">Freight Rate Spread</th>
+                          <th className="py-2.5 px-3">Top Value Carrier</th>
+                          <th className="py-2.5 px-3 text-right">Active Users</th>
+                          <th className="py-2.5 px-3 text-right">Last Searched</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {(analyticsData?.top_lanes || [])
+                          .filter((lane: any) =>
+                            !laneSearchQuery ||
+                            lane.display_lane.toLowerCase().includes(laneSearchQuery.toLowerCase()) ||
+                            lane.origin.toLowerCase().includes(laneSearchQuery.toLowerCase()) ||
+                            lane.destination.toLowerCase().includes(laneSearchQuery.toLowerCase())
+                          )
+                          .slice(0, 30)
+                          .map((lane: any, index: number) => {
+                            const maxVol = analyticsData?.top_lanes?.[0]?.search_count || 1;
+                            const barPct = Math.max(3, (lane.search_count / maxVol) * 100);
+                            return (
+                              <tr key={lane.display_lane} className="hover:bg-muted/40 transition-colors font-medium">
+                                <td className="py-3 px-3 font-mono text-muted-foreground font-bold">
+                                  {index + 1}
+                                </td>
+                                <td className="py-3 px-3">
+                                  <div className="font-mono text-xs font-bold text-foreground">
+                                    {lane.origin} → {lane.destination}
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    {lane.quotes_count} quotes returned
+                                  </div>
+                                </td>
+                                <td className="py-3 px-3">
+                                  <div className="flex items-center justify-between text-xs font-mono mb-1">
+                                    <span className="font-bold text-foreground">{lane.search_count}</span>
+                                    <span className="text-muted-foreground text-[10px]">{lane.volume_percentage}% share</span>
+                                  </div>
+                                  <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-indigo-500 rounded-full"
+                                      style={{ width: `${barPct}%` }}
+                                    />
+                                  </div>
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono">
+                                  <span className={`font-bold ${lane.hit_rate_percent >= 50 ? "text-emerald-500" : lane.hit_rate_percent > 0 ? "text-amber-500" : "text-muted-foreground"}`}>
+                                    {lane.hit_rate_percent}%
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono">
+                                  {lane.min_price ? (
+                                    <div>
+                                      <span className="font-bold text-foreground">${lane.min_price?.toLocaleString()}</span>
+                                      {lane.max_price && lane.max_price > lane.min_price && (
+                                        <span className="text-muted-foreground text-[10px] block">
+                                          up to ${lane.max_price?.toLocaleString()}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground italic text-[10px]">No quotes</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-3">
+                                  {lane.cheapest_carrier ? (
+                                    <span className="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-mono text-[10px] font-bold border border-indigo-500/20">
+                                      {lane.cheapest_carrier}
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground text-[10px]">-</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono text-muted-foreground">
+                                  {lane.unique_users_count}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono text-[10px] text-muted-foreground">
+                                  {lane.last_searched_at ? new Date(lane.last_searched_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "-"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Freight Rate Pricing Spectrum (Cheapest vs Most Expensive) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Top Economical Lanes */}
+                  <div className="border border-border bg-card rounded-2xl p-5 shadow-sm space-y-3">
+                    <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <ArrowDownRight className="w-4 h-4 text-emerald-500" />
+                      Top Economical Trade Lanes (Cheapest Rates)
+                    </h3>
+                    <div className="space-y-2.5">
+                      {(analyticsData?.pricing_spectrum?.cheapest_lanes || []).map((lane: any) => (
+                        <div key={lane.display_lane} className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-border">
+                          <div>
+                            <div className="font-mono text-xs font-bold text-foreground">
+                              {lane.origin} → {lane.destination}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                              Lowest with <span className="font-bold text-indigo-500">{lane.cheapest_carrier || "Carrier"}</span> · avg ${lane.avg_price?.toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                              ${lane.min_price?.toLocaleString()}
+                            </span>
+                            <span className="block text-[10px] text-muted-foreground">lowest quote</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Top Premium Lanes */}
+                  <div className="border border-border bg-card rounded-2xl p-5 shadow-sm space-y-3">
+                    <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <ArrowUpRight className="w-4 h-4 text-rose-500" />
+                      Top Premium Trade Lanes (Highest Rates)
+                    </h3>
+                    <div className="space-y-2.5">
+                      {(analyticsData?.pricing_spectrum?.expensive_lanes || []).map((lane: any) => (
+                        <div key={lane.display_lane} className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-border">
+                          <div>
+                            <div className="font-mono text-xs font-bold text-foreground">
+                              {lane.origin} → {lane.destination}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                              avg ${lane.avg_price?.toLocaleString()} across {lane.quotes_count} quotes
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono text-sm font-bold text-rose-600 dark:text-rose-400">
+                              ${lane.max_price?.toLocaleString()}
+                            </span>
+                            <span className="block text-[10px] text-muted-foreground">peak quote</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* User Sourcing Activity Leaderboard */}
+                <div className="border border-border bg-card rounded-2xl p-6 shadow-sm space-y-4">
+                  <div className="border-b border-border pb-4">
+                    <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-500" />
+                      User Sourcing Activity Leaderboard (Who Is Searching The Most)
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Search request frequency and live quotes generated across all employee user accounts.
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-border text-muted-foreground font-semibold">
+                          <th className="py-2.5 px-3">Rank</th>
+                          <th className="py-2.5 px-3">User Account</th>
+                          <th className="py-2.5 px-3 w-64">Sourcing Frequency</th>
+                          <th className="py-2.5 px-3 text-right">Quotes Generated</th>
+                          <th className="py-2.5 px-3 text-right">Distinct Lanes</th>
+                          <th className="py-2.5 px-3 text-right">Last Active</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {(analyticsData?.user_leaderboard || []).map((u: any, idx: number) => {
+                          const maxSearch = analyticsData?.user_leaderboard?.[0]?.search_count || 1;
+                          const barPct = Math.max(3, (u.search_count / maxSearch) * 100);
+                          return (
+                            <tr key={u.user_name} className="hover:bg-muted/40 transition-colors font-medium">
+                              <td className="py-3 px-3 font-mono font-bold text-muted-foreground">
+                                #{idx + 1}
+                              </td>
+                              <td className="py-3 px-3">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs">
+                                    {u.user_name.charAt(0).toUpperCase()}
+                                  </div>
+                                  <span className="font-bold text-foreground text-sm">{u.user_name}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-3">
+                                <div className="flex items-center justify-between text-xs font-mono mb-1">
+                                  <span className="font-bold text-foreground">{u.search_count.toLocaleString()} searches</span>
+                                  <span className="text-muted-foreground text-[10px]">{u.volume_percentage}% share</span>
+                                </div>
+                                <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-indigo-500 rounded-full"
+                                    style={{ width: `${barPct}%` }}
+                                  />
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono tabular-nums font-bold text-foreground">
+                                {u.quotes_generated.toLocaleString()}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono tabular-nums text-muted-foreground">
+                                {u.distinct_lanes}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono text-[10px] text-muted-foreground">
+                                {u.last_active ? new Date(u.last_active).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "-"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* TAB 1: USER REGISTRY */}
         {activeTab === "users" && (

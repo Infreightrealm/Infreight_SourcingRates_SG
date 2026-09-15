@@ -589,6 +589,24 @@ export async function getRouteHealth(): Promise<any> {
   return res.json();
 }
 
+export async function getAdminAnalytics(params?: {
+  timeRange?: string;
+  userName?: string;
+  carrier?: string;
+}): Promise<any> {
+  const query = new URLSearchParams();
+  if (params?.timeRange) query.append("time_range", params.timeRange);
+  if (params?.userName && params.userName !== "all") query.append("user_name", params.userName);
+  if (params?.carrier && params.carrier !== "all") query.append("carrier", params.carrier);
+
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  const res = await failoverFetch(`/api/admin/analytics${qs}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load consolidated analytics: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function parseRfq(
   text?: string,
   image_b64?: string,

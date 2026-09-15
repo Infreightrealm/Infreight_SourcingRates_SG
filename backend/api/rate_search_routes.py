@@ -691,3 +691,22 @@ async def get_user_search_history(
 
     return history
 
+
+@router.get("/admin/analytics")
+async def get_admin_analytics_endpoint(
+    time_range: str = "all",
+    user_name: Optional[str] = None,
+    carrier: Optional[str] = None,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Get consolidated sourcing analytics across all accounts, trade lanes, carriers, and rates.
+    """
+    from services.analytics_service import compute_admin_analytics
+    return await compute_admin_analytics(
+        session=session,
+        time_range=time_range,
+        user_name=user_name,
+        carrier_filter=carrier,
+    )
+
