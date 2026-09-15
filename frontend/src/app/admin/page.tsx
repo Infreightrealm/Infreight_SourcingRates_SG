@@ -112,7 +112,7 @@ export default function AdminDashboard() {
     try {
       const { getSearchHistory } = await import("@/lib/api");
       const targetUser = (userFilter || historyUserFilter) === "all" ? undefined : (userFilter || historyUserFilter);
-      const data = await getSearchHistory(targetUser);
+      const data = await getSearchHistory(targetUser, 5000);
       setSearchHistory(data || []);
     } catch (e) {
       console.error("Failed to fetch search history", e);

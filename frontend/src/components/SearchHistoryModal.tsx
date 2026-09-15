@@ -60,7 +60,7 @@ export default function SearchHistoryModal({
   const [loading, setLoading] = useState(false);
   const [searchFilter, setSearchFilter] = useState("");
   const [showOnlyMySearches, setShowOnlyMySearches] = useState(true);
-  const [fetchLimit, setFetchLimit] = useState<number>(250);
+  const [fetchLimit, setFetchLimit] = useState<number>(1000);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchExporting, setBatchExporting] = useState(false);
@@ -227,7 +227,7 @@ export default function SearchHistoryModal({
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary px-2 py-1.5 text-xs text-muted-foreground">
               <span className="font-medium text-[11px] mr-1">Show:</span>
-              {[100, 250, 500].map((num) => (
+              {[100, 250, 500, 1000, 2500, 5000].map((num) => (
                 <button
                   key={num}
                   onClick={() => setFetchLimit(num)}

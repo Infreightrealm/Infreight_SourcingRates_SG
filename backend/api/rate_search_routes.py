@@ -626,18 +626,20 @@ from sqlalchemy.orm import selectinload
 @router.get("/searches/history")
 async def get_user_search_history(
     user_name: Optional[str] = None,
-    limit: int = 250,
+    limit: int = 5000,
     session: AsyncSession = Depends(get_session)
 ):
     """
     Get detailed historical rate searches per user including timestamps, routes, cargo specs, and carrier results.
+    Supports scaling up to 50,000 historical searches without premature clamping.
     """
     stmt = (
         select(RateSearch)
         .options(selectinload(RateSearch.carrier_results).selectinload(CarrierSearchResult.quotes))
         .order_by(RateSearch.created_at.desc())
-        .limit(min(limit, 500))
     )
+    if limit and limit > 0:
+        stmt = stmt.limit(min(limit, 50000))
     if user_name:
         stmt = stmt.where(RateSearch.user_name.ilike(f"%{user_name.strip()}%"))
 
