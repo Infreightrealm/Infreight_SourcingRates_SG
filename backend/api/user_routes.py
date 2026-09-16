@@ -127,8 +127,11 @@ async def validate_session(request: UserCreateRequest, session: AsyncSession = D
     if not name:
         raise HTTPException(400, "Name cannot be empty")
 
-    query = select(User).where((User.username == name.lower()) | (User.name == name))
-    user = (await session.execute(query)).scalar_one_or_none()
+    query = select(User).where(
+        (func.lower(User.username) == name.lower())
+        | (func.lower(User.name) == name.lower())
+    ).order_by(User.created_at.asc())
+    user = (await session.execute(query)).scalars().first()
 
     if not user:
         raise HTTPException(404, "Session reset. Please log in fresh.")
@@ -146,8 +149,11 @@ async def legacy_login_user(request: UserCreateRequest, session: AsyncSession = 
     if not name:
         raise HTTPException(400, "Name cannot be empty")
 
-    query = select(User).where((User.username == name.lower()) | (User.name == name))
-    user = (await session.execute(query)).scalar_one_or_none()
+    query = select(User).where(
+        (func.lower(User.username) == name.lower())
+        | (func.lower(User.name) == name.lower())
+    ).order_by(User.created_at.asc())
+    user = (await session.execute(query)).scalars().first()
 
     if not user:
         # Create as pending user

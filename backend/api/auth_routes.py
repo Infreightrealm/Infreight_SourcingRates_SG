@@ -133,7 +133,7 @@ async def signup(
             func.lower(User.username) == norm_username
         )
     )
-    if existing.scalar_one_or_none():
+    if existing.scalars().first():
         raise HTTPException(status_code=409, detail="That username is already taken.")
 
     # Check if this is the first account on the platform
@@ -197,13 +197,25 @@ async def login(
     norm_username = normalize_username(request_data.username)
     check_rate_limit(client_ip, norm_username)
 
-    # Search by username or display name
+    # Search by username or display name safely
     query = select(User).where(
         (func.lower(User.username) == norm_username)
         | (func.lower(User.name) == norm_username)
-    )
+    ).order_by(User.created_at.asc())
     result = await session.execute(query)
-    user = result.scalar_one_or_none()
+    matched_users = result.scalars().all()
+
+    exact_match = [u for u in matched_users if u.username and u.username.lower() == norm_username]
+    candidates = exact_match if exact_match else matched_users
+
+    user = None
+    if candidates:
+        for c in candidates:
+            if c.password_hash and verify_password(request_data.password, c.password_hash):
+                user = c
+                break
+        if not user:
+            user = candidates[0]
 
     # If user doesn't exist, compute dummy hash to prevent timing attack
     if not user:
@@ -275,9 +287,18 @@ async def setup_password(
     query = select(User).where(
         (func.lower(User.username) == norm_username)
         | (func.lower(User.name) == norm_username)
-    )
+    ).order_by(User.created_at.asc())
     result = await session.execute(query)
-    user = result.scalar_one_or_none()
+    matched_users = result.scalars().all()
+
+    if not matched_users:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    exact_match = [u for u in matched_users if u.username and u.username.lower() == norm_username]
+    candidates = exact_match if exact_match else matched_users
+
+    # Select candidate that still needs a password setup, else fallback to first candidate
+    user = next((u for u in candidates if u.password_hash is None), candidates[0])
 
     if not user:
         raise HTTPException(status_code=404, detail="User account not found.")
