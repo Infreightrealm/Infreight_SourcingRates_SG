@@ -591,6 +591,8 @@ export interface AuthUser {
   role: "admin" | "user";
   status: "active" | "pending" | "disabled";
   is_active: boolean;
+  avatar_url?: string | null;
+  title_or_role_desc?: string | null;
   created_at?: string;
   approved_at?: string;
   approved_by?: string;
@@ -842,5 +844,77 @@ export async function deleteCustomPort(code: string, password?: string): Promise
   }
   return res.json();
 }
+
+export interface Colleague {
+  id: string;
+  username: string;
+  display_name: string;
+  name: string;
+  role: string;
+  title_or_role_desc?: string;
+  avatar_url?: string | null;
+  is_self: boolean;
+  unread_count: number;
+  stats: {
+    total_searches: number;
+    top_lanes: Array<{ origin: string; destination: string; count: number }>;
+    last_searched_at: string | null;
+  };
+}
+
+export interface DirectMessageItem {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  content: string;
+  created_at: string | null;
+  read_at: string | null;
+  is_from_me: boolean;
+}
+
+export async function getColleagues(): Promise<Colleague[]> {
+  const res = await failoverFetch(`/api/social/colleagues`);
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to load team colleagues.");
+  }
+  return res.json();
+}
+
+export async function getConversation(colleagueId: string): Promise<DirectMessageItem[]> {
+  const res = await failoverFetch(`/api/social/messages/${colleagueId}`);
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to load messages.");
+  }
+  return res.json();
+}
+
+export async function sendDirectMessage(recipientId: string, content: string): Promise<DirectMessageItem> {
+  const res = await failoverFetch(`/api/social/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient_id: recipientId, content }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to send message.");
+  }
+  return res.json();
+}
+
+export async function uploadUserAvatar(userId: string, avatarUrl: string): Promise<{ status: string; avatar_url: string }> {
+  const res = await failoverFetch(`/api/social/users/${userId}/avatar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ avatar_url: avatarUrl }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to upload avatar.");
+  }
+  return res.json();
+}
+
 
 

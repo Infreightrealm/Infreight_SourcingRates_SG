@@ -19,6 +19,8 @@ class User(Base):
     approved_at = Column(DateTime, nullable=True)
     approved_by = Column(String(50), nullable=True)
     last_login_at = Column(DateTime, nullable=True)
+    avatar_url = Column(Text, nullable=True)
+    title_or_role_desc = Column(String(100), nullable=True)
 
 
 class AuthSession(Base):
@@ -40,3 +42,15 @@ class AuditLog(Base):
     actor_username = Column(String(50), nullable=False)
     action = Column(String(50), nullable=False)
     detail = Column(Text, nullable=True)
+
+
+class DirectMessage(Base):
+    """Stores private direct text messages between colleagues."""
+    __tablename__ = "direct_messages"
+
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    sender_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    recipient_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    read_at = Column(DateTime, nullable=True)

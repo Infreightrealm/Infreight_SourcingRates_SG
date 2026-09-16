@@ -17,6 +17,7 @@ import { exportMultiRouteResultsToExcel, exportTariffMatrixToExcel, type BatchRo
 import SearchHistoryModal from "@/components/SearchHistoryModal";
 import BackendConfigModal from "@/components/BackendConfigModal";
 import WorkspacePanel from "@/components/WorkspacePanel";
+import SocialModal from "@/components/SocialModal";
 import LaunchIntro from "@/components/LaunchIntro";
 import { usePreferences, type SavedLane } from "@/lib/preferences";
 import { Card } from "@/components/ui/card";
@@ -34,6 +35,7 @@ import {
   UserRound,
   Zap,
   ShieldCheck,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getMe, logoutAuth } from "@/lib/api";
@@ -47,10 +49,12 @@ function HomeContent() {
   const [searchId, setSearchId] = useState<string | null>(searchParams.get("id"));
   const [userName, setUserName] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   const [backendUrl, setBackendUrl] = useState(getApiUrl());
   const [isBackendModalOpen, setIsBackendModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [introReplayKey, setIntroReplayKey] = useState(0);
   const [formRoute, setFormRoute] = useState<{ origin: string; destination: string; containerTypes: string[]; weightKg: number } | null>(null);
@@ -74,10 +78,12 @@ function HomeContent() {
           const displayName = data.user.display_name || data.user.name || data.user.username;
           setUserName(displayName);
           setUserRole(data.user.role);
+          setUserAvatar(data.user.avatar_url || null);
           localStorage.setItem("userName", displayName);
         } else {
           setUserName(null);
           setUserRole(null);
+          setUserAvatar(null);
           localStorage.removeItem("userName");
           router.replace("/login");
         }
@@ -85,6 +91,7 @@ function HomeContent() {
       .catch(() => {
         setUserName(null);
         setUserRole(null);
+        setUserAvatar(null);
         localStorage.removeItem("userName");
         router.replace("/login");
       });
@@ -528,6 +535,14 @@ function HomeContent() {
               <History className="size-3.5" />
               <span>My Searches &amp; History</span>
             </button>
+            <button
+              onClick={() => setIsSocialModalOpen(true)}
+              className="btn-interactive inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 text-xs font-semibold text-sky-500 dark:text-sky-400 hover:bg-sky-500/16"
+              title="Colleague Orbit & Private Messaging"
+            >
+              <MessageSquare className="size-3.5 text-sky-500 dark:text-sky-400" />
+              <span>Social</span>
+            </button>
             {userRole === "admin" && (
               <button
                 onClick={() => router.push("/admin")}
@@ -549,6 +564,7 @@ function HomeContent() {
                   }
                   setUserName(null);
                   setUserRole(null);
+                  setUserAvatar(null);
                   localStorage.removeItem("userName");
                   localStorage.removeItem("infreight_token");
                   toast.success("Signed out successfully.");
@@ -558,7 +574,15 @@ function HomeContent() {
                 title="Change User / Logout"
               >
                 <span className="flex items-center gap-1.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-translate-y-6">
-                  <UserRound className="size-3.5" />
+                  {userAvatar ? (
+                    <img
+                      src={userAvatar}
+                      alt={userName || "User"}
+                      className="size-4.5 rounded-full object-cover border border-white/20 shadow-xs"
+                    />
+                  ) : (
+                    <UserRound className="size-3.5" />
+                  )}
                   {userName}
                   {userRole === "admin" && (
                     <span className="text-[10px] font-semibold bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 rounded px-1 py-0.5">
@@ -799,6 +823,19 @@ function HomeContent() {
           if (el) {
             el.scrollIntoView({ behavior: "smooth" });
           }
+        }}
+      />
+
+      <SocialModal
+        isOpen={isSocialModalOpen}
+        onClose={() => setIsSocialModalOpen(false)}
+        currentUserRole={userRole}
+        onAvatarUpdated={() => {
+          getMe()
+            .then((d) => {
+              if (d?.user?.avatar_url) setUserAvatar(d.user.avatar_url);
+            })
+            .catch(() => {});
         }}
       />
     </div>

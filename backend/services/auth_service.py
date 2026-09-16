@@ -251,4 +251,6 @@ def public_user_dict(user: User) -> dict:
         "approved_by": user.approved_by,
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
         "needs_password": user.password_hash is None,
+        "avatar_url": getattr(user, "avatar_url", None),
+        "title_or_role_desc": getattr(user, "title_or_role_desc", None),
     }
