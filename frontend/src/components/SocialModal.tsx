@@ -4,22 +4,17 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   X,
   Send,
-  MessageSquare,
-  Camera,
   Loader2,
-  ShieldCheck,
   Sparkles,
-  Clock,
   Lock,
-  User,
   ArrowLeft,
-  ChevronRight,
-  TrendingUp,
+  Search,
 } from "lucide-react";
 import {
   OrbitCardStack,
   type OrbitStackItem,
 } from "@/components/ui/orbit-card-stack";
+import { HalftoneAvatar } from "@/components/ui/halftone-avatar";
 import {
   getColleagues,
   getConversation,
@@ -83,6 +78,7 @@ export default function SocialModal({
   const [colleagues, setColleagues] = useState<Colleague[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedColleague, setSelectedColleague] = useState<Colleague | null>(null);
+  const [query, setQuery] = useState("");
 
   // Direct Messaging State
   const [messages, setMessages] = useState<DirectMessageItem[]>([]);
@@ -117,6 +113,7 @@ export default function SocialModal({
     } else {
       setSelectedColleague(null);
       setMessages([]);
+      setQuery("");
     }
   }, [isOpen]);
 
@@ -222,20 +219,34 @@ export default function SocialModal({
     }
   };
 
-  // Transform colleagues to OrbitStackItems
+  // Transform colleagues to OrbitStackItems (search-filtered so large teams
+  // stay navigable instead of fanning out dozens of overlapping cards).
+  const visibleColleagues: Colleague[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return colleagues;
+    return colleagues.filter((c) => {
+      const haystack = [c.display_name, c.name, c.username, c.role]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [colleagues, query]);
+
   const stackItems: OrbitStackItem[] = useMemo(() => {
-    return colleagues.map((c, i) => {
+    return visibleColleagues.map((c, i) => {
       const name = c.display_name || c.name || c.username;
       const initials = name
         .split(" ")
         .map((p) => p[0])
+        .filter(Boolean)
         .join("")
         .slice(0, 2)
         .toUpperCase();
 
       return {
         id: c.id,
-        name: name,
+        name,
         username: c.username,
         role: c.role,
         accent: ACCENT_COLORS[i % ACCENT_COLORS.length],
@@ -246,7 +257,7 @@ export default function SocialModal({
         searchStats: c.stats,
       };
     });
-  }, [colleagues]);
+  }, [visibleColleagues]);
 
   if (!isOpen) return null;
 
@@ -269,44 +280,93 @@ export default function SocialModal({
               <Sparkles className="size-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-bold tracking-tight text-white">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-xl font-bold tracking-tight text-white">
                   Team Social &amp; Private Texting
                 </h2>
-                <span className="rounded-full bg-sky-500/20 border border-sky-400/30 px-2.5 py-0.5 text-[10px] font-bold text-sky-300 uppercase tracking-wider">
+                <span className="shrink-0 whitespace-nowrap rounded-full bg-sky-500/20 border border-sky-400/30 px-2.5 py-0.5 text-[10px] font-bold text-sky-300 uppercase tracking-wider">
                   Orbit Deck
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Hover to fan out the card deck · View colleague rate stats · Click any colleague to text privately
+                Swipe, scroll or use ← → to fan through the deck · Click the focused card to text privately
               </p>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
-            title="Close"
-          >
-            <X className="size-5" />
-          </button>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden sm:flex items-center gap-2 rounded-full border border-white/15 bg-slate-950/60 px-3 py-1.5 focus-within:border-sky-400/60">
+              <Search className="size-3.5 shrink-0 text-slate-500" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find a colleague..."
+                aria-label="Filter colleagues"
+                className="w-40 bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery("")}
+                  className="text-slate-500 hover:text-white transition-colors cursor-pointer"
+                  title="Clear filter"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+
+            <button
+              onClick={onClose}
+              className="rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="size-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile search */}
+        <div className="flex sm:hidden shrink-0 items-center gap-2 border-b border-white/10 bg-slate-950/30 px-4 py-2">
+          <Search className="size-3.5 shrink-0 text-slate-500" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find a colleague..."
+            aria-label="Filter colleagues"
+            className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
+          />
         </div>
 
         {/* Main Content Stage */}
-        <div className="relative flex-1 overflow-hidden flex">
-          {/* Orbit Card Stack View (Fills modal) */}
-          <div
-            className={`flex-1 flex flex-col justify-center items-center transition-all duration-500 overflow-hidden ${
-              selectedColleague ? "lg:mr-[380px] opacity-40 lg:opacity-100" : ""
-            }`}
-          >
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          {/* Orbit Card Deck */}
+          {/* `isolate` keeps the deck's card z-indexes inside this column so they
+              can never paint over the chat drawer on small screens. */}
+          <div className="isolate flex min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto px-2 py-4">
             {loading ? (
               <div className="flex flex-col items-center gap-3 text-slate-400">
                 <Loader2 className="size-8 animate-spin text-sky-400" />
                 <span className="text-xs font-medium">Gathering team cards...</span>
               </div>
+            ) : stackItems.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 px-6 text-center text-slate-400">
+                <p className="text-sm font-semibold text-white">No colleague matches “{query}”</p>
+                <button
+                  onClick={() => setQuery("")}
+                  className="text-xs font-semibold text-sky-400 hover:text-sky-300 cursor-pointer"
+                >
+                  Clear the filter
+                </button>
+              </div>
             ) : (
-              <div className="w-full flex-1 flex flex-col justify-center items-center">
+              <div className="relative w-full">
+                {uploadingAvatar && (
+                  <div className="absolute inset-0 z-40 flex items-center justify-center rounded-2xl bg-slate-950/60 backdrop-blur-sm">
+                    <Loader2 className="size-6 animate-spin text-sky-400" />
+                  </div>
+                )}
                 <OrbitCardStack
                   items={stackItems}
                   isAdmin={isAdmin}
@@ -322,7 +382,7 @@ export default function SocialModal({
 
           {/* Private 1-on-1 Chat Drawer (Slides in on right when a colleague is selected) */}
           {selectedColleague && (
-            <div className="absolute right-0 top-0 bottom-0 w-full sm:w-[400px] lg:w-[420px] bg-slate-950/95 border-l border-white/15 shadow-2xl flex flex-col z-30 backdrop-blur-2xl transition-all duration-300">
+            <div className="absolute inset-0 z-30 flex flex-col border-white/15 bg-slate-950/98 shadow-2xl backdrop-blur-2xl lg:static lg:inset-auto lg:z-auto lg:w-[400px] lg:shrink-0 lg:border-l">
               {/* Chat Drawer Header */}
               <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 bg-slate-900/60">
                 <div className="flex items-center gap-3">
@@ -334,19 +394,14 @@ export default function SocialModal({
                     <ArrowLeft className="size-4" />
                   </button>
 
-                  {/* Colleague Avatar */}
-                  <div className="relative size-10 shrink-0 rounded-full border border-white/20 bg-slate-800 overflow-hidden shadow-sm">
-                    {selectedColleague.avatar_url ? (
-                      <img
-                        src={selectedColleague.avatar_url}
-                        alt={selectedColleague.display_name}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs font-bold text-sky-300 bg-sky-950/60">
-                        {selectedColleague.display_name?.slice(0, 2).toUpperCase()}
-                      </div>
-                    )}
+                  {/* Colleague Avatar (same ink portrait as the deck card) */}
+                  <div className="relative size-10 shrink-0 overflow-hidden rounded-full border border-white/20 bg-[#f3f0e7] shadow-sm">
+                    <HalftoneAvatar
+                      seed={selectedColleague.username || selectedColleague.id}
+                      image={selectedColleague.avatar_url || undefined}
+                      alt={selectedColleague.display_name}
+                      className="h-full w-full"
+                    />
                   </div>
 
                   <div>
