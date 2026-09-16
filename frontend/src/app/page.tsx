@@ -11,7 +11,6 @@ import ChatWidget from "@/components/ChatWidget";
 import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchCompletionModal } from "@/components/SearchCompletionModal";
-import LoginModal from "@/components/LoginModal";
 import { createRateSearch, createBatchRateSearch, pollRateSearch, pollBatchSearchStatus, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
 import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, exportTariffMatrixToExcel, type BatchRouteResult } from "@/lib/excelExport";
@@ -80,12 +79,14 @@ function HomeContent() {
           setUserName(null);
           setUserRole(null);
           localStorage.removeItem("userName");
+          router.replace("/login");
         }
       })
       .catch(() => {
         setUserName(null);
         setUserRole(null);
         localStorage.removeItem("userName");
+        router.replace("/login");
       });
 
     let lastToastedUrl: string | null = null;
@@ -548,7 +549,10 @@ function HomeContent() {
                   }
                   setUserName(null);
                   setUserRole(null);
+                  localStorage.removeItem("userName");
+                  localStorage.removeItem("infreight_token");
                   toast.success("Signed out successfully.");
+                  router.push("/login");
                 }}
                 className="group relative inline-flex h-8 items-center gap-1.5 overflow-hidden rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
                 title="Change User / Logout"
@@ -743,13 +747,15 @@ function HomeContent() {
       )}
       
       {isClient && !userName && (
-        <LoginModal 
-          onLogin={(name, role) => {
-            localStorage.setItem("userName", name);
-            setUserName(name);
-            if (role) setUserRole(role);
-          }} 
-        />
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-md text-white space-y-4">
+          <LoadingState message="Redirecting to secure login desk..." />
+          <button
+            onClick={() => router.push("/login")}
+            className="text-xs text-sky-400 underline hover:text-sky-300"
+          >
+            Click here if you are not redirected automatically
+          </button>
+        </div>
       )}
 
       <BackendConfigModal
