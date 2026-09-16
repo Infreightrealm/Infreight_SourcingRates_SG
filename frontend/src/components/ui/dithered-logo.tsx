@@ -12,6 +12,7 @@ import {
 interface GrayscaleResult {
   grayscale: Uint8Array;
   alpha: Uint8Array;
+  colorData: Uint8ClampedArray;
   width: number;
   height: number;
 }
@@ -31,6 +32,7 @@ interface ParticleSystem {
   brightness: Float32Array;
   tint: Float32Array;
   size: number;
+  colors?: string[];
 }
 
 interface Ripple {
@@ -137,11 +139,16 @@ const toGrayscaleGrid = (
         luma = 255 * Math.pow(Math.max(0, luma / 255), 1 / gamma);
       }
 
+      // Balance luma across solid colored logo areas so blue and red ribbons both dither densely
+      if (alphaData[idx + 3]! > 80) {
+        luma = Math.max(luma, 140);
+      }
+
       grayscale[y * outW + x] = Math.max(0, Math.min(255, Math.round(luma)));
     }
   }
 
-  return { grayscale, alpha, width: outW, height: outH };
+  return { grayscale, alpha, colorData: alphaData, width: outW, height: outH };
 };
 
 const errorDiffusionDither = (
@@ -261,6 +268,10 @@ const initParticles = (
   dotScale: number,
   originX: number,
   originY: number,
+  colorData?: Uint8ClampedArray,
+  gridW?: number,
+  gridH?: number,
+  preserveOriginalColors?: boolean,
 ): ParticleSystem => {
   const count = points.length / 2;
   const baseX = new Float32Array(count);
@@ -269,12 +280,34 @@ const initParticles = (
   const offsetY = new Float32Array(count);
   const brightness = new Float32Array(count);
   const tint = new Float32Array(count);
+  const colors =
+    preserveOriginalColors && colorData && gridW && gridH
+      ? new Array<string>(count)
+      : undefined;
 
   for (let i = 0; i < count; i++) {
-    baseX[i] = originX + points[i * 2]! * scaleFactor;
-    baseY[i] = originY + points[i * 2 + 1]! * scaleFactor;
+    const px = points[i * 2]!;
+    const py = points[i * 2 + 1]!;
+    baseX[i] = originX + px * scaleFactor;
+    baseY[i] = originY + py * scaleFactor;
     brightness[i] = 1;
     tint[i] = 1;
+
+    if (colors && colorData && gridW && gridH) {
+      const gx = Math.max(0, Math.min(gridW - 1, Math.round(px)));
+      const gy = Math.max(0, Math.min(gridH - 1, Math.round(py)));
+      const idx = (gy * gridW + gx) * 4;
+      let r = colorData[idx]!;
+      let g = colorData[idx + 1]!;
+      let b = colorData[idx + 2]!;
+      const a = colorData[idx + 3]!;
+      if (a > 0 && a < 255) {
+        r = Math.min(255, Math.round((r * 255) / a));
+        g = Math.min(255, Math.round((g * 255) / a));
+        b = Math.min(255, Math.round((b * 255) / a));
+      }
+      colors[i] = `rgb(${r},${g},${b})`;
+    }
   }
 
   return {
@@ -286,6 +319,7 @@ const initParticles = (
     brightness,
     tint,
     size: scaleFactor * dotScale,
+    colors,
   };
 };
 
@@ -360,6 +394,21 @@ const drawParticles = (
 ) => {
   ctx.clearRect(0, 0, canvasW * dpr, canvasH * dpr);
 
+  const size = sys.size * dpr;
+  const pad = 0.25 * dpr;
+  const padSize = 0.5 * dpr;
+
+  if (sys.colors) {
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < sys.count; i++) {
+      ctx.fillStyle = sys.colors[i]!;
+      const rx = (sys.baseX[i]! + sys.offsetX[i]!) * dpr;
+      const ry = (sys.baseY[i]! + sys.offsetY[i]!) * dpr;
+      ctx.fillRect(rx - pad, ry - pad, size + padSize, size + padSize);
+    }
+    return;
+  }
+
   const buckets: number[][] = new Array(126);
 
   for (let i = 0; i < 126; i++) buckets[i] = [];
@@ -369,10 +418,6 @@ const drawParticles = (
       6 * Math.round(20 * sys.brightness[i]!) + Math.round(5 * sys.tint[i]!);
     buckets[Math.max(0, Math.min(125, bucket))]!.push(i);
   }
-
-  const size = sys.size * dpr;
-  const pad = 0.25 * dpr;
-  const padSize = 0.5 * dpr;
 
   for (let z = 0; z < 126; z++) {
     const ids = buckets[z]!;
@@ -406,6 +451,7 @@ export interface DitheredLogoProps {
   diffusionStrength?: number;
   serpentine?: boolean;
   particleColor?: string;
+  preserveOriginalColors?: boolean;
   style?: CSSProperties;
   className?: string;
 }
@@ -424,6 +470,7 @@ export function DitheredLogo({
   diffusionStrength = DEFAULTS.diffusionStrength,
   serpentine = DEFAULTS.serpentine,
   particleColor = "currentColor",
+  preserveOriginalColors = false,
   style,
   className,
 }: DitheredLogoProps) {
@@ -543,6 +590,10 @@ export function DitheredLogo({
           responsiveDotScale,
           originX,
           originY,
+          processed.colorData,
+          gridW,
+          gridH,
+          preserveOriginalColors,
         );
         startLoop();
       } catch (error) {
@@ -561,6 +612,7 @@ export function DitheredLogo({
       blur,
       diffusionStrength,
       serpentine,
+      preserveOriginalColors,
       isMobile,
       startLoop,
     ],
@@ -580,6 +632,7 @@ export function DitheredLogo({
       blur,
       diffusionStrength,
       serpentine,
+      preserveOriginalColors,
       isMobile,
     ]);
 
@@ -599,6 +652,7 @@ export function DitheredLogo({
     blur,
     diffusionStrength,
     serpentine,
+    preserveOriginalColors,
     isMobile,
     rebuild,
   ]);

@@ -166,34 +166,34 @@ function LoginContent() {
           {/* Left Column: Hero & Dithered Interactive Logo */}
           <div className="lg:col-span-7 space-y-8 text-white">
             {/* Logo and Brand Header */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
               <div className="relative group">
                 <DitheredLogo 
                   imageSrc="/infreight-relogo.png" 
-                  className="h-24 w-44 sm:h-28 sm:w-52 text-sky-400"
-                  dotScale={1.15}
-                  scale={0.88}
-                  particleColor="#38bdf8"
-                  threshold={60}
+                  className="h-32 w-56 sm:h-40 sm:w-72 lg:h-48 lg:w-84 text-sky-400"
+                  dotScale={1.2}
+                  scale={0.95}
+                  preserveOriginalColors={true}
+                  threshold={50}
                   contrast={25}
-                  blur={1.8}
+                  blur={1.4}
                 />
               </div>
 
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-extrabold tracking-widest text-lg sm:text-xl text-white">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="font-extrabold tracking-widest text-xl sm:text-2xl text-white">
                     INFREIGHT LOGISTICS
                   </span>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-sky-500/20 text-sky-300 border border-sky-500/30">
                     RATES
                   </span>
                 </div>
-                <p className="text-xs tracking-wide text-amber-400 font-semibold">
+                <p className="text-xs tracking-wide text-amber-400 font-semibold uppercase">
                   Deliver Care, Deliver Excellence
                 </p>
                 <p className="text-xs text-slate-300/80 font-mono">
-                  Multi-Carrier Rate Sourcing & Intelligence Desk
+                  Multi-Carrier Rate Sourcing &amp; Intelligence Desk
                 </p>
               </div>
             </div>
@@ -205,15 +205,15 @@ function LoginContent() {
                 Container Rate Intelligence Workspace
               </p>
               
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-serif font-medium leading-[1.08] tracking-tight text-white drop-shadow-md">
-                One shared desk for{" "}
-                <span className="italic underline decoration-cyan-400/50 decoration-wavy underline-offset-8 text-cyan-200">
-                  rate sourcing.
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-serif font-medium leading-[1.12] tracking-tight text-white drop-shadow-md">
+                Precision Ocean Freight{" "}
+                <span className="block mt-1 italic underline decoration-cyan-400/50 decoration-wavy underline-offset-8 text-cyan-200">
+                  Rate Sourcing &amp; Intelligence.
                 </span>
               </h1>
               
               <p className="text-sm sm:text-base text-slate-300/80 leading-relaxed max-w-lg">
-                Automated multi-carrier quote sourcing, instant contract benchmarking, and route reliability matrices across Maersk, CMA CGM, Hapag-Lloyd, MSC, ONE, and OOCL.
+                Automated Multi-Carrier Quote Sourcing, Instant Contract Benchmarking, And Route Reliability Matrices Across Maersk, CMA CGM, Hapag-Lloyd, MSC, ONE, And OOCL.
               </p>
             </div>
 
