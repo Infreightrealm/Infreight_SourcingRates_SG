@@ -75,7 +75,7 @@ async def init_db():
     # Import models here to register them with Base
     from models.rate_search import RateSearch, CarrierSearchResult  # noqa: F401
     from models.quote import Quote, QuoteCharge  # noqa: F401
-    from models.user import User  # noqa: F401
+    from models.user import User, AuthSession, AuditLog  # noqa: F401
 
     global _engine, _async_session
     engine = _get_engine()
@@ -83,6 +83,38 @@ async def init_db():
     from sqlalchemy import inspect, text
     def check_and_add_columns(sync_conn):
         inspector = inspect(sync_conn)
+        if 'users' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('users')]
+            user_cols = {
+                "username": "VARCHAR(50)",
+                "display_name": "VARCHAR(100)",
+                "password_hash": "VARCHAR(255)",
+                "role": "VARCHAR(20) DEFAULT 'user'",
+                "status": "VARCHAR(20) DEFAULT 'pending'",
+                "approved_at": "TIMESTAMP",
+                "approved_by": "VARCHAR(50)",
+                "last_login_at": "TIMESTAMP",
+            }
+            for col_name, col_type in user_cols.items():
+                if col_name not in columns:
+                    try:
+                        sync_conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+                    except Exception:
+                        pass
+            
+            # Migrate legacy users: assign username from name, set status active, set Brian as admin
+            try:
+                sync_conn.execute(text(
+                    "UPDATE users SET "
+                    "username = LOWER(TRIM(name)), "
+                    "display_name = TRIM(name), "
+                    "status = 'active', "
+                    "role = CASE WHEN LOWER(TRIM(name)) = 'brian' THEN 'admin' ELSE 'user' END "
+                    "WHERE username IS NULL OR username = ''"
+                ))
+            except Exception as e:
+                print(f"[DATABASE MIGRATION NOTICE] User table legacy sync: {e}")
+
         if 'quotes' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('quotes')]
             if 'validity_till' not in columns:

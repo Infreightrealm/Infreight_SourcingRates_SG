@@ -5,28 +5,43 @@ import {
   User, Trash2, ShieldCheck, Search, Users, Activity, LogOut, Plus, Globe, 
   Building2, Save, Sliders, RefreshCw, Clock, MapPin, BarChart3, TrendingUp, 
   Award, AlertTriangle, CheckCircle2, DollarSign, Filter, ArrowUpRight, 
-  ArrowDownRight, Sparkles, Layers 
+  ArrowDownRight, Sparkles, Layers, UserCheck, UserX, KeyRound, Shield, FileText,
+  Lock, ArrowRight, Loader2
 } from "lucide-react";
-import { API_URL } from "@/lib/api";
+import { API_URL, loginAuth, getMe, getAdminOverview, adminUserAction, logoutAuth } from "@/lib/api";
 import PortAutocomplete from "@/components/PortAutocomplete";
 import { toast } from "sonner";
 
 interface UserRecord {
   id: string;
-  name: string;
+  username?: string;
+  display_name?: string;
+  name?: string;
+  role: "admin" | "user";
+  status: "active" | "pending" | "disabled";
   is_active: boolean;
-  created_at: string;
+  created_at?: string;
+  approved_at?: string;
+  approved_by?: string;
+  last_login_at?: string;
+  needs_password?: boolean;
 }
 
 export default function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [unauthorizedRole, setUnauthorizedRole] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [adminUsernameInput, setAdminUsernameInput] = useState("");
   const [password, setPassword] = useState("");
   const [users, setUsers] = useState<UserRecord[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates">("analytics");
+  const [activeTab, setActiveTab] = useState<"analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates" | "audit">("analytics");
 
   // Consolidated Analytics state
   const [analyticsData, setAnalyticsData] = useState<any>(null);
@@ -169,11 +184,33 @@ export default function AdminDashboard() {
     }
   };
 
+  // Initial session authentication check on mount
+  useEffect(() => {
+    getMe()
+      .then((res) => {
+        if (res?.user?.role === "admin") {
+          setCurrentUser(res.user);
+          setAuthenticated(true);
+          setUnauthorizedRole(false);
+        } else {
+          setCurrentUser(res.user);
+          setUnauthorizedRole(true);
+          setAuthenticated(false);
+        }
+      })
+      .catch(() => {
+        setAuthenticated(false);
+      })
+      .finally(() => {
+        setAuthChecking(false);
+      });
+  }, []);
+
   useEffect(() => {
     if (authenticated) {
       if (activeTab === "analytics") {
         fetchAnalytics();
-      } else if (activeTab === "users") {
+      } else if (activeTab === "users" || activeTab === "audit") {
         fetchUsers();
       } else if (activeTab === "route_health") {
         fetchRouteHealth();
@@ -192,21 +229,59 @@ export default function AdminDashboard() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_URL}/api/admin/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      if (!res.ok) throw new Error("Invalid password");
-      setAuthenticated(true);
+      if (adminUsernameInput.trim()) {
+        const res = await loginAuth(adminUsernameInput.trim(), password);
+        if (res.user.role !== "admin") {
+          setUnauthorizedRole(true);
+          throw new Error("This account does not have administrator privileges.");
+        }
+        setCurrentUser(res.user);
+        setAuthenticated(true);
+        setUnauthorizedRole(false);
+      } else {
+        const res = await fetch(`${API_URL}/api/admin/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        if (!res.ok) throw new Error("Invalid password.");
+        setAuthenticated(true);
+      }
       fetchAnalytics();
       fetchUsers();
       fetchPortsConfig();
       fetchOverrides();
-    } catch (err) {
-      setError("Incorrect admin password.");
+    } catch (err: any) {
+      setError(err.message || "Incorrect admin credentials.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUserAction = async (
+    userId: string,
+    action: "approve" | "reject" | "disable" | "enable" | "role" | "password" | "delete",
+    payload: any = {}
+  ) => {
+    if (action === "reject" && !confirm("Reject and delete this pending access request?")) return;
+    if (action === "delete" && !confirm("Permanently delete this user account?")) return;
+    if (action === "disable" && !confirm("Disable this user? Their active sessions will be terminated immediately.")) return;
+    if (action === "password") {
+      const newPass = prompt("Enter a new password for this user (min 8 characters):");
+      if (!newPass) return;
+      if (newPass.length < 8) {
+        toast.error("Password must be at least 8 characters.");
+        return;
+      }
+      payload = { password: newPass };
+    }
+
+    try {
+      await adminUserAction(userId, action, payload, password);
+      toast.success(`Action '${action}' applied successfully.`);
+      fetchUsers();
+    } catch (err: any) {
+      toast.error(err.message || `Failed to perform action '${action}'`);
     }
   };
 
@@ -226,11 +301,12 @@ export default function AdminDashboard() {
 
   const fetchUsers = async () => {
     try {
-      const { getUsers } = await import("@/lib/api");
-      const data = await getUsers(password);
-      setUsers(data || []);
+      const data = await getAdminOverview(password);
+      setUsers(data.users || []);
+      setAuditLogs(data.audit || []);
+      if (data.me) setCurrentUser(data.me);
     } catch (e) {
-      console.error("Failed to fetch users", e);
+      console.error("Failed to fetch users overview", e);
     }
   };
 
@@ -441,23 +517,91 @@ export default function AdminDashboard() {
     }
   };
 
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+          <p className="text-sm text-muted-foreground font-medium">Verifying admin credentials…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (unauthorizedRole) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md border border-border bg-card rounded-3xl p-8 shadow-xl text-center space-y-5">
+          <div className="w-16 h-16 rounded-2xl bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center text-rose-600 dark:text-rose-400 mx-auto border border-rose-100 dark:border-rose-500/20">
+            <AlertTriangle className="w-8 h-8" />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-2xl font-bold text-foreground">Admin Access Required</h1>
+            <p className="text-muted-foreground text-sm">
+              You are signed in as <strong className="text-foreground">@{currentUser?.username || currentUser?.name}</strong>, which is an approved team member account but does not have administrator privileges.
+            </p>
+          </div>
+          <div className="p-3.5 bg-muted/40 rounded-xl text-xs text-muted-foreground text-left">
+            Administrator rights are required to manage users, approvals, port ranking, and carrier overrides.
+          </div>
+          <div className="flex flex-col gap-2 pt-2">
+            <a
+              href="/"
+              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm transition-colors text-center"
+            >
+              Return to Rates Workspace
+            </a>
+            <button
+              onClick={() => {
+                logoutAuth().then(() => {
+                  setAuthenticated(false);
+                  setUnauthorizedRole(false);
+                  setCurrentUser(null);
+                });
+              }}
+              className="w-full py-2.5 rounded-xl border border-border text-foreground hover:bg-accent font-medium text-sm transition-colors text-center"
+            >
+              Sign Out &amp; Use Another Account
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!authenticated) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md border border-border bg-card rounded-3xl p-8 shadow-xl">
-          <div className="flex flex-col items-center text-center mb-8">
+          <div className="flex flex-col items-center text-center mb-6">
             <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 border border-indigo-100 dark:border-indigo-500/20">
               <ShieldCheck className="w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground">Admin Dashboard</h1>
-            <p className="text-muted-foreground text-sm mt-1">Enter password to access registry management</p>
+            <h1 className="text-2xl font-bold text-foreground">Admin Access</h1>
+            <p className="text-muted-foreground text-sm mt-1">Sign in with administrator credentials</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
+              <label className="text-xs font-semibold text-foreground uppercase tracking-wider block mb-1">
+                Admin Username
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. brian"
+                value={adminUsernameInput}
+                onChange={(e) => setAdminUsernameInput(e.target.value)}
+                className="w-full bg-muted/40 dark:bg-black/50 border border-border rounded-xl px-4 py-3 text-foreground placeholder-gray-400 focus:outline-none focus:ring-2 focus-visible:ring-ring transition-all text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground uppercase tracking-wider block mb-1">
+                Admin Password
+              </label>
               <input
                 type="password"
-                placeholder="Admin Password"
+                placeholder="••••••••"
+                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-muted/40 dark:bg-black/50 border border-border rounded-xl px-4 py-3 text-foreground placeholder-gray-400 focus:outline-none focus:ring-2 focus-visible:ring-ring transition-all text-sm"
@@ -466,11 +610,23 @@ export default function AdminDashboard() {
             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 py-3 font-medium transition-colors disabled:opacity-50"
+              disabled={loading || !password}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 py-3 font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {loading ? "Verifying..." : "Access Dashboard"}
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Authenticating…
+                </>
+              ) : (
+                "Unlock Dashboard"
+              )}
             </button>
+            <div className="text-center pt-1">
+              <a href="/" className="text-xs text-muted-foreground hover:text-foreground underline">
+                Return to Rates Workspace
+              </a>
+            </div>
           </form>
         </div>
       </div>
@@ -640,6 +796,20 @@ export default function AdminDashboard() {
           >
             Route Reliability Matrix
             {activeTab === "route_health" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("audit")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              activeTab === "audit"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            Security Audit Log
+            {activeTab === "audit" && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
             )}
           </button>
@@ -1244,90 +1414,276 @@ export default function AdminDashboard() {
 
         {/* TAB 1: USER REGISTRY */}
         {activeTab === "users" && (
-          <div className="border border-border bg-card rounded-3xl shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-border flex items-center justify-between">
-              <h2 className="text-lg font-bold text-foreground">Registered Users</h2>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={fetchUsers}
-                  className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1.5"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Refresh Users
-                </button>
-                <button
-                  onClick={handleResetAllUsers}
-                  className="px-3 py-1.5 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1.5"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Reset All Sessions (Fresh Start)
-                </button>
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input 
-                    type="text" 
-                    placeholder="Search users..." 
-                    className="pl-9 pr-4 py-2 bg-muted/40 dark:bg-black/50 border border-border rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus-visible:ring-ring w-64"
-                  />
+          <div className="space-y-6">
+            {/* Pending Access Requests Card (if any) */}
+            {users.filter((u) => u.status === "pending").length > 0 && (
+              <div className="border border-amber-500/30 bg-amber-500/5 rounded-3xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-base text-foreground">
+                        Pending Access Requests ({users.filter((u) => u.status === "pending").length})
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        These users signed up and are waiting for an administrator to approve their account.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {users
+                    .filter((u) => u.status === "pending")
+                    .map((pendingUser) => (
+                      <div
+                        key={pendingUser.id}
+                        className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-xs"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-600 font-bold flex items-center justify-center text-sm">
+                              {(pendingUser.display_name || pendingUser.name || pendingUser.username || "U")
+                                .charAt(0)
+                                .toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-bold text-foreground text-sm">
+                                {pendingUser.display_name || pendingUser.name || "Unnamed"}
+                              </div>
+                              <div className="text-xs text-muted-foreground font-mono">
+                                @{pendingUser.username || pendingUser.name}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            Pending
+                          </span>
+                        </div>
+
+                        <div className="text-[11px] text-muted-foreground">
+                          Requested: {pendingUser.created_at ? new Date(pendingUser.created_at).toLocaleDateString() : "Recently"}
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2 border-t border-border">
+                          <button
+                            onClick={() => handleUserAction(pendingUser.id, "approve")}
+                            className="flex-1 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" /> Approve
+                          </button>
+                          <button
+                            onClick={() => handleUserAction(pendingUser.id, "reject")}
+                            className="flex-1 py-1.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <UserX className="w-3.5 h-3.5" /> Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                 </div>
               </div>
-            </div>
-            
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/40 dark:bg-black/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-6 py-4 font-medium">User Name</th>
-                    <th className="px-6 py-4 font-medium">Status</th>
-                    <th className="px-6 py-4 font-medium">Joined Date</th>
-                    <th className="px-6 py-4 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {users.length === 0 ? (
+            )}
+
+            {/* Registered Users Table */}
+            <div className="border border-border bg-card rounded-3xl shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-border flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-foreground">Registered User Accounts</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Manage system permissions, security roles, password resets, and account access.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={fetchUsers}
+                    className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Refresh
+                  </button>
+                  <button
+                    onClick={handleResetAllUsers}
+                    className="px-3 py-1.5 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Reset All Sessions
+                  </button>
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input 
+                      type="text" 
+                      placeholder="Search name, username, role..." 
+                      value={userSearchTerm}
+                      onChange={(e) => setUserSearchTerm(e.target.value)}
+                      className="pl-9 pr-4 py-2 bg-muted/40 dark:bg-black/50 border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus-visible:ring-ring w-64"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-muted/40 dark:bg-black/40 text-muted-foreground">
                     <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">
-                        No users registered yet.
-                      </td>
+                      <th className="px-6 py-4 font-medium">User & Identity</th>
+                      <th className="px-6 py-4 font-medium">Role</th>
+                      <th className="px-6 py-4 font-medium">Status</th>
+                      <th className="px-6 py-4 font-medium">Activity</th>
+                      <th className="px-6 py-4 font-medium text-right">Actions</th>
                     </tr>
-                  ) : (
-                    users.map((user) => (
-                      <tr key={user.id} className="hover:bg-accent/60 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs">
-                              {user.name.charAt(0).toUpperCase()}
-                            </div>
-                            <span className="font-medium text-foreground">{user.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                            user.is_active 
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" 
-                              : "bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400"
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${user.is_active ? "bg-emerald-400" : "bg-red-400"}`} />
-                            {user.is_active ? "Active" : "Inactive"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-muted-foreground">
-                          {new Date(user.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button 
-                            onClick={() => deleteUser(user.id, user.name)}
-                            className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-                            title="Delete User"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {users
+                      .filter((u) => {
+                        if (u.status === "pending") return false; // shown in pending section above
+                        if (!userSearchTerm.trim()) return true;
+                        const term = userSearchTerm.toLowerCase();
+                        return (
+                          (u.display_name || u.name || "").toLowerCase().includes(term) ||
+                          (u.username || "").toLowerCase().includes(term) ||
+                          (u.role || "").toLowerCase().includes(term)
+                        );
+                      })
+                      .length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">
+                          No users matching filter criteria.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      users
+                        .filter((u) => {
+                          if (u.status === "pending") return false;
+                          if (!userSearchTerm.trim()) return true;
+                          const term = userSearchTerm.toLowerCase();
+                          return (
+                            (u.display_name || u.name || "").toLowerCase().includes(term) ||
+                            (u.username || "").toLowerCase().includes(term) ||
+                            (u.role || "").toLowerCase().includes(term)
+                          );
+                        })
+                        .map((user) => {
+                          const isMe = user.id === currentUser?.id || (currentUser?.username && user.username === currentUser.username);
+                          return (
+                            <tr key={user.id} className="hover:bg-accent/60 transition-colors">
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-sky-600 flex items-center justify-center text-white font-bold text-xs shadow-xs">
+                                    {(user.display_name || user.name || user.username || "U").charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-foreground">
+                                        {user.display_name || user.name || "Unnamed"}
+                                      </span>
+                                      {isMe && (
+                                        <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                                          You
+                                        </span>
+                                      )}
+                                      {user.needs_password && (
+                                        <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                          Needs Password
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground font-mono">
+                                      @{user.username || user.name}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                  user.role === "admin"
+                                    ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30"
+                                    : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                }`}>
+                                  {user.role === "admin" && <Shield className="w-3 h-3" />}
+                                  {user.role === "admin" ? "Admin" : "Member"}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                                  user.status === "active" && user.is_active !== false
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                                    : "bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400"
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${
+                                    user.status === "active" && user.is_active !== false ? "bg-emerald-400" : "bg-rose-400"
+                                  }`} />
+                                  {user.status === "active" && user.is_active !== false ? "Active" : "Disabled"}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-xs text-muted-foreground">
+                                <div>Joined: {user.created_at ? new Date(user.created_at).toLocaleDateString() : "-"}</div>
+                                <div className="text-[11px] text-muted-foreground/70">
+                                  Login: {user.last_login_at ? new Date(user.last_login_at).toLocaleDateString() : "Never"}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                {isMe ? (
+                                  <span className="text-xs text-muted-foreground italic px-2">Current session</span>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Enable / Disable */}
+                                    {user.status === "disabled" ? (
+                                      <button
+                                        onClick={() => handleUserAction(user.id, "enable")}
+                                        className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors"
+                                        title="Enable User"
+                                      >
+                                        <UserCheck className="w-4 h-4" />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => handleUserAction(user.id, "disable")}
+                                        className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition-colors"
+                                        title="Disable User & Revoke Sessions"
+                                      >
+                                        <UserX className="w-4 h-4" />
+                                      </button>
+                                    )}
+
+                                    {/* Toggle Role */}
+                                    <button
+                                      onClick={() => handleUserAction(user.id, "role", { role: user.role === "admin" ? "user" : "admin" })}
+                                      className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-lg transition-colors"
+                                      title={user.role === "admin" ? "Demote to Member" : "Promote to Admin"}
+                                    >
+                                      <Shield className="w-4 h-4" />
+                                    </button>
+
+                                    {/* Set / Reset Password */}
+                                    <button
+                                      onClick={() => handleUserAction(user.id, "password")}
+                                      className="p-1.5 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-500/10 rounded-lg transition-colors"
+                                      title="Reset User Password"
+                                    >
+                                      <KeyRound className="w-4 h-4" />
+                                    </button>
+
+                                    {/* Delete User */}
+                                    <button
+                                      onClick={() => handleUserAction(user.id, "delete")}
+                                      className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors"
+                                      title="Delete Account"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -1827,19 +2183,22 @@ export default function AdminDashboard() {
                 >
                   All Users
                 </button>
-                {users.map((u) => (
-                  <button
-                    key={u.id}
-                    onClick={() => { setHistoryUserFilter(u.name); fetchSearchHistory(u.name); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                      historyUserFilter === u.name
-                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
-                        : "bg-muted dark:bg-gray-800 text-muted-foreground hover:bg-secondary"
-                    }`}
-                  >
-                    {u.name}
-                  </button>
-                ))}
+                {users.map((u) => {
+                  const uname = u.username || u.name || u.display_name || "";
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => { setHistoryUserFilter(uname); fetchSearchHistory(uname); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        historyUserFilter === uname
+                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                          : "bg-muted dark:bg-gray-800 text-muted-foreground hover:bg-secondary"
+                      }`}
+                    >
+                      {u.display_name || u.name || u.username}
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="relative">
@@ -2152,6 +2511,100 @@ export default function AdminDashboard() {
                   })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Security Audit Log Tab */}
+        {activeTab === "audit" && (
+          <div className="border border-border bg-card rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex items-center justify-between flex-wrap gap-4 border-b border-border pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-indigo-500" />
+                  <span>Security Audit Log</span>
+                </h2>
+                <p className="text-muted-foreground text-sm mt-1">
+                  Track all authentication attempts, privilege grants, user approvals, and administrative actions.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={fetchUsers}
+                  className="px-3.5 py-2 bg-muted hover:bg-accent text-foreground rounded-xl text-xs font-semibold transition-colors flex items-center gap-2"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Refresh Audit Trail
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-muted/40 dark:bg-black/40 text-muted-foreground">
+                  <tr>
+                    <th className="px-6 py-4 font-medium">Timestamp</th>
+                    <th className="px-6 py-4 font-medium">Actor</th>
+                    <th className="px-6 py-4 font-medium">Action</th>
+                    <th className="px-6 py-4 font-medium">Target</th>
+                    <th className="px-6 py-4 font-medium">Details</th>
+                    <th className="px-6 py-4 font-medium">IP Address</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {auditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
+                        No security audit logs recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    auditLogs.map((log) => {
+                      const isAlert =
+                        log.action?.includes("failed") ||
+                        log.action?.includes("reject") ||
+                        log.action?.includes("disable");
+                      const isSuccess =
+                        log.action?.includes("login") ||
+                        log.action?.includes("approve") ||
+                        log.action?.includes("enable");
+                      return (
+                        <tr key={log.id} className="hover:bg-accent/60 transition-colors">
+                          <td className="px-6 py-4 text-xs font-mono text-muted-foreground whitespace-nowrap">
+                            {log.created_at ? new Date(log.created_at).toLocaleString() : "-"}
+                          </td>
+                          <td className="px-6 py-4 font-semibold text-foreground text-xs font-mono">
+                            @{log.actor_username || "system"}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold uppercase tracking-wider ${
+                                isAlert
+                                  ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                                  : isSuccess
+                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                  : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20"
+                              }`}
+                            >
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-xs font-mono text-muted-foreground">
+                            {log.target_username ? `@${log.target_username}` : "-"}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-muted-foreground max-w-xs truncate">
+                            {typeof log.details === "object" ? JSON.stringify(log.details) : log.details || "-"}
+                          </td>
+                          <td className="px-6 py-4 text-xs font-mono text-muted-foreground">
+                            {log.ip_address || "-"}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

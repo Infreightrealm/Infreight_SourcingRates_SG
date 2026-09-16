@@ -163,9 +163,22 @@ if (typeof window !== "undefined") {
 
 // Custom fetch wrapper with automatic failover and failback recovery
 async function failoverFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("infreight_token") : null;
+  const authHeaders: Record<string, string> = {};
+  if (token) {
+    authHeaders["Authorization"] = `Bearer ${token}`;
+  }
+
   const headers = {
     ...defaultHeaders,
+    ...authHeaders,
     ...options.headers,
+  };
+
+  const fetchOptions: RequestInit = {
+    credentials: "include",
+    ...options,
+    headers,
   };
 
   // If currently using backup, check if primary local backend has come back online!
@@ -191,12 +204,12 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
   };
 
   try {
-    const res = await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
+    const res = await fetch(`${currentActiveUrl}${path}`, fetchOptions);
     if (!res.ok && res.status >= 500 && currentActiveUrl !== backupApiUrl) {
       const switched = doSwitchToBackup(`HTTP ${res.status} Server Error`);
       if (switched) {
         try {
-          return await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
+          return await fetch(`${currentActiveUrl}${path}`, fetchOptions);
         } catch (backupErr) {
           console.error(`[API] Backup URL ${backupApiUrl} also failed: ${backupErr}`);
         }
@@ -207,7 +220,7 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
     const switched = doSwitchToBackup(String(primaryErr));
     if (switched) {
       try {
-        return await fetch(`${currentActiveUrl}${path}`, { ...options, headers });
+        return await fetch(`${currentActiveUrl}${path}`, fetchOptions);
       } catch (backupErr) {
         console.error(`[API] Backup URL ${backupApiUrl} also failed: ${backupErr}`);
         throw backupErr;
@@ -568,6 +581,171 @@ export async function resetAllUsers(adminPassword?: string): Promise<{ status: s
     throw new Error(data.detail || `Failed to reset users: ${res.status}`);
   }
   return res.json();
+}
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  display_name: string;
+  name: string;
+  role: "admin" | "user";
+  status: "active" | "pending" | "disabled";
+  is_active: boolean;
+  created_at?: string;
+  approved_at?: string;
+  approved_by?: string;
+  last_login_at?: string;
+  needs_password?: boolean;
+}
+
+export async function loginAuth(
+  username: string,
+  password: string
+): Promise<{ user: AuthUser; token?: string; message?: string }> {
+  const res = await failoverFetch(`/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    // If backend reports legacy account needs password setup
+    if (res.status === 428 || data?.detail?.code === "NEEDS_PASSWORD") {
+      const err: any = new Error(data?.detail?.message || "Password setup required");
+      err.code = "NEEDS_PASSWORD";
+      err.username = data?.detail?.username || username;
+      err.displayName = data?.detail?.display_name || username;
+      throw err;
+    }
+    throw new Error(data.detail || data.error || "Incorrect username or password.");
+  }
+  if (data.token && typeof window !== "undefined") {
+    localStorage.setItem("infreight_token", data.token);
+    localStorage.setItem("userName", data.user.display_name || data.user.name || data.user.username);
+  }
+  return data;
+}
+
+export async function signupAuth(
+  displayName: string,
+  username: string,
+  password: string
+): Promise<{ user: AuthUser; token?: string; message?: string }> {
+  const res = await failoverFetch(`/api/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName, username, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.detail || data.error || "Failed to create account request.");
+  }
+  if (data.token && typeof window !== "undefined") {
+    localStorage.setItem("infreight_token", data.token);
+    localStorage.setItem("userName", data.user.display_name || data.user.name || data.user.username);
+  }
+  return data;
+}
+
+export async function setupPasswordAuth(
+  username: string,
+  password: string,
+  confirmPassword?: string
+): Promise<{ user: AuthUser; token?: string; message?: string }> {
+  const res = await failoverFetch(`/api/auth/setup-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password, confirm_password: confirmPassword || password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.detail || data.error || "Failed to set up password.");
+  }
+  if (data.token && typeof window !== "undefined") {
+    localStorage.setItem("infreight_token", data.token);
+    localStorage.setItem("userName", data.user.display_name || data.user.name || data.user.username);
+  }
+  return data;
+}
+
+export async function getMe(): Promise<{ user: AuthUser }> {
+  const res = await failoverFetch(`/api/auth/me`);
+  if (!res.ok) {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("infreight_token");
+    }
+    throw new Error(`Unauthenticated: ${res.status}`);
+  }
+  const data = await res.json();
+  if (data?.user && typeof window !== "undefined") {
+    localStorage.setItem("userName", data.user.display_name || data.user.name || data.user.username);
+  }
+  return data;
+}
+
+export async function logoutAuth(): Promise<void> {
+  try {
+    await failoverFetch(`/api/auth/logout`, { method: "POST" });
+  } finally {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("infreight_token");
+      localStorage.removeItem("userName");
+    }
+  }
+}
+
+export async function getAdminOverview(adminPassword?: string): Promise<{
+  users: AuthUser[];
+  stats: {
+    totalUsers: number;
+    activeUsers: number;
+    pendingUsers: number;
+    totalSearches: number;
+    totalQuotes: number;
+  };
+  audit: {
+    id: string;
+    at: string;
+    actor: string;
+    action: string;
+    detail: string;
+  }[];
+  me: AuthUser;
+}> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/admin/overview`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch admin overview: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function adminUserAction(
+  userId: string,
+  action: "approve" | "reject" | "disable" | "enable" | "role" | "password" | "delete",
+  payload: any = {},
+  adminPassword?: string
+): Promise<any> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const method = action === "delete" ? "DELETE" : "POST";
+  const path = action === "delete" ? `/api/admin/users/${encodeURIComponent(userId)}` : `/api/admin/users/${encodeURIComponent(userId)}/${action}`;
+  const res = await failoverFetch(path, {
+    method,
+    headers,
+    body: Object.keys(payload).length > 0 ? JSON.stringify(payload) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.detail || data.error || `Action ${action} failed: ${res.status}`);
+  }
+  return data;
 }
 
 export async function getSearchHistory(userName?: string, limit: number = 5000): Promise<any[]> {

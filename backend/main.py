@@ -22,6 +22,7 @@ from models.database import init_db
 from api.rate_search_routes import router as rate_search_router
 from api.port_routes import router as port_router
 from api.user_routes import router as user_router, admin_router
+from api.auth_routes import router as auth_router
 from api.rfq_routes import router as rfq_router
 
 
@@ -32,6 +33,47 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("[OK] Database tables created/verified")
     
+    # Bootstrap / recovery administrator check (§3 of AUTH-AND-ADMIN.md)
+    admin_user_env = os.getenv("ADMIN_USERNAME") or os.getenv("DASHBOARD_USERNAME")
+    admin_pass_env = os.getenv("ADMIN_PASSWORD") or os.getenv("DASHBOARD_PASSWORD")
+    if admin_pass_env and admin_user_env:
+        try:
+            from datetime import datetime
+            from models.database import get_async_session_maker
+            from sqlalchemy import select
+            from models.user import User
+            from services.auth_service import hash_password, normalize_username
+            norm_admin = normalize_username(admin_user_env)
+            async with get_async_session_maker()() as session:
+                res = await session.execute(
+                    select(User).where((User.username == norm_admin) | (User.name == admin_user_env))
+                )
+                admin_obj = res.scalar_one_or_none()
+                if not admin_obj:
+                    admin_obj = User(
+                        username=norm_admin,
+                        display_name=admin_user_env,
+                        name=admin_user_env,
+                        password_hash=hash_password(admin_pass_env),
+                        role="admin",
+                        status="active",
+                        is_active=True,
+                        approved_at=datetime.utcnow(),
+                        approved_by="bootstrap",
+                    )
+                    session.add(admin_obj)
+                    await session.commit()
+                    print(f"[OK] Bootstrap admin account '@{norm_admin}' initialized.")
+                elif not admin_obj.password_hash:
+                    admin_obj.password_hash = hash_password(admin_pass_env)
+                    admin_obj.status = "active"
+                    admin_obj.role = "admin"
+                    admin_obj.is_active = True
+                    await session.commit()
+                    print(f"[OK] Applied bootstrap password to admin '@{norm_admin}'.")
+        except Exception as admin_err:
+            print(f"[WARN] Bootstrap admin check failed: {admin_err}")
+
     # Self-healing clean up of stuck statuses on server startup
     try:
         from models.database import get_async_session_maker
@@ -93,6 +135,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth_router)
 app.include_router(rate_search_router)
 app.include_router(port_router)
 app.include_router(user_router)

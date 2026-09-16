@@ -34,8 +34,10 @@ import {
   Table2,
   UserRound,
   Zap,
+  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getMe, logoutAuth } from "@/lib/api";
 
 function HomeContent() {
   const router = useRouter();
@@ -45,6 +47,7 @@ function HomeContent() {
   const [mockMode, setMockMode] = useState<boolean | null>(null);
   const [searchId, setSearchId] = useState<string | null>(searchParams.get("id"));
   const [userName, setUserName] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   const [backendUrl, setBackendUrl] = useState(getApiUrl());
   const [isBackendModalOpen, setIsBackendModalOpen] = useState(false);
@@ -66,18 +69,24 @@ function HomeContent() {
   // Check backend health and sync user session on mount
   useEffect(() => {
     setIsClient(true);
-    const savedName = localStorage.getItem("userName");
-    if (savedName) {
-      setUserName(savedName);
-      import("@/lib/api").then(({ validateSession }) => {
-        validateSession(savedName).catch((err: any) => {
-          console.warn("Failed to validate user session:", err);
+    getMe()
+      .then((data) => {
+        if (data?.user && data.user.status === "active") {
+          const displayName = data.user.display_name || data.user.name || data.user.username;
+          setUserName(displayName);
+          setUserRole(data.user.role);
+          localStorage.setItem("userName", displayName);
+        } else {
+          setUserName(null);
+          setUserRole(null);
           localStorage.removeItem("userName");
-          setUserName("");
-          toast.info("User sessions were reset by admin. Please enter your name to log in.");
-        });
+        }
+      })
+      .catch(() => {
+        setUserName(null);
+        setUserRole(null);
+        localStorage.removeItem("userName");
       });
-    }
 
     let lastToastedUrl: string | null = null;
     registerUrlSwitchCallback((newUrl, isRestored, reason) => {
@@ -518,12 +527,28 @@ function HomeContent() {
               <History className="size-3.5" />
               <span>My Searches &amp; History</span>
             </button>
+            {userRole === "admin" && (
+              <button
+                onClick={() => router.push("/admin")}
+                className="btn-interactive inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-500/25 bg-indigo-500/10 px-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/16"
+                title="Admin Dashboard & User Registry"
+              >
+                <ShieldCheck className="size-3.5 text-indigo-500" />
+                <span>Admin</span>
+              </button>
+            )}
             <Separator orientation="vertical" className="mx-1" />
             {userName && (
               <button
-                onClick={() => {
-                  localStorage.removeItem("userName");
+                onClick={async () => {
+                  try {
+                    await logoutAuth();
+                  } catch (e) {
+                    // Ignore
+                  }
                   setUserName(null);
+                  setUserRole(null);
+                  toast.success("Signed out successfully.");
                 }}
                 className="group relative inline-flex h-8 items-center gap-1.5 overflow-hidden rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
                 title="Change User / Logout"
@@ -531,6 +556,11 @@ function HomeContent() {
                 <span className="flex items-center gap-1.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-translate-y-6">
                   <UserRound className="size-3.5" />
                   {userName}
+                  {userRole === "admin" && (
+                    <span className="text-[10px] font-semibold bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 rounded px-1 py-0.5">
+                      Admin
+                    </span>
+                  )}
                 </span>
                 <span className="absolute inset-0 flex translate-y-6 items-center justify-center gap-1.5 text-destructive-foreground transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:translate-y-0">
                   <LogOut className="size-3.5" />
@@ -714,9 +744,10 @@ function HomeContent() {
       
       {isClient && !userName && (
         <LoginModal 
-          onLogin={(name) => {
+          onLogin={(name, role) => {
             localStorage.setItem("userName", name);
             setUserName(name);
+            if (role) setUserRole(role);
           }} 
         />
       )}
