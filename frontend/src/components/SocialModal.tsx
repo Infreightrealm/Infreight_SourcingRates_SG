@@ -9,12 +9,14 @@ import {
   Lock,
   ArrowLeft,
   Search,
+  ImagePlus,
 } from "lucide-react";
 import {
   OrbitCardStack,
   type OrbitStackItem,
 } from "@/components/ui/orbit-card-stack";
 import { HalftoneAvatar } from "@/components/ui/halftone-avatar";
+import { EmojiPicker } from "@/components/ui/emoji-picker";
 import {
   getColleagues,
   getConversation,
@@ -32,8 +34,10 @@ interface SocialModalProps {
   onAvatarUpdated?: () => void;
 }
 
-// Helper to downscale uploaded avatar to compact base64 data URI (~20-40KB)
-function resizeImageToDataUrl(file: File, maxDim: number = 280): Promise<string> {
+// Helper to downscale an image file/blob to a compact base64 data URI, used for
+// both square avatar uploads and pasted chat screenshots (kept under a few
+// hundred KB so it stores cleanly as a data URL like avatars do).
+function resizeImageToDataUrl(file: Blob, maxDim: number = 280, quality: number = 0.88): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -57,7 +61,7 @@ function resizeImageToDataUrl(file: File, maxDim: number = 280): Promise<string>
         const ctx = canvas.getContext("2d");
         if (!ctx) return reject(new Error("Canvas context failed"));
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.88));
+        resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.onerror = reject;
       img.src = e.target?.result as string;
@@ -87,6 +91,12 @@ export default function SocialModal({
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Pasted / attached screenshot pending send (mirrors an iMessage/Slack composer)
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [preparingImage, setPreparingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [composerFor, setComposerFor] = useState<string | null>(null);
+
   // Avatar Upload State (Admin only)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [targetColleagueForUpload, setTargetColleagueForUpload] = useState<Colleague | null>(null);
@@ -114,6 +124,7 @@ export default function SocialModal({
       setSelectedColleague(null);
       setMessages([]);
       setQuery("");
+      setPendingImage(null);
     }
   }, [isOpen]);
 
@@ -130,6 +141,14 @@ export default function SocialModal({
       toast.error(err.message || "Failed to load chat history.");
     }
   };
+
+  // Reset the composer's draft/attachment whenever the focused colleague changes
+  // (done during render, not an effect, so it can never flash the old draft first).
+  if (composerFor !== (selectedColleague?.id ?? null)) {
+    setComposerFor(selectedColleague?.id ?? null);
+    setPendingImage(null);
+    setInputText("");
+  }
 
   useEffect(() => {
     if (!selectedColleague) return;
@@ -152,24 +171,68 @@ export default function SocialModal({
     }
   }, [messages]);
 
-  // Send message
+  // Send message (text, an image, or both together — like any modern chat app)
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!selectedColleague || !inputText.trim() || sending) return;
-
     const content = inputText.trim();
+    if (!selectedColleague || sending || (!content && !pendingImage)) return;
+
     setInputText("");
+    const attachment = pendingImage ? { url: pendingImage, type: "image" } : null;
+    setPendingImage(null);
     setSending(true);
 
     try {
-      const newMsg = await sendDirectMessage(selectedColleague.id, content);
+      const newMsg = await sendDirectMessage(selectedColleague.id, content, attachment);
       setMessages((prev) => [...prev, newMsg]);
     } catch (err: any) {
       toast.error(err.message || "Failed to send message.");
       setInputText(content); // restore on error
+      if (attachment) setPendingImage(attachment.url);
     } finally {
       setSending(false);
     }
+  };
+
+  // Shared entry point for both clipboard-pasted screenshots and the file picker.
+  const attachImageFile = async (file: File | null | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Only image files can be attached.");
+      return;
+    }
+    setPreparingImage(true);
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 1280, 0.82);
+      setPendingImage(dataUrl);
+    } catch {
+      toast.error("Failed to process the image.");
+    } finally {
+      setPreparingImage(false);
+    }
+  };
+
+  // Paste a screenshot straight from the clipboard (Cmd/Ctrl+V) into the composer.
+  const handlePasteImage = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        attachImageFile(item.getAsFile());
+        return;
+      }
+    }
+  };
+
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    attachImageFile(e.target.files?.[0]);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  // Insert an emoji at the caret, falling back to appending it.
+  const handleEmojiSelect = (emoji: string) => {
+    setInputText((prev) => `${prev}${emoji}`);
   };
 
   // Trigger avatar file chooser
@@ -460,13 +523,28 @@ export default function SocialModal({
                         className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
                       >
                         <div
-                          className={`max-w-[82%] rounded-2xl px-4 py-2.5 text-sm shadow-md ${
+                          className={`max-w-[82%] overflow-hidden rounded-2xl text-sm shadow-md ${
                             isMe
                               ? "bg-sky-500 text-white rounded-br-xs font-medium"
                               : "bg-slate-800/90 text-slate-100 rounded-bl-xs border border-white/10"
-                          }`}
+                          } ${msg.attachment_url ? "p-1.5" : "px-4 py-2.5"}`}
                         >
-                          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                          {msg.attachment_url && (
+                            <a href={msg.attachment_url} target="_blank" rel="noreferrer">
+                              <img
+                                src={msg.attachment_url}
+                                alt="Shared screenshot"
+                                className={`block max-h-72 w-full rounded-xl object-cover ${msg.content ? "mb-1.5" : ""}`}
+                              />
+                            </a>
+                          )}
+                          {msg.content && (
+                            <p
+                              className={`whitespace-pre-wrap break-words ${msg.attachment_url ? "px-2.5 pb-1" : ""}`}
+                            >
+                              {msg.content}
+                            </p>
+                          )}
                         </div>
                         <span className="mt-1 text-[10px] text-slate-500 font-mono px-1">
                           {msg.created_at
@@ -485,18 +563,77 @@ export default function SocialModal({
 
               {/* Chat Input */}
               <form onSubmit={handleSend} className="p-3 border-t border-white/10 bg-slate-900/80">
-                <div className="flex items-center gap-2 rounded-2xl border border-white/15 bg-slate-950/80 px-3 py-1.5 shadow-inner focus-within:border-sky-400">
+                <input
+                  type="file"
+                  ref={imageInputRef}
+                  onChange={handleImageFileChange}
+                  accept="image/png, image/jpeg, image/webp, image/gif"
+                  className="hidden"
+                />
+
+                {/* Pending screenshot / image preview */}
+                {(pendingImage || preparingImage) && (
+                  <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950/70 p-1.5">
+                    {preparingImage ? (
+                      <div className="flex size-14 shrink-0 items-center justify-center rounded-lg bg-white/5">
+                        <Loader2 className="size-4 animate-spin text-sky-400" />
+                      </div>
+                    ) : (
+                      <img
+                        src={pendingImage!}
+                        alt="Pending attachment"
+                        className="size-14 shrink-0 rounded-lg object-cover"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-semibold text-white">
+                        {preparingImage ? "Processing image…" : "Image ready to send"}
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        {preparingImage ? "Paste, drop or pick a screenshot" : "Add a caption or hit send"}
+                      </p>
+                    </div>
+                    {!preparingImage && (
+                      <button
+                        type="button"
+                        onClick={() => setPendingImage(null)}
+                        className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+                        title="Remove attachment"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-1 rounded-2xl border border-white/15 bg-slate-950/80 pl-1.5 pr-3 py-1.5 shadow-inner focus-within:border-sky-400">
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+                    title="Attach an image"
+                    aria-label="Attach an image"
+                  >
+                    <ImagePlus className="size-4.5" />
+                  </button>
+
                   <input
                     type="text"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder={`Message @${selectedColleague.username}...`}
-                    className="flex-1 bg-transparent py-1.5 text-sm text-white placeholder:text-slate-500 focus:outline-none"
+                    onPaste={handlePasteImage}
+                    placeholder={
+                      pendingImage ? "Add a caption (optional)..." : `Message @${selectedColleague.username}... (paste a screenshot)`
+                    }
+                    className="flex-1 min-w-0 bg-transparent py-1.5 text-sm text-white placeholder:text-slate-500 focus:outline-none"
                     disabled={sending}
                   />
+
+                  <EmojiPicker onSelect={handleEmojiSelect} />
+
                   <button
                     type="submit"
-                    disabled={!inputText.trim() || sending}
+                    disabled={(!inputText.trim() && !pendingImage) || sending || preparingImage}
                     className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-sky-500 text-white hover:bg-sky-400 disabled:opacity-40 transition-all cursor-pointer"
                   >
                     {sending ? (

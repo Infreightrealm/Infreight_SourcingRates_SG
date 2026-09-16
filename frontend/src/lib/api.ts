@@ -867,6 +867,8 @@ export interface DirectMessageItem {
   sender_id: string;
   recipient_id: string;
   content: string;
+  attachment_url?: string | null;
+  attachment_type?: string | null;
   created_at: string | null;
   read_at: string | null;
   is_from_me: boolean;
@@ -890,11 +892,20 @@ export async function getConversation(colleagueId: string): Promise<DirectMessag
   return res.json();
 }
 
-export async function sendDirectMessage(recipientId: string, content: string): Promise<DirectMessageItem> {
+export async function sendDirectMessage(
+  recipientId: string,
+  content: string,
+  attachment?: { url: string; type: string } | null,
+): Promise<DirectMessageItem> {
   const res = await failoverFetch(`/api/social/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ recipient_id: recipientId, content }),
+    body: JSON.stringify({
+      recipient_id: recipientId,
+      content,
+      attachment_url: attachment?.url ?? null,
+      attachment_type: attachment?.type ?? null,
+    }),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));

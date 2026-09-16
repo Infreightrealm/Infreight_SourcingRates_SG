@@ -18,7 +18,10 @@ router = APIRouter(prefix="/api/social", tags=["social"])
 
 class SendMessageRequest(BaseModel):
     recipient_id: str
-    content: str = Field(..., min_length=1, max_length=2500)
+    content: str = Field("", max_length=2500)
+    # Pasted screenshot / uploaded image as a data URL (mirrors avatar upload).
+    attachment_url: Optional[str] = Field(None, max_length=6_000_000)  # ~4.5MB image, base64-inflated
+    attachment_type: Optional[str] = Field(None, max_length=20)
 
 
 class UpdateAvatarRequest(BaseModel):
@@ -166,6 +169,8 @@ async def get_conversation(
             "sender_id": str(m.sender_id),
             "recipient_id": str(m.recipient_id),
             "content": m.content,
+            "attachment_url": m.attachment_url,
+            "attachment_type": m.attachment_type,
             "created_at": m.created_at.isoformat() if m.created_at else None,
             "read_at": m.read_at.isoformat() if m.read_at else None,
             "is_from_me": m.sender_id == current_user.id,
@@ -198,13 +203,21 @@ async def send_direct_message(
         raise HTTPException(status_code=404, detail="Colleague account not found or is currently inactive.")
 
     clean_content = payload.content.strip()
-    if not clean_content:
+    attachment_url = (payload.attachment_url or "").strip() or None
+    attachment_type = (payload.attachment_type or "").strip() or None
+
+    if not clean_content and not attachment_url:
         raise HTTPException(status_code=400, detail="Message content cannot be empty.")
+
+    if attachment_url and not attachment_url.startswith("data:image/"):
+        raise HTTPException(status_code=400, detail="Attachment must be an image data URL.")
 
     msg = DirectMessage(
         sender_id=current_user.id,
         recipient_id=recipient_uuid,
         content=clean_content,
+        attachment_url=attachment_url,
+        attachment_type=attachment_type,
         created_at=datetime.utcnow(),
     )
     session.add(msg)
@@ -216,6 +229,8 @@ async def send_direct_message(
         "sender_id": str(msg.sender_id),
         "recipient_id": str(msg.recipient_id),
         "content": msg.content,
+        "attachment_url": msg.attachment_url,
+        "attachment_type": msg.attachment_type,
         "created_at": msg.created_at.isoformat() if msg.created_at else None,
         "read_at": None,
         "is_from_me": True,

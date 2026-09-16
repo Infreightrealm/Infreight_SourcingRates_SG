@@ -166,6 +166,20 @@ async def init_db():
                     except Exception:
                         pass
 
+        if 'direct_messages' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('direct_messages')]
+            dm_cols = {
+                # Pasted screenshots / uploaded images, stored as data URLs (like avatars).
+                "attachment_url": "TEXT",
+                "attachment_type": "VARCHAR(20)",
+            }
+            for col_name, col_type in dm_cols.items():
+                if col_name not in columns:
+                    try:
+                        sync_conn.execute(text(f"ALTER TABLE direct_messages ADD COLUMN {col_name} {col_type}"))
+                    except Exception:
+                        pass
+
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

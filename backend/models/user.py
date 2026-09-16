@@ -51,6 +51,9 @@ class DirectMessage(Base):
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     sender_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     recipient_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=False, default="")
+    # Pasted screenshot / uploaded image, stored as a data URL (same pattern as User.avatar_url).
+    attachment_url = Column(Text, nullable=True)
+    attachment_type = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     read_at = Column(DateTime, nullable=True)
