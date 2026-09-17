@@ -154,10 +154,12 @@ function LoginContent() {
       fullBleed
       baseColor="#020617"
       midColor="#0c243c"
-      sheenColor="#93c5fd"
-      accentColor="#0284c7"
+      // Ribbons retuned to the Infreight wordmark's own amber/blue gradient
+      // (was generic cyan/sky) so the aurora and the logo read as one brand.
+      sheenColor="#f2b154"
+      accentColor="#2f8fd1"
       speed={0.85}
-      intensity={1.05}
+      intensity={1.25}
       className="min-h-screen w-full select-none"
     >
       <div className="w-full min-h-screen flex items-center justify-center p-6 sm:p-10 lg:p-14 relative z-10">
