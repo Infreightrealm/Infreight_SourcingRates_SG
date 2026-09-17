@@ -2,18 +2,16 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { 
-  ShieldCheck, 
-  ArrowRight, 
-  Loader2, 
-  Lock, 
-  User, 
-  UserPlus, 
-  KeyRound, 
-  CheckCircle2, 
+import {
+  ArrowRight,
+  Loader2,
+  Lock,
+  User,
+  UserPlus,
+  KeyRound,
+  CheckCircle2,
   AlertCircle,
   Ship,
-  Sparkles,
   Layers
 } from "lucide-react";
 import { loginAuth, signupAuth, setupPasswordAuth, getMe } from "@/lib/api";
@@ -551,23 +549,6 @@ function LoginContent() {
                 </form>
               )}
 
-              {/* Security badges footer */}
-              <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                <span className="flex items-center gap-1">
-                  <ShieldCheck className="size-3 text-cyan-400" />
-                  scrypt KDF
-                </span>
-                <span>•</span>
-                <span className="flex items-center gap-1">
-                  <Lock className="size-3 text-cyan-400" />
-                  SHA-256 Tokens
-                </span>
-                <span>•</span>
-                <span className="flex items-center gap-1">
-                  <Sparkles className="size-3 text-cyan-400" />
-                  Internal Portal
-                </span>
-              </div>
             </div>
           </div>
 
