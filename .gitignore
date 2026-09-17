@@ -59,3 +59,4 @@ scratch/
 *.pma
 *.dat
 cma_api_probe_out/
+cma_spoton_out/
