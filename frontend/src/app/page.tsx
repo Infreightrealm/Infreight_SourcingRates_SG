@@ -17,7 +17,7 @@ import { exportMultiRouteResultsToExcel, exportTariffMatrixToExcel, type BatchRo
 import SearchHistoryModal from "@/components/SearchHistoryModal";
 import BackendConfigModal from "@/components/BackendConfigModal";
 import WorkspacePanel from "@/components/WorkspacePanel";
-import SocialModal from "@/components/SocialModal";
+import SocialWidget from "@/components/SocialWidget";
 import LaunchIntro from "@/components/LaunchIntro";
 import { usePreferences, type SavedLane } from "@/lib/preferences";
 import { Card } from "@/components/ui/card";
@@ -35,7 +35,6 @@ import {
   UserRound,
   Zap,
   ShieldCheck,
-  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getMe, logoutAuth } from "@/lib/api";
@@ -54,7 +53,6 @@ function HomeContent() {
   const [backendUrl, setBackendUrl] = useState(getApiUrl());
   const [isBackendModalOpen, setIsBackendModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [introReplayKey, setIntroReplayKey] = useState(0);
   const [formRoute, setFormRoute] = useState<{ origin: string; destination: string; containerTypes: string[]; weightKg: number } | null>(null);
@@ -535,14 +533,6 @@ function HomeContent() {
               <History className="size-3.5" />
               <span>My Searches &amp; History</span>
             </button>
-            <button
-              onClick={() => setIsSocialModalOpen(true)}
-              className="btn-interactive inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 text-xs font-semibold text-sky-500 dark:text-sky-400 hover:bg-sky-500/16"
-              title="Colleague Orbit & Private Messaging"
-            >
-              <MessageSquare className="size-3.5 text-sky-500 dark:text-sky-400" />
-              <span>Social</span>
-            </button>
             {userRole === "admin" && (
               <button
                 onClick={() => router.push("/admin")}
@@ -826,18 +816,19 @@ function HomeContent() {
         }}
       />
 
-      <SocialModal
-        isOpen={isSocialModalOpen}
-        onClose={() => setIsSocialModalOpen(false)}
-        currentUserRole={userRole}
-        onAvatarUpdated={() => {
-          getMe()
-            .then((d) => {
-              if (d?.user?.avatar_url) setUserAvatar(d.user.avatar_url);
-            })
-            .catch(() => {});
-        }}
-      />
+      {/* Floating bottom-right launcher — colleague messaging, always available once signed in */}
+      {userName && (
+        <SocialWidget
+          currentUserRole={userRole}
+          onAvatarUpdated={() => {
+            getMe()
+              .then((d) => {
+                if (d?.user?.avatar_url) setUserAvatar(d.user.avatar_url);
+              })
+              .catch(() => {});
+          }}
+        />
+      )}
     </div>
   );
 }
