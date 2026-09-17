@@ -154,8 +154,11 @@ function LoginContent() {
       midColor="#0c243c"
       // Ribbons retuned to the Infreight wordmark's own amber/blue gradient
       // (was generic cyan/sky) so the aurora and the logo read as one brand.
-      sheenColor="#f2b154"
-      accentColor="#2f8fd1"
+      // The shader adds these colors on top of the dark navy base/mid, so a
+      // mid-tone blue gets absorbed into the backdrop — sheen needs enough
+      // luminance to actually read as a distinct ribbon rather than "more navy".
+      sheenColor="#57c2f0"
+      accentColor="#f5a623"
       speed={0.85}
       intensity={1.25}
       className="min-h-screen w-full select-none"
