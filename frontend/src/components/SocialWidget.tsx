@@ -11,9 +11,11 @@ import {
   ImagePlus,
   MessagesSquare,
   Camera,
+  Layers,
 } from "lucide-react";
 import { HalftoneAvatar } from "@/components/ui/halftone-avatar";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
+import { OrbitCardStack, type OrbitStackItem } from "@/components/ui/orbit-card-stack";
 import {
   getColleagues,
   getConversation,
@@ -65,6 +67,8 @@ function resizeImageToDataUrl(file: Blob, maxDim: number = 280, quality: number 
   });
 }
 
+const ACCENT_COLORS = ["#38bdf8", "#f43f5e", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899"];
+
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
@@ -88,6 +92,7 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
   const [colleagues, setColleagues] = useState<Colleague[]>([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
+  const [panelTab, setPanelTab] = useState<"messages" | "team">("messages");
   const [selectedColleague, setSelectedColleague] = useState<Colleague | null>(null);
 
   // Direct Messaging State
@@ -136,6 +141,7 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     } else {
       setSelectedColleague(null);
       setQuery("");
+      setPanelTab("messages");
     }
   }, [open]);
 
@@ -239,6 +245,15 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     fileInputRef.current?.click();
   };
 
+  // Same upload flow, triggered from the Team card-fan (OrbitCardStack calls
+  // back with its own item shape rather than a Colleague + click event).
+  const handleUploadAvatarFromStack = (item: OrbitStackItem) => {
+    const target = colleagues.find((c) => c.id === item.id);
+    if (!target) return;
+    setTargetColleagueForUpload(target);
+    fileInputRef.current?.click();
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !targetColleagueForUpload) return;
@@ -294,6 +309,32 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     });
   }, [colleagues, query]);
 
+  // Same filtered roster, reshaped for the Team card-fan view.
+  const stackItems: OrbitStackItem[] = useMemo(() => {
+    return rows.map((c, i) => {
+      const name = c.display_name || c.name || c.username;
+      const initials = name
+        .split(" ")
+        .map((p) => p[0])
+        .filter(Boolean)
+        .join("")
+        .slice(0, 2)
+        .toUpperCase();
+      return {
+        id: c.id,
+        name,
+        username: c.username,
+        role: c.role,
+        accent: ACCENT_COLORS[i % ACCENT_COLORS.length],
+        initials,
+        image: c.avatar_url || undefined,
+        isSelf: c.is_self,
+        unreadCount: c.unread_count,
+        searchStats: c.stats,
+      };
+    });
+  }, [rows]);
+
   return (
     <>
       <input
@@ -306,7 +347,7 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
 
       {/* Anchored panel */}
       {open && (
-        <div className="fixed bottom-24 right-4 sm:right-6 z-40 flex h-[min(600px,calc(100vh-8rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950/97 text-slate-100 shadow-2xl backdrop-blur-2xl">
+        <div className="fixed bottom-24 right-4 sm:right-6 z-40 flex h-[min(640px,calc(100vh-8rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950/97 text-slate-100 shadow-2xl backdrop-blur-2xl">
           {selectedColleague ? (
             // ---- Chat view ----
             <>
@@ -508,6 +549,55 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-1 border-b border-white/10 bg-slate-950/30 p-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPanelTab("messages")}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[11.5px] font-semibold transition-colors cursor-pointer ${
+                    panelTab === "messages" ? "bg-sky-500/90 text-white" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <MessagesSquare className="size-3.5" />
+                  Messages
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPanelTab("team")}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[11.5px] font-semibold transition-colors cursor-pointer ${
+                    panelTab === "team" ? "bg-sky-500/90 text-white" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <Layers className="size-3.5" />
+                  Team
+                </button>
+              </div>
+
+              {panelTab === "team" ? (
+                <div className="flex-1 overflow-y-auto py-2">
+                  {loading ? (
+                    <div className="flex h-full items-center justify-center">
+                      <Loader2 className="size-6 animate-spin text-sky-400" />
+                    </div>
+                  ) : stackItems.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-slate-400">
+                      <p className="text-xs font-semibold text-white">No colleague matches “{query}”</p>
+                      <button onClick={() => setQuery("")} className="text-xs font-semibold text-sky-400 hover:text-sky-300 cursor-pointer">
+                        Clear the filter
+                      </button>
+                    </div>
+                  ) : (
+                    <OrbitCardStack
+                      items={stackItems}
+                      isAdmin={isAdmin}
+                      onSelectMember={(item) => {
+                        const target = colleagues.find((c) => c.id === item.id);
+                        if (target) setSelectedColleague(target);
+                      }}
+                      onUploadAvatar={handleUploadAvatarFromStack}
+                    />
+                  )}
+                </div>
+              ) : (
               <div className="flex-1 overflow-y-auto">
                 {loading ? (
                   <div className="flex h-full items-center justify-center">
@@ -578,6 +668,7 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                   })
                 )}
               </div>
+              )}
             </>
           )}
         </div>
