@@ -51,6 +51,16 @@ def get_connector(carrier_code: str) -> BaseCarrierConnector:
         ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
         return conn
 
+    # EXPERIMENTAL: route CMA CGM through the REST API instead of the browser.
+    # Off unless CMA_CGM_USE_API=true, so the default path is unchanged.
+    if carrier_code == "CMA_CGM":
+        from carriers.cma_api_connector import api_enabled, CMAAPIConnector
+        if api_enabled():
+            print("[REGISTRY] CMA_CGM_USE_API=true — using the experimental API connector")
+            conn = CMAAPIConnector()
+            ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
+            return conn
+
     # Live mode
     if carrier_code in LIVE_CONNECTORS:
         conn = LIVE_CONNECTORS[carrier_code]()
