@@ -172,6 +172,8 @@ async def init_db():
                 # Pasted screenshots / uploaded images, stored as data URLs (like avatars).
                 "attachment_url": "TEXT",
                 "attachment_type": "VARCHAR(20)",
+                # "text" or "poke" — a poke is a contentless nudge, rendered specially.
+                "message_type": "VARCHAR(20) DEFAULT 'text'",
             }
             for col_name, col_type in dm_cols.items():
                 if col_name not in columns:

@@ -55,5 +55,7 @@ class DirectMessage(Base):
     # Pasted screenshot / uploaded image, stored as a data URL (same pattern as User.avatar_url).
     attachment_url = Column(Text, nullable=True)
     attachment_type = Column(String(20), nullable=True)
+    # "text" (default) or "poke" — a poke carries no content/attachment, just a nudge.
+    message_type = Column(String(20), nullable=False, default="text")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     read_at = Column(DateTime, nullable=True)

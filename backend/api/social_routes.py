@@ -1,9 +1,9 @@
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, desc, or_, and_, update
+from sqlalchemy import select, func, desc, or_, and_, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.database import get_session
@@ -22,6 +22,10 @@ class SendMessageRequest(BaseModel):
     # Pasted screenshot / uploaded image as a data URL (mirrors avatar upload).
     attachment_url: Optional[str] = Field(None, max_length=6_000_000)  # ~4.5MB image, base64-inflated
     attachment_type: Optional[str] = Field(None, max_length=20)
+
+
+class PokeRequest(BaseModel):
+    recipient_id: str
 
 
 class UpdateAvatarRequest(BaseModel):
@@ -112,13 +116,17 @@ async def list_colleagues(
             )
             last_dm = (await session.execute(last_dm_q)).scalars().first()
             if last_dm:
-                preview = (last_dm.content or "").strip() or None
-                if not preview and last_dm.attachment_url:
-                    preview = "📷 Photo"
+                is_from_me = last_dm.sender_id == current_user.id
+                if last_dm.message_type == "poke":
+                    preview = "👋 You poked them" if is_from_me else "👋 Poked you"
+                else:
+                    preview = (last_dm.content or "").strip() or None
+                    if not preview and last_dm.attachment_url:
+                        preview = "📷 Photo"
                 last_message = {
                     "content": preview,
                     "created_at": last_dm.created_at.isoformat() if last_dm.created_at else None,
-                    "is_from_me": last_dm.sender_id == current_user.id,
+                    "is_from_me": is_from_me,
                 }
 
         colleagues.append({
@@ -199,6 +207,7 @@ async def get_conversation(
             "content": m.content,
             "attachment_url": m.attachment_url,
             "attachment_type": m.attachment_type,
+            "message_type": m.message_type,
             "created_at": m.created_at.isoformat() if m.created_at else None,
             "read_at": m.read_at.isoformat() if m.read_at else None,
             "is_from_me": m.sender_id == current_user.id,
@@ -259,10 +268,108 @@ async def send_direct_message(
         "content": msg.content,
         "attachment_url": msg.attachment_url,
         "attachment_type": msg.attachment_type,
+        "message_type": msg.message_type,
         "created_at": msg.created_at.isoformat() if msg.created_at else None,
         "read_at": None,
         "is_from_me": True,
     }
+
+
+@router.post("/poke")
+async def poke_colleague(
+    payload: PokeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Send a lightweight, contentless "poke" nudge to a colleague."""
+    try:
+        recipient_uuid = UUID(payload.recipient_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid recipient ID format.")
+
+    if recipient_uuid == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot poke yourself.")
+
+    recipient_q = select(User).where(
+        and_(User.id == recipient_uuid, User.status == "active", User.is_active == True)
+    )
+    recipient = (await session.execute(recipient_q)).scalars().first()
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Colleague account not found or is currently inactive.")
+
+    # Cooldown: no more than one poke to the same person every 10 seconds,
+    # so a poke stays a nudge rather than a spam vector.
+    cooldown_cutoff = datetime.utcnow() - timedelta(seconds=10)
+    recent_poke_q = select(DirectMessage.id).where(
+        and_(
+            DirectMessage.sender_id == current_user.id,
+            DirectMessage.recipient_id == recipient_uuid,
+            DirectMessage.message_type == "poke",
+            DirectMessage.created_at >= cooldown_cutoff,
+        )
+    ).limit(1)
+    if (await session.execute(recent_poke_q)).scalars().first():
+        raise HTTPException(status_code=429, detail="Hold on — you just poked them. Give it a few seconds.")
+
+    msg = DirectMessage(
+        sender_id=current_user.id,
+        recipient_id=recipient_uuid,
+        content="",
+        message_type="poke",
+        created_at=datetime.utcnow(),
+    )
+    session.add(msg)
+    await session.commit()
+    await session.refresh(msg)
+
+    return {
+        "id": str(msg.id),
+        "sender_id": str(msg.sender_id),
+        "recipient_id": str(msg.recipient_id),
+        "content": msg.content,
+        "attachment_url": None,
+        "attachment_type": None,
+        "message_type": msg.message_type,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        "read_at": None,
+        "is_from_me": True,
+    }
+
+
+@router.delete("/messages/{colleague_id}")
+async def wipe_conversation(
+    colleague_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Permanently delete the entire conversation with a colleague, for both sides."""
+    try:
+        colleague_uuid = UUID(colleague_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid colleague ID format.")
+
+    if colleague_uuid == current_user.id:
+        raise HTTPException(status_code=400, detail="Invalid conversation.")
+
+    result = await session.execute(
+        delete(DirectMessage).where(
+            or_(
+                and_(DirectMessage.sender_id == current_user.id, DirectMessage.recipient_id == colleague_uuid),
+                and_(DirectMessage.sender_id == colleague_uuid, DirectMessage.recipient_id == current_user.id),
+            )
+        )
+    )
+    await session.commit()
+
+    colleague = (await session.execute(select(User).where(User.id == colleague_uuid))).scalars().first()
+    await record_audit_event(
+        session,
+        actor_username=current_user.username or "system",
+        action="wipe_conversation",
+        detail=f"Wiped conversation with @{colleague.username if colleague else colleague_uuid} ({result.rowcount} messages)",
+    )
+
+    return {"status": "SUCCESS", "deleted": result.rowcount}
 
 
 @router.post("/users/{user_id}/avatar")

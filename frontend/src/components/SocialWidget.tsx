@@ -12,6 +12,9 @@ import {
   MessagesSquare,
   Camera,
   Layers,
+  Hand,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { HalftoneAvatar } from "@/components/ui/halftone-avatar";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
@@ -21,6 +24,8 @@ import {
   getConversation,
   sendDirectMessage,
   uploadUserAvatar,
+  pokeColleague,
+  wipeConversation,
   type Colleague,
   type DirectMessageItem,
 } from "@/lib/api";
@@ -103,6 +108,14 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [composerFor, setComposerFor] = useState<string | null>(null);
 
+  // Poke cooldown + two-tap "wipe conversation" arm/confirm
+  const [poking, setPoking] = useState(false);
+  const [pokeOnCooldown, setPokeOnCooldown] = useState(false);
+  const pokeCooldownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [wipeArmed, setWipeArmed] = useState(false);
+  const [wiping, setWiping] = useState(false);
+  const wipeDisarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Pasted / attached screenshot pending send
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [preparingImage, setPreparingImage] = useState(false);
@@ -145,9 +158,19 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     }
   }, [open]);
 
-  const fetchMessages = async (colleagueId: string) => {
+  const messagesRef = useRef<DirectMessageItem[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  const fetchMessages = async (colleagueId: string, colleagueName: string) => {
     try {
       const history = await getConversation(colleagueId);
+      const priorIds = new Set(messagesRef.current.map((m) => m.id));
+      const freshPoke = history.find((m) => m.message_type === "poke" && !m.is_from_me && !priorIds.has(m.id));
+      if (freshPoke && messagesRef.current.length > 0) {
+        toast(`👋 ${colleagueName} poked you!`);
+      }
       setMessages(history);
       setColleagues((prev) =>
         prev.map((c) => (c.id === colleagueId ? { ...c, unread_count: 0 } : c))
@@ -163,13 +186,18 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     setComposerFor(selectedColleague?.id ?? null);
     setPendingImage(null);
     setInputText("");
+    setWipeArmed(false);
+    // Cooldown is tracked server-side per-conversation; a stale local timer
+    // simply fires later and harmlessly no-ops (state's already false by then).
+    setPokeOnCooldown(false);
   }
 
   useEffect(() => {
     if (!selectedColleague) return;
+    const colleagueName = selectedColleague.display_name || selectedColleague.name;
     setLoadingMessages(true);
-    fetchMessages(selectedColleague.id).finally(() => setLoadingMessages(false));
-    const interval = setInterval(() => fetchMessages(selectedColleague.id), 3500);
+    fetchMessages(selectedColleague.id, colleagueName).finally(() => setLoadingMessages(false));
+    const interval = setInterval(() => fetchMessages(selectedColleague.id, colleagueName), 3500);
     return () => clearInterval(interval);
   }, [selectedColleague]);
 
@@ -178,6 +206,13 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      if (wipeDisarmTimer.current) clearTimeout(wipeDisarmTimer.current);
+      if (pokeCooldownTimer.current) clearTimeout(pokeCooldownTimer.current);
+    };
+  }, []);
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -237,6 +272,54 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
 
   const handleEmojiSelect = (emoji: string) => {
     setInputText((prev) => `${prev}${emoji}`);
+  };
+
+  const POKE_COOLDOWN_MS = 10_000;
+
+  const handlePoke = async () => {
+    if (!selectedColleague || poking || pokeOnCooldown) return;
+    setPoking(true);
+    try {
+      const newMsg = await pokeColleague(selectedColleague.id);
+      setMessages((prev) => [...prev, newMsg]);
+      setPokeOnCooldown(true);
+      if (pokeCooldownTimer.current) clearTimeout(pokeCooldownTimer.current);
+      pokeCooldownTimer.current = setTimeout(() => setPokeOnCooldown(false), POKE_COOLDOWN_MS);
+      toast.success(`👋 Poked ${selectedColleague.display_name || selectedColleague.name}`);
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to send poke."));
+    } finally {
+      setPoking(false);
+    }
+  };
+
+  // Two-tap confirm: first click arms it (auto-disarms after 4s), second
+  // click within that window actually deletes — no native confirm() dialog.
+  const handleWipeClick = async () => {
+    if (!selectedColleague || wiping) return;
+
+    if (!wipeArmed) {
+      setWipeArmed(true);
+      if (wipeDisarmTimer.current) clearTimeout(wipeDisarmTimer.current);
+      wipeDisarmTimer.current = setTimeout(() => setWipeArmed(false), 4000);
+      return;
+    }
+
+    if (wipeDisarmTimer.current) clearTimeout(wipeDisarmTimer.current);
+    setWipeArmed(false);
+    setWiping(true);
+    try {
+      await wipeConversation(selectedColleague.id);
+      setMessages([]);
+      setColleagues((prev) =>
+        prev.map((c) => (c.id === selectedColleague.id ? { ...c, unread_count: 0, last_message: null } : c))
+      );
+      toast.success("Conversation wiped.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Failed to wipe conversation."));
+    } finally {
+      setWiping(false);
+    }
   };
 
   const handleAvatarUploadClick = (e: React.MouseEvent, target: Colleague) => {
@@ -384,14 +467,43 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => setOpen(false)}
-                  className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer shrink-0"
-                  title="Close"
-                >
-                  <X className="size-4" />
-                </button>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    onClick={handlePoke}
+                    disabled={poking || pokeOnCooldown}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-amber-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-400"
+                    title={`Poke ${selectedColleague.display_name || selectedColleague.name}`}
+                  >
+                    <Hand className="size-4" />
+                  </button>
+                  <button
+                    onClick={handleWipeClick}
+                    disabled={wiping}
+                    className={`rounded-lg p-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      wipeArmed
+                        ? "bg-rose-500/20 text-rose-400 hover:bg-rose-500/30"
+                        : "text-slate-400 hover:bg-white/10 hover:text-rose-400"
+                    }`}
+                    title={wipeArmed ? "Click again to permanently delete this conversation" : "Wipe conversation"}
+                  >
+                    {wipeArmed ? <AlertTriangle className="size-4" /> : <Trash2 className="size-4" />}
+                  </button>
+                  <button
+                    onClick={() => setOpen(false)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+                    title="Close"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
               </div>
+
+              {wipeArmed && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 border-b border-rose-500/20 text-[11px] text-rose-300 shrink-0">
+                  <AlertTriangle className="size-3.5 shrink-0" />
+                  <span className="flex-1">This deletes the whole conversation for both of you. Click the trash icon again to confirm.</span>
+                </div>
+              )}
 
               <div className="flex items-center justify-between px-4 py-2 bg-sky-950/30 border-b border-sky-500/10 text-[11px] shrink-0">
                 <span className="text-slate-400">Rate Sourcing Velocity:</span>
@@ -418,6 +530,27 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                 ) : (
                   messages.map((msg) => {
                     const isMe = msg.is_from_me;
+
+                    if (msg.message_type === "poke") {
+                      return (
+                        <div key={msg.id} className="flex flex-col items-center py-1">
+                          <div className="flex items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-[11.5px] font-medium text-amber-300">
+                            <Hand className="size-3.5" />
+                            <span>
+                              {isMe
+                                ? `You poked ${selectedColleague.display_name || selectedColleague.name}`
+                                : `${selectedColleague.display_name || selectedColleague.name} poked you`}
+                            </span>
+                          </div>
+                          <span className="mt-1 text-[10px] text-slate-500 font-mono">
+                            {msg.created_at
+                              ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                              : ""}
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={msg.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
                         <div

@@ -874,6 +874,7 @@ export interface DirectMessageItem {
   content: string;
   attachment_url?: string | null;
   attachment_type?: string | null;
+  message_type?: "text" | "poke";
   created_at: string | null;
   read_at: string | null;
   is_from_me: boolean;
@@ -928,6 +929,30 @@ export async function uploadUserAvatar(userId: string, avatarUrl: string): Promi
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || "Failed to upload avatar.");
+  }
+  return res.json();
+}
+
+export async function pokeColleague(recipientId: string): Promise<DirectMessageItem> {
+  const res = await failoverFetch(`/api/social/poke`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient_id: recipientId }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to send poke.");
+  }
+  return res.json();
+}
+
+export async function wipeConversation(colleagueId: string): Promise<{ status: string; deleted: number }> {
+  const res = await failoverFetch(`/api/social/messages/${colleagueId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to wipe conversation.");
   }
   return res.json();
 }
