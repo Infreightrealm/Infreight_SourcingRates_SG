@@ -2838,20 +2838,68 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                 ];
+
+                // Find the lower boundary of the departure grid using leaf delimiter elements
+                let maxGridBottomY = Infinity;
+                const bottomDelimiters = Array.from(document.querySelectorAll('button, a, [role="button"], p, span')).filter(el => {
+                    if (el.children.length > 0) return false;
+                    const t = (el.textContent || '').trim().toLowerCase();
+                    return t.includes('view departure details') || t.includes('freights as per') ||
+                           t.includes('price breakdown') || t === 'select' || t === 'remarks';
+                });
+                if (bottomDelimiters.length > 0) {
+                    const validTops = bottomDelimiters.map(el => el.getBoundingClientRect().top).filter(top => top > 50);
+                    if (validTops.length > 0) {
+                        maxGridBottomY = Math.min(...validTops);
+                    }
+                }
+
+                // Locate DEPARTURE row header if present
+                const depHeaderEl = Array.from(document.querySelectorAll('*')).find(el => {
+                    if (el.children.length > 2) return false;
+                    const t = (el.textContent || '').trim().toUpperCase();
+                    return (t === 'DEPARTURE' || t.endsWith('DEPARTURE')) &&
+                           !t.includes('VIEW DEPARTURE DETAILS') &&
+                           !t.includes('VALID FOR DEPARTURE');
+                });
+                const depTop = depHeaderEl ? depHeaderEl.getBoundingClientRect().top : null;
+
                 const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                     const raw = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     if (!raw || raw.length > 30) return false;
                     if (!patterns.some(pat => pat.test(raw))) return false;
-                    let parent = el.parentElement;
-                    while (parent) {
-                        const id = (parent.id || '').toLowerCase();
-                        const cls = (parent.className || '').toLowerCase();
-                        if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
-                        if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') ||
-                            cls.includes('criteria') || cls.includes('quick-quotes') ||
-                            id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
-                        parent = parent.parentElement;
+
+                    const r = el.getBoundingClientRect();
+                    if (r.width <= 0 || r.height <= 0) return false;
+
+                    // Must be situated ABOVE the offer cards / details boundary
+                    if (maxGridBottomY !== Infinity && r.top >= maxGridBottomY - 10) return false;
+
+                    // If DEPARTURE row header exists, must be on the same vertical header row
+                    if (depTop !== null && Math.abs(r.top - depTop) > 35) return false;
+
+                    // Check if inside offer card
+                    const card = el.closest('.q-card, [class*="card" i]');
+                    if (card) return false;
+
+                    // Check immediate parent / grandparent text for validity wording or dialogs
+                    let cur = el;
+                    for (let depth = 0; depth < 3 && cur && cur !== document.body; depth++) {
+                        const id = (cur.id || '').toLowerCase();
+                        const cls = (cur.className || '').toString().toLowerCase();
+                        const txt = (cur.innerText || cur.textContent || '').toLowerCase();
+
+                        if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal') ||
+                            cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || cls.includes('criteria')) {
+                            return false;
+                        }
+
+                        if (txt.includes('valid') || txt.includes('departure at')) {
+                            return false;
+                        }
+                        cur = cur.parentElement;
                     }
+
                     return true;
                 });
 
@@ -2861,12 +2909,32 @@ class HapagLloydConnector(BaseCarrierConnector):
                     return { el, rect: r, text: txt };
                 }).filter(item => item.rect.width > 0 && item.rect.height > 0);
 
+                // Group by vertical Y position (row clustering) to strictly isolate the header row
+                const rowClusters = [];
+                visible.forEach(item => {
+                    let placed = false;
+                    for (const cluster of rowClusters) {
+                        const avgTop = cluster.reduce((sum, x) => sum + x.rect.top, 0) / cluster.length;
+                        if (Math.abs(item.rect.top - avgTop) < 15) {
+                            cluster.push(item);
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        rowClusters.push([item]);
+                    }
+                });
+
+                rowClusters.sort((a, b) => b.length - a.length || a[0].rect.top - b[0].rect.top);
+                const gridDateItems = rowClusters.length > 0 ? rowClusters[0] : [];
+
                 // Sort left to right
-                visible.sort((a, b) => a.rect.left - b.rect.left || a.rect.top - b.rect.top);
+                gridDateItems.sort((a, b) => a.rect.left - b.rect.left);
 
                 // Group by column position (cluster elements within 25px of each other)
                 const columnClusters = [];
-                visible.forEach(item => {
+                gridDateItems.forEach(item => {
                     if (columnClusters.length === 0) {
                         columnClusters.push([item]);
                     } else {
@@ -2895,6 +2963,27 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
                         parent = parent.parentElement;
                     }
+
+                    // Fallback: search price vertically underneath this column header
+                    if (price === null) {
+                        const priceCandidates = Array.from(document.querySelectorAll('*')).filter(node => {
+                            if (node.children.length > 1) return false;
+                            const txt = (node.textContent || '').trim();
+                            if (!/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i.test(txt)) return false;
+                            const nr = node.getBoundingClientRect();
+                            if (nr.width <= 0 || nr.height <= 0) return false;
+                            if (maxGridBottomY !== Infinity && nr.top >= maxGridBottomY) return false;
+                            return Math.abs(nr.left - bestItem.rect.left) < 35 && nr.top > bestItem.rect.top;
+                        });
+                        if (priceCandidates.length > 0) {
+                            priceCandidates.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+                            const match = priceCandidates[0].textContent.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
+                            if (match) {
+                                price = parseFloat(match[1].replace(/,/g, ''));
+                            }
+                        }
+                    }
+
                     cols.push({
                         raw_date: bestItem.text,
                         price: price,
@@ -3190,32 +3279,101 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                 ];
+
+                // Find the lower boundary of the departure grid using leaf delimiter elements
+                let maxGridBottomY = Infinity;
+                const bottomDelimiters = Array.from(document.querySelectorAll('button, a, [role="button"], p, span')).filter(el => {
+                    if (el.children.length > 0) return false;
+                    const t = (el.textContent || '').trim().toLowerCase();
+                    return t.includes('view departure details') || t.includes('freights as per') ||
+                           t.includes('price breakdown') || t === 'select' || t === 'remarks';
+                });
+                if (bottomDelimiters.length > 0) {
+                    const validTops = bottomDelimiters.map(el => el.getBoundingClientRect().top).filter(top => top > 50);
+                    if (validTops.length > 0) {
+                        maxGridBottomY = Math.min(...validTops);
+                    }
+                }
+
+                // Locate DEPARTURE row header if present
+                const depHeaderEl = Array.from(document.querySelectorAll('*')).find(el => {
+                    if (el.children.length > 2) return false;
+                    const t = (el.textContent || '').trim().toUpperCase();
+                    return (t === 'DEPARTURE' || t.endsWith('DEPARTURE')) &&
+                           !t.includes('VIEW DEPARTURE DETAILS') &&
+                           !t.includes('VALID FOR DEPARTURE');
+                });
+                const depTop = depHeaderEl ? depHeaderEl.getBoundingClientRect().top : null;
+
                 const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                     const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     if (!txt || txt.length > 30) return false;
                     if (!patterns.some(pat => pat.test(txt))) return false;
-                    let parent = el.parentElement;
-                    while (parent) {
-                        const id = (parent.id || '').toLowerCase();
-                        const cls = (parent.className || '').toLowerCase();
-                        if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
-                        if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || 
-                            cls.includes('criteria') || cls.includes('quick-quotes') ||
-                            id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
-                        parent = parent.parentElement;
+
+                    const r = el.getBoundingClientRect();
+                    if (r.width <= 0 || r.height <= 0) return false;
+
+                    // Must be situated ABOVE the offer cards / details boundary
+                    if (maxGridBottomY !== Infinity && r.top >= maxGridBottomY - 10) return false;
+
+                    // If DEPARTURE row header exists, must be on the same vertical header row
+                    if (depTop !== null && Math.abs(r.top - depTop) > 35) return false;
+
+                    // Check if inside offer card
+                    const card = el.closest('.q-card, [class*="card" i]');
+                    if (card) return false;
+
+                    // Check immediate parent / grandparent text for validity wording or dialogs
+                    let cur = el;
+                    for (let depth = 0; depth < 3 && cur && cur !== document.body; depth++) {
+                        const id = (cur.id || '').toLowerCase();
+                        const cls = (cur.className || '').toString().toLowerCase();
+                        const t = (cur.innerText || cur.textContent || '').toLowerCase();
+
+                        if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal') ||
+                            cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || cls.includes('criteria')) {
+                            return false;
+                        }
+
+                        if (t.includes('valid') || t.includes('departure at')) {
+                            return false;
+                        }
+                        cur = cur.parentElement;
                     }
+
                     return true;
                 });
+
                 const visible = dateEls.map(el => {
                     const r = el.getBoundingClientRect();
                     const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     return { el, rect: r, text: txt };
                 }).filter(item => item.rect.width > 0 && item.rect.height > 0);
 
-                visible.sort((a, b) => a.rect.left - b.rect.left || a.rect.top - b.rect.top);
+                // Group by vertical Y position (row clustering) to strictly isolate the header row
+                const rowClusters = [];
+                visible.forEach(item => {
+                    let placed = false;
+                    for (const cluster of rowClusters) {
+                        const avgTop = cluster.reduce((sum, x) => sum + x.rect.top, 0) / cluster.length;
+                        if (Math.abs(item.rect.top - avgTop) < 15) {
+                            cluster.push(item);
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        rowClusters.push([item]);
+                    }
+                });
+
+                rowClusters.sort((a, b) => b.length - a.length || a[0].rect.top - b[0].rect.top);
+                const gridDateItems = rowClusters.length > 0 ? rowClusters[0] : [];
+
+                gridDateItems.sort((a, b) => a.rect.left - b.rect.left);
 
                 const clusters = [];
-                visible.forEach(item => {
+                gridDateItems.forEach(item => {
                     if (clusters.length === 0) {
                         clusters.push([item]);
                     } else {
@@ -3417,33 +3575,101 @@ class HapagLloydConnector(BaseCarrierConnector):
                         /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}$/i,
                         /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                     ];
+
+                    // Find the lower boundary of the departure grid using leaf delimiter elements
+                    let maxGridBottomY = Infinity;
+                    const bottomDelimiters = Array.from(document.querySelectorAll('button, a, [role="button"], p, span')).filter(el => {
+                        if (el.children.length > 0) return false;
+                        const t = (el.textContent || '').trim().toLowerCase();
+                        return t.includes('view departure details') || t.includes('freights as per') ||
+                               t.includes('price breakdown') || t === 'select' || t === 'remarks';
+                    });
+                    if (bottomDelimiters.length > 0) {
+                        const validTops = bottomDelimiters.map(el => el.getBoundingClientRect().top).filter(top => top > 50);
+                        if (validTops.length > 0) {
+                            maxGridBottomY = Math.min(...validTops);
+                        }
+                    }
+
+                    // Locate DEPARTURE row header if present
+                    const depHeaderEl = Array.from(document.querySelectorAll('*')).find(el => {
+                        if (el.children.length > 2) return false;
+                        const t = (el.textContent || '').trim().toUpperCase();
+                        return (t === 'DEPARTURE' || t.endsWith('DEPARTURE')) &&
+                               !t.includes('VIEW DEPARTURE DETAILS') &&
+                               !t.includes('VALID FOR DEPARTURE');
+                    });
+                    const depTop = depHeaderEl ? depHeaderEl.getBoundingClientRect().top : null;
+
                     const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                         const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                         if (!txt || txt.length > 30) return false;
                         if (!patterns.some(pat => pat.test(txt))) return false;
-                        let parent = el.parentElement;
-                        while (parent) {
-                            const id = (parent.id || '').toLowerCase();
-                            const cls = (parent.className || '').toLowerCase();
-                            if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal')) return false;
-                            if (cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || 
-                                cls.includes('criteria') || cls.includes('quick-quotes') ||
-                                id.includes('summary') || id.includes('sidebar') || id.includes('left-panel')) return false;
-                            parent = parent.parentElement;
+
+                        const r = el.getBoundingClientRect();
+                        if (r.width <= 0 || r.height <= 0) return false;
+
+                        // Must be situated ABOVE the offer cards / details boundary
+                        if (maxGridBottomY !== Infinity && r.top >= maxGridBottomY - 10) return false;
+
+                        // If DEPARTURE row header exists, must be on the same vertical header row
+                        if (depTop !== null && Math.abs(r.top - depTop) > 35) return false;
+
+                        // Check if inside offer card
+                        const card = el.closest('.q-card, [class*="card" i]');
+                        if (card) return false;
+
+                        // Check immediate parent / grandparent text for validity wording or dialogs
+                        let cur = el;
+                        for (let depth = 0; depth < 3 && cur && cur !== document.body; depth++) {
+                            const id = (cur.id || '').toLowerCase();
+                            const cls = (cur.className || '').toString().toLowerCase();
+                            const t = (cur.innerText || cur.textContent || '').toLowerCase();
+
+                            if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal') ||
+                                cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || cls.includes('criteria')) {
+                                return false;
+                            }
+
+                            if (t.includes('valid') || t.includes('departure at')) {
+                                return false;
+                            }
+                            cur = cur.parentElement;
                         }
+
                         return true;
                     });
+
                     const visible = dateEls.map(el => {
                         const r = el.getBoundingClientRect();
                         const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                         return { el, rect: r, text: txt };
                     }).filter(item => item.rect.width > 0 && item.rect.height > 0);
 
-                    visible.sort((a, b) => a.rect.left - b.rect.left || a.rect.top - b.rect.top);
-
-                    // Cluster into columns
-                    const clusters = [];
+                    // Group by vertical Y position (row clustering) to strictly isolate the header row
+                    const rowClusters = [];
                     visible.forEach(item => {
+                        let placed = false;
+                        for (const cluster of rowClusters) {
+                            const avgTop = cluster.reduce((sum, x) => sum + x.rect.top, 0) / cluster.length;
+                            if (Math.abs(item.rect.top - avgTop) < 15) {
+                                cluster.push(item);
+                                placed = true;
+                                break;
+                            }
+                        }
+                        if (!placed) {
+                            rowClusters.push([item]);
+                        }
+                    });
+
+                    rowClusters.sort((a, b) => b.length - a.length || a[0].rect.top - b[0].rect.top);
+                    const gridDateItems = rowClusters.length > 0 ? rowClusters[0] : [];
+
+                    gridDateItems.sort((a, b) => a.rect.left - b.rect.left);
+
+                    const clusters = [];
+                    gridDateItems.forEach(item => {
                         if (clusters.length === 0) {
                             clusters.push([item]);
                         } else {
@@ -3471,7 +3697,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                     if (chosenItem && chosenItem.el) {
                         chosenItem.el.click();
-                        // Also click parent cell (TH/TD)
+                        // Also click parent cell (TH/TD/cell)
                         let cell = chosenItem.el;
                         while (cell && cell.tagName !== 'TH' && cell.tagName !== 'TD' && !cell.classList.contains('cell')) {
                             cell = cell.parentElement;
