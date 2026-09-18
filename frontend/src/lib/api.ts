@@ -246,8 +246,18 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
 // unreachable or erroring, fall through to whichever backend rate search is
 // currently using (normally the laptop, which runs the identical Social code
 // against the same DB) rather than leaving Social with no fallback at all.
+// Which backend actually served the most recent Social request — surfaced in
+// the UI so "is it really using cloud?" is answerable at a glance, not just
+// by digging through DevTools.
+let lastSocialMode: "cloud" | "fallback" | "unconfigured" = socialApiUrl ? "cloud" : "unconfigured";
+
+export function getSocialConnectionInfo(): { mode: "cloud" | "fallback" | "unconfigured"; url: string } {
+  return { mode: lastSocialMode, url: lastSocialMode === "fallback" ? currentActiveUrl : socialApiUrl };
+}
+
 async function socialFetch(path: string, options: RequestInit = {}): Promise<Response> {
   if (!socialApiUrl) {
+    lastSocialMode = "unconfigured";
     return failoverFetch(path, options);
   }
 
@@ -271,11 +281,14 @@ async function socialFetch(path: string, options: RequestInit = {}): Promise<Res
     const res = await fetch(`${socialApiUrl}${path}`, fetchOptions);
     if (!res.ok && res.status >= 500) {
       console.warn(`[API] Social cloud backend ${socialApiUrl} returned ${res.status}. Falling back to ${currentActiveUrl}.`);
+      lastSocialMode = "fallback";
       return failoverFetch(path, options);
     }
+    lastSocialMode = "cloud";
     return res;
   } catch (err) {
     console.warn(`[API] Social cloud backend ${socialApiUrl} unreachable (${err}). Falling back to ${currentActiveUrl}.`);
+    lastSocialMode = "fallback";
     return failoverFetch(path, options);
   }
 }

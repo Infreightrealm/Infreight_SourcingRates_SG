@@ -15,6 +15,8 @@ import {
   Hand,
   Trash2,
   AlertTriangle,
+  Cloud,
+  Laptop,
 } from "lucide-react";
 import { HalftoneAvatar } from "@/components/ui/halftone-avatar";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
@@ -26,6 +28,7 @@ import {
   uploadUserAvatar,
   pokeColleague,
   wipeConversation,
+  getSocialConnectionInfo,
   type Colleague,
   type DirectMessageItem,
 } from "@/lib/api";
@@ -128,6 +131,8 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
 
   const isAdmin = currentUserRole === "admin";
 
+  const [connInfo, setConnInfo] = useState(getSocialConnectionInfo());
+
   const fetchColleagues = async () => {
     try {
       const list = await getColleagues();
@@ -135,6 +140,8 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     } catch {
       // Silent — this also polls in the background for the badge count, and a
       // toast every 20s on a flaky connection would be worse than staying quiet.
+    } finally {
+      setConnInfo(getSocialConnectionInfo());
     }
   };
 
@@ -662,7 +669,26 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3.5 bg-slate-900/60 shrink-0">
                 <div>
                   <h2 className="text-sm font-bold text-white">Team Social</h2>
-                  <p className="text-[11px] text-slate-400">Private colleague messaging</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-[11px] text-slate-400">Private colleague messaging</p>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
+                        connInfo.mode === "cloud"
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                          : connInfo.mode === "fallback"
+                            ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                            : "border-white/10 bg-white/5 text-slate-500"
+                      }`}
+                      title={`Serving Social from: ${connInfo.url || "unknown"}`}
+                    >
+                      {connInfo.mode === "cloud" ? (
+                        <Cloud className="size-2.5" />
+                      ) : (
+                        <Laptop className="size-2.5" />
+                      )}
+                      {connInfo.mode === "cloud" ? "Cloud" : connInfo.mode === "fallback" ? "Fallback" : "—"}
+                    </span>
+                  </div>
                 </div>
                 <button
                   onClick={() => setOpen(false)}
