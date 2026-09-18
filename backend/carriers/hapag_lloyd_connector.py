@@ -2839,13 +2839,85 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                 ];
 
-                // Find the lower boundary of the departure grid using leaf delimiter elements
+                // -----------------------------------------------------------------
+                // Strategy 1: Primary - Native Hapag-Lloyd Carousel Architecture
+                // -----------------------------------------------------------------
+                const carouselEl = document.querySelector('.carousel, [class*="carousel" i]:not([class*="simple-carousel" i])');
+                const carouselItems = Array.from(document.querySelectorAll('.carousel__item, [class*="carousel__item" i]'));
+
+                if (carouselItems.length > 0) {
+                    const visibleItems = carouselItems.filter(btn => {
+                        const r = btn.getBoundingClientRect();
+                        if (r.width <= 0 || r.height <= 0) return false;
+                        if (carouselEl) {
+                            const cr = carouselEl.getBoundingClientRect();
+                            if (r.right < cr.left - 5 || r.left > cr.right + 5) return false;
+                        }
+                        return true;
+                    });
+
+                    const targetList = visibleItems.length > 0 ? visibleItems : carouselItems;
+                    const cols = [];
+
+                    targetList.forEach((btn, idx) => {
+                        let rawDate = null;
+                        const dateEl = btn.querySelector('.carousel__date, [class*="date" i]');
+                        if (dateEl) {
+                            const dText = (dateEl.innerText || dateEl.textContent || '').trim().replace(/\s+/g, ' ');
+                            for (const pat of patterns) {
+                                const m = dText.match(pat);
+                                if (m) { rawDate = m[0]; break; }
+                            }
+                            if (!rawDate && /^\d{4}-\d{2}-\d{2}$/.test(dText)) rawDate = dText;
+                        }
+
+                        if (!rawDate) {
+                            const aria = btn.getAttribute('aria-label') || '';
+                            const m = aria.match(/\b\d{4}-\d{2}-\d{2}\b/);
+                            if (m) rawDate = m[0];
+                        }
+
+                        if (!rawDate) {
+                            const fullText = (btn.innerText || btn.textContent || '').trim().replace(/\s+/g, ' ');
+                            for (const pat of patterns) {
+                                const m = fullText.match(pat);
+                                if (m) { rawDate = m[0]; break; }
+                            }
+                        }
+
+                        let price = null;
+                        const priceEl = btn.querySelector('.carousel__price, [class*="price" i]');
+                        const priceText = priceEl ? (priceEl.innerText || priceEl.textContent || '') : (btn.innerText || btn.textContent || '');
+                        const pMatch = priceText.match(/(?:USD|\$)?\s*([\d,]+(?:\.\d{1,2})?)/);
+                        if (pMatch && !priceText.includes('Unavailable') && !priceText.includes('sold out')) {
+                            const val = parseFloat(pMatch[1].replace(/,/g, ''));
+                            if (!isNaN(val) && val > 50) price = val;
+                        }
+
+                        if (rawDate) {
+                            cols.push({
+                                raw_date: rawDate,
+                                price: price,
+                                rect_left: Math.round(btn.getBoundingClientRect().left),
+                                col_idx: idx
+                            });
+                        }
+                    });
+
+                    if (cols.length > 0) {
+                        return cols;
+                    }
+                }
+
+                // -----------------------------------------------------------------
+                // Strategy 2: Fallback - DOM Grid Header Scanning
+                // -----------------------------------------------------------------
                 let maxGridBottomY = Infinity;
                 const bottomDelimiters = Array.from(document.querySelectorAll('button, a, [role="button"], p, span')).filter(el => {
                     if (el.children.length > 0) return false;
                     const t = (el.textContent || '').trim().toLowerCase();
                     return t.includes('view departure details') || t.includes('freights as per') ||
-                           t.includes('price breakdown') || t === 'select' || t === 'remarks';
+                           t.includes('price breakdown') || t === 'remarks';
                 });
                 if (bottomDelimiters.length > 0) {
                     const validTops = bottomDelimiters.map(el => el.getBoundingClientRect().top).filter(top => top > 50);
@@ -2853,16 +2925,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                         maxGridBottomY = Math.min(...validTops);
                     }
                 }
-
-                // Locate DEPARTURE row header if present
-                const depHeaderEl = Array.from(document.querySelectorAll('*')).find(el => {
-                    if (el.children.length > 2) return false;
-                    const t = (el.textContent || '').trim().toUpperCase();
-                    return (t === 'DEPARTURE' || t.endsWith('DEPARTURE')) &&
-                           !t.includes('VIEW DEPARTURE DETAILS') &&
-                           !t.includes('VALID FOR DEPARTURE');
-                });
-                const depTop = depHeaderEl ? depHeaderEl.getBoundingClientRect().top : null;
 
                 const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                     const raw = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
@@ -2875,26 +2937,23 @@ class HapagLloydConnector(BaseCarrierConnector):
                     // Must be situated ABOVE the offer cards / details boundary
                     if (maxGridBottomY !== Infinity && r.top >= maxGridBottomY - 10) return false;
 
-                    // If DEPARTURE row header exists, must be on the same vertical header row
-                    if (depTop !== null && Math.abs(r.top - depTop) > 35) return false;
-
-                    // Check if inside offer card
-                    const card = el.closest('.q-card, [class*="card" i]');
-                    if (card) return false;
+                    // Check if inside offer card specifically
+                    const offerCard = el.closest('.offer-card, [class*="offer-card" i], [class*="simple-carousel" i]');
+                    if (offerCard) return false;
 
                     // Check immediate parent / grandparent text for validity wording or dialogs
                     let cur = el;
                     for (let depth = 0; depth < 3 && cur && cur !== document.body; depth++) {
                         const id = (cur.id || '').toLowerCase();
                         const cls = (cur.className || '').toString().toLowerCase();
-                        const txt = (cur.innerText || cur.textContent || '').toLowerCase();
+                        const t = (cur.innerText || cur.textContent || '').toLowerCase();
 
                         if (id.includes('q-portal') || cls.includes('q-dialog') || cls.includes('el-dialog') || cls.includes('modal') ||
                             cls.includes('summary') || cls.includes('sidebar') || cls.includes('left-panel') || cls.includes('criteria')) {
                             return false;
                         }
 
-                        if (txt.includes('valid') || txt.includes('departure at')) {
+                        if (t.includes('valid') || t.includes('departure at')) {
                             return false;
                         }
                         cur = cur.parentElement;
@@ -2909,7 +2968,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                     return { el, rect: r, text: txt };
                 }).filter(item => item.rect.width > 0 && item.rect.height > 0);
 
-                // Group by vertical Y position (row clustering) to strictly isolate the header row
                 const rowClusters = [];
                 visible.forEach(item => {
                     let placed = false;
@@ -2928,11 +2986,8 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                 rowClusters.sort((a, b) => b.length - a.length || a[0].rect.top - b[0].rect.top);
                 const gridDateItems = rowClusters.length > 0 ? rowClusters[0] : [];
-
-                // Sort left to right
                 gridDateItems.sort((a, b) => a.rect.left - b.rect.left);
 
-                // Group by column position (cluster elements within 25px of each other)
                 const columnClusters = [];
                 gridDateItems.forEach(item => {
                     if (columnClusters.length === 0) {
@@ -2964,7 +3019,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                         parent = parent.parentElement;
                     }
 
-                    // Fallback: search price vertically underneath this column header
                     if (price === null) {
                         const priceCandidates = Array.from(document.querySelectorAll('*')).filter(node => {
                             if (node.children.length > 1) return false;
@@ -3280,13 +3334,68 @@ class HapagLloydConnector(BaseCarrierConnector):
                     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                 ];
 
-                // Find the lower boundary of the departure grid using leaf delimiter elements
+                // Strategy 1: Native Carousel
+                const carouselEl = document.querySelector('.carousel, [class*="carousel" i]:not([class*="simple-carousel" i])');
+                const carouselItems = Array.from(document.querySelectorAll('.carousel__item, [class*="carousel__item" i]'));
+
+                if (carouselItems.length > 0) {
+                    const visibleItems = carouselItems.filter(btn => {
+                        const r = btn.getBoundingClientRect();
+                        if (r.width <= 0 || r.height <= 0) return false;
+                        if (carouselEl) {
+                            const cr = carouselEl.getBoundingClientRect();
+                            if (r.right < cr.left - 5 || r.left > cr.right + 5) return false;
+                        }
+                        return true;
+                    });
+
+                    const targetList = visibleItems.length > 0 ? visibleItems : carouselItems;
+                    const cols = [];
+
+                    targetList.forEach((btn, idx) => {
+                        let rawDate = null;
+                        const dateEl = btn.querySelector('.carousel__date, [class*="date" i]');
+                        if (dateEl) {
+                            const dText = (dateEl.innerText || dateEl.textContent || '').trim().replace(/\s+/g, ' ');
+                            for (const pat of patterns) {
+                                const m = dText.match(pat);
+                                if (m) { rawDate = m[0]; break; }
+                            }
+                            if (!rawDate && /^\d{4}-\d{2}-\d{2}$/.test(dText)) rawDate = dText;
+                        }
+                        if (!rawDate) {
+                            const aria = btn.getAttribute('aria-label') || '';
+                            const m = aria.match(/\b\d{4}-\d{2}-\d{2}\b/);
+                            if (m) rawDate = m[0];
+                        }
+                        if (!rawDate) {
+                            const fullText = (btn.innerText || btn.textContent || '').trim().replace(/\s+/g, ' ');
+                            for (const pat of patterns) {
+                                const m = fullText.match(pat);
+                                if (m) { rawDate = m[0]; break; }
+                            }
+                        }
+
+                        if (rawDate) {
+                            cols.push({
+                                raw_date: rawDate,
+                                rect_left: Math.round(btn.getBoundingClientRect().left)
+                            });
+                        }
+                    });
+
+                    if (cols.length > 0) {
+                        return cols;
+                    }
+                }
+
+                // Strategy 2: Fallback Grid
                 let maxGridBottomY = Infinity;
                 const bottomDelimiters = Array.from(document.querySelectorAll('button, a, [role="button"], p, span')).filter(el => {
                     if (el.children.length > 0) return false;
                     const t = (el.textContent || '').trim().toLowerCase();
                     return t.includes('view departure details') || t.includes('freights as per') ||
-                           t.includes('price breakdown') || t === 'select' || t === 'remarks';
+                           t.includes('price breakdown') || t === 'remarks';
                 });
                 if (bottomDelimiters.length > 0) {
                     const validTops = bottomDelimiters.map(el => el.getBoundingClientRect().top).filter(top => top > 50);
@@ -3295,16 +3404,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                 }
 
-                // Locate DEPARTURE row header if present
-                const depHeaderEl = Array.from(document.querySelectorAll('*')).find(el => {
-                    if (el.children.length > 2) return false;
-                    const t = (el.textContent || '').trim().toUpperCase();
-                    return (t === 'DEPARTURE' || t.endsWith('DEPARTURE')) &&
-                           !t.includes('VIEW DEPARTURE DETAILS') &&
-                           !t.includes('VALID FOR DEPARTURE');
-                });
-                const depTop = depHeaderEl ? depHeaderEl.getBoundingClientRect().top : null;
-
                 const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                     const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                     if (!txt || txt.length > 30) return false;
@@ -3312,18 +3411,11 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                     const r = el.getBoundingClientRect();
                     if (r.width <= 0 || r.height <= 0) return false;
-
-                    // Must be situated ABOVE the offer cards / details boundary
                     if (maxGridBottomY !== Infinity && r.top >= maxGridBottomY - 10) return false;
 
-                    // If DEPARTURE row header exists, must be on the same vertical header row
-                    if (depTop !== null && Math.abs(r.top - depTop) > 35) return false;
+                    const offerCard = el.closest('.offer-card, [class*="offer-card" i], [class*="simple-carousel" i]');
+                    if (offerCard) return false;
 
-                    // Check if inside offer card
-                    const card = el.closest('.q-card, [class*="card" i]');
-                    if (card) return false;
-
-                    // Check immediate parent / grandparent text for validity wording or dialogs
                     let cur = el;
                     for (let depth = 0; depth < 3 && cur && cur !== document.body; depth++) {
                         const id = (cur.id || '').toLowerCase();
@@ -3335,12 +3427,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                             return false;
                         }
 
-                        if (t.includes('valid') || t.includes('departure at')) {
-                            return false;
-                        }
+                        if (t.includes('valid') || t.includes('departure at')) return false;
                         cur = cur.parentElement;
                     }
-
                     return true;
                 });
 
@@ -3350,7 +3439,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                     return { el, rect: r, text: txt };
                 }).filter(item => item.rect.width > 0 && item.rect.height > 0);
 
-                // Group by vertical Y position (row clustering) to strictly isolate the header row
                 const rowClusters = [];
                 visible.forEach(item => {
                     let placed = false;
@@ -3362,14 +3450,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                             break;
                         }
                     }
-                    if (!placed) {
-                        rowClusters.push([item]);
-                    }
+                    if (!placed) rowClusters.push([item]);
                 });
 
                 rowClusters.sort((a, b) => b.length - a.length || a[0].rect.top - b[0].rect.top);
                 const gridDateItems = rowClusters.length > 0 ? rowClusters[0] : [];
-
                 gridDateItems.sort((a, b) => a.rect.left - b.rect.left);
 
                 const clusters = [];
@@ -3576,13 +3661,74 @@ class HapagLloydConnector(BaseCarrierConnector):
                         /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}$/i
                     ];
 
-                    // Find the lower boundary of the departure grid using leaf delimiter elements
+                    const dateMatches = (candidate, target) => {
+                        if (!candidate || !target) return false;
+                        if (candidate === target) return true;
+                        if (candidate.includes(target) || target.includes(candidate)) return true;
+                        return false;
+                    };
+
+                    // Strategy 1: Native Carousel
+                    const carouselEl = document.querySelector('.carousel, [class*="carousel" i]:not([class*="simple-carousel" i])');
+                    const carouselItems = Array.from(document.querySelectorAll('.carousel__item, [class*="carousel__item" i]'));
+
+                    if (carouselItems.length > 0) {
+                        const visibleItems = carouselItems.filter(btn => {
+                            const r = btn.getBoundingClientRect();
+                            if (r.width <= 0 || r.height <= 0) return false;
+                            if (carouselEl) {
+                                const cr = carouselEl.getBoundingClientRect();
+                                if (r.right < cr.left - 5 || r.left > cr.right + 5) return false;
+                            }
+                            return true;
+                        });
+
+                        const targetList = visibleItems.length > 0 ? visibleItems : carouselItems;
+                        const matchingButtons = [];
+
+                        targetList.forEach((btn) => {
+                            let rawDate = null;
+                            const dateEl = btn.querySelector('.carousel__date, [class*="date" i]');
+                            if (dateEl) {
+                                const dText = (dateEl.innerText || dateEl.textContent || '').trim().replace(/\s+/g, ' ');
+                                for (const pat of patterns) {
+                                    const m = dText.match(pat);
+                                    if (m) { rawDate = m[0]; break; }
+                                }
+                                if (!rawDate && /^\d{4}-\d{2}-\d{2}$/.test(dText)) rawDate = dText;
+                            }
+                            if (!rawDate) {
+                                const aria = btn.getAttribute('aria-label') || '';
+                                const m = aria.match(/\b\d{4}-\d{2}-\d{2}\b/);
+                                if (m) rawDate = m[0];
+                            }
+                            if (!rawDate) {
+                                const fullText = (btn.innerText || btn.textContent || '').trim().replace(/\s+/g, ' ');
+                                for (const pat of patterns) {
+                                    const m = fullText.match(pat);
+                                    if (m) { rawDate = m[0]; break; }
+                                }
+                            }
+
+                            if (rawDate && dateMatches(rawDate, targetDate)) {
+                                matchingButtons.push(btn);
+                            }
+                        });
+
+                        if (matchingButtons.length > 0) {
+                            const chosenBtn = matchingButtons[targetOccurrence] || matchingButtons[matchingButtons.length - 1];
+                            chosenBtn.click();
+                            return true;
+                        }
+                    }
+
+                    // Strategy 2: Fallback Grid
                     let maxGridBottomY = Infinity;
                     const bottomDelimiters = Array.from(document.querySelectorAll('button, a, [role="button"], p, span')).filter(el => {
                         if (el.children.length > 0) return false;
                         const t = (el.textContent || '').trim().toLowerCase();
                         return t.includes('view departure details') || t.includes('freights as per') ||
-                               t.includes('price breakdown') || t === 'select' || t === 'remarks';
+                               t.includes('price breakdown') || t === 'remarks';
                     });
                     if (bottomDelimiters.length > 0) {
                         const validTops = bottomDelimiters.map(el => el.getBoundingClientRect().top).filter(top => top > 50);
@@ -3591,16 +3737,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
                     }
 
-                    // Locate DEPARTURE row header if present
-                    const depHeaderEl = Array.from(document.querySelectorAll('*')).find(el => {
-                        if (el.children.length > 2) return false;
-                        const t = (el.textContent || '').trim().toUpperCase();
-                        return (t === 'DEPARTURE' || t.endsWith('DEPARTURE')) &&
-                               !t.includes('VIEW DEPARTURE DETAILS') &&
-                               !t.includes('VALID FOR DEPARTURE');
-                    });
-                    const depTop = depHeaderEl ? depHeaderEl.getBoundingClientRect().top : null;
-
                     const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                         const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
                         if (!txt || txt.length > 30) return false;
@@ -3608,18 +3744,11 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                         const r = el.getBoundingClientRect();
                         if (r.width <= 0 || r.height <= 0) return false;
-
-                        // Must be situated ABOVE the offer cards / details boundary
                         if (maxGridBottomY !== Infinity && r.top >= maxGridBottomY - 10) return false;
 
-                        // If DEPARTURE row header exists, must be on the same vertical header row
-                        if (depTop !== null && Math.abs(r.top - depTop) > 35) return false;
+                        const offerCard = el.closest('.offer-card, [class*="offer-card" i], [class*="simple-carousel" i]');
+                        if (offerCard) return false;
 
-                        // Check if inside offer card
-                        const card = el.closest('.q-card, [class*="card" i]');
-                        if (card) return false;
-
-                        // Check immediate parent / grandparent text for validity wording or dialogs
                         let cur = el;
                         for (let depth = 0; depth < 3 && cur && cur !== document.body; depth++) {
                             const id = (cur.id || '').toLowerCase();
@@ -3631,12 +3760,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                                 return false;
                             }
 
-                            if (t.includes('valid') || t.includes('departure at')) {
-                                return false;
-                            }
+                            if (t.includes('valid') || t.includes('departure at')) return false;
                             cur = cur.parentElement;
                         }
-
                         return true;
                     });
 
@@ -3646,7 +3772,6 @@ class HapagLloydConnector(BaseCarrierConnector):
                         return { el, rect: r, text: txt };
                     }).filter(item => item.rect.width > 0 && item.rect.height > 0);
 
-                    // Group by vertical Y position (row clustering) to strictly isolate the header row
                     const rowClusters = [];
                     visible.forEach(item => {
                         let placed = false;
@@ -3658,14 +3783,11 @@ class HapagLloydConnector(BaseCarrierConnector):
                                 break;
                             }
                         }
-                        if (!placed) {
-                            rowClusters.push([item]);
-                        }
+                        if (!placed) rowClusters.push([item]);
                     });
 
                     rowClusters.sort((a, b) => b.length - a.length || a[0].rect.top - b[0].rect.top);
                     const gridDateItems = rowClusters.length > 0 ? rowClusters[0] : [];
-
                     gridDateItems.sort((a, b) => a.rect.left - b.rect.left);
 
                     const clusters = [];
@@ -3686,7 +3808,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     // Find clusters whose bestItem matches targetDate
                     const matchingClusters = clusters.filter(cluster => {
                         const best = cluster.slice().sort((a, b) => a.text.length - b.text.length)[0];
-                        return best.text === targetDate || best.text.includes(targetDate) || targetDate.includes(best.text);
+                        return dateMatches(best.text, targetDate);
                     });
 
                     if (matchingClusters.length === 0) return false;
@@ -3697,7 +3819,6 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                     if (chosenItem && chosenItem.el) {
                         chosenItem.el.click();
-                        // Also click parent cell (TH/TD/cell)
                         let cell = chosenItem.el;
                         while (cell && cell.tagName !== 'TH' && cell.tagName !== 'TD' && !cell.classList.contains('cell')) {
                             cell = cell.parentElement;
