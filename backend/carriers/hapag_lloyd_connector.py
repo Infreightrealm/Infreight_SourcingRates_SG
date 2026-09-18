@@ -4619,6 +4619,75 @@ class HapagLloydConnector(BaseCarrierConnector):
         except Exception as e:
             print(f"[HAPAG] Warning: Could not load freetime config: {e}")
 
+        def _apply_freetime_to_quote(normalized):
+            if not freetime_config:
+                return
+            dest_lower = request.destination.lower()
+            expanded_dest = dest_lower
+            data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+            try:
+                import json
+                cache_path = os.path.join(data_dir, "carrier_ports_cache.json")
+                if os.path.exists(cache_path):
+                    with open(cache_path, "r", encoding="utf-8") as f:
+                        cache_data = json.load(f)
+                        for carrier, cache_dict in cache_data.items():
+                            for key, val in cache_dict.items():
+                                clean_dest = dest_lower.replace(" ", "")
+                                clean_val = str(val).lower().replace(" ", "")
+                                if clean_dest in clean_val:
+                                    expanded_dest += f" {str(val).lower()}"
+            except Exception:
+                pass
+                
+            try:
+                port_codes_path = os.path.join(data_dir, "port_codes.json")
+                country_map_path = os.path.join(data_dir, "country_map.json")
+                if os.path.exists(port_codes_path) and os.path.exists(country_map_path):
+                    with open(country_map_path, "r", encoding="utf-8") as f:
+                        cmap = json.load(f)
+                    with open(port_codes_path, "r", encoding="utf-8") as f:
+                        pcodes = json.load(f).get("ports", {})
+                        for pcode, pdata in pcodes.items():
+                            pname = pdata.get("name", "").lower()
+                            clean_dest = dest_lower.replace(" ", "")
+                            clean_pname = pname.replace(" ", "")
+                            if clean_dest == clean_pname or clean_dest in clean_pname:
+                                ccode = pdata.get("country", "")
+                                cname = cmap.get(ccode, "").lower()
+                                expanded_dest += f" {pname} {ccode.lower()} {cname} {'usa' if ccode == 'US' else ''}"
+
+                        dest_code = None
+                        for cand in re.findall(r"[A-Z]{5}", request.destination.upper()):
+                            if cand in pcodes:
+                                dest_code = cand
+                                break
+                        if not dest_code:
+                            try:
+                                resolved = resolve_port_for_carrier(request.destination, "hapag")
+                                if resolved and len(resolved) == 5 and resolved.upper() in pcodes:
+                                    dest_code = resolved.upper()
+                            except Exception:
+                                pass
+                        if dest_code:
+                            ccode = pcodes[dest_code].get("country", "")
+                            cname = cmap.get(ccode, "").lower()
+                            if cname:
+                                expanded_dest += f" {dest_code.lower()} {ccode.lower()} {cname}"
+            except Exception as e:
+                print(f"[HAPAG] Port expansion fallback error: {e}")
+
+            for country, ft_data in freetime_config.items():
+                country_clean = country.lower().replace(" ", "")
+                expanded_clean = expanded_dest.replace(" ", "")
+                if country_clean in expanded_clean:
+                    c_type = normalized.container_type or request.container_type
+                    if "20" in c_type:
+                        normalized.free_time = ft_data.get("20GP")
+                    elif "40" in c_type:
+                        normalized.free_time = ft_data.get("40GP")
+                    break
+
         try:
             # Step 1: Login if not already logged in / session active
             if not self.is_login_successful or not self.page or (self.page.is_closed() if hasattr(self.page, "is_closed") and callable(self.page.is_closed) else getattr(self.page, "is_closed", False)):
@@ -4655,7 +4724,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     quick_pod = self._sanitize_route_value(best.get("port_of_discharge")) or self._sanitize_route_value(getattr(self, "_last_parsed_pod", None))
                     quick_routing = self._sanitize_route_value(best.get("routing")) or self._sanitize_route_value(getattr(self, "_last_parsed_routing", None)) or "Direct"
                     for ct in ["DRY 20", "DRY 40", "DRY 40H"]:
-                        quick_quotes.append(QuoteSchema(
+                        qq = QuoteSchema(
                             container_type=ct,
                             currency="USD",
                             basic_ocean_freight=price,
@@ -4666,7 +4735,9 @@ class HapagLloydConnector(BaseCarrierConnector):
                             port_of_discharge=quick_pod,
                             source="HAPAG_LLOYD",
                             raw_reference=f"HAPAG-QUICK-{ct.replace(' ', '_')}"
-                        ))
+                        )
+                        _apply_freetime_to_quote(qq)
+                        quick_quotes.append(qq)
                 self._cached_quotes = quick_quotes
                 self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND if quick_quotes else CarrierResultStatus.NO_QUOTES_AVAILABLE
                 matching_quotes = [q for q in quick_quotes if self._normalize_container_key(q.container_type) == norm_req_c]
@@ -4674,81 +4745,6 @@ class HapagLloydConnector(BaseCarrierConnector):
 
             quotes = []
             matched_raw_quote_etds = set()
-
-            def _apply_freetime_to_quote(normalized):
-                if not freetime_config:
-                    return
-                dest_lower = request.destination.lower()
-                expanded_dest = dest_lower
-                data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-                try:
-                    import json
-                    cache_path = os.path.join(data_dir, "carrier_ports_cache.json")
-                    if os.path.exists(cache_path):
-                        with open(cache_path, "r", encoding="utf-8") as f:
-                            cache_data = json.load(f)
-                            for carrier, cache_dict in cache_data.items():
-                                for key, val in cache_dict.items():
-                                    clean_dest = dest_lower.replace(" ", "")
-                                    clean_val = str(val).lower().replace(" ", "")
-                                    if clean_dest in clean_val:
-                                        expanded_dest += f" {str(val).lower()}"
-                except Exception:
-                    pass
-                    
-                try:
-                    port_codes_path = os.path.join(data_dir, "port_codes.json")
-                    country_map_path = os.path.join(data_dir, "country_map.json")
-                    if os.path.exists(port_codes_path) and os.path.exists(country_map_path):
-                        with open(country_map_path, "r", encoding="utf-8") as f:
-                            cmap = json.load(f)
-                        with open(port_codes_path, "r", encoding="utf-8") as f:
-                            pcodes = json.load(f).get("ports", {})
-                            for pcode, pdata in pcodes.items():
-                                pname = pdata.get("name", "").lower()
-                                clean_dest = dest_lower.replace(" ", "")
-                                clean_pname = pname.replace(" ", "")
-                                if clean_dest == clean_pname or clean_dest in clean_pname:
-                                    ccode = pdata.get("country", "")
-                                    cname = cmap.get(ccode, "").lower()
-                                    expanded_dest += f" {pname} {ccode.lower()} {cname} {'usa' if ccode == 'US' else ''}"
-
-                            # Robust fallback: resolve the destination to a UN/LOCODE and map
-                            # THAT to its country name. Handles destinations given as a bare
-                            # locode ("INNSA") or "Nhava Sheva (INNSA) [ZIP: ...]" where the
-                            # port-name substring match above does not fire.
-                            # Pick the first 5-letter token that is actually a known port
-                            # code (so "NHAVA" in the name is skipped in favour of "INNSA").
-                            dest_code = None
-                            for cand in re.findall(r"[A-Z]{5}", request.destination.upper()):
-                                if cand in pcodes:
-                                    dest_code = cand
-                                    break
-                            if not dest_code:
-                                try:
-                                    resolved = resolve_port_for_carrier(request.destination, "hapag")
-                                    if resolved and len(resolved) == 5 and resolved.upper() in pcodes:
-                                        dest_code = resolved.upper()
-                                except Exception:
-                                    pass
-                            if dest_code:
-                                ccode = pcodes[dest_code].get("country", "")
-                                cname = cmap.get(ccode, "").lower()
-                                if cname:
-                                    expanded_dest += f" {dest_code.lower()} {ccode.lower()} {cname}"
-                except Exception as e:
-                    print(f"[HAPAG] Port expansion fallback error: {e}")
-
-                for country, ft_data in freetime_config.items():
-                    country_clean = country.lower().replace(" ", "")
-                    expanded_clean = expanded_dest.replace(" ", "")
-                    if country_clean in expanded_clean:
-                        c_type = normalized.container_type or request.container_type
-                        if "20" in c_type:
-                            normalized.free_time = ft_data.get("20GP")
-                        elif "40" in c_type:
-                            normalized.free_time = ft_data.get("40GP")
-                        break
 
             # Step 6: Filter raw_quotes to the 4-week window from booking start date
             from datetime import date as _date, timedelta

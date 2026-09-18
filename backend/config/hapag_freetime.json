@@ -418,5 +418,49 @@
     "Usa": {
         "20GP": 2,
         "40GP": 2
+    },
+    "Mexico": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Brazil": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Chile": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Colombia": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Peru": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Argentina": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Panama": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Ecuador": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Costa Rica": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Guatemala": {
+        "20GP": 7,
+        "40GP": 7
+    },
+    "Uruguay": {
+        "20GP": 7,
+        "40GP": 7
     }
 }
