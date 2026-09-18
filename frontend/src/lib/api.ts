@@ -20,6 +20,16 @@ function formatUrl(url: string): string {
 const defaultPrimaryApiUrl = formatUrl(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 const backupApiUrl = formatUrl(process.env.NEXT_PUBLIC_API_URL_BACKUP || "");
 
+// Team Social (messaging) is pure DB CRUD with no Playwright/scraping dependency,
+// so it's routed straight to the always-on cloud backend instead of the primary/
+// backup failover pair used for rate search — that keeps the residential-IP worker
+// laptop free of chat polling load. Defaults to the existing cloud backup URL
+// (same DB, same auth sessions) since a dedicated env var is usually unnecessary;
+// set NEXT_PUBLIC_SOCIAL_API_URL to point Social at a different backend instead.
+const socialApiUrl = formatUrl(
+  process.env.NEXT_PUBLIC_SOCIAL_API_URL || process.env.NEXT_PUBLIC_API_URL_BACKUP || ""
+);
+
 export function getPrimaryApiUrl(): string {
   if (typeof window !== "undefined") {
     const saved = localStorage.getItem("custom_primary_api_url");
@@ -228,6 +238,34 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
     }
     throw primaryErr;
   }
+}
+
+// Dedicated fetch for Team Social — always the cloud backend, no primary/backup
+// switching, so a laptop that's slow, offline, or busy scraping never affects it.
+// Falls back to the normal primary/backup URL if no cloud URL is configured at
+// all (e.g. local dev with only NEXT_PUBLIC_API_URL set).
+async function socialFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  if (!socialApiUrl) {
+    return failoverFetch(path, options);
+  }
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("infreight_token") : null;
+  const authHeaders: Record<string, string> = {};
+  if (token) {
+    authHeaders["Authorization"] = `Bearer ${token}`;
+  }
+
+  const fetchOptions: RequestInit = {
+    credentials: "include",
+    ...options,
+    headers: {
+      ...defaultHeaders,
+      ...authHeaders,
+      ...options.headers,
+    },
+  };
+
+  return fetch(`${socialApiUrl}${path}`, fetchOptions);
 }
 
 
@@ -881,7 +919,7 @@ export interface DirectMessageItem {
 }
 
 export async function getColleagues(): Promise<Colleague[]> {
-  const res = await failoverFetch(`/api/social/colleagues`);
+  const res = await socialFetch(`/api/social/colleagues`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || "Failed to load team colleagues.");
@@ -890,7 +928,7 @@ export async function getColleagues(): Promise<Colleague[]> {
 }
 
 export async function getConversation(colleagueId: string): Promise<DirectMessageItem[]> {
-  const res = await failoverFetch(`/api/social/messages/${colleagueId}`);
+  const res = await socialFetch(`/api/social/messages/${colleagueId}`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || "Failed to load messages.");
@@ -903,7 +941,7 @@ export async function sendDirectMessage(
   content: string,
   attachment?: { url: string; type: string } | null,
 ): Promise<DirectMessageItem> {
-  const res = await failoverFetch(`/api/social/messages`, {
+  const res = await socialFetch(`/api/social/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -921,7 +959,7 @@ export async function sendDirectMessage(
 }
 
 export async function uploadUserAvatar(userId: string, avatarUrl: string): Promise<{ status: string; avatar_url: string }> {
-  const res = await failoverFetch(`/api/social/users/${userId}/avatar`, {
+  const res = await socialFetch(`/api/social/users/${userId}/avatar`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ avatar_url: avatarUrl }),
@@ -934,7 +972,7 @@ export async function uploadUserAvatar(userId: string, avatarUrl: string): Promi
 }
 
 export async function pokeColleague(recipientId: string): Promise<DirectMessageItem> {
-  const res = await failoverFetch(`/api/social/poke`, {
+  const res = await socialFetch(`/api/social/poke`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ recipient_id: recipientId }),
@@ -947,7 +985,7 @@ export async function pokeColleague(recipientId: string): Promise<DirectMessageI
 }
 
 export async function wipeConversation(colleagueId: string): Promise<{ status: string; deleted: number }> {
-  const res = await failoverFetch(`/api/social/messages/${colleagueId}`, {
+  const res = await socialFetch(`/api/social/messages/${colleagueId}`, {
     method: "DELETE",
   });
   if (!res.ok) {
