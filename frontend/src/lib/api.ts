@@ -240,10 +240,12 @@ async function failoverFetch(path: string, options: RequestInit = {}): Promise<R
   }
 }
 
-// Dedicated fetch for Team Social — always the cloud backend, no primary/backup
-// switching, so a laptop that's slow, offline, or busy scraping never affects it.
-// Falls back to the normal primary/backup URL if no cloud URL is configured at
-// all (e.g. local dev with only NEXT_PUBLIC_API_URL set).
+// Dedicated fetch for Team Social — tries the cloud backend FIRST (so the
+// residential-IP worker laptop doesn't carry chat-polling load in the normal
+// case), but the cloud backend is still just a backup role-wise: if it's
+// unreachable or erroring, fall through to whichever backend rate search is
+// currently using (normally the laptop, which runs the identical Social code
+// against the same DB) rather than leaving Social with no fallback at all.
 async function socialFetch(path: string, options: RequestInit = {}): Promise<Response> {
   if (!socialApiUrl) {
     return failoverFetch(path, options);
@@ -265,7 +267,17 @@ async function socialFetch(path: string, options: RequestInit = {}): Promise<Res
     },
   };
 
-  return fetch(`${socialApiUrl}${path}`, fetchOptions);
+  try {
+    const res = await fetch(`${socialApiUrl}${path}`, fetchOptions);
+    if (!res.ok && res.status >= 500) {
+      console.warn(`[API] Social cloud backend ${socialApiUrl} returned ${res.status}. Falling back to ${currentActiveUrl}.`);
+      return failoverFetch(path, options);
+    }
+    return res;
+  } catch (err) {
+    console.warn(`[API] Social cloud backend ${socialApiUrl} unreachable (${err}). Falling back to ${currentActiveUrl}.`);
+    return failoverFetch(path, options);
+  }
 }
 
 
