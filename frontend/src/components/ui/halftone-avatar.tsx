@@ -51,13 +51,10 @@ export function HalftoneAvatar({ seed, image, alt, className }: HalftoneAvatarPr
     };
   }, [seed]);
 
-  const dots = `dots-${uid}`;
-  const dotsDense = `dotsd-${uid}`;
   const photoClip = `photo-${uid}`;
-  const inkFilter = `ink-${uid}`;
 
-  // ---- Photo mode: same paper + ink palette, so real photos sit alongside
-  // generated portraits without breaking the deck's visual language.
+  // ---- Photo mode: a real uploaded picture, shown in its own true colors —
+  // only the generated placeholder (below) uses the inked halftone style.
   if (image) {
     return (
       <svg
@@ -70,23 +67,6 @@ export function HalftoneAvatar({ seed, image, alt, className }: HalftoneAvatarPr
           <clipPath id={photoClip}>
             <rect x="0" y="0" width="200" height="200" rx="14" />
           </clipPath>
-          <filter id={inkFilter}>
-            <feColorMatrix
-              type="matrix"
-              values="0.33 0.5 0.16 0 0
-                      0.33 0.5 0.16 0 0
-                      0.33 0.5 0.16 0 0
-                      0    0   0    1 0"
-            />
-            <feComponentTransfer>
-              <feFuncR type="gamma" exponent="1.45" amplitude="1.15" offset="-0.05" />
-              <feFuncG type="gamma" exponent="1.45" amplitude="1.15" offset="-0.05" />
-              <feFuncB type="gamma" exponent="1.45" amplitude="1.15" offset="-0.05" />
-            </feComponentTransfer>
-          </filter>
-          <pattern id={dots} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(28)">
-            <circle cx="3" cy="3" r="1.05" fill={INK} />
-          </pattern>
         </defs>
         <g clipPath={`url(#${photoClip})`}>
           <rect width="200" height="200" fill={PAPER} />
@@ -97,13 +77,14 @@ export function HalftoneAvatar({ seed, image, alt, className }: HalftoneAvatarPr
             width="200"
             height="200"
             preserveAspectRatio="xMidYMid slice"
-            filter={`url(#${inkFilter})`}
           />
-          <rect width="200" height="200" fill={`url(#${dots})`} opacity="0.12" />
         </g>
       </svg>
     );
   }
+
+  const dots = `dots-${uid}`;
+  const dotsDense = `dotsd-${uid}`;
 
   return (
     <svg
