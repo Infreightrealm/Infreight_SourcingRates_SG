@@ -33,28 +33,28 @@ MIN_PLAUSIBLE_OCEAN_RATE = 50.0
 
 
 def extract_locode_and_country(text: str) -> tuple[Optional[str], Optional[str]]:
-    """Extracts LOCODE and country name from text like 'CASABLANCA, MOROCCO (MACAS)'."""
+    """Extracts LOCODE and country name from text like 'CASABLANCA, MOROCCO (MACAS)' or 'Mersin, Turkey [TRMER]'."""
     if not text:
         return None, None
     
     locode = None
     country_name = None
     
-    # 1. Try to extract UN/LOCODE from the text
-    paren_match = re.search(r'\(\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*\)', text)
-    if paren_match:
-        locode = (paren_match.group(1) + paren_match.group(2)).upper()
+    # 1. Try to extract UN/LOCODE from the text (supports both [TRMER] and (TRMER))
+    bracket_match = re.search(r'[\[\(]\s*([A-Za-z]{2})\s*([A-Za-z]{3})\s*[\]\)]', text)
+    if bracket_match:
+        locode = (bracket_match.group(1) + bracket_match.group(2)).upper()
         
     # 2. Try to extract country name
     parts = text.split(',')
     if len(parts) > 1:
         c_part = parts[-1].strip()
-        c_part = re.sub(r'\s*\([^)]*\)', '', c_part).strip()
+        c_part = re.sub(r'\s*[\[\(][^\]\)]*[\]\)]', '', c_part).strip()
         if c_part:
             country_name = c_part
     else:
         # Check if text ends with a known country name without comma (e.g. "Mersin Turkey")
-        t_clean = text.strip().lower()
+        t_clean = re.sub(r'\s*[\[\(][^\]\)]*[\]\)]', '', text).strip().lower()
         for c_code, c_name in COUNTRY_CODE_TO_NAME.items():
             c_name_lower = c_name.lower()
             if t_clean.endswith(" " + c_name_lower) and len(t_clean) > len(c_name_lower) + 2:
@@ -1591,7 +1591,7 @@ class MaerskConnector(BaseCarrierConnector):
                             "select container", "select commodity", "price owner"
                         ]
                         
-                        valid_suggestions = [] # list of dicts: {"index": idx, "text": sug_text}
+                        valid_suggestions = [] # list of dicts: {"index": idx, "text": sug_text, "is_header": bool}
                         for idx in range(sug_count):
                             sug = suggestion_locators.nth(idx)
                             sug_text = (await sug.inner_text()).strip()
@@ -1605,7 +1605,25 @@ class MaerskConnector(BaseCarrierConnector):
                                 print(f"[MAERSK] -> Suggestion {idx} is invalid/no-results indicator. Skipping.")
                                 continue
                             
-                            valid_suggestions.append({"index": idx, "text": sug_text})
+                            is_header = False
+                            try:
+                                is_header = await sug.evaluate("""
+                                    el => {
+                                        const ariaDisabled = el.getAttribute('aria-disabled') === 'true';
+                                        const hasDisabled = el.hasAttribute('disabled');
+                                        const role = el.getAttribute('role') || '';
+                                        const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+                                        const isHdrClass = cls.includes('header') || cls.includes('group') || cls.includes('category');
+                                        return ariaDisabled || hasDisabled || role === 'group' || role === 'presentation' || isHdrClass;
+                                    }
+                                """)
+                            except Exception:
+                                pass
+                                
+                            if is_header:
+                                print(f"[MAERSK] -> Suggestion {idx} is a group/category header ('{sug_text}'). Marking as header.")
+                                
+                            valid_suggestions.append({"index": idx, "text": sug_text, "is_header": is_header})
                             
                         target_idx = None
                         if valid_suggestions:
@@ -1616,7 +1634,8 @@ class MaerskConnector(BaseCarrierConnector):
                                     origin_query,
                                     locode=origin_locode,
                                     cached_name=origin_cached,
-                                    country_keywords=country_keywords
+                                    country_keywords=country_keywords,
+                                    is_header=vs.get("is_header", False)
                                 )
                                 scored.append((sc, vs))
                             scored.sort(key=lambda x: x[0], reverse=True)
@@ -1632,12 +1651,39 @@ class MaerskConnector(BaseCarrierConnector):
                                 if tag_name != "input":
                                     selected_text = (await suggestion.inner_text()).strip()
                                     await suggestion.scroll_into_view_if_needed()
-                                    await suggestion.click(force=True)
+                                    # 1. Native DOM and mouse event dispatch to pierced custom element / shadow root
+                                    try:
+                                        await suggestion.evaluate("""
+                                            el => {
+                                                const target = (el.shadowRoot && (el.shadowRoot.querySelector('button, [role="option"], .mc-option__wrapper, div') || el.shadowRoot)) || el;
+                                                target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, composed: true }));
+                                                target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, composed: true }));
+                                                target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+                                                if (typeof target.click === 'function') target.click();
+                                                if (typeof el.click === 'function') el.click();
+                                            }
+                                        """)
+                                    except Exception:
+                                        pass
+                                    # 2. Playwright coordinate click
+                                    try:
+                                        await suggestion.click(force=True, timeout=2000)
+                                    except Exception:
+                                        pass
                                     print(f"[MAERSK] Clicked autocomplete suggestion element at index {target_idx}: '{selected_text}'")
                                     clicked = True
                                     self.matched_origin = selected_text
                                     if origin_locode:
                                         set_cached_carrier_port("maersk", origin_locode, selected_text)
+                                    # 3. Check if dropdown is still open; if so, press Enter
+                                    await self.page.wait_for_timeout(400)
+                                    try:
+                                        if await suggestion_locators.first.is_visible(timeout=400):
+                                            await origin_field.focus()
+                                            await self.page.keyboard.press("Enter")
+                                            await self.page.wait_for_timeout(400)
+                                    except Exception:
+                                        pass
 
                         else:
                             print("[MAERSK] No valid suggestions found in the dropdown list.")
@@ -1662,7 +1708,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         'select container', 'select commodity', 'price owner'
                                     ];
                                     function findInShadow(root) {{
-                                        const items = root.querySelectorAll('li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
+                                        const items = root.querySelectorAll('mc-option, [role="option"], li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
                                         return Array.from(items);
                                     }}
                                     function collectAll(node) {{
@@ -1820,7 +1866,7 @@ class MaerskConnector(BaseCarrierConnector):
                             "select container", "select commodity", "price owner"
                         ]
                         
-                        valid_suggestions = []  # list of dicts: {"index": idx, "text": sug_text}
+                        valid_suggestions = []  # list of dicts: {"index": idx, "text": sug_text, "is_header": bool}
                         for idx in range(sug_count):
                             sug = suggestion_locators.nth(idx)
                             sug_text = (await sug.inner_text()).strip()
@@ -1834,7 +1880,39 @@ class MaerskConnector(BaseCarrierConnector):
                                 print(f"[MAERSK] -> Suggestion {idx} is invalid/no-results indicator. Skipping.")
                                 continue
                             
-                            valid_suggestions.append({"index": idx, "text": sug_text})
+                            is_header = False
+                            try:
+                                is_header = await sug.evaluate("""
+                                    el => {
+                                        const ariaDisabled = el.getAttribute('aria-disabled') === 'true';
+                                        const hasDisabled = el.hasAttribute('disabled');
+                                        const role = el.getAttribute('role') || '';
+                                        const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+                                        const isHdrClass = cls.includes('header') || cls.includes('group') || cls.includes('category');
+                                        return ariaDisabled || hasDisabled || role === 'group' || role === 'presentation' || isHdrClass;
+                                    }
+                                """)
+                            except Exception:
+                                pass
+                                
+                            if is_header:
+                                print(f"[MAERSK] -> Suggestion {idx} is a group/category header ('{sug_text}'). Marking as header.")
+
+                            # Check if child badge/icon or shadow root adds "Container Yard" info
+                            try:
+                                has_cy_badge = await sug.evaluate("""
+                                    el => {
+                                        const root = el.shadowRoot || el;
+                                        const b = root.querySelector('[class*="yard" i], [class*="cy" i], [title*="yard" i]');
+                                        return !!b;
+                                    }
+                                """)
+                                if has_cy_badge and "container yard" not in sug_text_lower and " cy" not in sug_text_lower:
+                                    sug_text += ", Container Yard"
+                            except Exception:
+                                pass
+                            
+                            valid_suggestions.append({"index": idx, "text": sug_text, "is_header": is_header})
                             
                         target_idx = None
                         if valid_suggestions:
@@ -1845,7 +1923,8 @@ class MaerskConnector(BaseCarrierConnector):
                                     destination_query,
                                     locode=destination_locode,
                                     cached_name=destination_cached,
-                                    country_keywords=country_keywords
+                                    country_keywords=country_keywords,
+                                    is_header=vs.get("is_header", False)
                                 )
                                 scored.append((sc, vs))
                             scored.sort(key=lambda x: x[0], reverse=True)
@@ -1861,12 +1940,39 @@ class MaerskConnector(BaseCarrierConnector):
                                 if tag_name != "input":
                                     selected_text = (await suggestion.inner_text()).strip()
                                     await suggestion.scroll_into_view_if_needed()
-                                    await suggestion.click(force=True)
+                                    # 1. Native DOM and mouse event dispatch to pierced custom element / shadow root
+                                    try:
+                                        await suggestion.evaluate("""
+                                            el => {
+                                                const target = (el.shadowRoot && (el.shadowRoot.querySelector('button, [role="option"], .mc-option__wrapper, div') || el.shadowRoot)) || el;
+                                                target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, composed: true }));
+                                                target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, composed: true }));
+                                                target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+                                                if (typeof target.click === 'function') target.click();
+                                                if (typeof el.click === 'function') el.click();
+                                            }
+                                        """)
+                                    except Exception:
+                                        pass
+                                    # 2. Playwright coordinate click
+                                    try:
+                                        await suggestion.click(force=True, timeout=2000)
+                                    except Exception:
+                                        pass
                                     print(f"[MAERSK] Clicked autocomplete suggestion element at index {target_idx}: '{selected_text}'")
                                     clicked = True
                                     self.matched_destination = selected_text
                                     if destination_locode:
                                         set_cached_carrier_port("maersk", destination_locode, selected_text)
+                                    # 3. Check if dropdown is still open; if so, press Enter
+                                    await self.page.wait_for_timeout(400)
+                                    try:
+                                        if await suggestion_locators.first.is_visible(timeout=400):
+                                            await dest_field.focus()
+                                            await self.page.keyboard.press("Enter")
+                                            await self.page.wait_for_timeout(400)
+                                    except Exception:
+                                        pass
 
                         else:
                             print("[MAERSK] No valid suggestions found in the dropdown list.")
@@ -1891,7 +1997,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         'select container', 'select commodity', 'price owner'
                                     ];
                                     function findInShadow(root) {{
-                                        const items = root.querySelectorAll('li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
+                                        const items = root.querySelectorAll('mc-option, [role="option"], li[role="option"], [role="listbox"] li, [class*="suggestion"], [class*="result"][class*="location"]');
                                         return Array.from(items);
                                     }}
                                     function collectAll(node) {{
@@ -1931,6 +2037,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         matching.sort((a, b) => b.matchScore - a.matchScore);
                                         if (matching[0].matchScore > 0) {{
                                             matching[0].el.click();
+                                            matching[0].el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
                                             return matching[0].txt;
                                         }}
                                     }}
@@ -1987,6 +2094,56 @@ class MaerskConnector(BaseCarrierConnector):
                             break
                             
                     if commodity_field:
+                        # Guard: Verify Commodity input is enabled (unlocks once Destination is confirmed)
+                        is_commodity_enabled = False
+                        for check_i in range(10):  # Poll up to 4 seconds
+                            try:
+                                is_dis = await commodity_field.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
+                                if not is_dis:
+                                    is_commodity_enabled = True
+                                    break
+                            except Exception:
+                                pass
+                            await self.page.wait_for_timeout(400)
+
+                        if not is_commodity_enabled:
+                            print("[MAERSK] Warning: Commodity field is currently disabled (Destination port may not be confirmed). Attempting recovery...")
+                            # Attempt 1: If a visible Container Yard option exists, click it explicitly
+                            try:
+                                cy_loc = self.page.locator('mc-option:has-text("Container Yard"), [role="option"]:has-text("Container Yard")').first
+                                if await cy_loc.is_visible(timeout=1000):
+                                    print("[MAERSK] Found visible Container Yard option during recovery. Clicking...")
+                                    await cy_loc.evaluate("el => { const t = (el.shadowRoot && (el.shadowRoot.querySelector('button, [role=\"option\"], div') || el.shadowRoot)) || el; t.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); if (typeof t.click === 'function') t.click(); if (typeof el.click === 'function') el.click(); }")
+                                    try:
+                                        await cy_loc.click(force=True, timeout=1500)
+                                    except Exception:
+                                        pass
+                                    await self.page.wait_for_timeout(500)
+                            except Exception as cy_e:
+                                print(f"[MAERSK] CY recovery click error: {cy_e}")
+
+                            # Attempt 2: Press Enter on destination field
+                            try:
+                                if dest_field:
+                                    await dest_field.focus()
+                                    await self.page.keyboard.press("Enter")
+                                    await self.page.wait_for_timeout(500)
+                            except Exception:
+                                pass
+
+                            # Check again if unlocked
+                            try:
+                                is_dis = await commodity_field.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'")
+                                if not is_dis:
+                                    is_commodity_enabled = True
+                                    print("[MAERSK] Commodity field unlocked successfully after recovery!")
+                            except Exception:
+                                pass
+
+                        if not is_commodity_enabled:
+                            print("[MAERSK] [ABORT] Commodity input field remained disabled because Destination port was not registered by Maersk. Aborting to prevent 30s hang.")
+                            return CarrierResultStatus.NO_QUOTES_AVAILABLE
+
                         await commodity_field.scroll_into_view_if_needed()
                         await commodity_field.click()
                         await commodity_field.fill("")

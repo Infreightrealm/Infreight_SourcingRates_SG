@@ -864,7 +864,7 @@ class PortManager:
             city_part = parts[0].strip()
             detected_country = country
             if not detected_country and len(parts) > 1:
-                country_raw = re.sub(r'\s*\([^)]*\)', '', parts[-1]).strip().lower()
+                country_raw = re.sub(r'\s*[\[\(][^\]\)]*[\]\)]', '', parts[-1]).strip().lower()
                 for c_code, c_name in COUNTRY_CODE_TO_NAME.items():
                     c_name_lower = c_name.lower()
                     if country_raw == c_name_lower or country_raw.endswith(" " + c_name_lower):
