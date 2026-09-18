@@ -923,6 +923,7 @@ export interface Colleague {
     created_at: string | null;
     is_from_me: boolean;
   } | null;
+  last_seen?: string | null;
   stats: {
     total_searches: number;
     top_lanes: Array<{ origin: string; destination: string; count: number }>;

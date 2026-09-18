@@ -140,6 +140,7 @@ async def list_colleagues(
             "is_self": is_self,
             "unread_count": unread_map.get(u.id, 0),
             "last_message": last_message,
+            "last_seen": u.last_login_at.isoformat() if u.last_login_at else None,
             "stats": {
                 "total_searches": total_searches,
                 "top_lanes": top_lanes,

@@ -778,7 +778,6 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                     const preview = c.last_message?.content
                       ? `${c.last_message.is_from_me ? "You: " : ""}${c.last_message.content}`
                       : "No messages yet — say hi";
-                    const previewTime = c.last_message?.created_at ?? null;
                     const canEditAvatar = isAdmin || c.is_self;
 
                     return (
@@ -827,8 +826,13 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                               {name}
                               {c.is_self && <span className="ml-1.5 text-[10px] font-normal text-amber-400">(you)</span>}
                             </p>
-                            {previewTime && (
-                              <span className="shrink-0 text-[10px] text-slate-500">{relativeTime(previewTime)}</span>
+                            {c.last_seen && (
+                              <span
+                                className="shrink-0 text-[10px] text-slate-500"
+                                title={`Last seen ${new Date(c.last_seen).toLocaleString()}`}
+                              >
+                                {relativeTime(c.last_seen)}
+                              </span>
                             )}
                           </div>
                           <p className="truncate text-[11.5px] text-slate-400">{c.is_self ? "This is you" : preview}</p>
