@@ -2854,32 +2854,53 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                     return true;
                 });
-                const cols = [];
-                const seen = new Set();
-                dateEls.forEach(el => {
-                    const rect = el.getBoundingClientRect();
-                    const txt = (el.innerText || el.textContent || '').trim();
-                    if (rect.width > 0 && rect.height > 0 && !seen.has(txt)) {
-                        seen.add(txt);
-                        
-                        // Extract price from parent container
-                        let price = null;
-                        let parent = el.parentElement;
-                        for (let i = 0; i < 4; i++) {
-                            if (!parent) break;
-                            const pTxt = (parent.innerText || parent.textContent || '').trim().replace(/\s+/g, ' ');
-                            const match = pTxt.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
-                            if (match) {
-                                price = parseFloat(match[1].replace(/,/g, ''));
-                                break;
-                            }
-                            parent = parent.parentElement;
+
+                const visible = dateEls.map(el => {
+                    const r = el.getBoundingClientRect();
+                    const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                    return { el, rect: r, text: txt };
+                }).filter(item => item.rect.width > 0 && item.rect.height > 0);
+
+                // Sort left to right
+                visible.sort((a, b) => a.rect.left - b.rect.left || a.rect.top - b.rect.top);
+
+                // Group by column position (cluster elements within 25px of each other)
+                const columnClusters = [];
+                visible.forEach(item => {
+                    if (columnClusters.length === 0) {
+                        columnClusters.push([item]);
+                    } else {
+                        const lastCluster = columnClusters[columnClusters.length - 1];
+                        const avgLeft = lastCluster.reduce((sum, x) => sum + x.rect.left, 0) / lastCluster.length;
+                        if (Math.abs(item.rect.left - avgLeft) < 25) {
+                            lastCluster.push(item);
+                        } else {
+                            columnClusters.push([item]);
                         }
-                        cols.push({
-                            raw_date: txt,
-                            price: price
-                        });
                     }
+                });
+
+                const cols = [];
+                columnClusters.forEach((cluster, colIdx) => {
+                    const bestItem = cluster.slice().sort((a, b) => a.text.length - b.text.length)[0];
+                    let price = null;
+                    let parent = bestItem.el.parentElement;
+                    for (let i = 0; i < 6; i++) {
+                        if (!parent) break;
+                        const pTxt = (parent.innerText || parent.textContent || '').trim().replace(/\s+/g, ' ');
+                        const match = pTxt.match(/(?:USD|\$)\s*(-?[\d,]+(?:\.\d{1,2})?)/i);
+                        if (match) {
+                            price = parseFloat(match[1].replace(/,/g, ''));
+                            break;
+                        }
+                        parent = parent.parentElement;
+                    }
+                    cols.push({
+                        raw_date: bestItem.text,
+                        price: price,
+                        rect_left: Math.round(bestItem.rect.left),
+                        col_idx: colIdx
+                    });
                 });
                 return cols;
             }'''
@@ -2913,10 +2934,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                 'button.q-btn:not([type="submit"]):not([aria-label*="search" i])'
             ]
 
-            all_dates_seen: list[str] = []       # ordered, de-duped list of all ETD strings
-            seen_set: set[str] = set()
-            date_to_price: dict[str, float] = {}
-            max_pages = 25          # safety cap -- Hapag-Lloyd has at most ~8-12 weeks of departures
+            all_departures: list[dict] = []  # ordered list of all departure columns across paginated views
+            max_pages = 25                   # safety cap -- Hapag-Lloyd has at most ~8-12 weeks of departures
             page_num = 0
 
             # JS to click the rightmost visible arrow/chevron button in the grid
@@ -2990,39 +3009,75 @@ class HapagLloydConnector(BaseCarrierConnector):
                 page_num += 1
                 await self._human_delay(600, 900)
 
-                # Read unique dates and prices currently visible in the grid
+                # Read departure columns currently visible in the grid
                 visible_data: list[dict] = await self.page.evaluate(JS_GET_VISIBLE_DATES_AND_PRICES)
-                reached_max_horizon = False
-                new_count = 0
-                for item in visible_data:
-                    d = item["raw_date"]
-                    p = item["price"]
+                if not visible_data:
+                    print(f"[HAPAG] Page {page_num}: No departure columns visible.")
+                    break
 
-                    # Check if date exceeds the max horizon
+                new_count = 0
+                if not all_departures:
+                    # Initial page
+                    all_departures.extend(visible_data)
+                    new_count = len(visible_data)
+                else:
+                    # Find maximum sequence overlap between suffix of all_departures and prefix of visible_data
+                    overlap_k = 0
+                    max_k = min(len(all_departures), len(visible_data))
+                    for k in range(max_k, 0, -1):
+                        all_suffix = [d["raw_date"] for d in all_departures[-k:]]
+                        vis_prefix = [d["raw_date"] for d in visible_data[:k]]
+                        if all_suffix == vis_prefix:
+                            overlap_k = k
+                            break
+
+                    if overlap_k > 0:
+                        # Update prices in overlapping departures if newly found
+                        for i in range(overlap_k):
+                            if all_departures[-overlap_k + i].get("price") is None and visible_data[i].get("price") is not None:
+                                all_departures[-overlap_k + i]["price"] = visible_data[i]["price"]
+                        new_items = visible_data[overlap_k:]
+                        all_departures.extend(new_items)
+                        new_count = len(new_items)
+                    else:
+                        # If no overlap, check if visible_data is chronologically ahead
+                        try:
+                            last_norm = self._normalize_date_string(all_departures[-1]["raw_date"])
+                            first_norm = self._normalize_date_string(visible_data[0]["raw_date"])
+                            if first_norm >= last_norm:
+                                all_departures.extend(visible_data)
+                                new_count = len(visible_data)
+                            else:
+                                print(f"[HAPAG] Page {page_num}: Visible dates appear backwards ({first_norm} < {last_norm}). Ending pagination.")
+                                break
+                        except Exception:
+                            all_departures.extend(visible_data)
+                            new_count = len(visible_data)
+
+                print(f"[HAPAG] Page {page_num}: {len(visible_data)} columns visible, {new_count} new -> total {len(all_departures)} departures collected so far")
+
+                # Check if latest departure exceeded max_horizon
+                if all_departures:
+                    latest_dep = all_departures[-1]
                     try:
-                        normalized_d = self._normalize_date_string(d)
-                        parsed_d = datetime.strptime(normalized_d, "%Y-%m-%d").date()
+                        norm_d = self._normalize_date_string(latest_dep["raw_date"])
+                        parsed_d = datetime.strptime(norm_d, "%Y-%m-%d").date()
                         if parsed_d > max_horizon:
-                            reached_max_horizon = True
+                            print(f"[HAPAG] Reached max search horizon ({max_horizon}) with departure {norm_d}. Stopping pagination.")
+                            break
                     except Exception:
                         pass
 
-                    if p is not None:
-                        date_to_price[d] = p
-                    if d not in seen_set:
-                        seen_set.add(d)
-                        all_dates_seen.append(d)
-                        new_count += 1
-
-                print(f"[HAPAG] Page {page_num}: {len(visible_data)} columns visible, {new_count} new -> total {len(all_dates_seen)} unique dates so far")
-
-                if reached_max_horizon:
-                    print(f"[HAPAG] Reached max search horizon ({max_horizon}) at page {page_num}. Stopping pagination.")
+                # If no new departures appeared on this page (after initial page), check end sentinel or stop
+                if page_num > 1 and new_count == 0:
+                    end_reached = await self.page.evaluate(JS_IS_END_OF_QUOTES)
+                    if end_reached:
+                        print("[HAPAG] No new departures after arrow click and end sentinel confirmed -- done.")
+                    else:
+                        print("[HAPAG] No new departures after arrow click -- grid exhausted.")
                     break
 
-                # Try to click the right-arrow to advance to the next column window
-                # NOTE: we check the end sentinel only AFTER a click yields 0 new dates,
-                # because the tooltip is always present in the DOM even before it's hoverable.
+                # Advance grid to next column window
                 arrow_result = await self.page.evaluate(JS_CLICK_RIGHT_ARROW)
                 print(f"[HAPAG] Right-arrow JS result: {arrow_result}")
 
@@ -3034,35 +3089,33 @@ class HapagLloydConnector(BaseCarrierConnector):
                     print("[HAPAG] No right-arrow button found -- assuming end of departures.")
                     break
 
-                # Arrow was clicked -- wait for new columns to render
                 await self._human_delay(900, 1400)
 
-                # Check how many new dates appeared after the click
-                visible_after_data: list[dict] = await self.page.evaluate(JS_GET_VISIBLE_DATES_AND_PRICES)
-                visible_after = [item["raw_date"] for item in visible_after_data]
-                new_after = sum(1 for d in visible_after if d not in seen_set)
+            # Calculate occurrence_in_date for each departure
+            date_occurrence_counter: dict[str, int] = {}
+            for dep in all_departures:
+                d_str = dep["raw_date"]
+                dep["occurrence_in_date"] = date_occurrence_counter.get(d_str, 0)
+                date_occurrence_counter[d_str] = dep["occurrence_in_date"] + 1
 
-                if new_after == 0:
-                    # Grid did not advance -- we've reached the end
-                    end_reached = await self.page.evaluate(JS_IS_END_OF_QUOTES)
-                    if end_reached:
-                        print("[HAPAG] No new dates after arrow click and end sentinel confirmed -- done.")
-                    else:
-                        print("[HAPAG] No new dates after arrow click -- grid exhausted.")
-                    break
-
-            print(f"[HAPAG] Pagination complete. Total unique departure dates collected: {len(all_dates_seen)}")
-            for d in all_dates_seen:
-                print(f"  >> {d}")
+            print(f"[HAPAG] Pagination complete. Total departures collected: {len(all_departures)}")
+            for idx, d in enumerate(all_departures):
+                print(f"  [{idx}] {d['raw_date']} (occ {d['occurrence_in_date']}) - Price: ${d.get('price')}")
 
             self._all_quotes = []
-            for seq_idx, raw_date_str in enumerate(all_dates_seen):
+            quote_seq = 0
+            for dep_idx, dep in enumerate(all_departures):
+                raw_date_str = dep["raw_date"]
                 normalized_date = self._normalize_date_string(raw_date_str)
-                grid_price = date_to_price.get(raw_date_str, 0.0)
+                grid_price = dep.get("price") or 0.0
+                occ = dep.get("occurrence_in_date", 0)
+
                 # Standard Quote
                 self._all_quotes.append({
-                    "seq_idx": seq_idx,
+                    "departure_idx": dep_idx,
+                    "seq_idx": quote_seq,
                     "raw_date": raw_date_str,
+                    "occurrence_in_date": occ,
                     "etd": normalized_date,
                     "eta": None,
                     "transit_time_days": getattr(self, "_last_parsed_transit_time", None),
@@ -3078,10 +3131,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                     "carrier_code": self.carrier_code,
                     "is_spot": False
                 })
+                quote_seq += 1
+
                 # Spot Quote
                 self._all_quotes.append({
-                    "seq_idx": seq_idx,
+                    "departure_idx": dep_idx,
+                    "seq_idx": quote_seq,
                     "raw_date": raw_date_str,
+                    "occurrence_in_date": occ,
                     "etd": normalized_date,
                     "eta": None,
                     "transit_time_days": getattr(self, "_last_parsed_transit_time", None),
@@ -3097,7 +3154,8 @@ class HapagLloydConnector(BaseCarrierConnector):
                     "carrier_code": self.carrier_code,
                     "is_spot": True
                 })
-                
+                quote_seq += 1
+
             return self._all_quotes
         except Exception as e:
             print(f"[HAPAG] Quotes sifting error: {e}")
@@ -3113,13 +3171,16 @@ class HapagLloydConnector(BaseCarrierConnector):
             await self._wait_for_captcha_resolution()
 
             raw_date = quote_ref.get("raw_date", quote_ref.get("etd", ""))
-            seq_idx  = quote_ref.get("seq_idx", 0)
-            print(f"[HAPAG] Navigating to departure date '{raw_date}' (seq {seq_idx})...")
+            dep_idx  = quote_ref.get("departure_idx", quote_ref.get("seq_idx", 0))
+            occ_idx  = quote_ref.get("occurrence_in_date", 0)
+            target_idx = quote_ref.get("seq_idx", 0)
+            is_spot = quote_ref.get("is_spot", False)
+            print(f"[HAPAG] Navigating to departure '{raw_date}' (dep_idx {dep_idx}, occ {occ_idx}, spot={is_spot})...")
 
             # ------------------------------------------------------------------
             # JS helpers re-used in this method
             # ------------------------------------------------------------------
-            JS_GET_VISIBLE_DATES = r'''() => {
+            JS_GET_VISIBLE_COLUMNS = r'''() => {
                 const patterns = [
                     /^\d{4}-\d{2}-\d{2}$/,
                     /^\d{2}\.\d{2}\.\d{4}$/,
@@ -3131,6 +3192,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 ];
                 const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                     const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                    if (!txt || txt.length > 30) return false;
                     if (!patterns.some(pat => pat.test(txt))) return false;
                     let parent = el.parentElement;
                     while (parent) {
@@ -3144,10 +3206,36 @@ class HapagLloydConnector(BaseCarrierConnector):
                     }
                     return true;
                 });
-                return dateEls.filter(el => {
+                const visible = dateEls.map(el => {
                     const r = el.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0;
-                }).map(el => el.textContent.trim());
+                    const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                    return { el, rect: r, text: txt };
+                }).filter(item => item.rect.width > 0 && item.rect.height > 0);
+
+                visible.sort((a, b) => a.rect.left - b.rect.left || a.rect.top - b.rect.top);
+
+                const clusters = [];
+                visible.forEach(item => {
+                    if (clusters.length === 0) {
+                        clusters.push([item]);
+                    } else {
+                        const lastCluster = clusters[clusters.length - 1];
+                        const avgLeft = lastCluster.reduce((sum, x) => sum + x.rect.left, 0) / lastCluster.length;
+                        if (Math.abs(item.rect.left - avgLeft) < 25) {
+                            lastCluster.push(item);
+                        } else {
+                            clusters.push([item]);
+                        }
+                    }
+                });
+
+                return clusters.map(c => {
+                    const bestItem = c.slice().sort((a, b) => a.text.length - b.text.length)[0];
+                    return {
+                        raw_date: bestItem.text,
+                        rect_left: Math.round(bestItem.rect.left)
+                    };
+                });
             }'''
 
             JS_CLICK_LEFT_ARROW = r'''() => {
@@ -3234,13 +3322,10 @@ class HapagLloydConnector(BaseCarrierConnector):
                 return 'not_found';
             }'''
 
-            target_idx = quote_ref.get("seq_idx", 0)
-            is_spot = quote_ref.get("is_spot", False)
-
-            already_selected = getattr(self, "_last_selected_date", None) == raw_date
+            already_selected = getattr(self, "_last_selected_dep_idx", None) == dep_idx and getattr(self, "_last_selected_date", None) == raw_date
 
             if already_selected:
-                print(f"[HAPAG] Date '{raw_date}' is already selected. Skipping navigation and using cached transit info.")
+                print(f"[HAPAG] Departure '{raw_date}' (dep_idx {dep_idx}) is already selected. Skipping navigation and using cached transit info.")
                 # Retrieve cached transit time / via routing
                 tt = getattr(self, "_last_parsed_transit_time", None)
                 via_routing = getattr(self, "_last_parsed_via_routing", "")
@@ -3267,34 +3352,46 @@ class HapagLloydConnector(BaseCarrierConnector):
                     await self._dismiss_hapag_modals()
                     await self._wait_for_captcha_resolution()
 
-                    visible: list[str] = await self.page.evaluate(JS_GET_VISIBLE_DATES)
-                    if raw_date in visible:
-                        print(f"[HAPAG] Target date '{raw_date}' is now visible in grid.")
+                    vis_cols: list[dict] = await self.page.evaluate(JS_GET_VISIBLE_COLUMNS)
+                    vis_dates = [c["raw_date"] for c in vis_cols]
+
+                    occ_in_vis = vis_dates.count(raw_date)
+                    is_visible = False
+                    if occ_idx < occ_in_vis:
+                        is_visible = True
+                    elif occ_in_vis > 0 and occ_idx == 0:
+                        is_visible = True
+
+                    if is_visible:
+                        print(f"[HAPAG] Target departure '{raw_date}' (occ {occ_idx}) is now visible in grid.")
                         break
 
                     # Determine direction to move
                     direction = "right"  # default fallback
                     target_etd = quote_ref.get("etd")
-                    if self._all_quotes and target_etd:
-                        visible_etds = []
-                        for vd in visible:
-                            match = next((q for q in self._all_quotes if q["raw_date"] == vd), None)
-                            if match and match.get("etd"):
-                                visible_etds.append(match["etd"])
-                        if visible_etds:
-                            min_vis_etd = min(visible_etds)
-                            max_vis_etd = max(visible_etds)
+                    if vis_dates and target_etd:
+                        vis_etds = []
+                        for vd in vis_dates:
+                            try:
+                                vis_etds.append(self._normalize_date_string(vd))
+                            except Exception:
+                                pass
+                        if vis_etds:
+                            min_vis_etd = min(vis_etds)
+                            max_vis_etd = max(vis_etds)
                             if target_etd < min_vis_etd:
                                 direction = "left"
                             elif target_etd > max_vis_etd:
                                 direction = "right"
+                            elif occ_idx >= occ_in_vis:
+                                direction = "right"
 
                     if direction == "left":
                         arrow_result = await self.page.evaluate(JS_CLICK_LEFT_ARROW)
-                        print(f"[HAPAG] Left-arrow click #{nav_attempt+1} JS result: {arrow_result} (target_idx {target_idx})")
+                        print(f"[HAPAG] Left-arrow click #{nav_attempt+1} JS result: {arrow_result} (dep_idx {dep_idx})")
                     else:
                         arrow_result = await self.page.evaluate(JS_CLICK_RIGHT_ARROW)
-                        print(f"[HAPAG] Right-arrow click #{nav_attempt+1} JS result: {arrow_result} (target_idx {target_idx})")
+                        print(f"[HAPAG] Right-arrow click #{nav_attempt+1} JS result: {arrow_result} (dep_idx {dep_idx})")
 
                     if arrow_result in ['disabled', 'not_found']:
                         print(f"[HAPAG] Arrow navigation returned '{arrow_result}' -- assuming date not reachable.")
@@ -3303,9 +3400,14 @@ class HapagLloydConnector(BaseCarrierConnector):
                     await self._human_delay(800, 1200)
 
                 # ------------------------------------------------------------------
-                # Step 2: Click the correct date column by text content (not DOM index)
+                # Step 2: Click the correct date column by text content and occurrence
                 # ------------------------------------------------------------------
-                clicked = await self.page.evaluate(r'''targetDate => {
+                click_params = {
+                    "targetDate": raw_date,
+                    "targetOccurrence": occ_idx
+                }
+                clicked = await self.page.evaluate(r'''params => {
+                    const { targetDate, targetOccurrence } = params;
                     const patterns = [
                         /^\d{4}-\d{2}-\d{2}$/,
                         /^\d{2}\.\d{2}\.\d{4}$/,
@@ -3317,6 +3419,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                     ];
                     const dateEls = Array.from(document.querySelectorAll('th, td, .q-td, .q-th, [class*="col" i], [class*="cell" i], [class*="header" i], [class*="date" i], span')).filter(el => {
                         const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                        if (!txt || txt.length > 30) return false;
                         if (!patterns.some(pat => pat.test(txt))) return false;
                         let parent = el.parentElement;
                         while (parent) {
@@ -3330,15 +3433,46 @@ class HapagLloydConnector(BaseCarrierConnector):
                         }
                         return true;
                     });
-                    const visible = dateEls.filter(el => {
+                    const visible = dateEls.map(el => {
                         const r = el.getBoundingClientRect();
-                        return r.width > 0 && r.height > 0;
+                        const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                        return { el, rect: r, text: txt };
+                    }).filter(item => item.rect.width > 0 && item.rect.height > 0);
+
+                    visible.sort((a, b) => a.rect.left - b.rect.left || a.rect.top - b.rect.top);
+
+                    // Cluster into columns
+                    const clusters = [];
+                    visible.forEach(item => {
+                        if (clusters.length === 0) {
+                            clusters.push([item]);
+                        } else {
+                            const lastCluster = clusters[clusters.length - 1];
+                            const avgLeft = lastCluster.reduce((sum, x) => sum + x.rect.left, 0) / lastCluster.length;
+                            if (Math.abs(item.rect.left - avgLeft) < 25) {
+                                lastCluster.push(item);
+                            } else {
+                                clusters.push([item]);
+                            }
+                        }
                     });
-                    const target = visible.find(el => el.textContent.trim() === targetDate);
-                    if (target) {
-                        target.click();
+
+                    // Find clusters whose bestItem matches targetDate
+                    const matchingClusters = clusters.filter(cluster => {
+                        const best = cluster.slice().sort((a, b) => a.text.length - b.text.length)[0];
+                        return best.text === targetDate || best.text.includes(targetDate) || targetDate.includes(best.text);
+                    });
+
+                    if (matchingClusters.length === 0) return false;
+
+                    // Choose cluster by targetOccurrence
+                    const chosenCluster = matchingClusters[targetOccurrence] || matchingClusters[matchingClusters.length - 1];
+                    const chosenItem = chosenCluster.slice().sort((a, b) => a.text.length - b.text.length)[0];
+
+                    if (chosenItem && chosenItem.el) {
+                        chosenItem.el.click();
                         // Also click parent cell (TH/TD)
-                        let cell = target;
+                        let cell = chosenItem.el;
                         while (cell && cell.tagName !== 'TH' && cell.tagName !== 'TD' && !cell.classList.contains('cell')) {
                             cell = cell.parentElement;
                         }
@@ -3346,7 +3480,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                         return true;
                     }
                     return false;
-                }''', raw_date)
+                }''', click_params)
                 
                 if not clicked:
                     print(f"[HAPAG] Could not click column '{raw_date}'.")
@@ -3439,6 +3573,7 @@ class HapagLloydConnector(BaseCarrierConnector):
                 self._last_parsed_eta = quote_ref.get("eta")
                 self._last_parsed_via_routing = via_routing
                 
+                self._last_selected_dep_idx = dep_idx
                 self._last_selected_date = raw_date
                 
                 print(f"[HAPAG] Parsed transit time: {tt} days, POD: '{getattr(self, '_last_parsed_pod', None)}', routing: '{getattr(self, '_last_parsed_routing', None)}'")
@@ -4435,9 +4570,32 @@ class HapagLloydConnector(BaseCarrierConnector):
                 self._queried_container_keys.add(norm_req_c)
                 
                 # Merge newly extracted quotes into _cached_quotes avoiding duplicates
-                existing_keys = {(q.etd, q.container_type, q.final_freight_value, q.service_name, getattr(q, 'is_spot', False)) for q in self._cached_quotes}
+                existing_keys = {
+                    (
+                        q.etd,
+                        q.container_type,
+                        q.final_freight_value,
+                        q.service_name,
+                        getattr(q, 'transit_time_days', None),
+                        getattr(q, 'routing', None),
+                        getattr(q, 'eta', None),
+                        getattr(q, 'vessel', None),
+                        getattr(q, 'is_spot', False)
+                    )
+                    for q in self._cached_quotes
+                }
                 for q in quotes:
-                    k = (q.etd, q.container_type, q.final_freight_value, q.service_name, getattr(q, 'is_spot', False))
+                    k = (
+                        q.etd,
+                        q.container_type,
+                        q.final_freight_value,
+                        q.service_name,
+                        getattr(q, 'transit_time_days', None),
+                        getattr(q, 'routing', None),
+                        getattr(q, 'eta', None),
+                        getattr(q, 'vessel', None),
+                        getattr(q, 'is_spot', False)
+                    )
                     if k not in existing_keys:
                         self._cached_quotes.append(q)
                         existing_keys.add(k)

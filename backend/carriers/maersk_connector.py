@@ -52,8 +52,20 @@ def extract_locode_and_country(text: str) -> tuple[Optional[str], Optional[str]]
         c_part = re.sub(r'\s*\([^)]*\)', '', c_part).strip()
         if c_part:
             country_name = c_part
+    else:
+        # Check if text ends with a known country name without comma (e.g. "Mersin Turkey")
+        t_clean = text.strip().lower()
+        for c_code, c_name in COUNTRY_CODE_TO_NAME.items():
+            c_name_lower = c_name.lower()
+            if t_clean.endswith(" " + c_name_lower) and len(t_clean) > len(c_name_lower) + 2:
+                country_name = c_name
+                break
+        if not country_name:
+            if t_clean.endswith(" türkiye") or t_clean.endswith(" turkiye"):
+                country_name = "Turkey"
             
     return locode, country_name
+
 
 
 
@@ -749,6 +761,87 @@ class MaerskConnector(BaseCarrierConnector):
         }
         return mapping.get(normalized, "20 Dry Standard" if "20" in normalized else "40 Dry High")
 
+    @staticmethod
+    def _score_maersk_suggestion(
+        sug_text: str,
+        query: str,
+        locode: Optional[str] = None,
+        cached_name: Optional[str] = None,
+        country_keywords: Optional[list[str]] = None,
+        is_header: bool = False
+    ) -> float:
+        """
+        Scores a Maersk autocomplete dropdown suggestion.
+
+        NOTE: The nested/indented layout separating 'Container Yard' (CY) from 'Store Door' (SD)
+        and 'Freezone' was identified as a one-off incident specific to Mersin, Turkey (TRMER).
+        This scoring prioritizes CY whenever present, but standard port pairings that do not have
+        CY labels continue to match normally via exact city, LOCODE, and country scoring.
+        """
+        if not sug_text or is_header:
+            return -9999.0
+
+        s_lower = sug_text.lower()
+        score = 0.0
+
+        # Container Yard (CY) vs Store Door (SD) / Freezone priority
+        is_cy = ("container yard" in s_lower or " cy" in s_lower or ", cy" in s_lower)
+        is_sd = ("store door" in s_lower or " sd" in s_lower)
+        is_freezone = ("freezone" in s_lower or "free zone" in s_lower)
+
+        query_wants_fz = "freezone" in query.lower() or "free zone" in query.lower()
+        query_wants_sd = "store door" in query.lower()
+
+        if is_cy:
+            score += 350.0
+        if is_sd and not query_wants_sd:
+            score -= 250.0
+        if is_freezone and not query_wants_fz:
+            score -= 500.0
+
+        # 1. Exact cached name match
+        if cached_name:
+            c_clean = cached_name.strip().lower()
+            if s_lower == c_clean:
+                score += 1000.0
+            elif c_clean in s_lower:
+                score += 800.0
+
+        # 2. Exact LOCODE match (e.g. "(TRMER)" or "(MYPKG)")
+        if locode:
+            l_upper = locode.strip().upper()
+            s_upper = sug_text.upper()
+            if f"({l_upper})" in s_upper or f" {l_upper} " in s_upper or s_upper.startswith(l_upper):
+                score += 700.0
+
+        # 3. Exact city name match (city part before comma)
+        q_clean = query.strip().lower()
+        q_city = q_clean.split(",")[0].strip()
+        q_city = re.sub(r'\s*\([^)]*\)', '', q_city).strip()
+
+        parts = s_lower.split(",")
+        if parts:
+            s_city = parts[0].strip()
+            s_city_clean = re.sub(r'\s*\([^)]*\)', '', s_city).strip()
+            if s_city_clean == q_city:
+                score += 500.0
+            elif q_city in s_city_clean:
+                score += 100.0
+
+        # 4. Country keywords match
+        if country_keywords:
+            for kw in country_keywords:
+                if re.search(r'\b' + re.escape(kw.lower()) + r'\b', s_lower):
+                    score += 150.0
+                    break
+
+        # 5. Exact word in query
+        if q_city and re.search(rf'\b{re.escape(q_city)}\b', s_lower):
+            score += 50.0
+
+        return score
+
+
     async def _human_type(self, locator, text: str, clear: bool = True):
         """Types text character by character into a given locator or element handle with randomized human-like delays."""
         try:
@@ -1329,6 +1422,9 @@ class MaerskConnector(BaseCarrierConnector):
                         return "Dili, Timor Leste"
                     if ("alexandria" in raw_lower or "egalx" in raw_lower or "egaly" in raw_lower) and "dekheila" not in raw_lower:
                         return "Alexandria, Egypt"
+                    if ("mersin" in raw_lower or "trmer" in raw_lower) and "freezone" not in raw_lower:
+                        return "Mersin"
+
                     # 1. Extract LOCODE from square brackets [INCOK] or parentheses (INCOK)
                     bracket_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', raw_input)
                     if bracket_match:
@@ -1513,62 +1609,21 @@ class MaerskConnector(BaseCarrierConnector):
                             
                         target_idx = None
                         if valid_suggestions:
-                            # 0. Try to match exact cached name FIRST if available
-                            if origin_cached:
-                                clean_cached = origin_cached.strip().lower()
-                                for vs in valid_suggestions:
-                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
-                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 1. Try exact LOCODE match first (e.g. "(AUMEL)" or "(SGSIN)" in text)
-                            if origin_locode:
-                                clean_locode = origin_locode.strip().upper()
-                                for vs in valid_suggestions:
-                                    vs_upper = vs["text"].upper()
-                                    if f"({clean_locode})" in vs_upper or f" {clean_locode} " in vs_upper or vs_upper == clean_locode:
-                                        print(f"[MAERSK] -> Exact LOCODE match! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 2. Try exact city name match (e.g. "Karachi, Pakistan" where city part before comma is exactly "Karachi")
-                            if target_idx is None:
-                                clean_query = origin_query.strip().lower()
-                                query_city_part = clean_query.split(",")[0].strip()
-                                query_city_part = re.sub(r'\s*\([^)]*\)', '', query_city_part).strip()
-                                for vs in valid_suggestions:
-                                    vs_lower = vs["text"].lower()
-                                    parts = vs_lower.split(",")
-                                    if parts:
-                                        city_part = parts[0].strip()
-                                        # Remove state parentheses if present, e.g. "Melbourne (Victoria)" -> "Melbourne"
-                                        city_part_clean = re.sub(r'\s*\([^)]*\)', '', city_part).strip()
-                                        if city_part_clean == query_city_part and (not country_keywords or any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords)):
-                                            print(f"[MAERSK] -> Matches exact city name and country! Picking index {vs['index']}: '{vs['text']}'")
-                                            target_idx = vs["index"]
-                                            break
-
-                            # 3. Try name AND country keywords match
-                            if target_idx is None:
-                                clean_query = origin_query.strip().lower()
-                                for vs in valid_suggestions:
-                                    vs_lower = vs["text"].lower()
-                                    if (clean_query in vs_lower or vs_lower in clean_query) and any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords):
-                                        print(f"[MAERSK] -> Matches query AND country keywords! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 3.5 Try exact word match for user-typed query
-                            if target_idx is None:
-                                clean_query = origin_query.strip().lower()
-                                for vs in valid_suggestions:
-                                    if re.search(rf'\b{re.escape(clean_query)}\b', vs["text"].lower()):
-                                        print(f"[MAERSK] -> Matches exact word in query! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # Removed aggressive fallbacks (Steps 4, 5, 6) to enforce strict matching.
+                            scored = []
+                            for vs in valid_suggestions:
+                                sc = self._score_maersk_suggestion(
+                                    vs["text"],
+                                    origin_query,
+                                    locode=origin_locode,
+                                    cached_name=origin_cached,
+                                    country_keywords=country_keywords
+                                )
+                                scored.append((sc, vs))
+                            scored.sort(key=lambda x: x[0], reverse=True)
+                            if scored and scored[0][0] > 0:
+                                best_score, best_vs = scored[0]
+                                print(f"[MAERSK] -> Highest scoring Origin suggestion (score {best_score})! Picking index {best_vs['index']}: '{best_vs['text']}'")
+                                target_idx = best_vs["index"]
                                 
                         if target_idx is not None:
                             suggestion = suggestion_locators.nth(target_idx)
@@ -1590,7 +1645,7 @@ class MaerskConnector(BaseCarrierConnector):
                         print(f"[MAERSK] Dropdown click failed or selector not found: {e}")
                         
                     if not clicked:
-                        # JS shadow-DOM fallback with EXACT MATCH enforcement
+                        # JS shadow-DOM fallback with EXACT MATCH enforcement & Container Yard priority
                         try:
                             import json
                             js_query = json.dumps(origin_query.strip())
@@ -1619,35 +1674,42 @@ class MaerskConnector(BaseCarrierConnector):
                                     }}
                                     const all = collectAll(document);
                                     
-                                    // 1. First pass: Try to find an EXACT word match (e.g. Aden matching Aden, Yemen)
                                     const escapedQuery = queryStr.replace(/[-\\/\\^$*+?.()|[\\]{{}}]/g, '\\\\$&');
                                     const exactRegex = new RegExp('(\\\\b|^)' + escapedQuery + '(\\\\b|$)', 'i');
-                                    
-                                    for (const el of all) {{
-                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
-                                        
-                                        if (exactRegex.test(txt)) {{
-                                            el.click();
-                                            return txt;
-                                        }}
-                                    }}
-                                    
-                                    // 2. Second pass: Try exact city name match (city part before comma)
                                     const queryCityPart = queryStr.split(',')[0].trim().replace(/\\s*\\([^)]*\\)/g, '').trim();
+
+                                    const matching = [];
                                     for (const el of all) {{
                                         const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
                                         if (!txt || INVALID.some(k => txt.includes(k))) continue;
+                                        const isHeader = el.getAttribute('aria-disabled') === 'true' || el.classList.contains('header') || el.classList.contains('group');
+                                        if (isHeader) continue;
+
+                                        let matchScore = 0;
                                         const cityPart = txt.split(',')[0].trim().replace(/\\s*\\([^)]*\\)/g, '').trim();
-                                        if (cityPart === queryCityPart) {{
-                                            el.click();
-                                            return txt;
+                                        if (cityPart === queryCityPart) matchScore += 500;
+                                        else if (exactRegex.test(txt)) matchScore += 200;
+                                        else continue;
+
+                                        if (txt.includes('container yard') || txt.includes(' cy')) matchScore += 350;
+                                        if (txt.includes('store door') || txt.includes(' sd')) matchScore -= 250;
+                                        if (txt.includes('freezone') || txt.includes('free zone')) matchScore -= 500;
+
+                                        matching.push({{ el, txt, matchScore }});
+                                    }}
+
+                                    if (matching.length > 0) {{
+                                        matching.sort((a, b) => b.matchScore - a.matchScore);
+                                        if (matching[0].matchScore > 0) {{
+                                            matching[0].el.click();
+                                            return matching[0].txt;
                                         }}
                                     }}
                                     
                                     return null;
                                 }}
                             """)
+
                             if js_result:
                                 print(f"[MAERSK] JS shadow-DOM exact match click succeeded: '{js_result}'")
                                 clicked = True
@@ -1776,62 +1838,21 @@ class MaerskConnector(BaseCarrierConnector):
                             
                         target_idx = None
                         if valid_suggestions:
-                            # 0. Try to match exact cached name FIRST if available
-                            if destination_cached:
-                                clean_cached = destination_cached.strip().lower()
-                                for vs in valid_suggestions:
-                                    if vs["text"].lower() == clean_cached or clean_cached in vs["text"].lower():
-                                        print(f"[MAERSK] -> Matches cached name exactly! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 1. Try exact LOCODE match first (e.g. "(AUMEL)" or "(SGSIN)" in text)
-                            if destination_locode:
-                                clean_locode = destination_locode.strip().upper()
-                                for vs in valid_suggestions:
-                                    vs_upper = vs["text"].upper()
-                                    if f"({clean_locode})" in vs_upper or f" {clean_locode} " in vs_upper or vs_upper == clean_locode:
-                                        print(f"[MAERSK] -> Exact LOCODE match! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 2. Try exact city name match (e.g. "Karachi, Pakistan" where city part before comma is exactly "Karachi")
-                            if target_idx is None:
-                                clean_query = destination_query.strip().lower()
-                                query_city_part = clean_query.split(",")[0].strip()
-                                query_city_part = re.sub(r'\s*\([^)]*\)', '', query_city_part).strip()
-                                for vs in valid_suggestions:
-                                    vs_lower = vs["text"].lower()
-                                    parts = vs_lower.split(",")
-                                    if parts:
-                                        city_part = parts[0].strip()
-                                        # Remove state parentheses if present, e.g. "Melbourne (Victoria)" -> "Melbourne"
-                                        city_part_clean = re.sub(r'\s*\([^)]*\)', '', city_part).strip()
-                                        if city_part_clean == query_city_part and (not country_keywords or any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords)):
-                                            print(f"[MAERSK] -> Matches exact city name and country! Picking index {vs['index']}: '{vs['text']}'")
-                                            target_idx = vs["index"]
-                                            break
-
-                            # 3. Try name AND country keywords match
-                            if target_idx is None:
-                                clean_query = destination_query.strip().lower()
-                                for vs in valid_suggestions:
-                                    vs_lower = vs["text"].lower()
-                                    if (clean_query in vs_lower or vs_lower in clean_query) and any(re.search(r'\b' + re.escape(kw) + r'\b', vs_lower) for kw in country_keywords):
-                                        print(f"[MAERSK] -> Matches query AND country keywords! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # 3.5 Try exact word match for user-typed query
-                            if target_idx is None:
-                                clean_query = destination_query.strip().lower()
-                                for vs in valid_suggestions:
-                                    if re.search(rf'\b{re.escape(clean_query)}\b', vs["text"].lower()):
-                                        print(f"[MAERSK] -> Matches exact word in query! Picking index {vs['index']}: '{vs['text']}'")
-                                        target_idx = vs["index"]
-                                        break
-
-                            # Removed aggressive fallbacks (Steps 4, 5, 6) to enforce strict matching.
+                            scored = []
+                            for vs in valid_suggestions:
+                                sc = self._score_maersk_suggestion(
+                                    vs["text"],
+                                    destination_query,
+                                    locode=destination_locode,
+                                    cached_name=destination_cached,
+                                    country_keywords=country_keywords
+                                )
+                                scored.append((sc, vs))
+                            scored.sort(key=lambda x: x[0], reverse=True)
+                            if scored and scored[0][0] > 0:
+                                best_score, best_vs = scored[0]
+                                print(f"[MAERSK] -> Highest scoring Destination suggestion (score {best_score})! Picking index {best_vs['index']}: '{best_vs['text']}'")
+                                target_idx = best_vs["index"]
                                 
                         if target_idx is not None:
                             suggestion = suggestion_locators.nth(target_idx)
@@ -1853,7 +1874,7 @@ class MaerskConnector(BaseCarrierConnector):
                         print(f"[MAERSK] Dropdown click failed or selector not found: {e}")
                         
                     if not clicked:
-                        # JS shadow-DOM fallback with EXACT MATCH enforcement
+                        # JS shadow-DOM fallback with EXACT MATCH enforcement & Container Yard priority
                         try:
                             import json
                             js_query = json.dumps(destination_query.strip())
@@ -1882,35 +1903,42 @@ class MaerskConnector(BaseCarrierConnector):
                                     }}
                                     const all = collectAll(document);
                                     
-                                    // 1. First pass: Try to find an EXACT word match (e.g. Aden matching Aden, Yemen)
                                     const escapedQuery = queryStr.replace(/[-\\/\\^$*+?.()|[\\]{{}}]/g, '\\\\$&');
                                     const exactRegex = new RegExp('(\\\\b|^)' + escapedQuery + '(\\\\b|$)', 'i');
-                                    
-                                    for (const el of all) {{
-                                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-                                        if (!txt || INVALID.some(k => txt.includes(k))) continue;
-                                        
-                                        if (exactRegex.test(txt)) {{
-                                            el.click();
-                                            return txt;
-                                        }}
-                                    }}
-                                    
-                                    // 2. Second pass: Try exact city name match (city part before comma)
                                     const queryCityPart = queryStr.split(',')[0].trim().replace(/\\s*\\([^)]*\\)/g, '').trim();
+
+                                    const matching = [];
                                     for (const el of all) {{
                                         const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
                                         if (!txt || INVALID.some(k => txt.includes(k))) continue;
+                                        const isHeader = el.getAttribute('aria-disabled') === 'true' || el.classList.contains('header') || el.classList.contains('group');
+                                        if (isHeader) continue;
+
+                                        let matchScore = 0;
                                         const cityPart = txt.split(',')[0].trim().replace(/\\s*\\([^)]*\\)/g, '').trim();
-                                        if (cityPart === queryCityPart) {{
-                                            el.click();
-                                            return txt;
+                                        if (cityPart === queryCityPart) matchScore += 500;
+                                        else if (exactRegex.test(txt)) matchScore += 200;
+                                        else continue;
+
+                                        if (txt.includes('container yard') || txt.includes(' cy')) matchScore += 350;
+                                        if (txt.includes('store door') || txt.includes(' sd')) matchScore -= 250;
+                                        if (txt.includes('freezone') || txt.includes('free zone')) matchScore -= 500;
+
+                                        matching.push({{ el, txt, matchScore }});
+                                    }}
+
+                                    if (matching.length > 0) {{
+                                        matching.sort((a, b) => b.matchScore - a.matchScore);
+                                        if (matching[0].matchScore > 0) {{
+                                            matching[0].el.click();
+                                            return matching[0].txt;
                                         }}
                                     }}
                                     
                                     return null;
                                 }}
                             """)
+
                             if js_result:
                                 print(f"[MAERSK] JS shadow-DOM exact match click succeeded: '{js_result}'")
                                 clicked = True

@@ -54,6 +54,7 @@ CARRIER_PORT_OVERRIDES = {
         "PRSJU": "San Juan, Puerto Rico",
         "SDPZU": "Port Sudan, Sudan",
         "INBLR": "Bangalore (KARNATAKA), India",
+        "TRMER": "Mersin, Turkey",
     },
     "one": {
         "VNHPH": "Hai Phong",
@@ -857,13 +858,44 @@ class PortManager:
                 return res_pk
 
 
-        # If query contains comma (e.g. "Montreal, Canada"), try searching city part first
+        # If query contains comma (e.g. "Montreal, Canada", "Manzanillo, Mexico"), try searching city part with detected country
         if "," in query:
-            city_part = query.split(",")[0].strip()
+            parts = query.split(",")
+            city_part = parts[0].strip()
+            detected_country = country
+            if not detected_country and len(parts) > 1:
+                country_raw = re.sub(r'\s*\([^)]*\)', '', parts[-1]).strip().lower()
+                for c_code, c_name in COUNTRY_CODE_TO_NAME.items():
+                    c_name_lower = c_name.lower()
+                    if country_raw == c_name_lower or country_raw.endswith(" " + c_name_lower):
+                        detected_country = c_code
+                        break
+                if not detected_country and (country_raw == "türkiye" or country_raw == "turkiye"):
+                    detected_country = "TR"
+
             if city_part and city_part != query:
-                city_results = self.search_port(city_part, country=country)
+                city_results = self.search_port(city_part, country=detected_country)
                 if city_results:
                     return city_results
+
+        # If query does not contain comma but ends with a known country name (e.g. "Mersin Turkey")
+        query_lower = query.lower().strip()
+        for c_code, c_name in COUNTRY_CODE_TO_NAME.items():
+            c_name_lower = c_name.lower()
+            if query_lower.endswith(" " + c_name_lower) and len(query_lower) > len(c_name_lower) + 2:
+                city_part = query[:-(len(c_name_lower) + 1)].strip()
+                if city_part:
+                    city_results = self.search_port(city_part, country=country or c_code)
+                    if city_results:
+                        return city_results
+        # Also check common country aliases (e.g. "turkiye")
+        if query_lower.endswith(" türkiye") or query_lower.endswith(" turkiye"):
+            city_part = re.sub(r'\s+t[üu]rkiye$', '', query, flags=re.IGNORECASE).strip()
+            if city_part:
+                city_results = self.search_port(city_part, country=country or "TR")
+                if city_results:
+                    return city_results
+
 
         query_raw = re.sub(r'\s+', ' ', query.lower()).strip()
         query_norm = self.normalize_port_input(query)
@@ -1159,6 +1191,12 @@ class PortManager:
                     if keyword == norm_text_clean or keyword == clean_text.lower():
                         extracted_locode = locode
                         break
+
+            # Check ports database for match
+            if not extracted_locode:
+                results = self.search_port(clean_text)
+                if results:
+                    extracted_locode = results[0]['code'].upper()
 
             # If a LOCODE was resolved, translate it to carrier's preferred name or database name
             if extracted_locode:
