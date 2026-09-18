@@ -94,6 +94,33 @@ async def list_colleagues(
 
         is_self = u.id == current_user.id
 
+        # Most recent direct message exchanged with this colleague (either
+        # direction), so the Social list can preview "what did we last say"
+        # instead of a search stat — that's what people actually scan for.
+        last_message = None
+        if not is_self:
+            last_dm_q = (
+                select(DirectMessage)
+                .where(
+                    or_(
+                        and_(DirectMessage.sender_id == current_user.id, DirectMessage.recipient_id == u.id),
+                        and_(DirectMessage.sender_id == u.id, DirectMessage.recipient_id == current_user.id),
+                    )
+                )
+                .order_by(desc(DirectMessage.created_at))
+                .limit(1)
+            )
+            last_dm = (await session.execute(last_dm_q)).scalars().first()
+            if last_dm:
+                preview = (last_dm.content or "").strip() or None
+                if not preview and last_dm.attachment_url:
+                    preview = "📷 Photo"
+                last_message = {
+                    "content": preview,
+                    "created_at": last_dm.created_at.isoformat() if last_dm.created_at else None,
+                    "is_from_me": last_dm.sender_id == current_user.id,
+                }
+
         colleagues.append({
             "id": str(u.id),
             "username": u.username,
@@ -104,6 +131,7 @@ async def list_colleagues(
             "avatar_url": u.avatar_url,
             "is_self": is_self,
             "unread_count": unread_map.get(u.id, 0),
+            "last_message": last_message,
             "stats": {
                 "total_searches": total_searches,
                 "top_lanes": top_lanes,

@@ -855,6 +855,11 @@ export interface Colleague {
   avatar_url?: string | null;
   is_self: boolean;
   unread_count: number;
+  last_message?: {
+    content: string | null;
+    created_at: string | null;
+    is_from_me: boolean;
+  } | null;
   stats: {
     total_searches: number;
     top_lanes: Array<{ origin: string; destination: string; count: number }>;

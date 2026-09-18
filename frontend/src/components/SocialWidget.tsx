@@ -293,8 +293,8 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     [colleagues],
   );
 
-  // Unread conversations first, then everyone else alphabetically — "you" sinks
-  // to the bottom since there's nobody to message there.
+  // Unread conversations first, then most recently texted, then everyone else
+  // alphabetically — "you" sinks to the bottom since there's nobody to message there.
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = colleagues.filter((c) => {
@@ -305,6 +305,9 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     return [...filtered].sort((a, b) => {
       if (a.is_self !== b.is_self) return a.is_self ? 1 : -1;
       if ((b.unread_count || 0) !== (a.unread_count || 0)) return (b.unread_count || 0) - (a.unread_count || 0);
+      const aTime = a.last_message?.created_at ? new Date(a.last_message.created_at).getTime() : 0;
+      const bTime = b.last_message?.created_at ? new Date(b.last_message.created_at).getTime() : 0;
+      if (bTime !== aTime) return bTime - aTime;
       return (a.display_name || a.name || "").localeCompare(b.display_name || b.name || "");
     });
   }, [colleagues, query]);
@@ -613,20 +616,28 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                 ) : (
                   rows.map((c) => {
                     const name = c.display_name || c.name || c.username;
-                    const lane = c.stats?.top_lanes?.[0];
-                    const preview = lane
-                      ? `${lane.origin.split(",")[0]} → ${lane.destination.split(",")[0]}`
-                      : c.stats?.total_searches
-                        ? `${c.stats.total_searches} quotes sourced`
-                        : "No activity yet";
+                    const preview = c.last_message?.content
+                      ? `${c.last_message.is_from_me ? "You: " : ""}${c.last_message.content}`
+                      : "No messages yet — say hi";
+                    const previewTime = c.last_message?.created_at ?? null;
+                    const canEditAvatar = isAdmin || c.is_self;
 
                     return (
-                      <button
+                      // A <div role="button"> rather than a real <button> — this row hosts a
+                      // second, independently-clickable avatar-upload button, and nesting
+                      // <button> inside <button> is invalid HTML.
+                      <div
                         key={c.id}
-                        type="button"
-                        disabled={c.is_self}
+                        role="button"
+                        tabIndex={c.is_self ? -1 : 0}
                         onClick={() => !c.is_self && setSelectedColleague(c)}
-                        className={`group flex w-full items-center gap-3 border-b border-white/5 px-3.5 py-2.5 text-left transition-colors ${
+                        onKeyDown={(e) => {
+                          if (!c.is_self && (e.key === "Enter" || e.key === " ")) {
+                            e.preventDefault();
+                            setSelectedColleague(c);
+                          }
+                        }}
+                        className={`group flex w-full items-center gap-3 border-b border-white/5 px-3.5 py-2.5 text-left transition-colors outline-none focus-visible:bg-white/5 ${
                           c.is_self ? "cursor-default opacity-70" : "cursor-pointer hover:bg-white/5"
                         }`}
                       >
@@ -639,12 +650,12 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                               {c.unread_count}
                             </span>
                           )}
-                          {isAdmin && (
+                          {canEditAvatar && (
                             <button
                               type="button"
                               onClick={(e) => handleAvatarUploadClick(e, c)}
                               className="absolute -bottom-1 -right-1 hidden size-5 items-center justify-center rounded-full border border-white/20 bg-slate-800 text-slate-200 hover:bg-sky-500 hover:text-white group-hover:flex"
-                              title={`Upload profile picture for ${name}`}
+                              title={c.is_self ? "Update your profile picture" : `Upload profile picture for ${name}`}
                             >
                               <Camera className="size-2.5" />
                             </button>
@@ -657,13 +668,13 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
                               {name}
                               {c.is_self && <span className="ml-1.5 text-[10px] font-normal text-amber-400">(you)</span>}
                             </p>
-                            {c.stats?.last_searched_at && (
-                              <span className="shrink-0 text-[10px] text-slate-500">{relativeTime(c.stats.last_searched_at)}</span>
+                            {previewTime && (
+                              <span className="shrink-0 text-[10px] text-slate-500">{relativeTime(previewTime)}</span>
                             )}
                           </div>
                           <p className="truncate text-[11.5px] text-slate-400">{c.is_self ? "This is you" : preview}</p>
                         </div>
-                      </button>
+                      </div>
                     );
                   })
                 )}

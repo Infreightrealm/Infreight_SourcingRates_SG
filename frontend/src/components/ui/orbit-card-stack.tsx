@@ -347,7 +347,7 @@ export function OrbitCardStack({
                   )}
                 </div>
 
-                {isAdmin && onUploadAvatar && active && (
+                {(isAdmin || isSelf) && onUploadAvatar && active && (
                   <button
                     type="button"
                     onClick={(event) => {
@@ -355,7 +355,7 @@ export function OrbitCardStack({
                       onUploadAvatar(item);
                     }}
                     className="absolute left-5 top-5 z-20 inline-flex items-center gap-1 rounded-full border border-black/10 bg-[#f3f0e7]/95 px-2 py-1 text-[10px] font-semibold text-[#111111] transition-colors hover:bg-[#111111] hover:text-[#f3f0e7]"
-                    title={`Upload profile picture for ${item.name}`}
+                    title={isSelf ? "Update your profile picture" : `Upload profile picture for ${item.name}`}
                   >
                     <Camera className="size-3" />
                     <span>Edit Photo</span>
