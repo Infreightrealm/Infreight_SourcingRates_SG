@@ -770,7 +770,7 @@ class OOCLConnector(BaseCarrierConnector):
         Credentials from OOCL_USERNAME / OOCL_PASSWORD env vars.
         """
         username = (os.getenv("OOCL_USERNAME") or "BOOKINGSG@IN-FREIGHT.COM").strip()
-        password = (os.getenv("OOCL_PASSWORD") or "IFSGb2020").strip()
+        password = (os.getenv("OOCL_PASSWORD") or "@IFSGa2026").strip()
 
         print("[OOCL] [FS] Navigating to FreightSmart login...")
         await page.goto(self.FS_LOGIN_URL, wait_until="domcontentloaded")
@@ -827,10 +827,21 @@ class OOCLConnector(BaseCarrierConnector):
         for _ in range(30):
             await page.wait_for_timeout(1000)
             url = page.url or ""
-            if "freightsmart.oocl.com" in url and "/app/login" not in url and "exiamfw" not in url:
+            if "freightsmart.oocl.com" in url and "/app/login" not in url and "exiamfw" not in url and "/app/sso" not in url:
                 print(f"[OOCL] [FS] Login successful (landed on {url}).")
                 await self._fs_dismiss_modals(page)
                 return True
+
+        if "/app/sso" in (page.url or ""):
+            print("[OOCL] [FS] Waiting for /app/sso to complete redirect...")
+            for _ in range(15):
+                await page.wait_for_timeout(1000)
+                url = page.url or ""
+                if "/app/sso" not in url and "freightsmart.oocl.com" in url:
+                    print(f"[OOCL] [FS] SSO redirect finished (landed on {url}).")
+                    await self._fs_dismiss_modals(page)
+                    return True
+
         print(f"[OOCL] [FS] Login did not complete within 30s (url: {page.url}).")
         return False
 
@@ -847,6 +858,15 @@ class OOCLConnector(BaseCarrierConnector):
         the dropdown-option search/click that follows.
         """
         name, locode, cc, cn = resolve_oocl_port_info(request_value)
+        override = None
+        try:
+            from services.port_manager import resolve_port_for_carrier
+            ov = resolve_port_for_carrier(request_value, "oocl")
+            if ov and ov.strip().lower() != request_value.strip().lower():
+                override = ov.strip()
+        except Exception:
+            pass
+
         idx = 0 if which == "origin" else 1
         field = page.locator('input[placeholder*="Port or Door" i]').nth(idx)
         try:
@@ -882,41 +902,47 @@ class OOCLConnector(BaseCarrierConnector):
             # Dismiss popups that might have appeared during or right after typing
             await self._fs_dismiss_modals(page, lock=lock)
 
-            # Suggestions render as list rows
+            # Suggestions render as list rows inside the currently active/visible popover overlay
             options = page.locator(
-                '.ant-popover:not(.ant-popover-hidden) .location-item, '
-                '.ant-popover:not(.ant-popover-hidden) .location-text, '
-                '.overlay-popover-wrap .location-item, '
-                '.overlay-popover-wrap .location-text, '
-                '.location-tips .location-item, '
-                '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'
+                '.ant-popover:visible .location-item, '
+                '.overlay-popover-wrap:visible .location-item, '
+                '.location-tips:visible .location-item, '
+                '.ant-select-dropdown:visible .ant-select-item-option'
             )
             if await options.count() == 0:
-                # Fallback: Find list items or divs inside the open popover (no anchor text dependency)
+                # Fallback: Find list items or divs inside any open visible popover
                 options = page.locator(
-                    '.ant-popover:not(.ant-popover-hidden) li, '
-                    '.ant-popover:not(.ant-popover-hidden) div, '
-                    '.overlay-popover-wrap div, '
-                    '.ant-popover:not(.ant-popover-hidden) [role="option"]'
+                    '.ant-popover:visible [role="option"], '
+                    '.ant-popover:visible li, '
+                    '.overlay-popover-wrap:visible div'
                 )
                 
             best = None
             try:
-                count = min(await options.count(), 80)
+                count = await options.count()
                 for i in range(count):
                     try:
                         text = (await options.nth(i).inner_text()).strip()
                     except Exception:
                         continue
-                    if not text or len(text) > 150 or name.lower() not in text.lower():
+                    if not text or len(text) > 150:
+                        continue
+
+                    # 0. Top Priority: Match with carrier override target string
+                    if override and (override.lower() in text.lower() or text.lower() in override.lower()):
+                        best = options.nth(i)
+                        print(f"[OOCL] [FS] Matched override target '{override}' -> '{text}'")
+                        break
+                    
+                    if name.lower() not in text.lower():
                         continue
                     
-                    # 1. Best match: exact LOCODE matches (e.g. DEHAM or VNSGN in text)
+                    # 1. Best match: exact LOCODE matches (e.g. DEHAM, VNSGN, ITSPE in text)
                     if locode and locode.lower() in text.lower():
                         best = options.nth(i)
                         break
                         
-                    # 2. Strong match: Country Code matches (e.g. ", VN" or "DE" with boundaries)
+                    # 2. Strong match: Country Code matches (e.g. ", VN" or "IT" with boundaries)
                     if cc and re.search(rf"\b{cc.lower()}\b", text.lower()):
                         best = options.nth(i)
                         break
@@ -933,12 +959,19 @@ class OOCLConnector(BaseCarrierConnector):
 
             if best is not None:
                 try:
-                    await best.click()
+                    await best.click(timeout=5000)
                     await page.wait_for_timeout(800)
                     print(f"[OOCL] [FS] Selected {which}: {name} ({locode})")
                     return True
                 except Exception as click_err:
-                    print(f"[OOCL] [FS] Failed to click option on attempt {attempt}: {click_err}")
+                    print(f"[OOCL] [FS] Click failed, retrying via JS: {click_err}")
+                    try:
+                        await best.evaluate("el => el.click()")
+                        await page.wait_for_timeout(800)
+                        print(f"[OOCL] [FS] Selected {which} via JS: {name} ({locode})")
+                        return True
+                    except Exception as js_err:
+                        print(f"[OOCL] [FS] Failed to click option on attempt {attempt}: {js_err}")
             else:
                 # Diagnostics: capture screenshot and print visible dropdown contents
                 import os
@@ -1701,7 +1734,10 @@ class OOCLConnector(BaseCarrierConnector):
                     except Exception:
                         continue
                     if dt == target_date_str:
-                        await item.click()
+                        try:
+                            await item.click(timeout=3000)
+                        except Exception:
+                            await item.evaluate("el => el.click()")
                         await page.wait_for_timeout(1500)
                         await self._fs_dismiss_modals(page)
                         return True
@@ -1775,7 +1811,10 @@ class OOCLConnector(BaseCarrierConnector):
                         cells = page.locator(".custom-date-cell")
                         cell = cells.nth(cell_index)
                         if await cell.is_visible(timeout=3000):
-                            await cell.click()
+                            try:
+                                await cell.click(timeout=3000)
+                            except Exception:
+                                await cell.evaluate("el => el.click()")
                             await page.wait_for_timeout(1500)
                             await self._fs_dismiss_modals(page)
                             clicked = True
@@ -1837,7 +1876,13 @@ class OOCLConnector(BaseCarrierConnector):
             if not await self._fs_login(page):
                 return []
             if "/ui" not in (page.url or ""):
-                await page.goto(self.FS_HOME_URL, wait_until="domcontentloaded")
+                try:
+                    await page.wait_for_url(lambda u: "/ui" in u, timeout=10000)
+                except Exception:
+                    try:
+                        await page.goto(self.FS_HOME_URL, wait_until="domcontentloaded", timeout=30000)
+                    except Exception as goto_err:
+                        print(f"[OOCL] [FS] Warning navigating to FS_HOME_URL: {goto_err}")
                 await page.wait_for_timeout(2000)
             await self._fs_dismiss_modals(page)
 
