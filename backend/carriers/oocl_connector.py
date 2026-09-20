@@ -1301,11 +1301,15 @@ class OOCLConnector(BaseCarrierConnector):
                 is_ets = code == "ETS" or "ETS" in code or "EMISSION" in name
                 is_ebs = code == "EBS" or "EBS" in code or "BUNKER" in name
                 is_pcs = code == "PCS" or "PCS" in code or "PANAMA" in code or "PANAMA" in name or "PCS" in name
+                # Low Sulphur Adjustment — a standard freight surcharge (see
+                # services/charge_classifier.py's "low sulphur" rule), same as
+                # ETS/EBS/PCS: always applies, no weight/route conditionality.
+                is_lsa = code == "LSA" or "LSA" in code or "LOW SULPHUR" in name or "LOW SULFUR" in name
 
-                if not (is_ets or is_ebs or is_pcs):
+                if not (is_ets or is_ebs or is_pcs or is_lsa):
                     continue
 
-                matched_code = "PCS" if is_pcs else ("ETS" if is_ets else "EBS")
+                matched_code = "PCS" if is_pcs else ("ETS" if is_ets else ("LSA" if is_lsa else "EBS"))
 
                 unit = (item.get("unit") or "").strip().upper()
                 price_str = item.get("priceStr") or ""
@@ -2091,6 +2095,18 @@ class OOCLConnector(BaseCarrierConnector):
                     reason="Panama Canal Surcharge"
                 ))
                 final_freight_value += pcs_val
+
+            # Low Sulphur Adjustment
+            if "LSA" in target_charges:
+                lsa_val = target_charges["LSA"]
+                from models.schemas import ChargeSchema
+                included_surcharges.append(ChargeSchema(
+                    name="Low Sulphur Adjustment",
+                    amount=lsa_val,
+                    currency="USD",
+                    reason="Low Sulphur Adjustment"
+                ))
+                final_freight_value += lsa_val
 
         raw_quote["included_freight_surcharges"] = included_surcharges
         raw_quote["final_freight_value"] = round(final_freight_value, 2)
