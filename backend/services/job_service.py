@@ -316,11 +316,12 @@ async def run_carrier_search(
 
                     # Persist included surcharges
                     for charge in q.included_freight_surcharges:
+                        curr = (charge.currency or "USD").strip()[:10]
                         session.add(QuoteCharge(
                             quote_id=db_quote.id,
-                            charge_name=charge.name,
+                            charge_name=str(charge.name)[:255],
                             amount=charge.amount,
-                            currency=charge.currency,
+                            currency=curr,
                             category="FREIGHT_SURCHARGE_INCLUDED",
                             included_in_final_value=True,
                             reason=charge.reason,
@@ -328,11 +329,12 @@ async def run_carrier_search(
 
                     # Persist excluded charges
                     for charge in q.excluded_charges:
+                        curr = (charge.currency or "USD").strip()[:10]
                         session.add(QuoteCharge(
                             quote_id=db_quote.id,
-                            charge_name=charge.name,
+                            charge_name=str(charge.name)[:255],
                             amount=charge.amount,
-                            currency=charge.currency,
+                            currency=curr,
                             category=charge.category or "ORIGIN_CHARGE_EXCLUDED",
                             included_in_final_value=False,
                             reason=charge.reason,
@@ -340,11 +342,12 @@ async def run_carrier_search(
 
                     # Persist uncertain charges
                     for charge in q.uncertain_charges:
+                        curr = (charge.currency or "USD").strip()[:10]
                         session.add(QuoteCharge(
                             quote_id=db_quote.id,
-                            charge_name=charge.name,
+                            charge_name=str(charge.name)[:255],
                             amount=charge.amount,
-                            currency=charge.currency,
+                            currency=curr,
                             category="UNCERTAIN_EXCLUDED",
                             included_in_final_value=False,
                             reason=charge.reason,
@@ -352,22 +355,24 @@ async def run_carrier_search(
 
                     # Persist BOF and discount as charges too
                     if q.basic_ocean_freight:
+                        curr = (q.currency or "USD").strip()[:10]
                         session.add(QuoteCharge(
                             quote_id=db_quote.id,
                             charge_name="Basic Ocean Freight",
                             amount=q.basic_ocean_freight,
-                            currency=q.currency,
+                            currency=curr,
                             category="BASIC_OCEAN_FREIGHT",
                             included_in_final_value=True,
                             reason="Basic ocean freight charge",
                         ))
 
                     if q.discount:
+                        curr = (q.currency or "USD").strip()[:10]
                         session.add(QuoteCharge(
                             quote_id=db_quote.id,
                             charge_name="Discount",
                             amount=q.discount,
-                            currency=q.currency,
+                            currency=curr,
                             category="DISCOUNT",
                             included_in_final_value=True,
                             reason="Discount/rebate",

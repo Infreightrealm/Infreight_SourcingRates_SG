@@ -1939,7 +1939,12 @@ class CMAConnector(BaseCarrierConnector):
                         continue;
                     }
                     
-                    const curr = cells[colIndices.Currency] || 'USD';
+                    let curr = 'USD';
+                    const rawCurr = (cells[colIndices.Currency] || '').trim();
+                    const currMatch = rawCurr.match(/\b([A-Za-z]{3})\b/);
+                    if (currMatch) {
+                        curr = currMatch[1].toUpperCase();
+                    }
                     
                     // Extract container-specific charges
                     ['DRY 20', 'DRY 40', 'DRY 40H'].forEach(ct => {

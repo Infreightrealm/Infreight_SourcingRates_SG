@@ -2,10 +2,31 @@
 Pydantic schemas for API request/response validation.
 """
 from __future__ import annotations
+import re
 from typing import Optional, Union
 from datetime import date
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 from enum import Enum
+
+VALID_CURRENCIES = {
+    "USD", "EUR", "SGD", "MYR", "INR", "CNY", "RMB", "GBP", "JPY", "HKD",
+    "THB", "AUD", "AED", "VND", "IDR", "CAD", "NZD", "KRW", "TWD", "BRL",
+    "MXN", "ZAR", "TRY", "SAR", "QAR", "KWD", "OMR", "BHD", "EGP", "PKR"
+}
+
+def sanitize_currency_code(v: Optional[str]) -> str:
+    if not v:
+        return "USD"
+    s = str(v).strip()
+    s_upper = s.upper()
+    if s_upper in VALID_CURRENCIES:
+        return s_upper
+    for token in re.findall(r"[A-Za-z]{3}", s_upper):
+        if token in VALID_CURRENCIES:
+            return token
+    if len(s_upper) == 3 and s_upper.isalpha():
+        return s_upper
+    return "USD"
 
 
 # ────────────────────────────────────────────
@@ -233,6 +254,11 @@ class ChargeSchema(BaseModel):
     category: Optional[str] = None
     reason: Optional[str] = None
 
+    @field_validator("currency", mode="before")
+    @classmethod
+    def validate_currency(cls, v):
+        return sanitize_currency_code(v)
+
 
 class QuoteSchema(BaseModel):
     etd: Optional[str] = None
@@ -259,6 +285,11 @@ class QuoteSchema(BaseModel):
     validity_till: Optional[str] = None
     is_breakdown_unavailable: bool = False
     warning_message: Optional[str] = None
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def validate_currency(cls, v):
+        return sanitize_currency_code(v)
 
 
 
