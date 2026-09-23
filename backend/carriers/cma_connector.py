@@ -500,9 +500,9 @@ class CMAConnector(BaseCarrierConnector):
 
     def _extract_port_code(self, text: str) -> str:
         if not text: return ""
-        match = re.search(r'\(([A-Z]{5})\)', text)
+        match = re.search(r'[\(\[]\s*([A-Za-z]{5})\s*[\)\]]', text)
         if match:
-            return match.group(1)
+            return match.group(1).upper()
         clean = text.strip()
         if len(clean) == 5 and clean.isupper():
             return clean
@@ -1132,17 +1132,22 @@ class CMAConnector(BaseCarrierConnector):
                     await self.page.wait_for_timeout(1000)
                 except Exception: pass
             
-            # Re-locate Destination input field (ensure visible=true filter)
-            dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i] >> visible=true').first
-            if await dest_field.count() == 0:
-                dest_container = self.page.locator('div:has(label:has-text("Destination")) input, div[name*="destination" i] input').first
-                if await dest_container.count() > 0:
-                    dest_field = dest_container
+            # Re-locate Destination input field specifically (never use generic .first which grabs Origin)
+            dest_field = None
+            dest_container = self.page.locator('div:has(label:has-text("Destination")) input, xpath=//*[text()[contains(., "Destination")]]/following::input[not(@type="hidden")][1]').first
+            if await dest_container.count() > 0 and await dest_container.is_visible(timeout=1000):
+                dest_field = dest_container
+            else:
+                all_generic_inputs = self.page.locator('input[placeholder*="Name / Code / Port" i] >> visible=true')
+                if await all_generic_inputs.count() > 1:
+                    dest_field = all_generic_inputs.nth(1)
+                else:
+                    dest_field = all_generic_inputs.first
             
-            if await dest_field.count() > 0:
+            if dest_field and await dest_field.count() > 0:
                 await dest_field.click(force=True)
                 await dest_field.fill("")
-                await dest_field.type(dest_locode, delay=30)
+                await dest_field.press_sequentially(dest_locode, delay=50)
                 await self.page.wait_for_timeout(2000)
             
             if await self._select_cma_dropdown_option("Destination", dest_locode, prefer_ramp=True):
@@ -1260,11 +1265,10 @@ class CMAConnector(BaseCarrierConnector):
 
             print(f"[CMA] Filling Origin: '{origin_query}' (locode: {origin_locode}, cached: '{origin_cached}', prefer_ramp: {prefer_ramp_origin})")
             origin_sel = [
-                'input[placeholder*="Origin" i]',
-                'input[placeholder*="Name / Code / Port" i]',
                 'div:has(label:has-text("Origin")) input',
-                'input[name*="origin" i]',
                 'xpath=//*[text()[contains(., "Origin")]]/following::input[not(@type="hidden")][1]',
+                'input[placeholder*="Origin" i]',
+                'input[name*="origin" i]',
             ]
             origin_field = None
             for sel in origin_sel:
@@ -1273,17 +1277,18 @@ class CMAConnector(BaseCarrierConnector):
                     origin_field = loc
                     break
             if not origin_field:
-                origin_field = self.page.locator('input[placeholder*="Name / Code / Port" i], input[placeholder*="Origin" i]').first
+                origin_field = self.page.locator('input[placeholder*="Name / Code / Port" i]').first
             
             await origin_field.click()
             await origin_field.fill("")  # Clear field
-            await origin_field.type(origin_query, delay=30)
+            await origin_field.press_sequentially(origin_query, delay=50)
             await self.page.wait_for_timeout(2000)
 
             if not await self._select_cma_dropdown_option("Origin", origin_locode, origin_cached, prefer_ramp=prefer_ramp_origin):
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
             
             print(f"[CMA] Origin selected: {origin_locode} (prefer_ramp={prefer_ramp_origin})")
+            await self.page.wait_for_timeout(1000)  # Settle time: ensure Origin dropdown closes and Angular updates DOM state
 
             # --- DESTINATION ---
             if request.destination and ("rotterdam" in request.destination.lower() or request.destination.strip().upper() == "NLRTM"):
@@ -1323,11 +1328,10 @@ class CMAConnector(BaseCarrierConnector):
             # Initial search uses standard PORT selection; switches to RAMP only if CMA displays the advisory banner
             print(f"[CMA] Filling Destination: '{dest_query}' (locode: {dest_locode}, cached: '{dest_cached}')")
             dest_sel = [
-                'input[placeholder*="Destination" i]',
-                'input[placeholder*="Name / Code / Port" i]',
                 'div:has(label:has-text("Destination")) input',
-                'input[name*="destination" i]',
                 'xpath=//*[text()[contains(., "Destination")]]/following::input[not(@type="hidden")][1]',
+                'input[placeholder*="Destination" i]',
+                'input[name*="destination" i]',
             ]
             dest_field = None
             for sel in dest_sel:
@@ -1336,11 +1340,15 @@ class CMAConnector(BaseCarrierConnector):
                     dest_field = loc
                     break
             if not dest_field:
-                dest_field = self.page.locator('input[placeholder*="Name / Code / Port" i], input[placeholder*="Destination" i]').nth(1)
+                all_generic_inputs = self.page.locator('input[placeholder*="Name / Code / Port" i]')
+                if await all_generic_inputs.count() > 1:
+                    dest_field = all_generic_inputs.nth(1)
+                else:
+                    dest_field = all_generic_inputs.first
 
             await dest_field.click()
             await dest_field.fill("")
-            await dest_field.type(dest_query, delay=30)
+            await dest_field.press_sequentially(dest_query, delay=50)
             await self.page.wait_for_timeout(2000)
 
             if not await self._select_cma_dropdown_option("Destination", dest_locode, dest_cached, prefer_ramp=False):
