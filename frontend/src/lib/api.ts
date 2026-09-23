@@ -813,7 +813,7 @@ export async function adminUserAction(
   return data;
 }
 
-export async function getSearchHistory(userName?: string, limit: number = 5000): Promise<any[]> {
+export async function getSearchHistory(userName?: string, limit: number = 250): Promise<any[]> {
   const params = new URLSearchParams();
   if (userName) params.append("user_name", userName);
   params.append("limit", limit.toString());

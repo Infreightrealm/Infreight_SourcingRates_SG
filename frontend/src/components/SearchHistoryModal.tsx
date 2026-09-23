@@ -60,10 +60,16 @@ export default function SearchHistoryModal({
   const [loading, setLoading] = useState(false);
   const [searchFilter, setSearchFilter] = useState("");
   const [showOnlyMySearches, setShowOnlyMySearches] = useState(true);
-  const [fetchLimit, setFetchLimit] = useState<number>(1000);
+  const [fetchLimit, setFetchLimit] = useState<number>(100);
+  const [displayLimit, setDisplayLimit] = useState<number>(50);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchExporting, setBatchExporting] = useState(false);
+
+  // Reset display pagination when search filter, user filter, or fetch limit changes
+  useEffect(() => {
+    setDisplayLimit(50);
+  }, [searchFilter, showOnlyMySearches, fetchLimit]);
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -99,6 +105,8 @@ export default function SearchHistoryModal({
       (item.selected_carriers && item.selected_carriers.some(c => c.toLowerCase().includes(query)))
     );
   });
+
+  const visibleItems = filteredItems.slice(0, displayLimit);
 
   const handleRetrieveSearch = async (item: SearchHistoryItem) => {
     try {
@@ -359,7 +367,8 @@ export default function SearchHistoryModal({
               </p>
             </div>
           ) : (
-            filteredItems.map((item) => {
+            <>
+              {visibleItems.map((item) => {
               const isSelected = selectedIds.has(item.id);
               const isExportingThis = exportingId === item.id;
               const hasQuotes = item.total_quotes > 0;
@@ -486,22 +495,47 @@ export default function SearchHistoryModal({
                   )}
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
 
-        {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border bg-muted/40 px-6 py-4 text-xs text-muted-foreground">
-          <div>
-            Showing <strong className="text-foreground">{filteredItems.length}</strong> rate search queries from database.
-          </div>
-          <button
-            onClick={onClose}
-            className="btn-interactive cursor-pointer rounded-lg border border-border bg-secondary px-5 py-2 font-semibold text-secondary-foreground hover:bg-accent"
-          >
-            Close
-          </button>
+            {filteredItems.length > displayLimit && (
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-3 pb-4">
+                <button
+                  type="button"
+                  onClick={() => setDisplayLimit((prev) => Math.min(prev + 50, filteredItems.length))}
+                  className="btn-interactive cursor-pointer rounded-xl border border-border bg-secondary px-6 py-2.5 text-xs font-semibold text-foreground hover:bg-accent flex items-center gap-2 shadow-xs transition-all"
+                >
+                  <span>Show More (+50)</span>
+                  <span className="text-muted-foreground font-mono">
+                    (Showing {Math.min(displayLimit, filteredItems.length)} of {filteredItems.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisplayLimit(filteredItems.length)}
+                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer underline transition-colors"
+                >
+                  Render All {filteredItems.length}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border bg-muted/40 px-6 py-4 text-xs text-muted-foreground">
+        <div>
+          Showing <strong className="text-foreground">{Math.min(displayLimit, filteredItems.length)}</strong> of{" "}
+          <strong className="text-foreground">{filteredItems.length}</strong> matching queries (Loaded{" "}
+          <strong className="text-foreground">{historyItems.length}</strong> from database).
         </div>
+        <button
+          onClick={onClose}
+          className="btn-interactive cursor-pointer rounded-lg border border-border bg-secondary px-5 py-2 font-semibold text-secondary-foreground hover:bg-accent"
+        >
+          Close
+        </button>
+      </div>
       </div>
     </div>
   );

@@ -22,10 +22,10 @@ class RateSearch(Base):
     commodity = Column(String(255), nullable=False)
     departure_date = Column(String(50), nullable=False)  # "tomorrow" or ISO date
     search_window_days = Column(Integer, nullable=False, default=14)
-    user_name = Column(String(255), nullable=True)
+    user_name = Column(String(255), nullable=True, index=True)
     selected_carriers = Column(JSON, nullable=False)  # List of carrier codes
     status = Column(String(50), nullable=False, default="QUEUED")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
@@ -40,7 +40,7 @@ class CarrierSearchResult(Base):
     __tablename__ = "carrier_search_results"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    search_id = Column(Uuid, ForeignKey("rate_searches.id"), nullable=False)
+    search_id = Column(Uuid, ForeignKey("rate_searches.id"), nullable=False, index=True)
     carrier = Column(String(50), nullable=False)
     status = Column(String(50), nullable=False, default="QUEUED")
     error_message = Column(Text, nullable=True)

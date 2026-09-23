@@ -182,6 +182,16 @@ async def init_db():
                     except Exception:
                         pass
 
+        # Ensure performance indexes exist on rate searches, carrier results, and quotes
+        try:
+            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rate_searches_created_at ON rate_searches (created_at DESC)"))
+            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rate_searches_user_name ON rate_searches (user_name)"))
+            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_carrier_search_results_search_id ON carrier_search_results (search_id)"))
+            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_quotes_carrier_result_id ON quotes (carrier_result_id)"))
+            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_quote_charges_quote_id ON quote_charges (quote_id)"))
+        except Exception as e:
+            print(f"[DATABASE MIGRATION NOTICE] Index creation: {e}")
+
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

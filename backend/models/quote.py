@@ -13,7 +13,7 @@ class Quote(Base):
     __tablename__ = "quotes"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    carrier_result_id = Column(Uuid, ForeignKey("carrier_search_results.id"), nullable=False)
+    carrier_result_id = Column(Uuid, ForeignKey("carrier_search_results.id"), nullable=False, index=True)
     carrier = Column(String(50), nullable=False)
     etd = Column(String(20), nullable=True)  # ISO date string
     eta = Column(String(20), nullable=True)
@@ -44,7 +44,7 @@ class QuoteCharge(Base):
     __tablename__ = "quote_charges"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    quote_id = Column(Uuid, ForeignKey("quotes.id"), nullable=False)
+    quote_id = Column(Uuid, ForeignKey("quotes.id"), nullable=False, index=True)
     charge_name = Column(String(255), nullable=False)
     amount = Column(Float, nullable=False, default=0.0)
     currency = Column(String(10), nullable=True, default="USD")
