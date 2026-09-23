@@ -569,6 +569,51 @@ class CMAConnector(BaseCarrierConnector):
         except Exception:
             pass
 
+    async def _click_dropdown_item(self, item) -> bool:
+        """Clicks a dropdown suggestion reliably without disruptive random mouse movements."""
+        try:
+            await item.scroll_into_view_if_needed(timeout=1500)
+        except Exception:
+            pass
+
+        clicked = False
+        try:
+            await item.hover(timeout=1000)
+            await item.click(timeout=2500)
+            clicked = True
+        except Exception:
+            try:
+                await item.click(force=True, timeout=2500)
+                clicked = True
+            except Exception:
+                try:
+                    inner = item.locator('span, div, p, strong, b').first
+                    if await inner.count() > 0:
+                        await inner.click(force=True, timeout=2000)
+                        clicked = True
+                except Exception:
+                    pass
+
+        if not clicked:
+            try:
+                await item.evaluate("el => el.click()")
+                clicked = True
+            except Exception:
+                pass
+
+        await self.page.wait_for_timeout(800)
+        
+        # Check if dropdown is still open; if so, press Enter to commit selection
+        try:
+            dropdown = self.page.locator('ul[role="listbox"], ul.options, [class*="suggestion"]').first
+            if await dropdown.count() > 0 and await dropdown.is_visible():
+                print("[CMA] Dropdown still open after click; pressing Enter to confirm selection...")
+                await self.page.keyboard.press("Enter")
+                await self.page.wait_for_timeout(500)
+        except Exception:
+            pass
+        return clicked
+
     async def _select_cma_dropdown_option(self, label: str, locode: str, cached_name: Optional[str] = None, prefer_ramp: bool = False) -> bool:
         # Target individual <li> items only — NOT the <ul class="options"> container
         suggestion_sel = 'ul[role="listbox"] li, ul.options li, li[role="option"], [class*="suggestion"] li'
@@ -579,18 +624,29 @@ class CMAConnector(BaseCarrierConnector):
             suggestions = self.page.locator(suggestion_sel)
             count = await suggestions.count()
             
+            clean_locode = locode.strip().upper()
             print(f"[CMA] Found {count} suggestions in dropdown for {label} (LOCODE: {locode}, cached: '{cached_name}', prefer_ramp: {prefer_ramp})")
             
-            # Step 0: If prefer_ramp is requested, look for option containing "RAMP" or "DOOR" first!
+            # Step 0a: If prefer_ramp is requested, look for option containing "RAMP" or "DOOR" first!
             if prefer_ramp:
                 for i in range(count):
                     item = suggestions.nth(i)
                     text = (await item.inner_text()).strip().upper()
-                    clean_locode = locode.strip().upper()
                     if clean_locode in text and ("RAMP" in text or "DOOR" in text):
                         inner_text = (await item.inner_text()).strip()
                         print(f"[CMA] [RAMP PREFERRED] Selected RAMP/DOOR option for {label}: '{inner_text}'")
-                        await self._hover_and_click(item)
+                        await self._click_dropdown_item(item)
+                        set_cached_carrier_port("cma", locode, inner_text)
+                        return True
+            else:
+                # Step 0b: Standard sea freight — look for option containing "PORT" first!
+                for i in range(count):
+                    item = suggestions.nth(i)
+                    text = (await item.inner_text()).strip().upper()
+                    if clean_locode in text and "PORT" in text and "RAMP" not in text and "DOOR" not in text:
+                        inner_text = (await item.inner_text()).strip()
+                        print(f"[CMA] [PORT PREFERRED] Selected PORT option for {label}: '{inner_text}'")
+                        await self._click_dropdown_item(item)
                         set_cached_carrier_port("cma", locode, inner_text)
                         return True
             
@@ -598,9 +654,27 @@ class CMAConnector(BaseCarrierConnector):
             target_candidates = []
             if cached_name:
                 target_candidates.append(cached_name.strip().upper())
-            target_candidates.append(locode.strip().upper())
+            target_candidates.append(clean_locode)
             
             # Step 1: Scan for target candidates with exact LOCODE / word boundary matching
+            # When prefer_ramp is False, first pass looks for LOCODE match that is a PORT
+            if not prefer_ramp:
+                for i in range(count):
+                    item = suggestions.nth(i)
+                    text = (await item.inner_text()).strip().upper()
+                    if locode == "AUMEL" and ("AUMELAS" in text or "FRYUH" in text):
+                        continue
+                    if locode == "CAVAN" and ("IRELAND" in text or "FRANCE" in text or "IECVN" in text or "FRCAV" in text or "USVAN" in text or "UNITED STATES" in text):
+                        continue
+                    if "PORT" in text and "RAMP" not in text and "DOOR" not in text:
+                        sug_locode_match = re.search(r'\(([A-Z]{5})\)', text)
+                        if sug_locode_match and sug_locode_match.group(1) == clean_locode:
+                            inner_text = (await item.inner_text()).strip()
+                            print(f"[CMA] [SUCCESS] Found exact LOCODE PORT match for {label}: '{inner_text}'")
+                            await self._click_dropdown_item(item)
+                            set_cached_carrier_port("cma", locode, inner_text)
+                            return True
+
             for i in range(count):
                 item = suggestions.nth(i)
                 text = (await item.inner_text()).strip().upper()
@@ -613,10 +687,10 @@ class CMAConnector(BaseCarrierConnector):
                 sug_locode_match = re.search(r'\(([A-Z]{5})\)', text)
                 if sug_locode_match:
                     sug_locode = sug_locode_match.group(1)
-                    if sug_locode == locode.strip().upper():
+                    if sug_locode == clean_locode:
                         inner_text = (await item.inner_text()).strip()
                         print(f"[CMA] [SUCCESS] Found exact LOCODE match for {label}: '{inner_text}'")
-                        await self._hover_and_click(item)
+                        await self._click_dropdown_item(item)
                         set_cached_carrier_port("cma", locode, inner_text)
                         return True
                 
@@ -635,7 +709,7 @@ class CMAConnector(BaseCarrierConnector):
                 if matched:
                     inner_text = (await item.inner_text()).strip()
                     print(f"[CMA] [SUCCESS] Found match for {label}: '{inner_text}'")
-                    await self._hover_and_click(item)
+                    await self._click_dropdown_item(item)
                     set_cached_carrier_port("cma", locode, inner_text)
                     return True
 
@@ -647,11 +721,10 @@ class CMAConnector(BaseCarrierConnector):
                     continue
                 if locode == "CAVAN" and ("IRELAND" in text or "FRANCE" in text or "IECVN" in text or "FRCAV" in text or "USVAN" in text or "UNITED STATES" in text):
                     continue
-                clean_locode = locode.strip().upper()
                 if re.search(rf"\b{re.escape(clean_locode)}\b", text):
                     inner_text = (await item.inner_text()).strip()
                     print(f"[CMA] [Fallback] Found LOCODE-only match for {label}: '{inner_text}'")
-                    await self._hover_and_click(item)
+                    await self._click_dropdown_item(item)
                     set_cached_carrier_port("cma", locode, inner_text)
                     return True
 
@@ -666,7 +739,7 @@ class CMAConnector(BaseCarrierConnector):
                     if locode == "CAVAN" and ("IRELAND" in up_text or "FRANCE" in up_text or "IECVN" in up_text or "FRCAV" in up_text or "USVAN" in up_text or "UNITED STATES" in up_text):
                         continue
                     print(f"[CMA] [Last Fallback] Selected option for {label}: '{inner_text}'")
-                    await self._hover_and_click(item)
+                    await self._click_dropdown_item(item)
                     set_cached_carrier_port("cma", locode, inner_text)
                     return True
 
