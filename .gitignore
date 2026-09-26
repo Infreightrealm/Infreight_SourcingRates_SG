@@ -59,3 +59,7 @@ backend/scratch/
 scratch/
 *.pma
 *.dat
+
+# graphify generated artifacts (keep graph.json/GRAPH_REPORT.md, ignore cache & viewer)
+backend/graphify-out/cache/
+backend/graphify-out/graph.html
