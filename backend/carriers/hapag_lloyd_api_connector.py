@@ -286,9 +286,20 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         quantity: int,
         weight_kg: float,
         earliest_departure_date: str,
-        commodity_group: str = "FAK"
+        commodity_group: str = "FAK",
+        commodity_group_number: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Constructs OpenAPI compliant OfferRequest payload."""
+        commodity: Dict[str, Any] = {
+            "cargoGrossWeight": int(weight_kg) if weight_kg > 0 else 20000,
+            "cargoGrossWeightUnit": "KG",
+            "isHazardous": False
+        }
+        # The API rejects commodityTypeGroup without commodityTypeGroupNumber (HTTP 400:
+        # "Either both ... must be set or none of them"). Omitting both defaults to FAK.
+        if commodity_group_number is not None:
+            commodity["commodityTypeGroup"] = commodity_group
+            commodity["commodityTypeGroupNumber"] = commodity_group_number
         return {
             "placeOfReceipt": {
                 "locode": origin_locode
@@ -304,12 +315,7 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                 "isNonOperatingReefer": False,
                 "shippersOwnedContainer": False
             },
-            "commodity": {
-                "commodityTypeGroup": commodity_group,
-                "cargoGrossWeight": int(weight_kg) if weight_kg > 0 else 20000,
-                "cargoGrossWeightUnit": "KG",
-                "isHazardous": False
-            },
+            "commodity": commodity,
             "earliestDepartureDate": earliest_departure_date,
             "productIdentifiers": [
                 "QUICK_QUOTES",
