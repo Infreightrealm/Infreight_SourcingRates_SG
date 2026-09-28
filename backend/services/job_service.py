@@ -163,7 +163,7 @@ async def run_carrier_search(
             connector = None
             try:
                 # Get the connector (mock or live based on env)
-                connector = get_connector(carrier_code)
+                connector = get_connector(carrier_code, hapag_use_api=request.hapag_use_api)
 
                 # Set real-time status update callback
                 async def update_status_cb(new_status: CarrierResultStatus):
@@ -278,6 +278,11 @@ async def run_carrier_search(
                     db_result.error_message = f"Connector for {carrier_code} is not yet implemented"
                 elif final_status == CarrierResultStatus.SERVICE_UNAVAILABLE:
                     db_result.error_message = f"Carrier service/website for {carrier_code} is currently unavailable (maintenance or downtime)"
+
+                # Connectors may explain a failure (e.g. Hapag-Lloyd Prices API business error reasons)
+                connector_error = getattr(connector, "last_error_message", None)
+                if connector_error and final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                    db_result.error_message = str(connector_error)
 
                 # Persist quotes
                 for q in all_quotes:
@@ -593,7 +598,7 @@ async def run_vertical_batch_searches(
                 await _run_carrier_batch_locked(carrier_code)
 
     async def _run_carrier_batch_locked(carrier_code: str):
-            connector = get_connector(carrier_code)
+            connector = get_connector(carrier_code, hapag_use_api=requests[0].hapag_use_api if requests else None)
             if not connector:
                 print(f"[VERTICAL BATCH] No connector for {carrier_code}")
                 return

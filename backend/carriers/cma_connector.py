@@ -41,6 +41,7 @@ class CMAConnector(BaseCarrierConnector):
         self.temp_profile_dir = None
         self.is_login_successful = False
         self._current_voyage = None
+        self._cma_selected_location = {}
 
     async def _init_browser(self):
         import uuid
@@ -614,6 +615,18 @@ class CMAConnector(BaseCarrierConnector):
             pass
         return clicked
 
+    def _remember_cma_selection(self, label: str, locode: str, option_text: str):
+        """Records the dropdown option picked for Origin/Destination and caches it."""
+        self._cma_selected_location[label] = option_text
+        set_cached_carrier_port("cma", locode, option_text)
+
+    def _is_cma_ramp_selection(self) -> bool:
+        """True if Origin or Destination was selected as a RAMP / DOOR location (inland routing)."""
+        return any(
+            re.search(r'\b(RAMP|DOOR)\b', text.upper())
+            for text in self._cma_selected_location.values() if text
+        )
+
     async def _select_cma_dropdown_option(self, label: str, locode: str, cached_name: Optional[str] = None, prefer_ramp: bool = False) -> bool:
         # Target individual <li> items only — NOT the <ul class="options"> container
         suggestion_sel = 'ul[role="listbox"] li, ul.options li, li[role="option"], [class*="suggestion"] li'
@@ -636,7 +649,7 @@ class CMAConnector(BaseCarrierConnector):
                         inner_text = (await item.inner_text()).strip()
                         print(f"[CMA] [RAMP PREFERRED] Selected RAMP/DOOR option for {label}: '{inner_text}'")
                         await self._click_dropdown_item(item)
-                        set_cached_carrier_port("cma", locode, inner_text)
+                        self._remember_cma_selection(label, locode, inner_text)
                         return True
             else:
                 # Step 0b: Standard sea freight — look for option containing "PORT" first!
@@ -647,7 +660,7 @@ class CMAConnector(BaseCarrierConnector):
                         inner_text = (await item.inner_text()).strip()
                         print(f"[CMA] [PORT PREFERRED] Selected PORT option for {label}: '{inner_text}'")
                         await self._click_dropdown_item(item)
-                        set_cached_carrier_port("cma", locode, inner_text)
+                        self._remember_cma_selection(label, locode, inner_text)
                         return True
             
             # Normalised target candidate list
@@ -672,7 +685,7 @@ class CMAConnector(BaseCarrierConnector):
                             inner_text = (await item.inner_text()).strip()
                             print(f"[CMA] [SUCCESS] Found exact LOCODE PORT match for {label}: '{inner_text}'")
                             await self._click_dropdown_item(item)
-                            set_cached_carrier_port("cma", locode, inner_text)
+                            self._remember_cma_selection(label, locode, inner_text)
                             return True
 
             for i in range(count):
@@ -691,7 +704,7 @@ class CMAConnector(BaseCarrierConnector):
                         inner_text = (await item.inner_text()).strip()
                         print(f"[CMA] [SUCCESS] Found exact LOCODE match for {label}: '{inner_text}'")
                         await self._click_dropdown_item(item)
-                        set_cached_carrier_port("cma", locode, inner_text)
+                        self._remember_cma_selection(label, locode, inner_text)
                         return True
                 
                 # Check with word boundaries for other candidates
@@ -710,7 +723,7 @@ class CMAConnector(BaseCarrierConnector):
                     inner_text = (await item.inner_text()).strip()
                     print(f"[CMA] [SUCCESS] Found match for {label}: '{inner_text}'")
                     await self._click_dropdown_item(item)
-                    set_cached_carrier_port("cma", locode, inner_text)
+                    self._remember_cma_selection(label, locode, inner_text)
                     return True
 
             # Step 2: Fallback to any option containing the LOCODE with word boundaries
@@ -725,7 +738,7 @@ class CMAConnector(BaseCarrierConnector):
                     inner_text = (await item.inner_text()).strip()
                     print(f"[CMA] [Fallback] Found LOCODE-only match for {label}: '{inner_text}'")
                     await self._click_dropdown_item(item)
-                    set_cached_carrier_port("cma", locode, inner_text)
+                    self._remember_cma_selection(label, locode, inner_text)
                     return True
 
             # Step 3: Ultimate fallback - click the first option (that is safe if AUMEL or CAVAN)
@@ -740,7 +753,7 @@ class CMAConnector(BaseCarrierConnector):
                         continue
                     print(f"[CMA] [Last Fallback] Selected option for {label}: '{inner_text}'")
                     await self._click_dropdown_item(item)
-                    set_cached_carrier_port("cma", locode, inner_text)
+                    self._remember_cma_selection(label, locode, inner_text)
                     return True
 
             print(f"[CMA] [ERROR] No suggestions found in dropdown for {label}")
@@ -1085,6 +1098,13 @@ class CMAConnector(BaseCarrierConnector):
                 await self.page.wait_for_timeout(500)
                 return True
 
+            # Generic Route/POL/POD triggers below are only meaningful for inland RAMP/DOOR routing.
+            # On port-to-port searches (e.g. SGSIN -> DEHAM) there is no POD field, and the loose
+            # "Route" / "Select" selectors would otherwise force-click unrelated form elements.
+            if not self._is_cma_ramp_selection():
+                print("[CMA] Port-to-port selection (no RAMP/DOOR) - skipping generic Route/POL/POD triggers.")
+                return False
+
             # 2. Look for any visible Route / POD / POL dropdown boxes or elements containing 'Select'
             pod_pol_triggers = [
                 # Route triggers
@@ -1306,6 +1326,7 @@ class CMAConnector(BaseCarrierConnector):
             
             # Initialize fallback notice
             self.port_fallback_notice = None
+            self._cma_selected_location = {}
             
             # --- ORIGIN ---
             if request.origin and ("rotterdam" in request.origin.lower() or request.origin.strip().upper() == "NLRTM"):

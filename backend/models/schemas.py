@@ -126,6 +126,7 @@ class RateSearchRequest(BaseModel):
     user_name: Optional[str] = Field(default=None, description="The name of the user making the request")
     use_mock: Optional[bool] = Field(default=None, description="Override mock/live mode for this search. None = use server default.")
     hapag_region: Optional[str] = Field(default="ROW", description="Hapag-Lloyd account region: 'US_CA', 'EU', or 'ROW'")
+    hapag_use_api: Optional[bool] = Field(default=None, description="Hapag-Lloyd rate source for this search: True = Prices API, False = portal scraping, None = server default (HAPAG_USE_API).")
 
     @model_validator(mode="before")
     @classmethod
