@@ -93,7 +93,8 @@ SAMPLE_HAPAG_OFFER_RESPONSE = {
                             "amount": 176.00,
                             "currency": "USD",
                             "seaFreightIndicator": False,
-                            "included": True,
+                            "included": False,
+                            "locationProposal": "MAIN_CARRIAGE",
                             "chargeTypeClass": 2
                         },
                         {
@@ -102,7 +103,8 @@ SAMPLE_HAPAG_OFFER_RESPONSE = {
                             "amount": 1178.00,
                             "currency": "USD",
                             "seaFreightIndicator": False,
-                            "included": True,
+                            "included": False,
+                            "locationProposal": "MAIN_CARRIAGE",
                             "chargeTypeClass": 2
                         },
                         {
@@ -173,7 +175,8 @@ SAMPLE_HAPAG_OFFER_RESPONSE = {
                             "amount": 176.00,
                             "currency": "USD",
                             "seaFreightIndicator": False,
-                            "included": True,
+                            "included": False,
+                            "locationProposal": "MAIN_CARRIAGE",
                             "chargeTypeClass": 2
                         },
                         {
@@ -182,7 +185,8 @@ SAMPLE_HAPAG_OFFER_RESPONSE = {
                             "amount": 1178.00,
                             "currency": "USD",
                             "seaFreightIndicator": False,
-                            "included": True,
+                            "included": False,
+                            "locationProposal": "MAIN_CARRIAGE",
                             "chargeTypeClass": 2
                         }
                     ]

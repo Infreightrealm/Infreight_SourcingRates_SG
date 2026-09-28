@@ -396,6 +396,10 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             return False, ChargeCategory.UNCERTAIN_EXCLUDED.value
         if rate.get("seaFreightIndicator") or rate.get("chargeTypeCode") == "SEA":
             return False, ChargeCategory.BASIC_OCEAN_FREIGHT.value
+        if rate.get("included"):
+            # "included into lump sum": already part of the Ocean Freight amount (e.g. Carrier
+            # Security Fee, shown on the portal as an assessorial of Ocean Freight). Listed, never added.
+            return False, ChargeCategory.UNCERTAIN_EXCLUDED.value
         proposal = rate.get("locationProposal")
         if proposal == "BASE_PORT_FROM":
             return False, ChargeCategory.ORIGIN_CHARGE_EXCLUDED.value
@@ -403,8 +407,6 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             return False, ChargeCategory.DESTINATION_CHARGE_EXCLUDED.value
         if proposal in ("MAIN_CARRIAGE", "PC_CARRIAGE", "ON_CARRIAGE"):
             # Main-carriage surcharges and inland pre/on-carriage are part of the freight (as on the portal)
-            return False, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value
-        if rate.get("included"):
             return False, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value
         return False, None
 
@@ -510,10 +512,18 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
 
                 raw_charges = []
                 for r in equip.get("rates", []):
+                    print(
+                        f"[HAPAG_API]   rate {product_id} {size_type} {r.get('chargeTypeCode')} "
+                        f"'{r.get('chargeTypeShortDescription')}' {r.get('amount')} {r.get('currency')} "
+                        f"uom={r.get('unitOfMeasure')} sea={r.get('seaFreightIndicator')} included={r.get('included')} "
+                        f"chargeable={r.get('chargeable')} loc={r.get('locationProposal')}"
+                    )
                     skip, category = self._classify_rate(r)
                     if skip:
                         continue
                     desc = r.get("chargeTypeShortDescription") or r.get("chargeTypeCode") or "Charge"
+                    if r.get("included") and category == ChargeCategory.UNCERTAIN_EXCLUDED.value:
+                        desc = f"{desc} (included in Ocean Freight)"
                     amount = float(r.get("amount") or 0.0)
                     if r.get("unitOfMeasure") == "PERCENT":
                         # Percentage-based charge: not a money amount, keep it visible but out of totals
