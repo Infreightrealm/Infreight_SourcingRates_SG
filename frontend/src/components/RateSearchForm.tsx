@@ -46,6 +46,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
   const [weight, setWeight] = useState(20000);
   const [searchWindow, setSearchWindow] = useState(14);
   const [hapagRegion, setHapagRegion] = useState<'US_CA' | 'EU' | 'ROW'>("ROW");
+  const [hapagUseApi, setHapagUseApi] = useState(false);
 
   useEffect(() => {
     if (initialValues) {
@@ -93,6 +94,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
       departure_date: "tomorrow", // Fixed to tomorrow
       search_window_days: searchWindow,
       hapag_region: carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL") ? hapagRegion : undefined,
+      hapag_use_api: carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL") ? hapagUseApi : undefined,
     });
   };
 
@@ -104,6 +106,39 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
       {/* Hapag-Lloyd Regional Account Toggle */}
       {(carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL")) && (
         <Card variant="subtle" className="animate-fade-in-up rounded-xl p-4">
+          {/* Rate source: portal scraping (default) or the Hapag-Lloyd Prices API */}
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Label className="mr-1">Hapag-Lloyd Rate Source</Label>
+            <span className={`text-xs font-medium ${hapagUseApi ? "text-muted-foreground" : "text-foreground"}`}>
+              Portal scraping
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={hapagUseApi}
+              aria-label="Use Hapag-Lloyd Prices API instead of portal scraping"
+              onClick={() => setHapagUseApi((v) => !v)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                hapagUseApi ? "bg-primary" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`inline-block size-4 rounded-full bg-background shadow-panel transition-transform duration-200 ${
+                  hapagUseApi ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+            <span className={`text-xs font-medium ${hapagUseApi ? "text-foreground" : "text-muted-foreground"}`}>
+              Prices API
+            </span>
+            {hapagUseApi && (
+              <span className="basis-full text-xs text-muted-foreground">
+                Quick Quotes + Spot from the official API. Each container type uses one API call.
+              </span>
+            )}
+          </div>
+
+          {!hapagUseApi && (<>
           <Label className="mb-2">Hapag-Lloyd Contract Account Region</Label>
           <div
             role="radiogroup"
@@ -134,6 +169,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
               );
             })}
           </div>
+          </>)}
         </Card>
       )}
 

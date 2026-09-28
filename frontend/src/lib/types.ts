@@ -106,6 +106,8 @@ export interface RateSearchRequest {
   search_mode?: 'quick' | 'detailed';
   user_name?: string;
   hapag_region?: 'US_CA' | 'EU' | 'ROW';
+  /** Hapag-Lloyd rate source: true = Prices API, false = portal scraping. */
+  hapag_use_api?: boolean;
 }
 
 export interface AirDraftEmail {

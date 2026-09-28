@@ -29,7 +29,7 @@ from models.schemas import (
 )
 from carriers.base_connector import BaseCarrierConnector
 from services.port_manager import PortManager
-from services.normalizer import standardize_date_string
+from services.normalizer import standardize_date_string, classify_and_organize_charges
 
 
 # ISO container mapping for Hapag-Lloyd Prices API
@@ -76,6 +76,8 @@ ERROR_REASON_EXPLANATIONS = {
     "SOC_PROHIBITED_FOR_SPOT": "Shipper Owned Containers prohibited for spot products.",
     "NO_ROUTE_FOR_EQUIPMENT": "No active routing available for the requested container equipment.",
     "DEPARTURE_DATE_TO_EARLY": "Departure date must be at least 4 calendar days in the future.",
+    "OPTIMIZED_ROUTINGS": "This route cannot be quoted online; contact your Hapag-Lloyd sales representative.",
+    "NO_OFFERS_FOUND_FOR_ROUTE": "No Hapag-Lloyd offers are currently available for this route.",
 }
 
 
@@ -118,6 +120,12 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         self.base_url = os.getenv("HAPAG_API_BASE_URL", self.DEFAULT_BASE_URL).rstrip("/")
         self.use_mock_api = os.getenv("HAPAG_API_USE_MOCK", "false").lower() in ("true", "1", "yes")
 
+        # job_service calls run_full_search once per container type; all sizes are fetched on the
+        # first call and cached here so a 3-size search costs 3 API calls, not 9 (Tryout = 40/day).
+        self._route_cache: Dict[tuple, Tuple[CarrierResultStatus, List[QuoteSchema]]] = {}
+        # Human-readable reason for a failed search, surfaced by job_service as the carrier error.
+        self.last_error_message: Optional[str] = None
+
         # Load Freetime Database
         self.freetime_config = self._load_freetime_config()
 
@@ -152,6 +160,14 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
 
     async def extract_charge_breakdown(self) -> list[dict]:
         return []
+
+    async def _run_batch_route(self, req: RateSearchRequest) -> Tuple[CarrierResultStatus, List[QuoteSchema]]:
+        """Batch (RFQ) mode: the base implementation drives a browser page, so answer from the API directly."""
+        return await self._fetch_all_container_types(req)
+
+    async def _reset_between_routes(self, relogin: bool = False) -> None:
+        """No browser session to reset between batch routes."""
+        return None
 
     async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
         return QuoteSchema()
@@ -361,12 +377,57 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         except Exception as ex:
             return None, f"Hapag-Lloyd Prices API network error: {str(ex)}", CarrierResultStatus.FAILED
 
+    @staticmethod
+    def _classify_rate(rate: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+        """
+        Maps a Prices API rate onto the categories the portal scraper produces
+        (freight charges / surcharges / export surcharges / import surcharges).
+        Returns (skip, category); category None lets the shared name-based classifier decide.
+        """
+        if rate.get("chargeable") is False:
+            return True, None
+        if rate.get("unitOfMeasure") == "PERCENT":
+            return False, ChargeCategory.UNCERTAIN_EXCLUDED.value
+        if rate.get("seaFreightIndicator") or rate.get("chargeTypeCode") == "SEA":
+            return False, ChargeCategory.BASIC_OCEAN_FREIGHT.value
+        proposal = rate.get("locationProposal")
+        if proposal == "BASE_PORT_FROM":
+            return False, ChargeCategory.ORIGIN_CHARGE_EXCLUDED.value
+        if proposal == "BASE_PORT_TO":
+            return False, ChargeCategory.DESTINATION_CHARGE_EXCLUDED.value
+        if proposal in ("MAIN_CARRIAGE", "PC_CARRIAGE", "ON_CARRIAGE"):
+            # Main-carriage surcharges and inland pre/on-carriage are part of the freight (as on the portal)
+            return False, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value
+        if rate.get("included"):
+            return False, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value
+        return False, None
+
+    @staticmethod
+    def _leg_locode(location: Any) -> Optional[str]:
+        """Leg locations are UnLocation/Facility objects per the spec; tolerate plain LOCODE strings too."""
+        if isinstance(location, str):
+            return location.strip().upper() or None
+        if isinstance(location, dict):
+            code = location.get("unLocationCode") or location.get("UNLocationCode") or location.get("locode")
+            return code.strip().upper() if code else None
+        return None
+
+    def _port_display_name(self, locode: str) -> str:
+        port_obj = self.port_manager.get_port_by_code(locode)
+        return port_obj.get("name") if port_obj and port_obj.get("name") else locode
+
+    def _record_error_reason(self, reason: Optional[str]) -> None:
+        if reason:
+            explanation = ERROR_REASON_EXPLANATIONS.get(reason, reason)
+            self.last_error_message = f"Hapag-Lloyd API: {explanation} ({reason})"
+
     def _parse_offer_response_to_quotes(
         self,
         api_data: Dict[str, Any],
         requested_container_type: str,
         destination_locode: str,
-        destination_name: str
+        destination_name: str,
+        weight_kg: Optional[float] = None,
     ) -> List[QuoteSchema]:
         """
         Parses Hapag-Lloyd OfferResponse JSON into InFreight QuoteSchema objects.
@@ -375,11 +436,16 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         offers = api_data.get("offers", [])
 
         if not offers:
+            self._record_error_reason(api_data.get("overarchingErrorReason"))
             return quotes
 
         free_time_days = self._get_freetime_days(destination_locode, destination_name, requested_container_type)
 
         for offer in offers:
+            if offer.get("errorReason") and not offer.get("equipments"):
+                self._record_error_reason(offer.get("errorReason"))
+                continue
+
             product_id = offer.get("productIdentifier", "QUICK_QUOTES")
             is_spot = (product_id == "QUICK_QUOTES_SPOT")
 
@@ -395,40 +461,31 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             raw_validity = offer.get("potentialQuotationValidTo") or offer.get("offerValidTo")
             validity_till = standardize_date_string(raw_validity)
 
-            # Parse Legs (Ocean & Intermodal)
-            legs = offer.get("legs", [])
-            vessel_name = "Hapag Vessel"
-            voyage_no = ""
-            service_name = "Hapag Service"
+            # Parse Legs: only Ocean legs carry vessel / service; intermodal legs are pre/on-carriage.
+            ocean_legs = [
+                leg for leg in offer.get("legs", [])
+                if leg.get("vesselName") or leg.get("carrierServiceName") or leg.get("modeOfTransport") == "VESSEL"
+            ]
+            first_ocean = ocean_legs[0] if ocean_legs else {}
+            vessel_name = first_ocean.get("vesselName") or "Hapag Vessel"
+            voyage_no = first_ocean.get("scheduleVoyageNumber") or ""
+
+            service_codes: List[str] = []
+            for leg in ocean_legs:
+                s_code = leg.get("carrierServiceName")
+                if s_code and s_code not in service_codes:
+                    service_codes.append(s_code)
+            service_name = " / ".join(service_codes) if service_codes else "Hapag Service"
+
+            # Transshipment ports = arrival of every ocean leg except the last one (which is the POD)
             transshipment_ports = []
+            for leg in ocean_legs[:-1]:
+                ts_code = self._leg_locode(leg.get("arrivalLocation"))
+                if ts_code:
+                    transshipment_ports.append(self._port_display_name(ts_code))
 
-            for leg in legs:
-                # Ocean leg info
-                v_name = leg.get("vesselName")
-                v_voy = leg.get("scheduleVoyageNumber")
-                s_name = leg.get("carrierServiceName")
-                arr_loc = leg.get("arrivalLocation")
-
-                if v_name:
-                    vessel_name = v_name
-                if v_voy:
-                    voyage_no = v_voy
-                if s_name:
-                    service_name = f"Hapag {s_name} Service"
-
-                # Check for transshipment ports
-                if arr_loc and arr_loc != destination_locode:
-                    port_obj = self.port_manager.get_port_by_code(arr_loc)
-                    p_name = port_obj.get("name") if port_obj else arr_loc
-                    transshipment_ports.append(p_name)
-
-            # Build Routing String
-            if transshipment_ports:
-                routing_str = f"via {transshipment_ports[0]}"
-                display_service = f"{service_name} ({routing_str})"
-            else:
-                routing_str = "Direct"
-                display_service = service_name
+            pod_code = offer.get("portOfDischarge") or (self._leg_locode(ocean_legs[-1].get("arrivalLocation")) if ocean_legs else None)
+            port_of_discharge = self._port_display_name(pod_code) if pod_code else None
 
             # Format Vessel String
             vessel_display = f"{vessel_name} /Performa" if not voyage_no else f"{vessel_name} (Voy: {voyage_no})"
@@ -438,52 +495,53 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             # Process Equipments & Rates
             equipments = offer.get("equipments", [])
             for equip in equipments:
+                if equip.get("errorReason") and not equip.get("rates"):
+                    self._record_error_reason(equip.get("errorReason"))
+                    continue
+
                 size_type = equip.get("requestedEquipment", {}).get("requestedEquipmentSizeType", "45GP")
                 container_type = ISO_TO_CONTAINER.get(size_type, requested_container_type)
 
-                rates = equip.get("rates", [])
-                basic_ocean_freight = 0.0
-                included_surcharges: List[ChargeSchema] = []
-                excluded_charges: List[ChargeSchema] = []
-                currency = "USD"
+                raw_charges = []
+                for r in equip.get("rates", []):
+                    skip, category = self._classify_rate(r)
+                    if skip:
+                        continue
+                    desc = r.get("chargeTypeShortDescription") or r.get("chargeTypeCode") or "Charge"
+                    amount = float(r.get("amount") or 0.0)
+                    if r.get("unitOfMeasure") == "PERCENT":
+                        # Percentage-based charge: not a money amount, keep it visible but out of totals
+                        desc = f"{desc} ({amount:g}%)"
+                        amount = 0.0
+                    entry = {"name": desc, "amount": round(amount, 2), "currency": r.get("currency") or "USD"}
+                    if category:
+                        entry["category"] = category
+                    raw_charges.append(entry)
 
-                for r in rates:
-                    code = r.get("chargeTypeCode", "")
-                    desc = r.get("chargeTypeShortDescription") or r.get("chargeText") or code
-                    amt = float(r.get("amount", 0.0))
-                    curr = r.get("currency", "USD")
-                    is_sea_freight = r.get("seaFreightIndicator", False) or code in ("BAS", "OFR", "SEA")
-                    is_included = r.get("included", False)
+                # Same classifier the portal scraper uses, so the result table / Excel look identical
+                organized = classify_and_organize_charges(raw_charges, weight_per_container_kg=weight_kg, container_type=container_type)
+                all_classified = organized["all_classified"]
+                basic_ocean_freight = organized["basic_ocean_freight"]
+                included_surcharges = organized["included_freight_surcharges"]
+                excluded_charges = organized["excluded_charges"]
+                uncertain_charges = organized["uncertain_charges"]
 
-                    if is_sea_freight or r.get("chargeTypeClass") == 1:
-                        basic_ocean_freight += amt
-                        if curr:
-                            currency = curr
-                    elif is_included or code in ("MFR", "EMA", "BAF", "SEC", "EBS", "CAF"):
-                        included_surcharges.append(
-                            ChargeSchema(
-                                name=desc,
-                                amount=round(amt, 2),
-                                currency=curr,
-                                category=ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value,
-                                reason="Preserved carrier connector classification"
-                            )
-                        )
-                    else:
-                        # Local / Destination / Origin charges
-                        excluded_charges.append(
-                            ChargeSchema(
-                                name=desc,
-                                amount=round(amt, 2),
-                                currency=curr,
-                                category=ChargeCategory.DESTINATION_CHARGE_EXCLUDED.value,
-                                reason="Excluded local tariff charge"
-                            )
-                        )
-
-                # Total Surcharges + Freight
-                surcharge_total = sum(c.amount for c in included_surcharges)
-                final_freight_value = round(basic_ocean_freight + surcharge_total, 2)
+                # Total in the sea-freight currency; flag included charges billed in another currency
+                currency = next(
+                    (c["currency"] for c in all_classified if c["category"] == ChargeCategory.BASIC_OCEAN_FREIGHT.value),
+                    "USD"
+                ).upper()
+                totalled = [
+                    c for c in all_classified
+                    if c["category"] in (ChargeCategory.BASIC_OCEAN_FREIGHT.value, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value)
+                ]
+                final_freight_value = round(sum(c["amount"] for c in totalled if c["currency"].upper() == currency), 2)
+                other_currency = [c for c in totalled if c["currency"].upper() != currency]
+                warning_message = None
+                if other_currency:
+                    warning_message = "Not in total (different currency): " + ", ".join(
+                        f"{c['name']} {c['amount']:g} {c['currency']}" for c in other_currency
+                    )
 
                 # Check Value Added Services for Free Time Override
                 vas_list = equip.get("valueAddedServices", [])
@@ -497,12 +555,11 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                     etd=etd,
                     eta=eta,
                     transit_time_days=transit_time,
-                    service_name=display_service,
+                    service_name=service_name,
                     vessel=vessel_display,
-                    routing=transshipment_ports[0] if transshipment_ports else "Direct",
+                    routing=", ".join(transshipment_ports) if transshipment_ports else "Direct",
+                    port_of_discharge=port_of_discharge,
                     free_time=f"{free_time_days} days" if free_time_days else None,
-                    demurrage=0,
-                    detention=0,
                     container_type=container_type,
                     container_quantity=1,
                     currency=currency,
@@ -510,11 +567,13 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                     discount=0.0,
                     included_freight_surcharges=included_surcharges,
                     excluded_charges=excluded_charges,
+                    uncertain_charges=uncertain_charges,
                     final_freight_value=final_freight_value,
                     source="carrier_api",
                     raw_reference=offer.get("carrierOfferRequestReference", "HLAG-API"),
                     validity_till=validity_till,
-                    is_breakdown_unavailable=False
+                    is_breakdown_unavailable=False,
+                    warning_message=warning_message,
                 )
                 quotes.append(quote)
 
@@ -522,10 +581,38 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
 
     async def run_full_search(self, request: RateSearchRequest) -> Tuple[CarrierResultStatus, List[QuoteSchema]]:
         """
+        Called by job_service once per container type (request.container_type). All requested
+        sizes are fetched on the first call and cached; each call returns only its own size.
+        """
+        status, quotes = await self._fetch_all_container_types(request)
+        if request.container_type:
+            wanted = ISO_TO_CONTAINER.get(CONTAINER_TO_ISO.get(request.container_type.upper().strip(), ""), request.container_type)
+            quotes = [q for q in quotes if q.container_type == wanted]
+        return status, quotes
+
+    async def _fetch_all_container_types(self, request: RateSearchRequest) -> Tuple[CarrierResultStatus, List[QuoteSchema]]:
+        """
         Executes full rate search against Hapag-Lloyd Prices API.
         Queries each requested container size (20GP, 40GP, 40HQ) and merges results.
         """
+        req_types = request.container_types or ([request.container_type] if request.container_type else ["DRY 40H"])
+        cache_key = (request.origin, request.destination, request.departure_date, tuple(req_types))
+        if cache_key in self._route_cache:
+            print(f"[HAPAG_API] Returning cached API quotes for {cache_key[:3]} (container_type='{request.container_type}')")
+            return self._route_cache[cache_key]
+
+        result = await self._query_prices_api(request, req_types)
+        self._route_cache[cache_key] = result
+        return result
+
+    async def _query_prices_api(self, request: RateSearchRequest, req_types: List[str]) -> Tuple[CarrierResultStatus, List[QuoteSchema]]:
         print(f"[HAPAG_API] Starting API rate search: {request.origin} -> {request.destination}")
+        self.last_error_message = None
+
+        if not self.use_mock_api and not (self.client_id and self.client_secret):
+            self.last_error_message = "Hapag-Lloyd API credentials missing: set HAPAG_API_CLIENT_ID and HAPAG_API_CLIENT_SECRET on the backend."
+            print(f"[HAPAG_API] Error: {self.last_error_message}")
+            return CarrierResultStatus.LOGIN_FAILED, []
 
         # Resolve Origin and Destination UN/LOCODEs
         origin_locode = self.resolve_locode(request.origin)
@@ -539,12 +626,12 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         if not origin_locode or not destination_locode:
             err_msg = f"Could not resolve UN/LOCODE for Origin='{request.origin}' ({origin_locode}) or Destination='{request.destination}' ({destination_locode})"
             print(f"[HAPAG_API] Error: {err_msg}")
+            self.last_error_message = err_msg
             return CarrierResultStatus.INVALID_SEARCH_INPUT, []
 
         departure_date = self._calculate_earliest_departure_date(request.departure_date)
 
         # Determine container types to query
-        req_types = request.container_types or ([request.container_type] if request.container_type else ["DRY 40H"])
         iso_types = []
         for c in req_types:
             iso = CONTAINER_TO_ISO.get(c.upper().strip(), "45GP")
@@ -575,20 +662,25 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                         api_data=data,
                         requested_container_type=mapped_container_name,
                         destination_locode=destination_locode,
-                        destination_name=request.destination
+                        destination_name=request.destination,
+                        weight_kg=request.weight_per_container_kg,
                     )
-                    all_quotes.extend(parsed)
-                    last_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                    if parsed:
+                        all_quotes.extend(parsed)
+                        last_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
                 else:
                     if err:
                         last_error = err
-                    if status != CarrierResultStatus.NO_QUOTES_AVAILABLE:
+                    if status != CarrierResultStatus.NO_QUOTES_AVAILABLE and last_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                         last_status = status
 
         if all_quotes:
             print(f"[HAPAG_API] Successfully retrieved {len(all_quotes)} quotes across {len(iso_types)} container sizes.")
+            self.last_error_message = None
             return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, all_quotes
 
         if last_error:
-            print(f"[HAPAG_API] Search completed with status {last_status}: {last_error}")
+            self.last_error_message = last_error
+        if self.last_error_message:
+            print(f"[HAPAG_API] Search completed with status {last_status}: {self.last_error_message}")
         return last_status, []

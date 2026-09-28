@@ -5,6 +5,7 @@ When USE_MOCK_CARRIERS=true, returns MockCarrierConnector.
 When false, returns the live connector or NotAvailableConnector.
 """
 import os
+from typing import Optional
 from carriers.base_connector import BaseCarrierConnector, NotAvailableConnector
 from carriers.mock_connector import MockCarrierConnector
 from carriers.maersk_connector import MaerskConnector
@@ -39,12 +40,15 @@ SUPPORTED_CARRIERS = [
 ACTIVE_CONNECTOR_INSTANCES: dict[str, BaseCarrierConnector] = {}
 
 
-def get_connector(carrier_code: str) -> BaseCarrierConnector:
+def get_connector(carrier_code: str, hapag_use_api: Optional[bool] = None) -> BaseCarrierConnector:
     """
     Get the appropriate connector for a carrier.
 
     If USE_MOCK_CARRIERS=true: returns MockCarrierConnector
     If live mode: returns the live connector or NotAvailableConnector
+
+    hapag_use_api: per-search Hapag-Lloyd source (True = Prices API, False = portal scraping);
+    None falls back to the HAPAG_USE_API environment variable.
     """
     use_mock = os.getenv("USE_MOCK_CARRIERS", "true").lower() in ("true", "1", "yes")
 
@@ -53,8 +57,9 @@ def get_connector(carrier_code: str) -> BaseCarrierConnector:
         ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
         return conn
 
-    # Check if Hapag API mode is globally enabled for HAPAG_LLOYD
-    if carrier_code == "HAPAG_LLOYD" and os.getenv("HAPAG_USE_API", "false").lower() in ("true", "1", "yes"):
+    if hapag_use_api is None:
+        hapag_use_api = os.getenv("HAPAG_USE_API", "false").lower() in ("true", "1", "yes")
+    if carrier_code == "HAPAG_LLOYD" and hapag_use_api:
         conn = HapagLloydAPIConnector()
         ACTIVE_CONNECTOR_INSTANCES[carrier_code] = conn
         return conn
