@@ -420,6 +420,21 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             return code.strip().upper() if code else None
         return None
 
+    @staticmethod
+    def _vessel_label(leg: Dict[str, Any]) -> str:
+        name = leg.get("vesselName") or "Hapag Vessel"
+        voyage = leg.get("scheduleVoyageNumber")
+        return f"{name} (Voy: {voyage})" if voyage else f"{name} /Performa"
+
+    @staticmethod
+    def _leg_duration_hours(leg: Dict[str, Any]) -> float:
+        try:
+            dep = datetime.fromisoformat(str(leg.get("departureDateTime")).replace("Z", "+00:00"))
+            arr = datetime.fromisoformat(str(leg.get("arrivalDateTime")).replace("Z", "+00:00"))
+            return (arr - dep).total_seconds() / 3600
+        except (TypeError, ValueError):
+            return 0.0
+
     def _port_display_name(self, locode: str) -> str:
         port_obj = self.port_manager.get_port_by_code(locode)
         return port_obj.get("name") if port_obj and port_obj.get("name") else locode
@@ -475,8 +490,8 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                 if leg.get("vesselName") or leg.get("carrierServiceName") or leg.get("modeOfTransport") == "VESSEL"
             ]
             first_ocean = ocean_legs[0] if ocean_legs else {}
-            vessel_name = first_ocean.get("vesselName") or "Hapag Vessel"
-            voyage_no = first_ocean.get("scheduleVoyageNumber") or ""
+            # Main (mother) vessel = the longest ocean leg; feeders on either side are short hops
+            main_ocean = max(ocean_legs, key=self._leg_duration_hours) if ocean_legs else {}
 
             service_codes: List[str] = []
             for leg in ocean_legs:
@@ -495,8 +510,14 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             pod_code = offer.get("portOfDischarge") or (self._leg_locode(ocean_legs[-1].get("arrivalLocation")) if ocean_legs else None)
             port_of_discharge = self._port_display_name(pod_code) if pod_code else None
 
-            # Format Vessel String
-            vessel_display = f"{vessel_name} /Performa" if not voyage_no else f"{vessel_name} (Voy: {voyage_no})"
+            # Format Vessel String. Many offers share the same origin feeder but connect to different
+            # mother vessels / transshipment ports, so name the main vessel and the via-ports too;
+            # otherwise those rows look identical in the results table and Excel Remark column.
+            vessel_display = self._vessel_label(main_ocean)
+            if transshipment_ports:
+                vessel_display = f"{vessel_display} | via {', '.join(transshipment_ports)}"
+            if first_ocean and first_ocean is not main_ocean:
+                vessel_display = f"{vessel_display} | feeder {self._vessel_label(first_ocean)}"
             if is_spot:
                 vessel_display = f"{vessel_display} (SPOT)"
 
