@@ -421,6 +421,23 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         return None
 
     @staticmethod
+    def _weight_tier_text(rate: Dict[str, Any]) -> Optional[str]:
+        """
+        Renders a graduated weight tier (e.g. Heavy Lift: 18-99 TON) in the portal's wording,
+        'between 18 and 99 ton container gross weight', which is_weight_surcharge_applicable parses.
+        """
+        if rate.get("graduatedUnitOfMeasureType") != "WEIGHT" and rate.get("graduatedUnitOfMeasure") != "TON":
+            return None
+        low, high = rate.get("graduatedLowValue"), rate.get("graduatedHighValue")
+        if low is not None and high is not None:
+            return f"between {low:g} and {high:g} ton container gross weight"
+        if low is not None:
+            return f"over {low:g} ton container gross weight"
+        if high is not None:
+            return f"up to {high:g} ton container gross weight"
+        return None
+
+    @staticmethod
     def _vessel_label(leg: Dict[str, Any]) -> str:
         name = leg.get("vesselName") or "Hapag Vessel"
         voyage = leg.get("scheduleVoyageNumber")
@@ -537,12 +554,19 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                         f"[HAPAG_API]   rate {product_id} {size_type} {r.get('chargeTypeCode')} "
                         f"'{r.get('chargeTypeShortDescription')}' {r.get('amount')} {r.get('currency')} "
                         f"uom={r.get('unitOfMeasure')} sea={r.get('seaFreightIndicator')} included={r.get('included')} "
-                        f"chargeable={r.get('chargeable')} loc={r.get('locationProposal')}"
+                        f"chargeable={r.get('chargeable')} loc={r.get('locationProposal')} "
+                        f"graduated={r.get('graduatedLowValue')}-{r.get('graduatedHighValue')} "
+                        f"{r.get('graduatedUnitOfMeasure')}/{r.get('graduatedUnitOfMeasureType')}"
                     )
                     skip, category = self._classify_rate(r)
                     if skip:
                         continue
                     desc = r.get("chargeTypeShortDescription") or r.get("chargeTypeCode") or "Charge"
+                    weight_tier = self._weight_tier_text(r)
+                    if weight_tier:
+                        # The shared classifier only reads weight tiers from the charge name (as the portal
+                        # prints them); without this a Heavy Lift tier is counted for any cargo weight.
+                        desc = f"{desc} ({weight_tier})"
                     if r.get("included") and category == ChargeCategory.UNCERTAIN_EXCLUDED.value:
                         desc = f"{desc} (included in Ocean Freight)"
                     amount = float(r.get("amount") or 0.0)
