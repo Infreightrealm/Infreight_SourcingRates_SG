@@ -28,7 +28,11 @@
   },
   "cma": {},
   "one": {
-    "egais": "EGALY"
+    "egais": "EGALY",
+    "twtxg": "TAICHUNG CITY",
+    "taichung": "TAICHUNG CITY",
+    "usnyc": "NEW YORK, NY",
+    "new york": "NEW YORK, NY"
   },
   "hapag": {},
   "msc": {},

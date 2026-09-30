@@ -39,19 +39,61 @@ class ONEConnector(BaseCarrierConnector):
         self.playwright = None
         self._cached_quotes = {}
         self._cached_status = {}
+        self.temp_profile_dir = None
+        self.master_profile_dir = None
+        self.is_login_successful = False
 
     async def _init_browser(self):
+        import uuid
+        import shutil
         is_prod = os.name != "nt"
         self.playwright = await async_playwright().start()
-        
-        # Thread-safe virtual display environment injection
+
+        persistent_dir = os.getenv("PERSISTENT_PROFILES_DIR")
+        if persistent_dir:
+            self.master_profile_dir = os.path.join(persistent_dir, "chrome_profile_one")
+        else:
+            self.master_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chrome_profile_one")
+
+        unique_id = str(uuid.uuid4())[:8]
+        if persistent_dir:
+            self.temp_profile_dir = os.path.join(persistent_dir, f"chrome_profile_one_tmp_{unique_id}")
+        else:
+            self.temp_profile_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), f"chrome_profile_one_tmp_{unique_id}")
+
+        if os.path.exists(self.master_profile_dir):
+            try:
+                shutil.copytree(
+                    self.master_profile_dir, self.temp_profile_dir, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns(
+                        "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
+                )
+                lock_files = ["SingletonLock", "lock", "SingletonCookie"]
+                for root_dir, _, filenames in os.walk(self.temp_profile_dir):
+                    for filename in filenames:
+                        if filename in lock_files:
+                            try:
+                                os.remove(os.path.join(root_dir, filename))
+                            except Exception:
+                                pass
+            except Exception as e:
+                print(f"[ONE] Warning copying profile: {e}")
+        else:
+            os.makedirs(self.temp_profile_dir, exist_ok=True)
+
         browser_env = os.environ.copy()
         if is_prod:
             browser_env["DISPLAY"] = ":101"
 
-        self.browser = await self.playwright.chromium.launch(
-            headless=False,
-            args=[
+        launch_kwargs = {
+            "user_data_dir": self.temp_profile_dir,
+            "headless": False,
+            "ignore_https_errors": True,
+            "viewport": {"width": 1920, "height": 1080},
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            "env": browser_env,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
@@ -59,14 +101,21 @@ class ONEConnector(BaseCarrierConnector):
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
             ],
-            env=browser_env,
-        )
-        self.context = await self.browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            ignore_https_errors=True,
-        )
-        self.page = await self.context.new_page()
+        }
+        if not is_prod:
+            launch_kwargs["channel"] = "chrome"
+
+        try:
+            self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
+        except Exception as e:
+            if "channel" in launch_kwargs:
+                launch_kwargs.pop("channel", None)
+                self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
+            else:
+                raise e
+
+        self.browser = None
+        self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         self.page.set_default_timeout(30000)
 
     def _resolve_departure_date(self, departure_date_value: str) -> date:
@@ -95,34 +144,83 @@ class ONEConnector(BaseCarrierConnector):
 
     async def _clear_overlays(self) -> None:
         try:
-            # Use JS evaluation to instantly click the Skip button to prevent blocking the Playwright thread
-            await self.page.evaluate('''() => {
-                // Clear any selection/highlighting first
-                window.getSelection()?.removeAllRanges();
+            # 1. Dismiss security popups (e.g. "Enhancing Your Account Security", "90-day password policy") and notices
+            dismissed = await self.page.evaluate('''() => {
+                let clicked = false;
 
+                // Priority A: Check for "Enhancing Your Account Security" or "90-day password policy" modal
+                const bodyText = (document.body ? document.body.innerText || '' : '').toLowerCase();
+                if (bodyText.includes('enhancing your account security') || bodyText.includes('90-day password policy') || bodyText.includes('password policy')) {
+                    // Find all buttons inside modal or dialog
+                    const buttons = Array.from(document.querySelectorAll('button, [role="button"], a, input[type="button"]'));
+                    for (const b of buttons) {
+                        const txt = (b.textContent || b.value || '').trim().toLowerCase();
+                        if (txt === 'ok' || txt === 'okay' || txt === 'confirm' || txt === 'got it') {
+                            b.click();
+                            clicked = true;
+                            break;
+                        }
+                    }
+                    if (!clicked) {
+                        // Try clicking the close 'x' button inside the dialog
+                        const closeBtn = document.querySelector('[role="dialog"] button, .modal button, [class*="modal" i] button');
+                        if (closeBtn) {
+                            closeBtn.click();
+                            clicked = true;
+                        }
+                    }
+                }
+
+                // Priority B: Dismiss any other visible OK / Got it / Skip buttons
                 const skipBtns = Array.from(document.querySelectorAll('button, a, [role="button"], span, div')).filter(el => {
                     const text = (el.textContent || '').trim().toLowerCase();
-                    if (text !== 'skip') return false;
-                    
-                    // Exclude accessibility skip links pointing to same-page anchors
-                    if (el.tagName === 'A' && (el.getAttribute('href') || '').startsWith('#')) {
-                        return false;
+                    if (['skip', 'ok', 'okay', 'got it', 'dismiss'].includes(text)) {
+                        if (el.tagName === 'A' && (el.getAttribute('href') || '').startsWith('#')) return false;
+                        return true;
                     }
-                    return true;
+                    return false;
                 });
-                if (skipBtns.length > 0) {
-                    skipBtns[0].click();
+                for (const btn of skipBtns) {
+                    const rect = btn.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        btn.click();
+                        clicked = true;
+                    }
                 }
+
+                // Clear selection
+                window.getSelection()?.removeAllRanges();
+                return clicked;
             }''')
-            await self.page.wait_for_timeout(300)
-            
-            # Also attempt standard playwright click if it's still there
-            skip_btn = self.page.locator('button:has-text("Skip"), [role="button"]:has-text("Skip"), a:has-text("Skip"):not([href^="#"])').first
-            if await skip_btn.is_visible(timeout=200):
-                await skip_btn.click(force=True)
+
+            if dismissed:
+                print("[ONE] Dismissed modal overlay (OK / Enhancing Your Account Security / Skip) via JS.")
                 await self.page.wait_for_timeout(500)
 
-            # Clear selection one more time in case the click triggered any text highlighting
+            # 2. Also try standard Playwright clicks for primary modal buttons
+            for sel in [
+                '[role="dialog"] button:text-is("OK")',
+                '[role="dialog"] button:text-is("Ok")',
+                'div:has-text("Enhancing Your Account Security") button',
+                '[role="dialog"] button:has-text("Got it")',
+                '[role="dialog"] button:has-text("Skip")',
+                '[role="dialog"] button[aria-label*="close" i]',
+                '[role="dialog"] button:has-text("✕")',
+                '[role="dialog"] button:has-text("×")',
+                'button:text-is("OK")',
+                'button:text-is("Ok")',
+            ]:
+                try:
+                    btn = self.page.locator(sel).first
+                    if await btn.is_visible(timeout=200):
+                        print(f"[ONE] Dismissed overlay via Playwright selector: {sel}")
+                        await btn.click(force=True)
+                        await self.page.wait_for_timeout(500)
+                        break
+                except Exception:
+                    pass
+
+            # Clear selection one more time
             await self.page.evaluate('window.getSelection()?.removeAllRanges()')
         except Exception:
             pass
@@ -251,17 +349,24 @@ class ONEConnector(BaseCarrierConnector):
             return original_locode or value
 
         try:
-            # Wait dynamically up to 10 seconds for role="option" elements to appear and load (excluding "loading" text)
+            NAV_BLACKLIST = {'SEARCH SCHEDULE', 'MY SCHEDULE', 'ECO CALCULATOR', 'SHIPMENT OVERVIEW', 'CONTAINER+', 'E-SUBSCRIPTION', 'ONE FINANCE HUB', 'BOOKING', 'SCHEDULE', 'PRICES'}
+            # Wait dynamically up to 10 seconds for dropdown options to appear and load (excluding "loading" text)
             options = None
             option_count = 0
             for check in range(50):  # 50 * 0.2s = 10s max wait
                 try:
-                    options = self.page.locator('[role="option"]:visible')
+                    # Prefer listbox options over global options
+                    listbox_opts = self.page.locator('[role="listbox"]:visible [role="option"], ul[id*="downshift"]:visible [role="option"]')
+                    if await listbox_opts.count() > 0:
+                        options = listbox_opts
+                    else:
+                        options = self.page.locator('[role="option"]:visible')
+                    
                     option_count = await options.count()
                     if option_count > 0:
                         # Inspect the first visible option text
                         first_text = (await options.first.inner_text()).strip().upper()
-                        if first_text and "LOADING" not in first_text:
+                        if first_text and "LOADING" not in first_text and first_text not in NAV_BLACKLIST:
                             break
                 except Exception:
                     pass
@@ -272,6 +377,14 @@ class ONEConnector(BaseCarrierConnector):
                 return False
 
             print(f"[ONE] {label}: {option_count} dropdown options visible (searching for '{value}', locode='{locode}')")
+            try:
+                visible_sample = []
+                for idx in range(min(option_count, 8)):
+                    opt_t = (await options.nth(idx).inner_text()).strip().replace('\n', ' ')
+                    visible_sample.append(opt_t)
+                print(f"[ONE] {label}: visible dropdown sample: {visible_sample}")
+            except Exception:
+                pass
 
             # 1. Try strict LOCODE matching first (handles cases where ONE shows a different LOCODE)
             if locode:
@@ -284,10 +397,13 @@ class ONEConnector(BaseCarrierConnector):
                 for index in range(option_count):
                     option = options.nth(index)
                     option_text = (await option.inner_text()).strip().upper()
+                    if option_text in NAV_BLACKLIST:
+                        continue
                     if locode == "AUMEL" and ("AUMELAS" in option_text or "FRYUH" in option_text):
                         continue
                     if any(cand in option_text for cand in locode_candidates):
                         await option.click(force=True)
+                        await asyncio.sleep(0.5)
                         cache_val = _extract_locode_for_cache(option_text, locode)
                         print(f"[ONE] {label} selected by LOCODE match '{locode}': ONE code='{cache_val}'")
                         set_cached_carrier_port("one", locode, cache_val)
@@ -359,8 +475,16 @@ class ONEConnector(BaseCarrierConnector):
             print("[ONE] Navigating to login page...")
             await self.page.goto(self.LOGIN_URL, wait_until="domcontentloaded", timeout=30000)
             print(f"[ONE] Page loaded: {self.page.url}")
-            await self.page.wait_for_timeout(1000)  # Wait for JS to render
-            
+            await self.page.wait_for_timeout(2000)  # Wait for JS to render
+
+            # Check if session is already active from persistent profile
+            current_url = self.page.url
+            if "login" not in current_url.lower() and "sign-in" not in current_url.lower() and "auth" not in current_url.lower():
+                print(f"[ONE] Session already active from profile! Landed on: {current_url}")
+                await self._clear_overlays()
+                self.is_login_successful = True
+                return True
+
             # TODO: Verify selectors against ONE ecommerce portal
             userId_sel = 'input[name="userId"], input[id="userId"], input[name="username"]'
             print(f"[ONE] Looking for userId input with selector: {userId_sel}")
@@ -408,6 +532,8 @@ class ONEConnector(BaseCarrierConnector):
                             print("[ONE] On OAuth callback page, waiting for dashboard redirect...")
                         continue
                     print("[ONE] Login successful!")
+                    self.is_login_successful = True
+                    await self._clear_overlays()
                     return True
 
                 # Active challenge/captcha/2FA detection
@@ -438,15 +564,15 @@ class ONEConnector(BaseCarrierConnector):
             return False
 
     def _extract_port_code(self, text: str) -> str:
-        """Extracts 5-letter UN/LOCODE from strings like 'Singapore (SGSIN)'."""
+        """Extracts 5-letter UN/LOCODE from strings like 'Singapore [SGSIN]' or 'Singapore (SGSIN)'."""
         if not text: return ""
-        match = re.search(r'\(([A-Z]{5})\)', text)
+        match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', text)
         if match:
-            return match.group(1)
+            return match.group(1).upper()
         # Fallback: if it's already a 5-letter code
         clean = text.strip()
-        if len(clean) == 5 and clean.isupper():
-            return clean
+        if len(clean) == 5 and clean.isalpha():
+            return clean.upper()
         return text
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
@@ -644,11 +770,11 @@ class ONEConnector(BaseCarrierConnector):
 
                 # Step 1: Type the resolved query or cached name
                 print(f"[ONE] Origin: typing '{origin_query}' (locode: '{origin_locode}')")
-                await origin_field.click(force=True)
-                await self._clear_overlays()
+                await origin_field.click()
+                await origin_field.focus()
                 await self.page.keyboard.press("Control+A")
                 await self.page.keyboard.press("Backspace")
-                await self.page.keyboard.type(origin_query, delay=25)
+                await origin_field.press_sequentially(origin_query, delay=35)
                 await self.page.wait_for_timeout(1500)
                 origin_selected = await self._select_dropdown_option("Origin", origin_query, origin_locode)
 
@@ -659,11 +785,11 @@ class ONEConnector(BaseCarrierConnector):
                     origin_name = port_obj.get('name_ascii') or port_obj.get('name') if port_obj else None
                     if origin_name and origin_name.lower() != origin_query.lower():
                         print(f"[ONE] Origin (step 2): trying port name '{origin_name}'")
-                        await origin_field.click(force=True)
-                        await self._clear_overlays()
+                        await origin_field.click()
+                        await origin_field.focus()
                         await self.page.keyboard.press("Control+A")
                         await self.page.keyboard.press("Backspace")
-                        await self.page.keyboard.type(origin_name, delay=25)
+                        await origin_field.press_sequentially(origin_name, delay=35)
                         await self.page.wait_for_timeout(1500)
                         origin_selected = await self._select_dropdown_option("Origin", origin_name, origin_locode)
 
@@ -713,11 +839,11 @@ class ONEConnector(BaseCarrierConnector):
 
                 # Step 1: Type the resolved query or cached name
                 print(f"[ONE] Destination: typing '{dest_query}' (locode: '{destination_locode}')")
-                await destination_field.click(force=True)
-                await self._clear_overlays()
+                await destination_field.click()
+                await destination_field.focus()
                 await self.page.keyboard.press("Control+A")
                 await self.page.keyboard.press("Backspace")
-                await self.page.keyboard.type(dest_query, delay=25)
+                await destination_field.press_sequentially(dest_query, delay=35)
                 await self.page.wait_for_timeout(1500)
                 destination_selected = await self._select_dropdown_option("Destination", dest_query, destination_locode)
 
@@ -728,11 +854,11 @@ class ONEConnector(BaseCarrierConnector):
                     dest_name = port_obj.get('name_ascii') or port_obj.get('name') if port_obj else None
                     if dest_name and dest_name.lower() != dest_query.lower():
                         print(f"[ONE] Destination (step 2): trying port name '{dest_name}'")
-                        await destination_field.click(force=True)
-                        await self._clear_overlays()
+                        await destination_field.click()
+                        await destination_field.focus()
                         await self.page.keyboard.press("Control+A")
                         await self.page.keyboard.press("Backspace")
-                        await self.page.keyboard.type(dest_name, delay=25)
+                        await destination_field.press_sequentially(dest_name, delay=35)
                         await self.page.wait_for_timeout(1500)
                         destination_selected = await self._select_dropdown_option("Destination", dest_name, destination_locode)
 
@@ -966,11 +1092,17 @@ class ONEConnector(BaseCarrierConnector):
                 print(f"[ONE] Container sweep notice: {e}")
 
             # --- COMMODITY ---
-            # Use the commodity exactly as typed by the user on the frontend (e.g. "Furniture").
-            # ONE has a searchable commodity field — type the name and pick the first matching suggestion.
-            print(f"[ONE] Setting Commodity: '{request.commodity}' (user-provided)")
+            # Map generic/FAK strings to 'General' which ONE recognises in its commodity database
+            commodity_to_search = (request.commodity or "General").strip()
+            if commodity_to_search.upper() in ["FAK", "FREIGHT ALL KINDS", "ALL KINDS", "ANY", "GENERAL CARGO", "DEFAULT", ""]:
+                commodity_to_search = "General"
+            print(f"[ONE] Setting Commodity: '{request.commodity}' -> searching '{commodity_to_search}'")
             try:
-                commodity_field = self.page.get_by_role("combobox", name="Please input Commodity Name or HS code").first
+                commodity_field = self.page.locator(
+                    'input[placeholder="Please input Commodity Name or HS code"], '
+                    'input[name="searchCommodityByName"], '
+                    'input[placeholder*="Commodity" i]'
+                ).first
                 await commodity_field.wait_for(state="attached", timeout=15000)
 
                 # Wait for the commodity field to become enabled (typically ~1-2s once cards are settled)
@@ -981,17 +1113,22 @@ class ONEConnector(BaseCarrierConnector):
                         break
                     await self.page.wait_for_timeout(250)
 
-                try:
-                    await commodity_field.click(timeout=3000)
-                except Exception:
-                    print("[ONE] Normal commodity field click blocked, force-clicking...")
-                    await commodity_field.click(force=True)
-                await self.page.wait_for_timeout(200)
-                await self.page.keyboard.type(request.commodity, delay=25)
+                await commodity_field.click()
+                await commodity_field.focus()
+                await self.page.keyboard.press("Control+A")
+                await self.page.keyboard.press("Backspace")
+                await commodity_field.press_sequentially(commodity_to_search, delay=35)
+                await self.page.wait_for_timeout(800)
 
-                # Wait for dropdown suggestions to appear (strictly scoped to Commodity dropdown listbox)
+                # Wait for dropdown suggestions to appear
                 try:
-                    options_locator = self.page.locator('ul[class*="CommodityAutocomplete_result"] [role="option"], ul[class*="CommodityAutocomplete_result"] li, [id*="headlessui-combobox-options"] [role="option"]')
+                    options_locator = self.page.locator(
+                        'ul[class*="CommodityAutocomplete_result"] [role="option"], '
+                        'ul[class*="CommodityAutocomplete_result"] li, '
+                        '[id*="headlessui-combobox-options"] [role="option"], '
+                        '[role="listbox"]:visible [role="option"], '
+                        'ul:visible [role="option"]'
+                    )
                     
                     # Wait for at least one option that is NOT loading (max ~6 seconds)
                     for _ in range(30):
@@ -1002,15 +1139,16 @@ class ONEConnector(BaseCarrierConnector):
                         await self.page.wait_for_timeout(200)
 
                     # Try to find a match
-                    commodity_upper = request.commodity.strip().upper()
+                    commodity_upper = commodity_to_search.upper()
                     opted = False
                     opt_count = await options_locator.count()
+                    print(f"[ONE] Commodity dropdown options count: {opt_count}")
                     for i in range(opt_count):
                         try:
                             opt_text = (await options_locator.nth(i).inner_text(timeout=1000)).strip().upper()
                             if "LOADING" in opt_text:
                                 continue
-                            if commodity_upper in opt_text or opt_text.startswith(commodity_upper[:6]):
+                            if commodity_upper in opt_text or opt_text.startswith(commodity_upper[:5]):
                                 await options_locator.nth(i).click(force=True, timeout=2000)
                                 print(f"[ONE] Commodity matched: '{opt_text.splitlines()[0]}'")
                                 opted = True
@@ -1035,13 +1173,13 @@ class ONEConnector(BaseCarrierConnector):
                         raise Exception("No valid options found to click")
 
                 except Exception as e:
-                    # No dropdown appeared or click timed out — press ArrowDown then Enter and continue
+                    # Fallback: try clicking 'List of Commodity' or pressing Enter
                     print(f"[ONE] Commodity: dropdown selection note ({e}), pressing ArrowDown then Enter")
                     await self.page.keyboard.press("ArrowDown")
                     await self.page.wait_for_timeout(200)
                     await self.page.keyboard.press("Enter")
 
-                await self.page.wait_for_timeout(500)
+                await self.page.wait_for_timeout(1000)
             except Exception as e:
                 print(f"[ONE] Commodity selection failed: {e}")
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
@@ -2181,3 +2319,29 @@ class ONEConnector(BaseCarrierConnector):
         if getattr(self, "is_batch_active", False) and not force:
             return
         await super().close(force=force)
+
+        # Sync profile back to master if login was successful
+        try:
+            import shutil
+            if self.temp_profile_dir and os.path.exists(self.temp_profile_dir):
+                if self.is_login_successful and self.master_profile_dir:
+                    shutil.copytree(
+                        self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns(
+                            "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
+                    )
+                    lock_files = ["SingletonLock", "lock", "SingletonCookie"]
+                    for root_dir, _, filenames in os.walk(self.master_profile_dir):
+                        for filename in filenames:
+                            if filename in lock_files:
+                                try:
+                                    os.remove(os.path.join(root_dir, filename))
+                                except Exception:
+                                    pass
+                    print("[ONE] Master profile updated with active session data.")
+                try:
+                    shutil.rmtree(self.temp_profile_dir)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[ONE] Cleanup note: {e}")

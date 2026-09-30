@@ -96,6 +96,8 @@ export interface RateSearchRequest {
   origin: string;
   destination: string;
   service_term: string;
+  destination_delivery_type?: 'PORT' | 'RAMP';
+  prefer_ramp?: boolean;
   container_types: string[];
   container_type?: string;
   container_quantity: number;

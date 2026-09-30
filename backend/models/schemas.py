@@ -115,6 +115,8 @@ class RateSearchRequest(BaseModel):
     origin: str = Field(default="Singapore", description="Origin port/location")
     destination: str = Field(default="Hamburg, Germany", description="Destination port/location")
     service_term: str = Field(default="CY/CY")
+    destination_delivery_type: Optional[str] = Field(default="PORT", description="'PORT' or 'RAMP' delivery mode")
+    prefer_ramp: Optional[bool] = Field(default=False, description="Prefer Ramp/Door delivery mode over Port")
     container_type: str = Field(default="DRY 40H", description="e.g. DRY 20, DRY 40, DRY 40H")
     container_types: list[str] = Field(default=["DRY 40H"], description="List of container types to search")
     container_quantity: int = Field(default=1, ge=1)
@@ -139,6 +141,16 @@ class RateSearchRequest(BaseModel):
                     data["search_window_days"] = min(int(sw_days), 28)
                 except:
                     pass
+
+            # Normalize and sync destination_delivery_type & prefer_ramp
+            dest_deliv = str(data.get("destination_delivery_type") or "").strip().upper()
+            pref_ramp = data.get("prefer_ramp")
+            if pref_ramp is True or dest_deliv == "RAMP":
+                data["destination_delivery_type"] = "RAMP"
+                data["prefer_ramp"] = True
+            elif dest_deliv == "PORT" or pref_ramp is False:
+                data["destination_delivery_type"] = "PORT"
+                data["prefer_ramp"] = False
 
             c_types = data.get("container_types")
             c_type = data.get("container_type")
@@ -172,6 +184,8 @@ class BatchRoutePair(BaseModel):
     destination: str
     container_types: Optional[list[str]] = Field(default_factory=lambda: ["DRY 20", "DRY 40"])
     weight_per_container_kg: Optional[float] = 25000.0
+    destination_delivery_type: Optional[str] = "PORT"
+    prefer_ramp: Optional[bool] = False
 
 
 class BatchRateSearchRequest(BaseModel):

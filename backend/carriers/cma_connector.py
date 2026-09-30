@@ -445,6 +445,9 @@ class CMAConnector(BaseCarrierConnector):
             print("[CMA] Clicking Log in button...")
             submit_sel = 'button:has-text("Log in"), button[type="submit"]'
             await self._hover_and_click(submit_sel)
+            await self.page.wait_for_timeout(2000)
+            await self.page.screenshot(path="cma_after_login_click.png")
+            print(f"[CMA] Page URL 2s after clicking Log in: {self.page.url}")
 
             # CMA's OAuth uses a POST form redirect which can trigger net::ERR_CACHE_MISS in Chrome.
             # We catch that and just wait, then navigate directly to the quote page.
@@ -486,7 +489,12 @@ class CMAConnector(BaseCarrierConnector):
                 await self._random_mouse_move()
                 return True
             except Exception:
-                print("[CMA] Login failed or form not loaded.")
+                print(f"[CMA] Login failed or form not loaded. Current URL: {self.page.url}")
+                try:
+                    await self.page.screenshot(path="cma_login_fail.png")
+                    print("[CMA] Saved debug screenshot to cma_login_fail.png")
+                except:
+                    pass
                 return False
 
         except Exception as e:
@@ -642,12 +650,23 @@ class CMAConnector(BaseCarrierConnector):
             
             # Step 0a: If prefer_ramp is requested, look for option containing "RAMP" or "DOOR" first!
             if prefer_ramp:
+                # Pass 1: exact LOCODE and RAMP/DOOR
                 for i in range(count):
                     item = suggestions.nth(i)
                     text = (await item.inner_text()).strip().upper()
                     if clean_locode in text and ("RAMP" in text or "DOOR" in text):
                         inner_text = (await item.inner_text()).strip()
                         print(f"[CMA] [RAMP PREFERRED] Selected RAMP/DOOR option for {label}: '{inner_text}'")
+                        await self._click_dropdown_item(item)
+                        self._remember_cma_selection(label, locode, inner_text)
+                        return True
+                # Pass 2: any RAMP/DOOR option in dropdown
+                for i in range(count):
+                    item = suggestions.nth(i)
+                    text = (await item.inner_text()).strip().upper()
+                    if "RAMP" in text or "DOOR" in text:
+                        inner_text = (await item.inner_text()).strip()
+                        print(f"[CMA] [RAMP PREFERRED] Selected general RAMP/DOOR option for {label}: '{inner_text}'")
                         await self._click_dropdown_item(item)
                         self._remember_cma_selection(label, locode, inner_text)
                         return True
@@ -665,7 +684,7 @@ class CMAConnector(BaseCarrierConnector):
             
             # Normalised target candidate list
             target_candidates = []
-            if cached_name:
+            if cached_name and (not prefer_ramp or "RAMP" in cached_name.upper() or "DOOR" in cached_name.upper()):
                 target_candidates.append(cached_name.strip().upper())
             target_candidates.append(clean_locode)
             
@@ -684,6 +703,18 @@ class CMAConnector(BaseCarrierConnector):
                         if sug_locode_match and sug_locode_match.group(1) == clean_locode:
                             inner_text = (await item.inner_text()).strip()
                             print(f"[CMA] [SUCCESS] Found exact LOCODE PORT match for {label}: '{inner_text}'")
+                            await self._click_dropdown_item(item)
+                            self._remember_cma_selection(label, locode, inner_text)
+                            return True
+            else:
+                for i in range(count):
+                    item = suggestions.nth(i)
+                    text = (await item.inner_text()).strip().upper()
+                    if "RAMP" in text or "DOOR" in text:
+                        sug_locode_match = re.search(r'\(([A-Z]{5})\)', text)
+                        if sug_locode_match and sug_locode_match.group(1) == clean_locode:
+                            inner_text = (await item.inner_text()).strip()
+                            print(f"[CMA] [SUCCESS] Found exact LOCODE RAMP match for {label}: '{inner_text}'")
                             await self._click_dropdown_item(item)
                             self._remember_cma_selection(label, locode, inner_text)
                             return True
@@ -1419,8 +1450,14 @@ class CMAConnector(BaseCarrierConnector):
                 if dest_locode == "EGAIS":
                     self.port_fallback_notice = "Sokhna fell back to Ain Sukhna"
 
-            # Initial search uses standard PORT selection; switches to RAMP only if CMA displays the advisory banner
-            print(f"[CMA] Filling Destination: '{dest_query}' (locode: {dest_locode}, cached: '{dest_cached}')")
+            prefer_ramp_dest = (
+                (getattr(request, "destination_delivery_type", "PORT") or "").upper() == "RAMP"
+                or bool(getattr(request, "prefer_ramp", False))
+                or "RAMP" in (getattr(request, "service_term", "") or "").upper()
+            )
+
+            # Initial search uses standard PORT selection unless user/request specified RAMP
+            print(f"[CMA] Filling Destination: '{dest_query}' (locode: {dest_locode}, cached: '{dest_cached}', prefer_ramp: {prefer_ramp_dest})")
             dest_sel = [
                 'div:has(label:has-text("Destination")) input',
                 'xpath=//*[text()[contains(., "Destination")]]/following::input[not(@type="hidden")][1]',
@@ -1445,10 +1482,10 @@ class CMAConnector(BaseCarrierConnector):
             await dest_field.press_sequentially(dest_query, delay=50)
             await self.page.wait_for_timeout(2000)
 
-            if not await self._select_cma_dropdown_option("Destination", dest_locode, dest_cached, prefer_ramp=False):
+            if not await self._select_cma_dropdown_option("Destination", dest_locode, dest_cached, prefer_ramp=prefer_ramp_dest):
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
             
-            print(f"[CMA] Destination selected: {dest_locode}")
+            print(f"[CMA] Destination selected: {dest_locode} (prefer_ramp: {prefer_ramp_dest})")
 
             # Allow form rules to render any dynamic Route / POL / POD fields
             print("[CMA] Checking for dynamic Route / POL / POD prompts or Ramp requirements...")

@@ -6,11 +6,14 @@ import { CONTAINER_TYPES, type RateSearchRequest } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
+import { cn } from "@/lib/utils";
 import {
+  Anchor,
   Container,
   Eraser,
   Loader2,
   Search,
+  TrainTrack,
   TriangleAlert,
   Weight,
 } from "lucide-react";
@@ -28,6 +31,7 @@ interface RateSearchFormProps {
     destination: string;
     containerTypes: string[];
     weightKg: number;
+    destinationDeliveryType?: 'PORT' | 'RAMP';
   }) => void;
 }
 
@@ -40,6 +44,9 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
   };
   const [origin, setOrigin] = useState(initialValues?.origin || "Singapore");
   const [destination, setDestination] = useState(initialValues?.destination || "Hamburg");
+  const [destinationDeliveryType, setDestinationDeliveryType] = useState<'PORT' | 'RAMP'>(
+    initialValues?.destination_delivery_type || (initialValues?.prefer_ramp ? 'RAMP' : 'PORT')
+  );
 
   const [serviceTerm, setServiceTerm] = useState("CY/CY");
   const [containerTypes, setContainerTypes] = useState<string[]>(["DRY 40H"]);
@@ -52,6 +59,11 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
     if (initialValues) {
       if (initialValues.origin) setOrigin(initialValues.origin);
       if (initialValues.destination) setDestination(initialValues.destination);
+      if (initialValues.destination_delivery_type) {
+        setDestinationDeliveryType(initialValues.destination_delivery_type);
+      } else if (initialValues.prefer_ramp !== undefined) {
+        setDestinationDeliveryType(initialValues.prefer_ramp ? "RAMP" : "PORT");
+      }
       if (initialValues.container_types && initialValues.container_types.length > 0) {
         setContainerTypes(initialValues.container_types);
       } else if (initialValues.container_type) {
@@ -64,9 +76,9 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
   // Mirror the route upward so the workspace panel can pin it without
   // waiting for a search to run.
   useEffect(() => {
-    onRouteChange?.({ origin, destination, containerTypes, weightKg: weight });
+    onRouteChange?.({ origin, destination, containerTypes, weightKg: weight, destinationDeliveryType });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [origin, destination, containerTypes, weight]);
+  }, [origin, destination, containerTypes, weight, destinationDeliveryType]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +98,9 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
       carriers,
       origin,
       destination,
-      service_term: serviceTerm,
+      service_term: destinationDeliveryType === "RAMP" ? "CY/RAMP" : serviceTerm,
+      destination_delivery_type: destinationDeliveryType,
+      prefer_ramp: destinationDeliveryType === "RAMP",
       container_types: containerTypes,
       container_quantity: 1, // Fixed to 1
       weight_per_container_kg: weight,
@@ -187,8 +201,69 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
           label="Destination"
           value={destination}
           onChange={setDestination}
-          placeholder="e.g. Hamburg"
+          placeholder="e.g. Hamburg or Montreal [CAMTR]"
           required
+          icon={destinationDeliveryType === "RAMP" ? TrainTrack : Anchor}
+          headerRight={
+            <div
+              role="radiogroup"
+              aria-label="Destination delivery mode"
+              className="relative inline-flex items-center rounded-lg border border-border/80 bg-muted/60 dark:bg-muted/30 p-0.5 shadow-2xs backdrop-blur-xs select-none"
+            >
+              {/* Sliding highlight pill */}
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "absolute top-0.5 bottom-0.5 w-[calc(50%-2px)] rounded-md bg-background dark:bg-card shadow-xs transition-all duration-200 ease-out border border-border/50",
+                  destinationDeliveryType === "PORT"
+                    ? "left-0.5"
+                    : "left-[calc(50%+1px)]"
+                )}
+              />
+
+              <button
+                type="button"
+                role="radio"
+                aria-checked={destinationDeliveryType === "PORT"}
+                onClick={() => setDestinationDeliveryType("PORT")}
+                className={cn(
+                  "relative z-10 flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors select-none cursor-pointer",
+                  destinationDeliveryType === "PORT"
+                    ? "text-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Deliver to ocean port / container terminal"
+              >
+                <Anchor className="size-3 shrink-0" />
+                <span>Port</span>
+              </button>
+
+              <button
+                type="button"
+                role="radio"
+                aria-checked={destinationDeliveryType === "RAMP"}
+                onClick={() => setDestinationDeliveryType("RAMP")}
+                className={cn(
+                  "relative z-10 flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors select-none cursor-pointer",
+                  destinationDeliveryType === "RAMP"
+                    ? "text-primary font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Deliver to inland rail ramp / container depot (e.g. Montreal CAMTR, Chicago)"
+              >
+                <TrainTrack className="size-3 shrink-0" />
+                <span>Ramp</span>
+              </button>
+            </div>
+          }
+          helperText={
+            destinationDeliveryType === "RAMP" ? (
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-primary">
+                <TrainTrack className="size-3 shrink-0" />
+                <span>Inland Ramp delivery active — routes to rail ramp / container depot (e.g. CAMTR, USCHI).</span>
+              </div>
+            ) : null
+          }
         />
       </div>
 
@@ -284,9 +359,10 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
           onClick={() => {
             setOrigin("");
             setDestination("");
+            setDestinationDeliveryType("PORT");
             setWeight(20000);
             setContainerTypes(["DRY 40H"]);
-            toast.info("Cleared search fields (Origin, Destination, Weight, Container Types). RFQ text preserved.");
+            toast.info("Cleared search fields (Origin, Destination, Delivery Mode, Weight, Container Types). RFQ text preserved.");
           }}
           className="btn-interactive flex min-h-[48px] items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-4 text-xs font-medium text-secondary-foreground hover:bg-accent"
         >

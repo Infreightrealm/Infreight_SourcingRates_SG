@@ -71,6 +71,8 @@ CARRIER_PORT_OVERRIDES = {
         "CATOR": "Toronto",
         "CACAL": "Calgary",
         "CAMTR": "Montreal",
+        "TWTXG": "TAICHUNG CITY",
+        "USNYC": "NEW YORK, NY",
     },
     "cma": {
         "CAVAN": "Vancouver",

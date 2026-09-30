@@ -11,9 +11,21 @@ interface PortAutocompleteProps {
   onChange: (value: string) => void;
   placeholder?: string;
   required?: boolean;
+  headerRight?: React.ReactNode;
+  icon?: React.ComponentType<{ className?: string }>;
+  helperText?: React.ReactNode;
 }
 
-export default function PortAutocomplete({ label, value, onChange, placeholder, required }: PortAutocompleteProps) {
+export default function PortAutocomplete({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+  headerRight,
+  icon: IconComponent = Anchor,
+  helperText,
+}: PortAutocompleteProps) {
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -80,9 +92,12 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
   // above them explicitly or it renders behind the next row.
   return (
     <div className={cn("relative", showDropdown && "z-50")} ref={containerRef}>
-      <Label htmlFor={fieldId}>{label}</Label>
+      <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
+        <Label htmlFor={fieldId} className="mb-0">{label}</Label>
+        {headerRight}
+      </div>
       <div className="relative">
-        <Anchor className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <IconComponent className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground transition-colors" />
         <Input
           id={fieldId}
           type="text"
@@ -107,6 +122,10 @@ export default function PortAutocomplete({ label, value, onChange, placeholder, 
           </div>
         )}
       </div>
+
+      {helperText && (
+        <div className="mt-1 text-xs">{helperText}</div>
+      )}
 
       {showDropdown && suggestions.length > 0 && (
         <div

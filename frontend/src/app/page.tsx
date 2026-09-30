@@ -287,7 +287,9 @@ function HomeContent() {
             commodity: "Furniture",
             departure_date: "tomorrow",
             search_window_days: 14,
-            service_term: "CY/CY"
+            service_term: prev?.service_term || request.service_term || "CY/CY",
+            destination_delivery_type: prev?.destination_delivery_type || request.destination_delivery_type || "PORT",
+            prefer_ramp: prev?.prefer_ramp !== undefined ? prev.prefer_ramp : request.prefer_ramp,
           }));
         }
       });

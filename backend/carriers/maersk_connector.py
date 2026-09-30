@@ -937,14 +937,14 @@ class MaerskConnector(BaseCarrierConnector):
         try:
             await self._init_browser()
             print("[MAERSK] Navigating to Maersk Login page...")
-            # Navigate and wait for the full page load (MDS web components need JS to hydrate)
+            # Navigate and wait for DOM load
             try:
-                await self.page.goto("https://www.maersk.com/login", wait_until="load", timeout=60000)
+                await self.page.goto("https://www.maersk.com/login", wait_until="domcontentloaded", timeout=40000)
             except Exception as navigation_error:
                 print(f"[MAERSK] Navigation encountered an error/non-200 code: {navigation_error}")
                 print("[MAERSK] Proceeding anyway in case of Akamai/Cloudflare challenge rendering on 403...")
-            # Extra wait for MDS web components (<mc-input>, <mc-button>) to fully hydrate via JavaScript
-            await self.page.wait_for_timeout(5000)
+            # Wait for MDS web components (<mc-input>, <mc-button>) to hydrate
+            await self.page.wait_for_timeout(3000)
             print(f"[MAERSK] Landed on: {self.page.url}")
             
             # Check if we are already logged in (cookie session remembered in chrome_profile)
@@ -952,24 +952,29 @@ class MaerskConnector(BaseCarrierConnector):
             
             is_logged_in = False
             if "login" not in current_url.lower() and "auth" not in current_url.lower():
-                login_indicators = [
-                    'text="Log out"',
-                    'text="Sign out"',
-                    'text="Log Out"',
-                    'text="Sign Out"',
-                    '[class*="profile"]',
-                    '[class*="avatar"]',
-                    'a[href*="logout"]',
-                    'a[href*="signout"]'
-                ]
-                for selector in login_indicators:
-                    try:
-                        if await self.page.locator(selector).first.is_visible(timeout=1500):
-                            print(f"[MAERSK] Found login indicator: {selector}")
-                            is_logged_in = True
-                            break
-                    except Exception:
-                        pass
+                if "hub" in current_url.lower():
+                    print(f"[MAERSK] Landed on Hub ({current_url}). Session is active!")
+                    is_logged_in = True
+                else:
+                    login_indicators = [
+                        'text="Log out"',
+                        'text="Sign out"',
+                        'text="Log Out"',
+                        'text="Sign Out"',
+                        '[class*="profile"]',
+                        '[class*="avatar"]',
+                        'a[href*="logout"]',
+                        'a[href*="signout"]',
+                        'mc-header'
+                    ]
+                    for selector in login_indicators:
+                        try:
+                            if await self.page.locator(selector).first.is_visible(timeout=1500):
+                                print(f"[MAERSK] Found login indicator: {selector}")
+                                is_logged_in = True
+                                break
+                        except Exception:
+                            pass
             
             if is_logged_in:
                 print("[MAERSK] Session restored successfully! Already logged in.")

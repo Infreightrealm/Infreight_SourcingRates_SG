@@ -880,11 +880,14 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
         total_pairs = len(all_pairs)
         omitted = max(0, total_pairs - 10)
 
+        is_ramp_detected = "RAMP" in (all_pairs[0]["destination"] or "").upper() or "RAMP" in (text or "").upper()
         req = RateSearchRequest(
             carriers=["ALL"],
             origin=all_pairs[0]["origin"],
             destination=all_pairs[0]["destination"],
-            service_term="CY/CY",
+            service_term="CY/RAMP" if is_ramp_detected else "CY/CY",
+            destination_delivery_type="RAMP" if is_ramp_detected else "PORT",
+            prefer_ramp=is_ramp_detected,
             container_type=c_types[0],
             container_types=c_types,
             container_quantity=1,
@@ -1014,11 +1017,14 @@ def _run_mock_parse(raw_text: str, current_date_str: str) -> RFQParseResult:
 
     commodity = "machinery, packing materials, spare parts" if "machinery" in text_lower else ("rubber compound" if "rubber compound" in text_lower else ("PVC resin" if "pvc resin" in text_lower else "Furniture"))
 
+    is_ramp_mock = "RAMP" in raw_text.upper() or "RAIL" in raw_text.upper()
     req = RateSearchRequest(
         carriers=["ALL"],
         origin=orig_full or ("Singapore" if raw_origin == "Singapore" else "Port Klang"),
         destination=dest_full or ("Melbourne" if raw_dest == "Melbourne" else ("Chennai" if raw_dest == "Chennai" else "Jakarta")),
-        service_term="CY/CY",
+        service_term="CY/RAMP" if is_ramp_mock else "CY/CY",
+        destination_delivery_type="RAMP" if is_ramp_mock else "PORT",
+        prefer_ramp=is_ramp_mock,
         container_type=c_types[0],
         container_types=c_types,
         container_quantity=container_qty,
@@ -1703,11 +1709,14 @@ async def parse_rfq(
         capped_pairs = all_pairs[:max_pair_cap]
 
 
+        is_ramp_detected = "RAMP" in (capped_pairs[0]["destination"] or "").upper() or "RAMP" in (cleaned_text or "").upper()
         primary_req = RateSearchRequest(
             carriers=["ALL"],
             origin=capped_pairs[0]["origin"],
             destination=capped_pairs[0]["destination"],
-            service_term="CY/CY",
+            service_term="CY/RAMP" if is_ramp_detected else "CY/CY",
+            destination_delivery_type="RAMP" if is_ramp_detected else "PORT",
+            prefer_ramp=is_ramp_detected,
             container_type=c_types[0],
             container_types=c_types,
             container_quantity=container_qty,
