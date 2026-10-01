@@ -139,6 +139,8 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         self._route_cache: Dict[tuple, Tuple[CarrierResultStatus, List[QuoteSchema]]] = {}
         # Human-readable reason for a failed search, surfaced by job_service as the carrier error.
         self.last_error_message: Optional[str] = None
+        # Error reason codes (overarching / offer / equipment) seen in the current response, for logging
+        self._response_reasons: List[str] = []
 
         # Load Freetime Database
         self.freetime_config = self._load_freetime_config()
@@ -411,9 +413,10 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         if rate.get("seaFreightIndicator") or rate.get("chargeTypeCode") == "SEA":
             return False, ChargeCategory.BASIC_OCEAN_FREIGHT.value
         if rate.get("included"):
-            # "included into lump sum": already part of the Ocean Freight amount (e.g. Carrier
-            # Security Fee, shown on the portal as an assessorial of Ocean Freight). Listed, never added.
-            return False, ChargeCategory.UNCERTAIN_EXCLUDED.value
+            # "included into lump sum" = part of Hapag's all-in freight total. Live responses flag Marine
+            # Fuel Recovery and Carrier Security Fee this way; the portal adds MFR as a freight surcharge
+            # and shows CSF inside its "Ocean Freight" line, so both belong in the total.
+            return False, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value
         proposal = rate.get("locationProposal")
         if proposal == "BASE_PORT_FROM":
             return False, ChargeCategory.ORIGIN_CHARGE_EXCLUDED.value
@@ -474,6 +477,7 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         if reason:
             explanation = ERROR_REASON_EXPLANATIONS.get(reason, reason)
             self.last_error_message = f"Hapag-Lloyd API: {explanation} ({reason})"
+            self._response_reasons.append(reason)
 
     def _parse_offer_response_to_quotes(
         self,
@@ -560,7 +564,11 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                     continue
 
                 size_type = equip.get("requestedEquipment", {}).get("requestedEquipmentSizeType", "45GP")
-                container_type = ISO_TO_CONTAINER.get(size_type, requested_container_type)
+                container_type = ISO_TO_CONTAINER.get(size_type)
+                if not container_type:
+                    # Never relabel an unknown size (e.g. a special box) as the requested type
+                    print(f"[HAPAG_API] Ignoring equipment of unsupported size {size_type}")
+                    continue
 
                 raw_charges = []
                 for r in equip.get("rates", []):
@@ -581,8 +589,6 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                         # The shared classifier only reads weight tiers from the charge name (as the portal
                         # prints them); without this a Heavy Lift tier is counted for any cargo weight.
                         desc = f"{desc} ({weight_tier})"
-                    if r.get("included") and category == ChargeCategory.UNCERTAIN_EXCLUDED.value:
-                        desc = f"{desc} (included in Ocean Freight)"
                     amount = float(r.get("amount") or 0.0)
                     if r.get("unitOfMeasure") == "PERCENT":
                         # Percentage-based charge: not a money amount, keep it visible but out of totals
@@ -723,13 +729,22 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             self.last_error_message = f"Hapag-Lloyd API: unsupported container type(s) {', '.join(unknown_types)}"
             return CarrierResultStatus.INVALID_SEARCH_INPUT, []
 
-        all_quotes: List[QuoteSchema] = []
         last_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
         last_error = None
+        requested_names = [ISO_TO_CONTAINER[iso] for iso in iso_types]
+        # Hapag answers a 22GP request with 22GP, 42GP and 45GP for every sailing, so one response can
+        # cover several requested sizes. Keep the first response's quotes per size (no duplicates) and
+        # skip calls for sizes already returned (saves Tryout quota).
+        collected: Dict[str, List[QuoteSchema]] = {}
+        missing_notes: List[str] = []
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             for iso in iso_types:
-                mapped_container_name = ISO_TO_CONTAINER.get(iso, "DRY 40H")
+                mapped_container_name = ISO_TO_CONTAINER[iso]
+                if mapped_container_name in collected:
+                    print(f"[HAPAG_API] {iso} already returned by an earlier response - skipping its API call.")
+                    continue
+                self._response_reasons = []
                 payload = self.build_offer_request_payload(
                     origin_locode=origin_locode,
                     destination_locode=destination_locode,
@@ -750,19 +765,39 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                         destination_name=request.destination,
                         weight_kg=request.weight_per_container_kg,
                     )
-                    if parsed:
-                        all_quotes.extend(parsed)
-                        last_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+                    by_type: Dict[str, List[QuoteSchema]] = {}
+                    for q in parsed:
+                        by_type.setdefault(q.container_type, []).append(q)
+                    reasons = list(dict.fromkeys(self._response_reasons))
+                    print(
+                        f"[HAPAG_API] Requested {iso}: {len(data.get('offers') or [])} offer(s), "
+                        f"returned sizes {sorted(by_type)}, error reasons {reasons or 'none'}"
+                    )
+                    for ct, qs in by_type.items():
+                        if ct in requested_names and ct not in collected:
+                            collected[ct] = qs
+                    if mapped_container_name not in by_type:
+                        missing_notes.append(
+                            f"no {mapped_container_name} offers returned" + (f" ({', '.join(reasons)})" if reasons else "")
+                        )
                 else:
                     if err:
                         last_error = err
+                        missing_notes.append(f"{mapped_container_name}: {err}")
                     if status != CarrierResultStatus.NO_QUOTES_AVAILABLE and last_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                         last_status = status
 
+        all_quotes = [q for name in requested_names for q in collected.get(name, [])]
+        if missing_notes:
+            print(f"[HAPAG_API] Missing sizes: {'; '.join(missing_notes)}")
+
         if all_quotes:
-            print(f"[HAPAG_API] Successfully retrieved {len(all_quotes)} quotes across {len(iso_types)} container sizes.")
+            print(f"[HAPAG_API] Successfully retrieved {len(all_quotes)} quotes for {sorted(collected)}.")
             self.last_error_message = None
             return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, all_quotes
+
+        if missing_notes and not last_error:
+            self.last_error_message = "Hapag-Lloyd API: " + "; ".join(missing_notes)
 
         if last_error:
             self.last_error_message = last_error
