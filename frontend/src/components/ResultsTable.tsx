@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { RateSearchResultResponse, QuoteSchema } from "@/lib/types";
-import { CARRIERS } from "@/lib/types";
+import { CARRIERS, containerLabel } from "@/lib/types";
 import StatusBadge from "./StatusBadge";
 import QuoteBreakdownDrawer from "./QuoteBreakdownDrawer";
 import { Card } from "@/components/ui/card";
@@ -122,6 +122,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     "DRY 20": 1, "20GP": 1, "20'": 1,
     "DRY 40": 2, "40GP": 2, "40'": 2,
     "DRY 40H": 3, "40HQ": 3, "40HC": 3, "40'HQ": 3, "40'HC": 3,
+    "REEFER 20": 4, "20RF": 4,
+    "REEFER 40": 5, "40RH": 5,
   };
 
   const sortContainerTypes = (types: string[]): string[] => {
@@ -143,12 +145,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     )
   );
 
-  const getContainerDisplayName = (type: string) => {
-    if (type === "DRY 20") return "20GP";
-    if (type === "DRY 40") return "40GP";
-    if (type === "DRY 40H") return "40HQ";
-    return type;
-  };
+  const getContainerDisplayName = containerLabel;
 
   const filteredQuoteRows = quoteRows.filter((r) => {
     if (!r.quote) return false;
@@ -178,13 +175,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     const baseCurrency = quoteRows[0]?.quote?.currency || "USD";
 
     // Format container column header (e.g. DRY 40H -> 40HQ (USD))
-    const getContainerHeader = (type: string, currency: string) => {
-      let standardName = type;
-      if (type === "DRY 20") standardName = "20GP";
-      else if (type === "DRY 40") standardName = "40GP";
-      else if (type === "DRY 40H") standardName = "40HQ";
-      return `${standardName} (${currency})`;
-    };
+    const getContainerHeader = (type: string, currency: string) => `${containerLabel(type)} (${currency})`;
 
     const rateColumns = containerTypesList.map(type => ({
       type,
@@ -475,7 +466,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
               <div className="flex flex-wrap gap-1.5">
                 {sortContainerTypes(data.container_types || (data.container_type ? [data.container_type] : [])).map((ct) => (
                   <Badge key={ct} size="sm" variant="outline" className="rounded-md font-mono">
-                    {ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct} × {data.container_quantity}
+                    {containerLabel(ct)} × {data.container_quantity}
                   </Badge>
                 ))}
               </div>
@@ -628,7 +619,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         {/* Container */}
                         <td className="px-1 py-2">
                           <span className="inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium text-foreground">
-                            {row.quote.container_type === "DRY 20" ? "20GP" : row.quote.container_type === "DRY 40" ? "40GP" : row.quote.container_type === "DRY 40H" ? "40HQ" : row.quote.container_type || "—"}
+                            {row.quote.container_type ? containerLabel(row.quote.container_type) : "—"}
                           </span>
                         </td>
                         <td className="whitespace-nowrap px-1.5 py-2 font-mono text-[11px] text-muted-foreground">{formatDate(row.quote.etd)}</td>

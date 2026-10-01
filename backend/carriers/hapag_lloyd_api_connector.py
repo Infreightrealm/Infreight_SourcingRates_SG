@@ -25,7 +25,9 @@ from models.schemas import (
     QuoteSchema,
     ChargeSchema,
     CarrierResultStatus,
-    ChargeCategory
+    ChargeCategory,
+    DRY_CONTAINER_TYPES,
+    REEFER_CONTAINER_TYPES,
 )
 from carriers.base_connector import BaseCarrierConnector
 from services.port_manager import PortManager
@@ -47,6 +49,15 @@ CONTAINER_TO_ISO = {
     "40HC": "45GP",
     "40'HQ": "45GP",
     "40'HC": "45GP",
+    # Operating reefers (40' operating reefer is the high-cube 45RT per the Prices API spec)
+    "REEFER 20": "22RT",
+    "20RF": "22RT",
+    "20'RF": "22RT",
+    "REEFER 40": "45RT",
+    "40RF": "45RT",
+    "40RH": "45RT",
+    "40'RF": "45RT",
+    "40'RH": "45RT",
 }
 
 ISO_TO_CONTAINER = {
@@ -54,6 +65,8 @@ ISO_TO_CONTAINER = {
     "42GP": "DRY 40",
     "45GP": "DRY 40H",
     "45HC": "DRY 40H",
+    "22RT": "REEFER 20",
+    "45RT": "REEFER 40",
 }
 
 # Error reason mapping from OpenAPI spec
@@ -107,6 +120,7 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
     """
     carrier_code = "HAPAG_LLOYD"
     carrier_name = "Hapag-Lloyd"
+    supported_container_types = DRY_CONTAINER_TYPES | REEFER_CONTAINER_TYPES
 
     DEFAULT_BASE_URL = "https://api.hlag.com/hlag/external/v2/quotation-booking-engine/external"
     MOCK_BASE_URL = "https://mock.api-portal.hlag.com/v2/quotation-booking-engine/external"
@@ -694,10 +708,20 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
 
         # Determine container types to query
         iso_types = []
+        unknown_types = []
         for c in req_types:
-            iso = CONTAINER_TO_ISO.get(c.upper().strip(), "45GP")
+            iso = CONTAINER_TO_ISO.get(c.upper().strip())
+            if not iso:
+                # Never fall back to another size: a reefer priced as a 40'HC would look like a valid quote
+                unknown_types.append(c)
+                continue
             if iso not in iso_types:
                 iso_types.append(iso)
+        if unknown_types:
+            print(f"[HAPAG_API] Skipping unsupported container type(s): {unknown_types}")
+        if not iso_types:
+            self.last_error_message = f"Hapag-Lloyd API: unsupported container type(s) {', '.join(unknown_types)}"
+            return CarrierResultStatus.INVALID_SEARCH_INPUT, []
 
         all_quotes: List[QuoteSchema] = []
         last_status = CarrierResultStatus.NO_QUOTES_AVAILABLE

@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { RateSearchResultResponse, QuoteSchema } from "./types";
+import { containerLabel, type RateSearchResultResponse, type QuoteSchema } from "./types";
 
 export interface BatchRouteResult {
   origin: string;
@@ -20,6 +20,10 @@ const CONTAINER_ORDER: Record<string, number> = {
   "40HC": 3,
   "40'HQ": 3,
   "40'HC": 3,
+  "REEFER 20": 4,
+  "20RF": 4,
+  "REEFER 40": 5,
+  "40RH": 5,
 };
 
 function sortContainerTypes(types: string[]): string[] {
@@ -219,13 +223,7 @@ export async function exportSingleSearchToExcel(
   const containerTypesList = uniqueContainerTypes.length > 0 ? uniqueContainerTypes : sortContainerTypes(rawContainerTypes);
   const baseCurrency = allQuotes[0]?.currency || "USD";
 
-  const getContainerHeader = (type: string, currency: string) => {
-    let standardName = type;
-    if (type === "DRY 20") standardName = "20GP";
-    else if (type === "DRY 40") standardName = "40GP";
-    else if (type === "DRY 40H") standardName = "40HQ";
-    return `${standardName} (${currency})`;
-  };
+  const getContainerHeader = (type: string, currency: string) => `${containerLabel(type)} (${currency})`;
 
   const rateColumns = containerTypesList.map((type) => ({
     type,

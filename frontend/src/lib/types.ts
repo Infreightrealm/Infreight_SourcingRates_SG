@@ -179,6 +179,29 @@ export const CONTAINER_TYPES = [
   "DRY 40H",
 ] as const;
 
+/** Operating reefers — searched via the Hapag-Lloyd Prices API only (other connectors skip them). */
+export const REEFER_CONTAINER_TYPES = [
+  "REEFER 20",
+  "REEFER 40",
+] as const;
+
+const CONTAINER_LABELS: Record<string, string> = {
+  "DRY 20": "20GP",
+  "DRY 40": "40GP",
+  "DRY 40H": "40HQ",
+  "REEFER 20": "20RF",
+  "REEFER 40": "40RH",
+};
+
+/** Short trade label for a container type (DRY 40H -> 40HQ, REEFER 40 -> 40RH); unknown types pass through. */
+export function containerLabel(type: string): string {
+  return CONTAINER_LABELS[type] ?? type;
+}
+
+export function isReeferType(type: string): boolean {
+  return (REEFER_CONTAINER_TYPES as readonly string[]).includes(type);
+}
+
 export const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
   QUEUED: { label: "Queued", color: "text-gray-400", bg: "bg-gray-400/10" },
   RUNNING: { label: "Searching…", color: "text-blue-400", bg: "bg-blue-400/10" },

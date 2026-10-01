@@ -101,7 +101,12 @@ CONTAINER_TYPE_ORDER = {
     "DRY 20": 1, "20GP": 1, "20'": 1,
     "DRY 40": 2, "40GP": 2, "40'": 2,
     "DRY 40H": 3, "40HQ": 3, "40HC": 3, "40'HQ": 3, "40'HC": 3,
+    "REEFER 20": 4, "20RF": 4,
+    "REEFER 40": 5, "40RF": 5, "40RH": 5,
 }
+
+DRY_CONTAINER_TYPES = frozenset({"DRY 20", "DRY 40", "DRY 40H"})
+REEFER_CONTAINER_TYPES = frozenset({"REEFER 20", "REEFER 40"})
 
 def sort_container_types(types: list[str]) -> list[str]:
     """Sort container types in standard order: DRY 20 (20GP) -> DRY 40 (40GP) -> DRY 40H (40HQ)."""
