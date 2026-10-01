@@ -1,5 +1,5 @@
 "use client";
-import { STATUS_MAP } from "@/lib/types";
+import { STATUS_MAP, containerLabel } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Check, X } from "lucide-react";
@@ -14,10 +14,7 @@ export default function StatusBadge({ status, size = "sm" }: StatusBadgeProps) {
   let info = STATUS_MAP[status];
   if (!info && status.startsWith("RUNNING")) {
     const rawDetail = status.substring(7).trim().replace(/[()]/g, "");
-    let detail = rawDetail;
-    if (rawDetail === "DRY 20") detail = "20GP";
-    else if (rawDetail === "DRY 40") detail = "40GP";
-    else if (rawDetail === "DRY 40H") detail = "40HQ";
+    const detail = containerLabel(rawDetail);
     info = {
       label: detail ? `Searching ${detail}…` : "Searching…",
       color: "text-blue-400",

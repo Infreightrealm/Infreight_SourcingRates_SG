@@ -2,7 +2,13 @@
 import { useState, useEffect } from "react";
 import CarrierMultiSelect from "./CarrierMultiSelect";
 import PortAutocomplete from "./PortAutocomplete";
-import { CONTAINER_TYPES, type RateSearchRequest } from "@/lib/types";
+import {
+  CONTAINER_TYPES,
+  REEFER_CONTAINER_TYPES,
+  containerLabel,
+  isReeferType,
+  type RateSearchRequest,
+} from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
@@ -80,11 +86,21 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin, destination, containerTypes, weight, destinationDeliveryType]);
 
+  const hapagSelected = carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL");
+  // Reefers are only searchable through the Hapag-Lloyd Prices API for now.
+  const reeferAllowed = hapagSelected && hapagUseApi;
+  const effectiveContainerTypes = reeferAllowed ? containerTypes : containerTypes.filter((t) => !isReeferType(t));
+  const reeferSelected = effectiveContainerTypes.some(isReeferType);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (carriers.length === 0) return;
-    if (containerTypes.length === 0) {
-      toast.error("At least one container type must be selected");
+    if (effectiveContainerTypes.length === 0) {
+      toast.error(
+        containerTypes.length > 0
+          ? "Reefer containers need Hapag-Lloyd with the Prices API rate source switched on"
+          : "At least one container type must be selected"
+      );
       return;
     }
 
@@ -101,14 +117,14 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
       service_term: destinationDeliveryType === "RAMP" ? "CY/RAMP" : serviceTerm,
       destination_delivery_type: destinationDeliveryType,
       prefer_ramp: destinationDeliveryType === "RAMP",
-      container_types: containerTypes,
+      container_types: effectiveContainerTypes,
       container_quantity: 1, // Fixed to 1
       weight_per_container_kg: weight,
       commodity: "Furniture", // Fixed to Furniture
       departure_date: "tomorrow", // Fixed to tomorrow
       search_window_days: searchWindow,
-      hapag_region: carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL") ? hapagRegion : undefined,
-      hapag_use_api: carriers.includes("HAPAG_LLOYD") || carriers.includes("ALL") ? hapagUseApi : undefined,
+      hapag_region: hapagSelected ? hapagRegion : undefined,
+      hapag_use_api: hapagSelected ? hapagUseApi : undefined,
     });
   };
 
@@ -282,24 +298,28 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
         <div className="sm:col-span-2">
           <Label>Container Types</Label>
           <div className="mt-2.5 flex flex-col flex-wrap gap-2.5 sm:flex-row sm:gap-3">
-            {CONTAINER_TYPES.map((ct) => {
-              const isSelected = containerTypes.includes(ct);
-              const displayName = ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct;
+            {[...CONTAINER_TYPES, ...REEFER_CONTAINER_TYPES].map((ct) => {
+              const isDisabled = isReeferType(ct) && !reeferAllowed;
+              const isSelected = effectiveContainerTypes.includes(ct);
               return (
                 <label
                   key={ct}
-                  className={`btn-interactive flex min-h-[44px] cursor-pointer select-none items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium ${
-                    isSelected
-                      ? "border-primary/40 bg-primary/10 text-primary"
-                      : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                  title={isDisabled ? "Reefers: select Hapag-Lloyd and switch its rate source to Prices API" : undefined}
+                  className={`btn-interactive flex min-h-[44px] select-none items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium ${
+                    isDisabled
+                      ? "cursor-not-allowed border-border bg-card text-muted-foreground opacity-50"
+                      : isSelected
+                      ? "cursor-pointer border-primary/40 bg-primary/10 text-primary"
+                      : "cursor-pointer border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={isSelected}
+                    disabled={isDisabled}
                     onChange={() => {
                       if (isSelected) {
-                        if (containerTypes.length > 1) {
+                        if (effectiveContainerTypes.length > 1) {
                           setContainerTypes(containerTypes.filter(t => t !== ct));
                         } else {
                           toast.error("At least one container type must be selected");
@@ -311,11 +331,18 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
                     className="size-4 rounded border-input accent-[var(--primary)] focus-visible:ring-2 focus-visible:ring-ring/40"
                   />
                   <Container className="size-4 opacity-70" />
-                  <span>{displayName}</span>
+                  <span>{containerLabel(ct)}</span>
                 </label>
               );
             })}
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {reeferAllowed
+              ? reeferSelected
+                ? "Reefers (20RF / 40RH) are priced by the Hapag-Lloyd Prices API only; other carriers skip them."
+                : "Reefers (20RF / 40RH) available via the Hapag-Lloyd Prices API."
+              : "Reefers (20RF / 40RH) need Hapag-Lloyd with the Prices API rate source switched on."}
+          </p>
         </div>
 
         <div>

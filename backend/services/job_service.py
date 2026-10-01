@@ -184,8 +184,21 @@ async def run_carrier_search(
                 all_quotes = []
                 final_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 
-                c_types = request.container_types or [request.container_type]
-                
+                requested_types = request.container_types or [request.container_type]
+                # Only send each connector the container types it can search (e.g. reefers are
+                # Hapag-Lloyd Prices API only); scrapers read request.container_types to fill forms.
+                supported_types = getattr(connector, "supported_container_types", None)
+                c_types = [t for t in requested_types if supported_types is None or t.upper().strip() in supported_types]
+                skipped_types = [t for t in requested_types if t not in c_types]
+                if skipped_types:
+                    print(f"[JOB] {carrier_code}: skipping unsupported container type(s) {skipped_types}")
+                    if not c_types:
+                        final_status = CarrierResultStatus.CONNECTOR_NOT_AVAILABLE
+                        connector.last_error_message = (
+                            f"{', '.join(skipped_types)} not available for {carrier_code} with this rate source. "
+                            "Reefers are currently only searched via Hapag-Lloyd with the Prices API switch on."
+                        )
+
                 for c_index, c_type in enumerate(c_types):
                     print(f"[JOB] {carrier_code}: starting cycle {c_index + 1}/{len(c_types)} for container type {c_type}")
                     # Update status in database to show which type we are searching
@@ -196,7 +209,7 @@ async def run_carrier_search(
                             await cb_session.commit()
 
                     # Create request copy for this container type
-                    req_copy = request.model_copy(update={"container_type": c_type})
+                    req_copy = request.model_copy(update={"container_type": c_type, "container_types": c_types})
                     
                     # Run the full search flow
                     status, quotes = await connector.run_full_search(req_copy)

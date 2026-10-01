@@ -35,7 +35,12 @@ def is_weight_surcharge_applicable(
     cargo_wt_tons = cargo_wt_kg / 1000.0
 
     c_type_upper = (container_type or "").upper()
-    if "20" in c_type_upper:
+    is_reefer = "REEFER" in c_type_upper or "RF" in c_type_upper or "RH" in c_type_upper
+    if is_reefer and "20" in c_type_upper:
+        tare_kg = 3000.0  # 20' reefer (machinery adds ~800 kg over a 20' dry box)
+    elif is_reefer:
+        tare_kg = 4600.0  # 40' high-cube reefer
+    elif "20" in c_type_upper:
         tare_kg = 2200.0
     elif "40" in c_type_upper or "45" in c_type_upper:
         tare_kg = 3800.0

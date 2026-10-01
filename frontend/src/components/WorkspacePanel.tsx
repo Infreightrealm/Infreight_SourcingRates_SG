@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import UsageStats from "./UsageStats";
 import { ACCENTS, BRIGHTNESS_LEVELS, laneLabel, usePreferences, type SavedLane } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
+import { containerLabel } from "@/lib/types";
 
 interface WorkspacePanelProps {
   isOpen: boolean;
@@ -262,7 +263,7 @@ export default function WorkspacePanel({
                             key={ct}
                             className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
                           >
-                            {ct === "DRY 20" ? "20GP" : ct === "DRY 40" ? "40GP" : ct === "DRY 40H" ? "40HQ" : ct}
+                            {containerLabel(ct)}
                           </span>
                         ))}
                       </div>

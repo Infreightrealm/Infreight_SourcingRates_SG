@@ -7,7 +7,7 @@ the carrier's quote portal via Playwright browser automation.
 from abc import ABC, abstractmethod
 from typing import Optional, Any
 import asyncio
-from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus
+from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, DRY_CONTAINER_TYPES
 
 
 class BaseCarrierConnector(ABC):
@@ -15,6 +15,8 @@ class BaseCarrierConnector(ABC):
 
     carrier_code: str = "UNKNOWN"
     carrier_name: str = "Unknown Carrier"
+    # Container types this connector can search; job_service skips the rest (e.g. reefers on scrapers).
+    supported_container_types: frozenset = DRY_CONTAINER_TYPES
 
     def __init__(self):
         self.browser = None
