@@ -33,7 +33,6 @@ CARRIER_PORT_OVERRIDES = {
         # New port mappings requested
         "YEADE": "Aden, Yemen",
         "KHKOS": "Sihanoukville, Cambodia",
-        "CASHV": "Sihanoukville, Cambodia",
         "MYPEN": "Penang (Pulau Pinang), Malaysia",
         "MYPGU": "Pasir Gudang (Johor), Malaysia",
         "MYTPP": "Tanjung Pelepas (Johor), Malaysia",
@@ -535,6 +534,21 @@ class PortManager:
             self._ports = {}
             self._aliases = {}
 
+        # Standardize and enrich essential ports (e.g. Sihanoukville UN/LOCODE KHKOS)
+        if "KHKOS" in self._ports:
+            self._ports["KHKOS"]["name"] = "Sihanoukville (Kampong Saom)"
+            self._ports["KHKOS"]["name_ascii"] = "Sihanoukville"
+            self._ports["KHKOS"]["country"] = "KH"
+
+        # Populate aliases from PORT_NAME_KEYWORD_MAP so all carrier keyword aliases are searchable in frontend
+        for kw, locode in PORT_NAME_KEYWORD_MAP.items():
+            self._add_alias_internal(kw, locode)
+
+        self._add_alias_internal("sihanoukville", "KHKOS")
+        self._add_alias_internal("sihanouk", "KHKOS")
+        self._add_alias_internal("kampong saom", "KHKOS")
+        self._add_alias_internal("kompong som", "KHKOS")
+
         self._load_custom_ports()
 
         # Load persistent carrier ports cache
@@ -593,6 +607,31 @@ class PortManager:
             print(f"Error loading user carrier overrides: {e}")
             self._user_carrier_overrides = {}
 
+    def _add_alias_internal(self, alias: str, code: str):
+        alias_clean = alias.strip().lower()
+        code_upper = code.strip().upper()
+        if not alias_clean or not code_upper:
+            return
+        if alias_clean not in self._aliases:
+            self._aliases[alias_clean] = []
+        elif isinstance(self._aliases[alias_clean], str):
+            self._aliases[alias_clean] = [self._aliases[alias_clean]]
+        if code_upper not in self._aliases[alias_clean]:
+            self._aliases[alias_clean].append(code_upper)
+
+    def _remove_alias_internal(self, alias: str, code: str):
+        alias_clean = alias.strip().lower()
+        code_upper = code.strip().upper()
+        if not alias_clean or not code_upper:
+            return
+        if alias_clean in self._aliases:
+            if isinstance(self._aliases[alias_clean], list):
+                self._aliases[alias_clean] = [c for c in self._aliases[alias_clean] if c != code_upper]
+                if not self._aliases[alias_clean]:
+                    del self._aliases[alias_clean]
+            elif self._aliases[alias_clean] == code_upper:
+                del self._aliases[alias_clean]
+
     def _load_custom_ports(self):
         custom_path = os.path.join(os.path.dirname(__file__), "..", "data", "custom_ports.json")
         try:
@@ -603,12 +642,12 @@ class PortManager:
                     for code, pdata in custom_ports.items():
                         code_upper = code.upper()
                         self._ports[code_upper] = pdata
-                        name_lower = pdata.get("name", "").lower()
-                        if name_lower:
-                            self._aliases[name_lower] = code_upper
+                        name = pdata.get("name", "")
+                        if name:
+                            self._add_alias_internal(name, code_upper)
                         for alias in pdata.get("aliases", []):
                             if alias.strip():
-                                self._aliases[alias.strip().lower()] = code_upper
+                                self._add_alias_internal(alias, code_upper)
         except Exception as e:
             print(f"Error loading custom ports: {e}")
 
@@ -637,6 +676,7 @@ class PortManager:
         port_entry = {
             "code": code_upper,
             "name": name_clean,
+            "name_ascii": name_clean,
             "country": country_upper,
             "status": "APPROVED",
             "is_custom": True,
@@ -644,9 +684,9 @@ class PortManager:
         }
 
         self._ports[code_upper] = port_entry
-        self._aliases[name_clean.lower()] = code_upper
+        self._add_alias_internal(name_clean, code_upper)
         for alias in alias_list:
-            self._aliases[alias.lower()] = code_upper
+            self._add_alias_internal(alias, code_upper)
 
         self.popular_ports.add(code_upper)
         self._save_custom_ports()
@@ -660,9 +700,9 @@ class PortManager:
         code_upper = code.strip().upper()
         if code_upper in self._ports and self._ports[code_upper].get("is_custom"):
             pdata = self._ports.pop(code_upper)
-            self._aliases.pop(pdata.get("name", "").lower(), None)
+            self._remove_alias_internal(pdata.get("name", ""), code_upper)
             for alias in pdata.get("aliases", []):
-                self._aliases.pop(alias.lower(), None)
+                self._remove_alias_internal(alias, code_upper)
             self.popular_ports.discard(code_upper)
             self._save_custom_ports()
             self._save_config()

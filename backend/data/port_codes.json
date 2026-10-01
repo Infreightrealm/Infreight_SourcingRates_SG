@@ -146293,8 +146293,8 @@
       "code": "KHKOS",
       "country": "KH",
       "location": "KOS",
-      "name": "Kâmpóng Saôm",
-      "name_ascii": "Kampong Saom",
+      "name": "Sihanoukville (Kampong Saom)",
+      "name_ascii": "Sihanoukville",
       "subdivision": "",
       "status": "AI",
       "function": "1-34--7-",
@@ -440622,6 +440622,15 @@
     ],
     "port of zimbabwe": [
       "ZWZMZ"
+    ],
+    "sihanoukville": [
+      "KHKOS"
+    ],
+    "sihanouk": [
+      "KHKOS"
+    ],
+    "kompong som": [
+      "KHKOS"
     ]
   }
 }
