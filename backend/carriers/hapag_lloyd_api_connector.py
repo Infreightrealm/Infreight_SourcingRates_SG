@@ -413,10 +413,12 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         if rate.get("seaFreightIndicator") or rate.get("chargeTypeCode") == "SEA":
             return False, ChargeCategory.BASIC_OCEAN_FREIGHT.value
         if rate.get("included"):
-            # "included into lump sum" = part of Hapag's all-in freight total. Live responses flag Marine
-            # Fuel Recovery and Carrier Security Fee this way; the portal adds MFR as a freight surcharge
-            # and shows CSF inside its "Ocean Freight" line, so both belong in the total.
-            return False, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value
+            # "included into lump sum" = already inside the SEA amount. Verified Keelung -> Pasir Gudang:
+            # API SEA 450/400/400 equals the portal's Ocean Freight, which "includes the following
+            # assessorial charges: Carrier Security Fee, Destination Landfreight, Inland Transport Add.
+            # Origin" (Marine Fuel Recovery, also included=true there, is not listed separately).
+            # Listed for transparency, never added again.
+            return False, ChargeCategory.UNCERTAIN_EXCLUDED.value
         proposal = rate.get("locationProposal")
         if proposal == "BASE_PORT_FROM":
             return False, ChargeCategory.ORIGIN_CHARGE_EXCLUDED.value
@@ -594,6 +596,8 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                         # The shared classifier only reads weight tiers from the charge name (as the portal
                         # prints them); without this a Heavy Lift tier is counted for any cargo weight.
                         desc = f"{desc} ({weight_tier})"
+                    if r.get("included") and not r.get("seaFreightIndicator"):
+                        desc = f"{desc} (included in Ocean Freight)"
                     amount = float(r.get("amount") or 0.0)
                     if r.get("unitOfMeasure") == "PERCENT":
                         # Percentage-based charge: not a money amount, keep it visible but out of totals
