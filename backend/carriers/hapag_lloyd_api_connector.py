@@ -422,8 +422,13 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             return False, ChargeCategory.ORIGIN_CHARGE_EXCLUDED.value
         if proposal == "BASE_PORT_TO":
             return False, ChargeCategory.DESTINATION_CHARGE_EXCLUDED.value
-        if proposal in ("MAIN_CARRIAGE", "PC_CARRIAGE", "ON_CARRIAGE"):
-            # Main-carriage surcharges and inland pre/on-carriage are part of the freight (as on the portal)
+        if proposal == "PC_CARRIAGE":
+            # Inland pre-carriage charge NOT in the lump sum (e.g. Fuel Origin Inland): the portal lists it
+            # under Export Surcharges, unticked. Lump-sum ones (Inland Transport Add. Origin) return above.
+            return False, ChargeCategory.ORIGIN_CHARGE_EXCLUDED.value
+        if proposal == "ON_CARRIAGE":
+            return False, ChargeCategory.DESTINATION_CHARGE_EXCLUDED.value
+        if proposal == "MAIN_CARRIAGE":
             return False, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value
         return False, None
 
