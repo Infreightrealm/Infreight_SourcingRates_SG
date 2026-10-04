@@ -13,14 +13,14 @@ import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchCompletionModal } from "@/components/SearchCompletionModal";
 import { createRateSearch, createBatchRateSearch, pollRateSearch, pollBatchSearchStatus, healthCheck, getRateSearchResults, getApiUrl, getPrimaryApiUrl, registerUrlSwitchCallback, releaseRateSearch, forceRestorePrimary } from "@/lib/api";
-import type { RateSearchRequest, RateSearchResultResponse } from "@/lib/types";
+import { containerLabel, type RateSearchRequest, type RateSearchResultResponse } from "@/lib/types";
 import { exportMultiRouteResultsToExcel, exportTariffMatrixToExcel, type BatchRouteResult } from "@/lib/excelExport";
 import SearchHistoryModal from "@/components/SearchHistoryModal";
 import BackendConfigModal from "@/components/BackendConfigModal";
 import WorkspacePanel from "@/components/WorkspacePanel";
 import SocialWidget from "@/components/SocialWidget";
 import LaunchIntro from "@/components/LaunchIntro";
-import { usePreferences, type SavedLane } from "@/lib/preferences";
+import { laneLabel, usePreferences, type SavedLane } from "@/lib/preferences";
 import { Card } from "@/components/ui/card";
 import { Badge, Dot } from "@/components/ui/badge";
 import { Separator, SectionHeading } from "@/components/ui/surfaces";
@@ -702,13 +702,34 @@ function HomeContent() {
 
 
         {/* Search Form Card */}
-        <Card variant="glass" className="animate-fade-in-up stagger-1 p-6">
-          <SectionHeading
-            className="mb-5"
-            icon={<Search />}
-            title="Search Parameters"
-            description="Pick carriers, route and equipment, then run the search."
-          />
+        <Card variant={isV2 ? "default" : "glass"} className={isV2 ? "p-5 sm:p-6" : "animate-fade-in-up stagger-1 p-6"}>
+          {isV2 ? (
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <h1 className="text-xl font-bold text-foreground">New rate search</h1>
+              {prefs.lanes.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Saved lanes</span>
+                  {prefs.lanes.slice(0, 4).map((lane) => (
+                    <button
+                      key={lane.id}
+                      type="button"
+                      onClick={() => handleSelectLane(lane)}
+                      className="min-h-8 rounded-full border border-border bg-muted px-3 text-xs font-medium text-foreground hover:bg-accent"
+                    >
+                      {laneLabel(lane.origin)} → {laneLabel(lane.destination)} · {lane.containerTypes.map(containerLabel).join("/")}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <SectionHeading
+              className="mb-5"
+              icon={<Search />}
+              title="Search Parameters"
+              description="Pick carriers, route and equipment, then run the search."
+            />
+          )}
           <RateSearchForm key={searchId || JSON.stringify(parsedRfqFields) || "new"} onSubmit={handleSearch} isLoading={isLoading} initialValues={parsedRfqFields} selectedCarriers={selectedCarriers} onCarrierChange={setSelectedCarriers} onRouteChange={setFormRoute} />
         </Card>
 

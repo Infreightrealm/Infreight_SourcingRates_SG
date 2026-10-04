@@ -8,32 +8,33 @@ interface CarrierMultiSelectProps {
   onChange: (carriers: string[]) => void;
 }
 
+/** True when every carrier is selected ("ALL" or each code listed). */
+export function isAllCarriers(selected: string[]) {
+  return selected.includes("ALL") || selected.length === CARRIERS.length;
+}
+
+/** The selection after toggling "All carriers". */
+export function toggleAllCarriers(selected: string[]): string[] {
+  return isAllCarriers(selected) ? [] : ["ALL"];
+}
+
+/** The selection after toggling one carrier; a full set collapses to ["ALL"]. */
+export function toggleCarrierSelection(selected: string[], code: string): string[] {
+  if (selected.includes("ALL")) {
+    // Switching from ALL to specific: select all except the clicked one
+    return CARRIERS.filter((c) => c.code !== code).map((c) => c.code);
+  }
+  if (selected.includes(code)) return selected.filter((c) => c !== code);
+  const next = [...selected, code];
+  return next.length === CARRIERS.length ? ["ALL"] : next;
+}
+
 export default function CarrierMultiSelect({ selected, onChange }: CarrierMultiSelectProps) {
-  const allSelected = selected.includes("ALL") || selected.length === CARRIERS.length;
+  const allSelected = isAllCarriers(selected);
 
-  const toggleAll = () => {
-    if (allSelected) {
-      onChange([]);
-    } else {
-      onChange(["ALL"]);
-    }
-  };
+  const toggleAll = () => onChange(toggleAllCarriers(selected));
 
-  const toggleCarrier = (code: string) => {
-    if (selected.includes("ALL")) {
-      // Switching from ALL to specific: select all except the clicked one
-      onChange(CARRIERS.filter((c) => c.code !== code).map((c) => c.code));
-    } else if (selected.includes(code)) {
-      onChange(selected.filter((c) => c !== code));
-    } else {
-      const newSelected = [...selected, code];
-      if (newSelected.length === CARRIERS.length) {
-        onChange(["ALL"]);
-      } else {
-        onChange(newSelected);
-      }
-    }
-  };
+  const toggleCarrier = (code: string) => onChange(toggleCarrierSelection(selected, code));
 
   const isSelected = (code: string) => allSelected || selected.includes(code);
 

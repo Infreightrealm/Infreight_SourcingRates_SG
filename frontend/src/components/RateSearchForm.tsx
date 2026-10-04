@@ -2,6 +2,8 @@
 import { useState, useEffect } from "react";
 import CarrierMultiSelect from "./CarrierMultiSelect";
 import PortAutocomplete from "./PortAutocomplete";
+import SearchComposer from "./SearchComposer";
+import { usePreferences } from "@/lib/preferences";
 import {
   CONTAINER_TYPES,
   REEFER_CONTAINER_TYPES,
@@ -43,6 +45,7 @@ interface RateSearchFormProps {
 }
 
 export default function RateSearchForm({ onSubmit, isLoading, initialValues, selectedCarriers, onCarrierChange, onRouteChange }: RateSearchFormProps) {
+  const { prefs } = usePreferences();
   const [carriers, setCarriers] = useState<string[]>(selectedCarriers || initialValues?.carriers || ["ALL"]);
 
   const handleCarrierChange = (newCarriers: string[]) => {
@@ -128,6 +131,54 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
       hapag_use_api: hapagSelected ? hapagUseApi : undefined,
     });
   };
+
+  const toggleContainerType = (ct: string) => {
+    if (effectiveContainerTypes.includes(ct)) {
+      if (effectiveContainerTypes.length > 1) {
+        setContainerTypes(containerTypes.filter((t) => t !== ct));
+      } else {
+        toast.error("At least one container type must be selected");
+      }
+    } else {
+      setContainerTypes([...containerTypes, ct]);
+    }
+  };
+
+  const clearFields = () => {
+    setOrigin("");
+    setDestination("");
+    setDestinationDeliveryType("PORT");
+    setWeight(20000);
+    setContainerTypes(["DRY 40H"]);
+    toast.info("Cleared search fields (Origin, Destination, Delivery Mode, Weight, Container Types). RFQ text preserved.");
+  };
+
+  if (prefs.layout === "v2") {
+    return (
+      <SearchComposer
+        carriers={carriers}
+        onCarriersChange={handleCarrierChange}
+        origin={origin}
+        onOriginChange={setOrigin}
+        destination={destination}
+        onDestinationChange={setDestination}
+        delivery={destinationDeliveryType}
+        onDeliveryChange={setDestinationDeliveryType}
+        weight={weight}
+        onWeightChange={setWeight}
+        selectedTypes={effectiveContainerTypes}
+        onToggleType={toggleContainerType}
+        reeferAllowed={reeferAllowed}
+        hapagUseApi={hapagUseApi}
+        onHapagUseApiChange={setHapagUseApi}
+        hapagRegion={hapagRegion}
+        onHapagRegionChange={setHapagRegion}
+        isLoading={isLoading}
+        onSubmit={handleSubmit}
+        onClear={clearFields}
+      />
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in-up">
@@ -324,17 +375,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
                     type="checkbox"
                     checked={isSelected}
                     disabled={isDisabled}
-                    onChange={() => {
-                      if (isSelected) {
-                        if (effectiveContainerTypes.length > 1) {
-                          setContainerTypes(containerTypes.filter(t => t !== ct));
-                        } else {
-                          toast.error("At least one container type must be selected");
-                        }
-                      } else {
-                        setContainerTypes([...containerTypes, ct]);
-                      }
-                    }}
+                    onChange={() => toggleContainerType(ct)}
                     className="size-4 rounded border-input accent-[var(--primary)] focus-visible:ring-2 focus-visible:ring-ring/40"
                   />
                   <Container className="size-4 opacity-70" />
@@ -390,14 +431,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
 
         <button
           type="button"
-          onClick={() => {
-            setOrigin("");
-            setDestination("");
-            setDestinationDeliveryType("PORT");
-            setWeight(20000);
-            setContainerTypes(["DRY 40H"]);
-            toast.info("Cleared search fields (Origin, Destination, Delivery Mode, Weight, Container Types). RFQ text preserved.");
-          }}
+          onClick={clearFields}
           className="btn-interactive flex min-h-[48px] items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-4 text-xs font-medium text-secondary-foreground hover:bg-accent"
         >
           <Eraser className="size-3.5" />
