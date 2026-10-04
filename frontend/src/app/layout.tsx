@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Instrument_Sans, Inter } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -7,6 +7,12 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+});
+
+// Body face for the v2 layout (globals.css switches to it under [data-layout="v2"]).
+const instrumentSans = Instrument_Sans({
+  subsets: ["latin"],
+  variable: "--font-instrument",
 });
 
 export const metadata: Metadata = {
@@ -59,14 +65,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} min-h-screen overflow-x-hidden bg-background font-sans text-foreground antialiased transition-colors duration-300`}>
+      <body className={`${inter.variable} ${instrumentSans.variable} min-h-screen overflow-x-hidden bg-background font-sans text-foreground antialiased transition-colors duration-300`}>
         <script
           dangerouslySetInnerHTML={{
             __html: `
               try {
+                document.documentElement.dataset.layout = 'v2';
                 const raw = localStorage.getItem('infreight.workspace.v1');
                 if (raw) {
                   const p = JSON.parse(raw);
+                  if (p.layout === 'classic') document.documentElement.dataset.layout = 'classic';
                   if (p.accent) document.documentElement.dataset.accent = p.accent;
                   if (p.density) document.documentElement.dataset.density = p.density;
                   if (p.brightness) document.documentElement.dataset.brightness = p.brightness;

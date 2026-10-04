@@ -13,6 +13,8 @@ import { useCallback, useSyncExternalStore } from "react";
 export type AccentId = "marine" | "harbour" | "violet" | "sunset" | "graphite";
 export type Density = "comfortable" | "compact";
 export type BrightnessLevel = "soft" | "normal" | "vivid";
+/** "v2" is the redesigned workspace; "classic" keeps the original look and screens. */
+export type LayoutId = "v2" | "classic";
 
 export interface BrightnessOption {
   id: BrightnessLevel;
@@ -68,6 +70,7 @@ export interface Preferences {
   accent: AccentId;
   density: Density;
   brightness: BrightnessLevel;
+  layout: LayoutId;
   panels: PanelVisibility;
   lanes: SavedLane[];
   /** Set once the launch intro has played; gates it to first visit. */
@@ -89,6 +92,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   accent: "marine",
   density: "comfortable",
   brightness: "normal",
+  layout: "v2",
   panels: { rfq: true, liveViewer: true, assistant: true },
   lanes: [],
   introSeen: false,
@@ -118,6 +122,7 @@ function coerce(raw: unknown): Preferences {
       r.brightness === "soft" || r.brightness === "vivid" || r.brightness === "normal"
         ? r.brightness
         : DEFAULT_PREFERENCES.brightness,
+    layout: r.layout === "classic" ? "classic" : "v2",
     panels: {
       rfq: panels.rfq !== false,
       liveViewer: panels.liveViewer !== false,

@@ -903,3 +903,40 @@ body::after {
     transform: translateX(230%);
   }
 }
+
+/* ============================================================================
+   v2 layout — the redesigned workspace (Workspace › Appearance › Layout).
+   Light mode only: navy ink on a cool grey page with white cards, and a
+   darker secondary text colour for readability. Classic keeps the tokens
+   above; dark mode keeps its own palette and brightness levels.
+   ========================================================================= */
+[data-layout="v2"]:not(.dark) {
+  --background: #f4f6f9;
+  --foreground: #0e1a2b;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --secondary: #eef1f6;
+  --secondary-foreground: #0e1a2b;
+  --muted: #f7f8fb;
+  --muted-foreground: #4a5568;
+  --accent: #eef1f6;
+  --accent-foreground: #0e1a2b;
+  --border: #e3e7ee;
+  --line: #edf0f4;
+  --input: #c9d0db;
+  --warning-foreground: #8a5a00;
+  --success-foreground: #13734a;
+}
+
+/* The default (marine) accent becomes the v2 blue; other accents still apply. */
+[data-layout="v2"][data-accent="marine"]:not(.dark) {
+  --primary: #1f4fd1;
+  --brand-from: #1f4fd1;
+  --brand-to: #3b5fe0;
+  --ring: #1f4fd1;
+}
+
+[data-layout="v2"] body {
+  font-family: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}

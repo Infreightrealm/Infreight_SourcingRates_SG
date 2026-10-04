@@ -5,6 +5,7 @@ import RateSearchForm from "@/components/RateSearchForm";
 import RfqInputSection from "@/components/RfqInputSection";
 import ResultsTable from "@/components/ResultsTable";
 import LoadingState from "@/components/LoadingState";
+import LiveSearchProgress from "@/components/LiveSearchProgress";
 import StatusBadge from "@/components/StatusBadge";
 import VncViewer from "@/components/VncViewer";
 import ChatWidget from "@/components/ChatWidget";
@@ -56,7 +57,8 @@ function HomeContent() {
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [introReplayKey, setIntroReplayKey] = useState(0);
   const [formRoute, setFormRoute] = useState<{ origin: string; destination: string; containerTypes: string[]; weightKg: number } | null>(null);
-  const { prefs } = usePreferences();
+  const { prefs, setPanel } = usePreferences();
+  const isV2 = prefs.layout === "v2";
   const [parsedRfqFields, setParsedRfqFields] = useState<RateSearchRequest | undefined>(undefined);
 
   // Continuous Batch Multi-Route Execution State
@@ -123,7 +125,8 @@ function HomeContent() {
     root.dataset.accent = prefs.accent;
     root.dataset.density = prefs.density;
     root.dataset.brightness = prefs.brightness;
-  }, [prefs.accent, prefs.density, prefs.brightness]);
+    root.dataset.layout = prefs.layout;
+  }, [prefs.accent, prefs.density, prefs.brightness, prefs.layout]);
 
   // Resume polling or restore batch results if search_ids or id is in URL on mount
   useEffect(() => {
@@ -725,8 +728,17 @@ function HomeContent() {
           </Card>
         )}
 
-        {/* Loading */}
-        {isLoading && !searchResult && <LoadingState />}
+        {/* Loading / live carrier progress */}
+        {isV2 && (isLoading || searchResult) && (
+          <LiveSearchProgress
+            key={searchResult?.search_id ?? searchId ?? "pending"}
+            result={searchResult}
+            isLoading={isLoading}
+            liveViewerEnabled={prefs.panels.liveViewer}
+            onEnableLiveViewer={() => setPanel("liveViewer", true)}
+          />
+        )}
+        {!isV2 && isLoading && !searchResult && <LoadingState />}
 
         {/* Results */}
         {searchResult && (

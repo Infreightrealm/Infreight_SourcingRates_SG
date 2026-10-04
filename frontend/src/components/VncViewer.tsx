@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import type { CarrierResultSchema } from "@/lib/types";
+import { OPEN_LIVE_VIEWER_EVENT, VNC_TAB_BY_CARRIER } from "@/lib/liveViewer";
 
 interface VncViewerProps {
   backendUrl: string;
@@ -48,6 +49,18 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
       })
       .catch(() => setIsAvailable(false));
   }, [backendUrl]);
+
+  // Opened on request from elsewhere on the page (e.g. a carrier needing a CAPTCHA).
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const carrier = (e as CustomEvent<{ carrier?: string }>).detail?.carrier;
+      const tab = carrier ? VNC_TAB_BY_CARRIER[carrier] : undefined;
+      if (tab) setActiveTab(tab);
+      setIsOpen(true);
+    };
+    window.addEventListener(OPEN_LIVE_VIEWER_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_LIVE_VIEWER_EVENT, onOpen);
+  }, []);
 
   // Auto-open when searching starts
   useEffect(() => {
