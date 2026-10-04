@@ -287,6 +287,29 @@ export default function WorkspacePanel({
             <div className="space-y-3">
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Layout
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { id: "v2", label: "New layout", hint: "Live carrier progress, clearer colours" },
+                      { id: "classic", label: "Classic layout", hint: "The original screens" },
+                    ] as const
+                  ).map((opt) => (
+                    <ChoiceCard
+                      key={opt.id}
+                      selected={prefs.layout === opt.id}
+                      onClick={() => setPreferences({ layout: opt.id })}
+                    >
+                      <span className="text-xs font-medium text-foreground">{opt.label}</span>
+                      <span className="text-[11px] text-muted-foreground">{opt.hint}</span>
+                    </ChoiceCard>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Theme
                 </p>
                 <div className="grid grid-cols-3 gap-2">
