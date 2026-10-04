@@ -67,6 +67,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
   const [selectedQuote, setSelectedQuote] = useState<{ quote: QuoteSchema; carrier: string } | null>(null);
   const [sortBy, setSortBy] = useState<"freight" | "etd" | "transit">("freight");
   const [containerFilter, setContainerFilter] = useState<string>("ALL");
+  // Carriers shown; empty means all of them.
+  const [carrierFilter, setCarrierFilter] = useState<string[]>([]);
 
   if (!data) return null;
 
@@ -114,8 +116,18 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     }
   }
 
+  const isCarrierShown = (carrier: string) => carrierFilter.length === 0 || carrierFilter.includes(carrier);
+  const toggleCarrier = (carrier: string) =>
+    setCarrierFilter((current) =>
+      current.includes(carrier) ? current.filter((c) => c !== carrier) : [...current, carrier]
+    );
+  const carrierOptions = data.results.map((cr) => {
+    const info = CARRIERS.find((c) => c.code === cr.carrier);
+    return { code: cr.carrier, name: info?.name || cr.carrier, color: info?.color || "#666", quotes: cr.quotes.length };
+  });
+
   const quoteRows = allRows.filter((r) => r.quote);
-  const nonQuoteRows = allRows.filter((r) => !r.quote);
+  const nonQuoteRows = allRows.filter((r) => !r.quote && isCarrierShown(r.carrier));
 
 
   const CONTAINER_ORDER: Record<string, number> = {
@@ -149,6 +161,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
 
   const filteredQuoteRows = quoteRows.filter((r) => {
     if (!r.quote) return false;
+    if (!isCarrierShown(r.carrier)) return false;
     if (containerFilter === "ALL") return true;
     return r.quote.container_type === containerFilter;
   });
@@ -226,7 +239,8 @@ export default function ResultsTable({ data }: ResultsTableProps) {
     // Group and add rows side-by-side
     const groupedExcelRows: any[] = [];
     
-    for (const cr of data.results) {
+    // Export follows the carrier filter on screen.
+    for (const cr of data.results.filter((result) => isCarrierShown(result.carrier))) {
       const carrierInfo = CARRIERS.find(c => c.code === cr.carrier);
       const carrierName = carrierInfo?.name || cr.carrier;
 
@@ -535,6 +549,44 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             )}
           </div>
         </div>
+
+        {/* Carrier Filter */}
+        {carrierOptions.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-xs font-medium text-muted-foreground">Carrier:</span>
+            <button
+              onClick={() => setCarrierFilter([])}
+              aria-pressed={carrierFilter.length === 0}
+              className={`btn-interactive flex min-h-[34px] items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
+                carrierFilter.length === 0
+                  ? "border border-primary/30 bg-primary/12 text-primary shadow-panel"
+                  : "border border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              All
+            </button>
+            {carrierOptions.map((carrier) => {
+              const isActive = carrierFilter.includes(carrier.code);
+              return (
+                <button
+                  key={carrier.code}
+                  onClick={() => toggleCarrier(carrier.code)}
+                  aria-pressed={isActive}
+                  title={isActive ? `Hide ${carrier.name}` : `Show only selected carriers (add ${carrier.name})`}
+                  className={`btn-interactive flex min-h-[34px] items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
+                    isActive
+                      ? "border border-primary/30 bg-primary/12 text-primary shadow-panel"
+                      : "border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
+                  <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: carrier.color }} />
+                  {carrier.name}
+                  <span className="font-mono tabular-nums opacity-70">{carrier.quotes}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Mismatch Warning Banner */}
         {data.results.some((cr) => cr.has_port_mismatch === true) && (

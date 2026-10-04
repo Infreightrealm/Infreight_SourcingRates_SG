@@ -35,13 +35,12 @@ export default function AdminDashboard() {
   const [adminUsernameInput, setAdminUsernameInput] = useState("");
   const [password, setPassword] = useState("");
   const [users, setUsers] = useState<UserRecord[]>([]);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [userSearchTerm, setUserSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates" | "audit">("analytics");
+  const [activeTab, setActiveTab] = useState<"analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates">("analytics");
 
   // Consolidated Analytics state
   const [analyticsData, setAnalyticsData] = useState<any>(null);
@@ -210,7 +209,7 @@ export default function AdminDashboard() {
     if (authenticated) {
       if (activeTab === "analytics") {
         fetchAnalytics();
-      } else if (activeTab === "users" || activeTab === "audit") {
+      } else if (activeTab === "users") {
         fetchUsers();
       } else if (activeTab === "route_health") {
         fetchRouteHealth();
@@ -303,7 +302,6 @@ export default function AdminDashboard() {
     try {
       const data = await getAdminOverview(password);
       setUsers(data.users || []);
-      setAuditLogs(data.audit || []);
       if (data.me) setCurrentUser(data.me);
     } catch (e) {
       console.error("Failed to fetch users overview", e);
@@ -796,20 +794,6 @@ export default function AdminDashboard() {
           >
             Route Reliability Matrix
             {activeTab === "route_health" && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("audit")}
-            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
-              activeTab === "audit"
-                ? "text-indigo-600 dark:text-indigo-400"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Shield className="w-4 h-4" />
-            Security Audit Log
-            {activeTab === "audit" && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
             )}
           </button>
@@ -2511,100 +2495,6 @@ export default function AdminDashboard() {
                   })}
               </div>
             )}
-          </div>
-        )}
-
-        {/* Security Audit Log Tab */}
-        {activeTab === "audit" && (
-          <div className="border border-border bg-card rounded-3xl p-6 shadow-sm space-y-6">
-            <div className="flex items-center justify-between flex-wrap gap-4 border-b border-border pb-4">
-              <div>
-                <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-indigo-500" />
-                  <span>Security Audit Log</span>
-                </h2>
-                <p className="text-muted-foreground text-sm mt-1">
-                  Track all authentication attempts, privilege grants, user approvals, and administrative actions.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={fetchUsers}
-                  className="px-3.5 py-2 bg-muted hover:bg-accent text-foreground rounded-xl text-xs font-semibold transition-colors flex items-center gap-2"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Refresh Audit Trail
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/40 dark:bg-black/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-6 py-4 font-medium">Timestamp</th>
-                    <th className="px-6 py-4 font-medium">Actor</th>
-                    <th className="px-6 py-4 font-medium">Action</th>
-                    <th className="px-6 py-4 font-medium">Target</th>
-                    <th className="px-6 py-4 font-medium">Details</th>
-                    <th className="px-6 py-4 font-medium">IP Address</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {auditLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
-                        No security audit logs recorded yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    auditLogs.map((log) => {
-                      const isAlert =
-                        log.action?.includes("failed") ||
-                        log.action?.includes("reject") ||
-                        log.action?.includes("disable");
-                      const isSuccess =
-                        log.action?.includes("login") ||
-                        log.action?.includes("approve") ||
-                        log.action?.includes("enable");
-                      return (
-                        <tr key={log.id} className="hover:bg-accent/60 transition-colors">
-                          <td className="px-6 py-4 text-xs font-mono text-muted-foreground whitespace-nowrap">
-                            {log.created_at ? new Date(log.created_at).toLocaleString() : "-"}
-                          </td>
-                          <td className="px-6 py-4 font-semibold text-foreground text-xs font-mono">
-                            @{log.actor_username || "system"}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold uppercase tracking-wider ${
-                                isAlert
-                                  ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
-                                  : isSuccess
-                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                  : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20"
-                              }`}
-                            >
-                              {log.action}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-xs font-mono text-muted-foreground">
-                            {log.target_username ? `@${log.target_username}` : "-"}
-                          </td>
-                          <td className="px-6 py-4 text-xs text-muted-foreground max-w-xs truncate">
-                            {typeof log.details === "object" ? JSON.stringify(log.details) : log.details || "-"}
-                          </td>
-                          <td className="px-6 py-4 text-xs font-mono text-muted-foreground">
-                            {log.ip_address || "-"}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
         )}
 

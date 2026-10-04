@@ -17,6 +17,7 @@ import {
   Anchor,
   Container,
   Eraser,
+  Info,
   Loader2,
   Search,
   TrainTrack,
@@ -265,7 +266,7 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
                     ? "text-primary font-semibold"
                     : "text-muted-foreground hover:text-foreground"
                 )}
-                title="Deliver to inland rail ramp / container depot (e.g. Montreal CAMTR, Chicago)"
+                title="Deliver to inland rail ramp / container depot (e.g. Montreal CAMTR, Chicago). Currently applied by CMA CGM only."
               >
                 <TrainTrack className="size-3 shrink-0" />
                 <span>Ramp</span>
@@ -274,9 +275,15 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
           }
           helperText={
             destinationDeliveryType === "RAMP" ? (
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-primary">
-                <TrainTrack className="size-3 shrink-0" />
-                <span>Inland Ramp delivery active — routes to rail ramp / container depot (e.g. CAMTR, USCHI).</span>
+              <div className="space-y-0.5 text-[11px] font-medium">
+                <div className="flex items-center gap-1.5 text-primary">
+                  <TrainTrack className="size-3 shrink-0" />
+                  <span>Inland Ramp delivery active — routes to rail ramp / container depot (e.g. CAMTR, USCHI).</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-warning-foreground">
+                  <Info className="size-3 shrink-0" />
+                  <span>Ramp currently applies to CMA CGM only. Other carriers still search port-to-port.</span>
+                </div>
               </div>
             ) : null
           }
