@@ -7,8 +7,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- BEGIN:infreight-design-system -->
 # Design system — read before touching any UI
 
-Since 2026-09-07 this frontend runs on a semantic token layer adapted from
-componentry.dev. Full write-up: `../FRONTEND_REDESIGN_2026-09-07.md`.
+This frontend uses a semantic token layer adapted from componentry.dev.
+Full write-up: `../FRONTEND_REDESIGN_2026-09-07.md`.
 
 ## Use tokens, not raw colours
 
@@ -36,14 +36,14 @@ five user-selectable accents (which re-point `--primary` / `--brand-from` /
 `Separator`/`Skeleton`/`SectionHeading`. Prefer these over new one-off markup.
 Merge classes with `cn()` from `@/lib/utils`.
 
-## Two traps that have already bitten
+## Animation rules
 
 1. **Entrance animations create stacking contexts.** `animation-fill-mode: both`
    holds the final keyframe forever, so a final `transform: translateY(0)` leaves a
    permanent stacking context that traps dropdowns behind later siblings. Entrance
    keyframes must end on `transform: none`.
-2. **Don't call a utility class that has no keyframes.** 27 such classes shipped
-   dead before this refactor. If you add `animate-*`, define it.
+2. **Every `animate-*` class you use needs keyframes.** An undefined one silently
+   does nothing, so define the keyframes whenever you add the class.
 
 ## Client-only preferences
 
