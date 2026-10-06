@@ -4,7 +4,9 @@ Job Service — orchestrates carrier search jobs.
 Creates background tasks per carrier, runs connectors, persists results.
 """
 import asyncio
+import os
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -132,6 +134,48 @@ active_search_tasks: dict[str, list[asyncio.Task]] = {}
 
 
 
+# Hard limit for one carrier on one container size. A connector whose browser
+# hangs (blank page, stuck navigation) would otherwise hold its concurrency slot,
+# the search and the team-wide search queue forever.
+CARRIER_SEARCH_TIMEOUT_SEC = float(os.getenv("CARRIER_SEARCH_TIMEOUT_SEC", "900"))
+
+
+async def _run_size_search(connector, request: RateSearchRequest):
+    """
+    Run one container-size search, stopping it early if the browser tab crashes or
+    it exceeds CARRIER_SEARCH_TIMEOUT_SEC. Returns (status, quotes, stop_reason)
+    where stop_reason is None, "crash" or "timeout". A stopped run is cancelled,
+    and its run_full_search finally block closes the browser.
+    """
+    crashed = getattr(connector, "browser_crashed", None)
+    if crashed is not None:
+        crashed.clear()
+        connector.browser_crash_message = None
+
+    search = asyncio.ensure_future(connector.run_full_search(request))
+    crash_wait = asyncio.ensure_future(crashed.wait()) if crashed is not None else None
+    waiters = {search} | ({crash_wait} if crash_wait else set())
+    try:
+        done, _ = await asyncio.wait(waiters, timeout=CARRIER_SEARCH_TIMEOUT_SEC, return_when=asyncio.FIRST_COMPLETED)
+    except BaseException:
+        # Force Stop cancels us; asyncio.wait does not cancel the search itself.
+        search.cancel()
+        raise
+    finally:
+        if crash_wait is not None:
+            crash_wait.cancel()
+
+    if search in done:
+        status, quotes = search.result()
+        return status, quotes, None
+
+    search.cancel()
+    await asyncio.wait({search}, timeout=30)
+    if crash_wait is not None and crash_wait in done:
+        return CarrierResultStatus.FAILED, [], "crash"
+    return CarrierResultStatus.TIMEOUT, [], "timeout"
+
+
 async def run_carrier_search(
     search_id: UUID,
     carrier_code: str,
@@ -182,6 +226,8 @@ async def run_carrier_search(
 
                 # Run searches sequentially for each container type in request.container_types
                 all_quotes = []
+                timed_out_types: list[str] = []
+                crash_messages: list[str] = []
                 final_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 
                 requested_types = request.container_types or [request.container_type]
@@ -211,8 +257,17 @@ async def run_carrier_search(
                     # Create request copy for this container type
                     req_copy = request.model_copy(update={"container_type": c_type, "container_types": c_types})
                     
-                    # Run the full search flow
-                    status, quotes = await connector.run_full_search(req_copy)
+                    # Run the full search flow, stopped early on a crashed tab or the time cap.
+                    status, quotes, stop_reason = await _run_size_search(connector, req_copy)
+                    if stop_reason == "timeout":
+                        timed_out_types.append(c_type)
+                        print(
+                            f"[JOB] {carrier_code}: TIMEOUT after {CARRIER_SEARCH_TIMEOUT_SEC / 60:.0f} min "
+                            f"on {c_type}; browser closed, moving on"
+                        )
+                    elif stop_reason == "crash":
+                        crash_messages.append(f"{c_type}: {connector.browser_crash_message}")
+                        print(f"[JOB] {carrier_code}: browser crashed on {c_type}; stopped, moving on")
                     
                     # Inject the current cycle container type into each quote schema if not already set
                     for q in quotes:
@@ -231,6 +286,9 @@ async def run_carrier_search(
                     elif status == CarrierResultStatus.SERVICE_UNAVAILABLE:
                         if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                             final_status = CarrierResultStatus.SERVICE_UNAVAILABLE
+                    elif status == CarrierResultStatus.TIMEOUT:
+                        if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                            final_status = CarrierResultStatus.TIMEOUT
                     elif status == CarrierResultStatus.FAILED:
                         if final_status not in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.CONNECTOR_NOT_AVAILABLE):
                             final_status = CarrierResultStatus.FAILED
@@ -296,6 +354,15 @@ async def run_carrier_search(
                 connector_error = getattr(connector, "last_error_message", None)
                 if connector_error and final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                     db_result.error_message = str(connector_error)
+
+                stop_notes = list(crash_messages)
+                if timed_out_types:
+                    stop_notes.append(
+                        f"Stopped after {CARRIER_SEARCH_TIMEOUT_SEC / 60:.0f} min on "
+                        f"{', '.join(timed_out_types)}: the carrier site stopped responding."
+                    )
+                if stop_notes:
+                    db_result.error_message = " ".join(stop_notes)
 
                 # Persist quotes
                 for q in all_quotes:
@@ -546,6 +613,8 @@ async def run_all_carrier_searches(
         if isinstance(e, asyncio.CancelledError):
             raise
     finally:
+        # While this search still holds the queue, nothing else can have started.
+        await asyncio.shield(cleanup_browsers_if_idle(search_str_id))
         # Guarantee queue lock is released the moment scraping completes or fails
         await queue_manager.release_lock(search_str_id)
 
@@ -553,6 +622,27 @@ async def run_all_carrier_searches(
 
 
 active_batch_tasks: list[asyncio.Task] = []
+
+
+async def cleanup_browsers_if_idle(owner_search_id: Optional[str] = None) -> None:
+    """
+    Kill leftover browsers and delete leftover temporary profiles, but only when no
+    search (other than `owner_search_id`, which has finished its carriers) and no
+    RFQ batch is running: at that point no automated Chrome should be alive.
+    """
+    from services.browser_cleanup import remove_stale_temp_profiles, sweep_orphan_browsers
+
+    others_running = any(not t.done() for tasks in active_search_tasks.values() for t in tasks)
+    batch_running = any(not t.done() for t in active_batch_tasks)
+    active = queue_manager.active_search_id
+    if others_running or batch_running or (active is not None and active != owner_search_id):
+        return
+    try:
+        sweep_orphan_browsers()
+        # Folders younger than 10 min are left alone in case a new search just made one.
+        await asyncio.to_thread(remove_stale_temp_profiles, (), 600)
+    except Exception as e:
+        print(f"[CLEANUP] Idle cleanup failed: {e}")
 
 
 async def cancel_all_active_searches():
@@ -574,6 +664,7 @@ async def cancel_all_active_searches():
     # Force close all open Playwright Chrome browser windows across all carriers
     from carriers.registry import close_all_active_connectors
     await close_all_active_connectors()
+    await cleanup_browsers_if_idle()
 
     return cancelled_count
 
@@ -670,3 +761,4 @@ async def run_vertical_batch_searches(
         for t in active_tasks:
             if t in active_batch_tasks:
                 active_batch_tasks.remove(t)
+        await asyncio.shield(cleanup_browsers_if_idle())

@@ -73,7 +73,17 @@ function PhaseIcon({ phase }: { phase: Phase }) {
 function formatElapsed(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h} h ${m % 60} min`;
   return m > 0 ? `${m} min ${s % 60} s` : `${s} s`;
+}
+
+/** The backend sends naive UTC timestamps ("2026-10-06T03:13:09"); read them as UTC. */
+function parseServerTime(iso?: string): number | null {
+  if (!iso) return null;
+  const withZone = /([zZ]|[+-]\d\d:?\d\d)$/.test(iso) ? iso : `${iso}Z`;
+  const t = Date.parse(withZone);
+  return Number.isNaN(t) ? null : t;
 }
 
 interface LiveSearchProgressProps {
@@ -102,11 +112,12 @@ export default function LiveSearchProgress({ result, isLoading, liveViewerEnable
     : !isLoading;
   const waiting = chips.filter((c) => c.phase === "action");
 
-  // Elapsed time in this browser. The page remounts this component per search
-  // (key = search id), so the clock starts with each search; it stops ticking
-  // once the search has finished.
-  const [startedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(startedAt);
+  // Time since the search was created on the server (so a search left running for
+  // hours shows hours, not the time since this page opened); falls back to when
+  // this component mounted. Hidden once the search has finished.
+  const [mountedAt] = useState(() => Date.now());
+  const startedAt = parseServerTime(result?.created_at) ?? mountedAt;
+  const [now, setNow] = useState(mountedAt);
   useEffect(() => {
     if (finished) return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -150,9 +161,13 @@ export default function LiveSearchProgress({ result, isLoading, liveViewerEnable
           />
         </div>
         <span className="text-xs text-muted-foreground">
-          {elapsed}
-          {quoteCount > 0 && ` · ${quoteCount} quote${quoteCount === 1 ? "" : "s"}${finished ? "" : " so far"}`}
-          {!finished && " · results appear as each carrier finishes"}
+          {[
+            !finished && `Running ${elapsed}`,
+            quoteCount > 0 && `${quoteCount} quote${quoteCount === 1 ? "" : "s"}${finished ? "" : " so far"}`,
+            !finished && "results appear as each carrier finishes",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
       </div>
 

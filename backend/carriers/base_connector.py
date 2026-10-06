@@ -19,6 +19,10 @@ class BaseCarrierConnector(ABC):
     supported_container_types: frozenset = DRY_CONTAINER_TYPES
 
     def __init__(self):
+        # Set by _on_page_crash when the tab being driven dies ("Aw, Snap");
+        # job_service stops the run instead of waiting for its timeout.
+        self.browser_crashed = asyncio.Event()
+        self.browser_crash_message: Optional[str] = None
         self.browser = None
         self.page = None
         self.context = None
@@ -29,6 +33,31 @@ class BaseCarrierConnector(ABC):
         self.matched_origin: Optional[str] = None
         self.matched_destination: Optional[str] = None
 
+
+    @property
+    def page(self):
+        return self._page
+
+    @page.setter
+    def page(self, value):
+        # Every connector assigns self.page itself; hook crash reporting here so
+        # none of them has to.
+        self._page = value
+        if value is not None and not getattr(value, "_infreight_crash_hooked", False):
+            try:
+                value.on("crash", self._on_page_crash)
+                value._infreight_crash_hooked = True
+            except Exception:
+                pass
+
+    def _on_page_crash(self, crashed_page) -> None:
+        url = getattr(crashed_page, "url", "") or "about:blank"
+        if crashed_page is not self._page:
+            print(f"[{self.carrier_code}] A secondary browser tab crashed ({url}); ignoring.")
+            return
+        self.browser_crash_message = f"The browser tab crashed (\"Aw, Snap\") on {url}"
+        print(f"[{self.carrier_code}] {self.browser_crash_message}")
+        self.browser_crashed.set()
 
     @abstractmethod
     async def login(self) -> bool:
@@ -268,6 +297,14 @@ class BaseCarrierConnector(ABC):
                     pass
         except:
             pass
+
+        # A frozen Chrome ignores the closes above once their timeouts expire; kill
+        # whatever is still running on this connector's per-search profile.
+        try:
+            from services.browser_cleanup import kill_profile_browsers
+            kill_profile_browsers(getattr(self, "temp_profile_dir", None))
+        except Exception as e:
+            print(f"[{self.carrier_code}] Leftover browser cleanup failed: {e}")
 
     # ────────────────────────────────────────────────────────────────────
     # QUICK SEARCH (multi-port RFQ) — shared, per-container-type correct

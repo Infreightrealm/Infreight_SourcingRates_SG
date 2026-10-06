@@ -906,9 +906,9 @@ body::after {
 
 /* ============================================================================
    v2 layout — the redesigned workspace (Workspace › Appearance › Layout).
-   Light mode only: navy ink on a cool grey page with white cards, and a
-   darker secondary text colour for readability. Classic keeps the tokens
-   above; dark mode keeps its own palette and brightness levels.
+   Light: navy ink on a cool grey page with white cards. Dark: deep navy
+   surfaces with brighter secondary text. Both keep the brightness levels and
+   non-default accents. Classic keeps the tokens above.
    ========================================================================= */
 [data-layout="v2"]:not(.dark) {
   --background: #f4f6f9;
@@ -928,12 +928,73 @@ body::after {
   --success-foreground: #13734a;
 }
 
+[data-layout="v2"][data-brightness="soft"]:not(.dark) {
+  --background: #eceff4;
+  --card: #fafbfc;
+  --popover: #fafbfc;
+  --muted: #f1f3f7;
+}
+
+[data-layout="v2"][data-brightness="vivid"]:not(.dark) {
+  --background: #f9fafc;
+  --foreground: #08111f;
+  --border: #d9dee7;
+}
+
 /* The default (marine) accent becomes the v2 blue; other accents still apply. */
 [data-layout="v2"][data-accent="marine"]:not(.dark) {
   --primary: #1f4fd1;
   --brand-from: #1f4fd1;
   --brand-to: #3b5fe0;
   --ring: #1f4fd1;
+}
+
+.dark[data-layout="v2"] {
+  --background: #0b1220;
+  --foreground: #e8edf4;
+  --card: #111a2b;
+  --popover: #152036;
+  --secondary: #1a2539;
+  --secondary-foreground: #e8edf4;
+  --muted: #141e31;
+  --muted-foreground: #a3afc2;
+  --accent: #1d2a41;
+  --accent-foreground: #e8edf4;
+  --border: #24324c;
+  --line: #1c2840;
+  --input: #33435f;
+  --warning-foreground: #f2b544;
+  --success-foreground: #4fd08f;
+  --bg-grid-color: rgba(255, 255, 255, 0.02);
+}
+
+.dark[data-layout="v2"][data-brightness="soft"] {
+  --background: #141b29;
+  --card: #1b2436;
+  --popover: #1f2a3e;
+  --secondary: #222d42;
+  --muted: #1c2537;
+  --accent: #253149;
+  --border: #2d3a54;
+  --line: #253048;
+}
+
+.dark[data-layout="v2"][data-brightness="vivid"] {
+  --background: #02040a;
+  --card: #0a101c;
+  --popover: #0e1524;
+  --secondary: #121a2a;
+  --muted: #0d1422;
+  --accent: #162036;
+  --border: #1d2840;
+  --line: #161f33;
+}
+
+.dark[data-layout="v2"][data-accent="marine"] {
+  --primary: #5b8def;
+  --brand-from: #5b8def;
+  --brand-to: #7a9ff2;
+  --ring: #5b8def;
 }
 
 [data-layout="v2"] body {
