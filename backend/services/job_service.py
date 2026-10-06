@@ -139,6 +139,42 @@ active_search_tasks: dict[str, list[asyncio.Task]] = {}
 CARRIER_SEARCH_TIMEOUT_SEC = float(os.getenv("CARRIER_SEARCH_TIMEOUT_SEC", "900"))
 
 
+async def _run_size_search(connector, request: RateSearchRequest):
+    """
+    Run one container-size search, stopping it early if the browser tab crashes or
+    it exceeds CARRIER_SEARCH_TIMEOUT_SEC. Returns (status, quotes, stop_reason)
+    where stop_reason is None, "crash" or "timeout". A stopped run is cancelled,
+    and its run_full_search finally block closes the browser.
+    """
+    crashed = getattr(connector, "browser_crashed", None)
+    if crashed is not None:
+        crashed.clear()
+        connector.browser_crash_message = None
+
+    search = asyncio.ensure_future(connector.run_full_search(request))
+    crash_wait = asyncio.ensure_future(crashed.wait()) if crashed is not None else None
+    waiters = {search} | ({crash_wait} if crash_wait else set())
+    try:
+        done, _ = await asyncio.wait(waiters, timeout=CARRIER_SEARCH_TIMEOUT_SEC, return_when=asyncio.FIRST_COMPLETED)
+    except BaseException:
+        # Force Stop cancels us; asyncio.wait does not cancel the search itself.
+        search.cancel()
+        raise
+    finally:
+        if crash_wait is not None:
+            crash_wait.cancel()
+
+    if search in done:
+        status, quotes = search.result()
+        return status, quotes, None
+
+    search.cancel()
+    await asyncio.wait({search}, timeout=30)
+    if crash_wait is not None and crash_wait in done:
+        return CarrierResultStatus.FAILED, [], "crash"
+    return CarrierResultStatus.TIMEOUT, [], "timeout"
+
+
 async def run_carrier_search(
     search_id: UUID,
     carrier_code: str,
@@ -190,6 +226,7 @@ async def run_carrier_search(
                 # Run searches sequentially for each container type in request.container_types
                 all_quotes = []
                 timed_out_types: list[str] = []
+                crash_messages: list[str] = []
                 final_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 
                 requested_types = request.container_types or [request.container_type]
@@ -219,19 +256,17 @@ async def run_carrier_search(
                     # Create request copy for this container type
                     req_copy = request.model_copy(update={"container_type": c_type, "container_types": c_types})
                     
-                    # Run the full search flow, capped per container size. On timeout the
-                    # cancelled run_full_search closes its browser in its finally block.
-                    try:
-                        status, quotes = await asyncio.wait_for(
-                            connector.run_full_search(req_copy), timeout=CARRIER_SEARCH_TIMEOUT_SEC
-                        )
-                    except asyncio.TimeoutError:
-                        status, quotes = CarrierResultStatus.TIMEOUT, []
+                    # Run the full search flow, stopped early on a crashed tab or the time cap.
+                    status, quotes, stop_reason = await _run_size_search(connector, req_copy)
+                    if stop_reason == "timeout":
                         timed_out_types.append(c_type)
                         print(
                             f"[JOB] {carrier_code}: TIMEOUT after {CARRIER_SEARCH_TIMEOUT_SEC / 60:.0f} min "
                             f"on {c_type}; browser closed, moving on"
                         )
+                    elif stop_reason == "crash":
+                        crash_messages.append(f"{c_type}: {connector.browser_crash_message}")
+                        print(f"[JOB] {carrier_code}: browser crashed on {c_type}; stopped, moving on")
                     
                     # Inject the current cycle container type into each quote schema if not already set
                     for q in quotes:
@@ -319,11 +354,14 @@ async def run_carrier_search(
                 if connector_error and final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                     db_result.error_message = str(connector_error)
 
+                stop_notes = list(crash_messages)
                 if timed_out_types:
-                    db_result.error_message = (
+                    stop_notes.append(
                         f"Stopped after {CARRIER_SEARCH_TIMEOUT_SEC / 60:.0f} min on "
                         f"{', '.join(timed_out_types)}: the carrier site stopped responding."
                     )
+                if stop_notes:
+                    db_result.error_message = " ".join(stop_notes)
 
                 # Persist quotes
                 for q in all_quotes:

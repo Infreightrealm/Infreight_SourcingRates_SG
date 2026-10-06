@@ -40,7 +40,7 @@ class HangingConnector:
         pass
 
 
-async def _run(monkeypatch, connector, container_types):
+async def _run(monkeypatch, connector, container_types, timeout_sec=0.5):
     await init_db()
     search_id = uuid4()
     async with get_async_session_maker()() as session:
@@ -53,7 +53,7 @@ async def _run(monkeypatch, connector, container_types):
         session.add(CarrierSearchResult(search_id=search_id, carrier="ONE", status="QUEUED"))
         await session.commit()
 
-    monkeypatch.setattr(job_service, "CARRIER_SEARCH_TIMEOUT_SEC", 0.5)
+    monkeypatch.setattr(job_service, "CARRIER_SEARCH_TIMEOUT_SEC", timeout_sec)
     monkeypatch.setattr(job_service, "get_connector", lambda *a, **k: connector)
     req = RateSearchRequest(
         origin="Singapore", destination="Toronto",
@@ -93,3 +93,33 @@ async def test_timeout_on_one_size_still_runs_the_next(monkeypatch):
     assert connector.closed_runs == ["DRY 20", "DRY 40H"]
     assert result.status == CarrierResultStatus.TIMEOUT.value
     assert "DRY 20" in result.error_message and "DRY 40H" not in result.error_message
+
+
+class CrashingConnector(HangingConnector):
+    """Like a real connector whose tab dies: reports a crash, then never returns."""
+
+    def __init__(self):
+        super().__init__(hang_on={"DRY 40H"})
+        self.browser_crashed = asyncio.Event()
+        self.browser_crash_message = None
+
+    async def run_full_search(self, request):
+        async def crash_soon():
+            await asyncio.sleep(0.2)
+            self.browser_crash_message = 'The browser tab crashed ("Aw, Snap") on https://example.test/prices'
+            self.browser_crashed.set()
+
+        asyncio.get_running_loop().create_task(crash_soon())
+        return await super().run_full_search(request)
+
+
+@pytest.mark.asyncio
+async def test_crashed_tab_stops_the_carrier_without_waiting_for_the_timeout(monkeypatch):
+    connector = CrashingConnector()
+    # A 30 s limit: only the crash can stop it within the 5 s asserted below.
+    result, elapsed = await _run(monkeypatch, connector, ["DRY 40H"], timeout_sec=30)
+
+    assert result.status == CarrierResultStatus.FAILED.value
+    assert "Aw, Snap" in result.error_message and "DRY 40H" in result.error_message
+    assert connector.closed_runs == ["DRY 40H"]
+    assert elapsed < 5

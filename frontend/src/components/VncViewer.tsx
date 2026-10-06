@@ -164,7 +164,8 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
       ) {
         return "bg-amber-500 dark:bg-amber-400 animate-ping";
       }
-      if (status === "RUNNING" || status === "QUEUED") {
+      // Running carriers report the size they are on, e.g. "RUNNING (DRY 40H)".
+      if (status.startsWith("RUNNING") || status === "QUEUED") {
         return "bg-emerald-500 dark:bg-emerald-400 animate-pulse";
       } else if (
         status === "COMPLETED" ||
