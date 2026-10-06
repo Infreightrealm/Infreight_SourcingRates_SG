@@ -7,6 +7,7 @@ import ResultsTable from "@/components/ResultsTable";
 import RateResults from "@/components/RateResults";
 import LoadingState from "@/components/LoadingState";
 import LiveSearchProgress from "@/components/LiveSearchProgress";
+import AppHeader from "@/components/AppHeader";
 import StatusBadge from "@/components/StatusBadge";
 import VncViewer from "@/components/VncViewer";
 import ChatWidget from "@/components/ChatWidget";
@@ -430,9 +431,79 @@ function HomeContent() {
 
 
 
+  const startNewSearch = async () => {
+    if (searchId) {
+      try {
+        await releaseRateSearch(searchId);
+      } catch (e) {
+        console.error("Failed to release lock on new search", e);
+      }
+    }
+    setSearchId(null);
+    setSearchResult(null);
+    router.push("/");
+  };
+
+  const forceStopAll = async () => {
+    try {
+      const { forceStopSearches } = await import("@/lib/api");
+      await forceStopSearches();
+      toast.success("Searches & Browser Workers forcefully stopped");
+      setSearchId(null);
+      setSearchResult(null);
+      setIsLoading(false);
+      setIsBatchRunning(false);
+      setBatchResults([]);
+      setBatchProgress({ current: 0, total: 0 });
+    } catch (e) {
+      toast.error("Failed to stop searches");
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      await logoutAuth();
+    } catch (e) {
+      // Ignore
+    }
+    setUserName(null);
+    setUserRole(null);
+    setUserAvatar(null);
+    localStorage.removeItem("userName");
+    localStorage.removeItem("infreight_token");
+    toast.success("Signed out successfully.");
+    router.push("/login");
+  };
+
+  const isPrimaryBackend = backendUrl.toLowerCase().trim() === getPrimaryApiUrl().toLowerCase().trim();
+  const backendLabel = isPrimaryBackend
+    ? backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1")
+      ? "Local Backend"
+      : "Local Tunnel Relay"
+    : "Cloud Backup (Configure Server)";
+
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
       {/* Header */}
+      {isV2 ? (
+        <AppHeader
+          searchStatus={searchId ? searchResult?.status || "QUEUED" : null}
+          mockMode={mockMode}
+          backendLabel={backendLabel}
+          isPrimaryBackend={isPrimaryBackend}
+          userName={userName}
+          userRole={userRole}
+          userAvatar={userAvatar}
+          showRfq={prefs.panels.rfq}
+          onNewSearch={startNewSearch}
+          onForceStop={forceStopAll}
+          onOpenBackend={() => setIsBackendModalOpen(true)}
+          onOpenWorkspace={() => setIsWorkspaceOpen(true)}
+          onOpenHistory={() => setIsHistoryModalOpen(true)}
+          onOpenAdmin={() => router.push("/admin")}
+          onSignOut={signOut}
+        />
+      ) : (
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl transition-colors supports-[backdrop-filter]:bg-background/65">
         <div className="mx-auto flex max-w-[98%] items-center justify-between gap-4 px-6 py-3.5">
           <div className="flex items-center gap-3">
@@ -456,16 +527,7 @@ function HomeContent() {
           <div className="flex flex-wrap items-center justify-end gap-2">
             {searchId && (
               <button
-                onClick={async () => {
-                  try {
-                    await releaseRateSearch(searchId);
-                  } catch (e) {
-                    console.error("Failed to release lock on new search", e);
-                  }
-                  setSearchId(null);
-                  setSearchResult(null);
-                  router.push("/");
-                }}
+                onClick={startNewSearch}
                 className="btn-interactive inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-secondary-foreground hover:bg-accent"
               >
                 <RotateCcw className="size-3.5" />
@@ -473,21 +535,7 @@ function HomeContent() {
               </button>
             )}
             <button
-              onClick={async () => {
-                try {
-                  const { forceStopSearches } = await import("@/lib/api");
-                  await forceStopSearches();
-                  toast.success("Searches & Browser Workers forcefully stopped");
-                  setSearchId(null);
-                  setSearchResult(null);
-                  setIsLoading(false);
-                  setIsBatchRunning(false);
-                  setBatchResults([]);
-                  setBatchProgress({ current: 0, total: 0 });
-                } catch (e) {
-                  toast.error("Failed to stop searches");
-                }
-              }}
+              onClick={forceStopAll}
               className="btn-interactive inline-flex h-8 items-center gap-1.5 rounded-lg border border-destructive/25 bg-destructive/10 px-3 text-xs font-medium text-destructive-foreground hover:bg-destructive/16"
               title="Force stop all queued and active searches"
             >
@@ -501,26 +549,18 @@ function HomeContent() {
               </Badge>
             )}
             
-            {(() => {
-              const isPrimaryActive = backendUrl.toLowerCase().trim() === getPrimaryApiUrl().toLowerCase().trim();
-              return (
-                <button
-                  onClick={() => setIsBackendModalOpen(true)}
-                  className={`btn-interactive inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs font-medium ${
-                    isPrimaryActive
-                      ? "border-success/25 bg-success/12 text-success-foreground hover:bg-success/20"
-                      : "border-warning/30 bg-warning/12 text-warning-foreground hover:bg-warning/20"
-                  }`}
-                  title="Click to configure backend URL or reconnect to Local/Tunnel Backend"
-                >
-                  <Dot pulse={!isPrimaryActive} />
-                  {isPrimaryActive
-                    ? (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1") ? "Local Backend" : "Local Tunnel Relay")
-                    : "Cloud Backup (Configure Server)"
-                  }
-                </button>
-              );
-            })()}
+            <button
+              onClick={() => setIsBackendModalOpen(true)}
+              className={`btn-interactive inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs font-medium ${
+                isPrimaryBackend
+                  ? "border-success/25 bg-success/12 text-success-foreground hover:bg-success/20"
+                  : "border-warning/30 bg-warning/12 text-warning-foreground hover:bg-warning/20"
+              }`}
+              title="Click to configure backend URL or reconnect to Local/Tunnel Backend"
+            >
+              <Dot pulse={!isPrimaryBackend} />
+              {backendLabel}
+            </button>
             {searchId && <StatusBadge status={searchResult?.status || "QUEUED"} size="md" />}
             
             <button
@@ -552,20 +592,7 @@ function HomeContent() {
             <Separator orientation="vertical" className="mx-1" />
             {userName && (
               <button
-                onClick={async () => {
-                  try {
-                    await logoutAuth();
-                  } catch (e) {
-                    // Ignore
-                  }
-                  setUserName(null);
-                  setUserRole(null);
-                  setUserAvatar(null);
-                  localStorage.removeItem("userName");
-                  localStorage.removeItem("infreight_token");
-                  toast.success("Signed out successfully.");
-                  router.push("/login");
-                }}
+                onClick={signOut}
                 className="group relative inline-flex h-8 items-center gap-1.5 overflow-hidden rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
                 title="Change User / Logout"
               >
@@ -596,6 +623,7 @@ function HomeContent() {
           </div>
         </div>
       </header>
+      )}
 
       <main className="max-w-[98%] mx-auto px-6 py-8 space-y-8 flex-1 w-full">
         {/* Self-Healing alerts / approvals */}
@@ -603,7 +631,9 @@ function HomeContent() {
 
         {/* AI RFQ Front Door */}
         {prefs.panels.rfq && (
-          <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} onBatchRunAll={handleBatchRunAll} selectedCarriers={selectedCarriers} />
+          <div id="rfq" className="scroll-mt-24">
+            <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} onBatchRunAll={handleBatchRunAll} selectedCarriers={selectedCarriers} />
+          </div>
         )}
 
         {/* Batch Progress & Excel Export Panel */}
