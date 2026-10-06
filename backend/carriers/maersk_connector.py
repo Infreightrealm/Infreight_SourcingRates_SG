@@ -3493,40 +3493,12 @@ class MaerskConnector(BaseCarrierConnector):
             if self.temp_profile_dir and os.path.exists(self.temp_profile_dir):
                 if self.is_login_successful and self.master_profile_dir:
                     print(f"[MAERSK] Login was successful or restored. Syncing temporary profile back to master: {self.master_profile_dir}")
-                    # Clear master directory safely
-                    if os.path.exists(self.master_profile_dir):
-                        try:
-                            shutil.rmtree(self.master_profile_dir)
-                        except Exception:
-                            pass
-                    # Copy temp directory contents back to master
+                    # Build the new master beside the old one and swap it in, so an
+                    # interrupted save never leaves Maersk without a master profile.
                     try:
-                        # Never copy throwaway caches back to master (avoids storage bloat + sync I/O).
-                        shutil.copytree(
-                            self.temp_profile_dir, self.master_profile_dir, dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns(
-                                "Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"),
-                        )
-                        # Remove Chromium lock files from the master copy
-                        lock_files = ["SingletonLock", "lock", "SingletonCookie"]
-                        for root_dir, _, filenames in os.walk(self.master_profile_dir):
-                            for filename in filenames:
-                                if filename in lock_files:
-                                    try:
-                                        os.remove(os.path.join(root_dir, filename))
-                                    except Exception:
-                                        pass
+                        from services.browser_cleanup import replace_master_profile
+                        replace_master_profile(self.temp_profile_dir, self.master_profile_dir)
                         print("[MAERSK] Master profile updated with fresh session data.")
-                        
-                        # Auto-clean heavy cache directories to prevent 5GB storage bloat
-                        cache_dirs = ["Cache", "Code Cache", "DawnCache", "GPUCache", "CacheStorage", "ScriptCache"]
-                        for root_dir, dirs, _ in os.walk(self.master_profile_dir):
-                            for d in list(dirs):
-                                if d in cache_dirs:
-                                    try:
-                                        shutil.rmtree(os.path.join(root_dir, d))
-                                    except Exception:
-                                        pass
                     except Exception as copy_err:
                         print(f"[MAERSK] Failed to sync profile to master: {copy_err}")
                 

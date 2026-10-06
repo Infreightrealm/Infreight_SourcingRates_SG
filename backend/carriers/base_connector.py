@@ -298,6 +298,14 @@ class BaseCarrierConnector(ABC):
         except:
             pass
 
+        # A frozen Chrome ignores the closes above once their timeouts expire; kill
+        # whatever is still running on this connector's per-search profile.
+        try:
+            from services.browser_cleanup import kill_profile_browsers
+            kill_profile_browsers(getattr(self, "temp_profile_dir", None))
+        except Exception as e:
+            print(f"[{self.carrier_code}] Leftover browser cleanup failed: {e}")
+
     # ────────────────────────────────────────────────────────────────────
     # QUICK SEARCH (multi-port RFQ) — shared, per-container-type correct
     # ────────────────────────────────────────────────────────────────────

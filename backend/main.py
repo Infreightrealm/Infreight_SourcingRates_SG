@@ -33,6 +33,14 @@ async def lifespan(app: FastAPI):
     print("[*] Starting Infreight Rate Automation API...")
     await init_db()
     print("[OK] Database tables created/verified")
+
+    # Clear per-search profile copies left by crashed runs and restore any master
+    # profile whose save was interrupted. No search can be running yet.
+    try:
+        from services.browser_cleanup import remove_stale_temp_profiles
+        await asyncio.to_thread(remove_stale_temp_profiles)
+    except Exception as e:
+        print(f"[CLEANUP] Startup profile cleanup failed: {e}")
     
     # Bootstrap / recovery administrator check (§3 of AUTH-AND-ADMIN.md)
     admin_user_env = os.getenv("ADMIN_USERNAME") or os.getenv("DASHBOARD_USERNAME")

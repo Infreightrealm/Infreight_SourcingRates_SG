@@ -6,6 +6,7 @@ Creates background tasks per carrier, runs connectors, persists results.
 import asyncio
 import os
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -612,6 +613,8 @@ async def run_all_carrier_searches(
         if isinstance(e, asyncio.CancelledError):
             raise
     finally:
+        # While this search still holds the queue, nothing else can have started.
+        await asyncio.shield(cleanup_browsers_if_idle(search_str_id))
         # Guarantee queue lock is released the moment scraping completes or fails
         await queue_manager.release_lock(search_str_id)
 
@@ -619,6 +622,27 @@ async def run_all_carrier_searches(
 
 
 active_batch_tasks: list[asyncio.Task] = []
+
+
+async def cleanup_browsers_if_idle(owner_search_id: Optional[str] = None) -> None:
+    """
+    Kill leftover browsers and delete leftover temporary profiles, but only when no
+    search (other than `owner_search_id`, which has finished its carriers) and no
+    RFQ batch is running: at that point no automated Chrome should be alive.
+    """
+    from services.browser_cleanup import remove_stale_temp_profiles, sweep_orphan_browsers
+
+    others_running = any(not t.done() for tasks in active_search_tasks.values() for t in tasks)
+    batch_running = any(not t.done() for t in active_batch_tasks)
+    active = queue_manager.active_search_id
+    if others_running or batch_running or (active is not None and active != owner_search_id):
+        return
+    try:
+        sweep_orphan_browsers()
+        # Folders younger than 10 min are left alone in case a new search just made one.
+        await asyncio.to_thread(remove_stale_temp_profiles, (), 600)
+    except Exception as e:
+        print(f"[CLEANUP] Idle cleanup failed: {e}")
 
 
 async def cancel_all_active_searches():
@@ -640,6 +664,7 @@ async def cancel_all_active_searches():
     # Force close all open Playwright Chrome browser windows across all carriers
     from carriers.registry import close_all_active_connectors
     await close_all_active_connectors()
+    await cleanup_browsers_if_idle()
 
     return cancelled_count
 
@@ -736,3 +761,4 @@ async def run_vertical_batch_searches(
         for t in active_tasks:
             if t in active_batch_tasks:
                 active_batch_tasks.remove(t)
+        await asyncio.shield(cleanup_browsers_if_idle())
