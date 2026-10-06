@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import RateSearchForm from "@/components/RateSearchForm";
 import RfqInputSection from "@/components/RfqInputSection";
 import ResultsTable from "@/components/ResultsTable";
+import RateResults from "@/components/RateResults";
 import LoadingState from "@/components/LoadingState";
 import LiveSearchProgress from "@/components/LiveSearchProgress";
 import StatusBadge from "@/components/StatusBadge";
@@ -764,7 +765,7 @@ function HomeContent() {
         {/* Results */}
         {searchResult && (
           <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <ResultsTable data={searchResult} />
+            {isV2 ? <RateResults data={searchResult} /> : <ResultsTable data={searchResult} />}
           </section>
         )}
       </main>

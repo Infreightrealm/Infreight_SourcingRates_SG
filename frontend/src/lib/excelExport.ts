@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { containerLabel, type RateSearchResultResponse, type QuoteSchema } from "./types";
+import { CARRIERS, containerLabel, type RateSearchResultResponse, type QuoteSchema } from "./types";
 
 export interface BatchRouteResult {
   origin: string;
@@ -56,16 +56,6 @@ function sanitizeSheetName(name: string, index: number): string {
   }
   return `${index + 1}. ${clean}`;
 }
-
-const CARRIERS_LIST = [
-  { code: "maersk", name: "Maersk" },
-  { code: "cma", name: "CMA CGM" },
-  { code: "one", name: "ONE" },
-  { code: "hapag", name: "Hapag-Lloyd" },
-  { code: "greenx", name: "GreenX" },
-  { code: "msc", name: "MSC" },
-  { code: "oocl", name: "OOCL" },
-];
 
 function getFreeTimeValue(q: QuoteSchema, carrierName: string): string | number | null {
   const ft = q.free_time as any;
@@ -260,7 +250,7 @@ export async function exportSingleSearchToExcel(
   const groupedExcelRows: any[] = [];
 
   for (const cr of data.results) {
-    const carrierInfo = CARRIERS_LIST.find((c) => c.code === cr.carrier.toLowerCase());
+    const carrierInfo = CARRIERS.find((c) => c.code === cr.carrier);
     const carrierName = carrierInfo?.name || cr.carrier;
 
     if (!cr.quotes || cr.quotes.length === 0) {
@@ -547,7 +537,7 @@ export async function exportMultiRouteResultsToExcel(
 
     const min20 = rates20.length > 0 ? Math.min(...rates20) : null;
     const min40 = rates40.length > 0 ? Math.min(...rates40) : null;
-    const carriersList = Array.from(new Set(res?.results?.map((r) => CARRIERS_LIST.find((c) => c.code === r.carrier.toLowerCase())?.name || r.carrier) || [])).join(", ");
+    const carriersList = Array.from(new Set(res?.results?.map((r) => CARRIERS.find((c) => c.code === r.carrier)?.name || r.carrier) || [])).join(", ");
     const hasMismatch = res?.results?.some((cr) => cr.has_port_mismatch === true);
 
     summarySheet.addRow({
