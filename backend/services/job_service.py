@@ -4,6 +4,7 @@ Job Service — orchestrates carrier search jobs.
 Creates background tasks per carrier, runs connectors, persists results.
 """
 import asyncio
+import os
 from datetime import datetime
 from uuid import UUID
 from sqlalchemy import select
@@ -132,6 +133,12 @@ active_search_tasks: dict[str, list[asyncio.Task]] = {}
 
 
 
+# Hard limit for one carrier on one container size. A connector whose browser
+# hangs (blank page, stuck navigation) would otherwise hold its concurrency slot,
+# the search and the team-wide search queue forever.
+CARRIER_SEARCH_TIMEOUT_SEC = float(os.getenv("CARRIER_SEARCH_TIMEOUT_SEC", "900"))
+
+
 async def run_carrier_search(
     search_id: UUID,
     carrier_code: str,
@@ -182,6 +189,7 @@ async def run_carrier_search(
 
                 # Run searches sequentially for each container type in request.container_types
                 all_quotes = []
+                timed_out_types: list[str] = []
                 final_status = CarrierResultStatus.NO_QUOTES_AVAILABLE
                 
                 requested_types = request.container_types or [request.container_type]
@@ -211,8 +219,19 @@ async def run_carrier_search(
                     # Create request copy for this container type
                     req_copy = request.model_copy(update={"container_type": c_type, "container_types": c_types})
                     
-                    # Run the full search flow
-                    status, quotes = await connector.run_full_search(req_copy)
+                    # Run the full search flow, capped per container size. On timeout the
+                    # cancelled run_full_search closes its browser in its finally block.
+                    try:
+                        status, quotes = await asyncio.wait_for(
+                            connector.run_full_search(req_copy), timeout=CARRIER_SEARCH_TIMEOUT_SEC
+                        )
+                    except asyncio.TimeoutError:
+                        status, quotes = CarrierResultStatus.TIMEOUT, []
+                        timed_out_types.append(c_type)
+                        print(
+                            f"[JOB] {carrier_code}: TIMEOUT after {CARRIER_SEARCH_TIMEOUT_SEC / 60:.0f} min "
+                            f"on {c_type}; browser closed, moving on"
+                        )
                     
                     # Inject the current cycle container type into each quote schema if not already set
                     for q in quotes:
@@ -231,6 +250,9 @@ async def run_carrier_search(
                     elif status == CarrierResultStatus.SERVICE_UNAVAILABLE:
                         if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                             final_status = CarrierResultStatus.SERVICE_UNAVAILABLE
+                    elif status == CarrierResultStatus.TIMEOUT:
+                        if final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
+                            final_status = CarrierResultStatus.TIMEOUT
                     elif status == CarrierResultStatus.FAILED:
                         if final_status not in (CarrierResultStatus.AVAILABLE_QUOTES_FOUND, CarrierResultStatus.CONNECTOR_NOT_AVAILABLE):
                             final_status = CarrierResultStatus.FAILED
@@ -296,6 +318,12 @@ async def run_carrier_search(
                 connector_error = getattr(connector, "last_error_message", None)
                 if connector_error and final_status != CarrierResultStatus.AVAILABLE_QUOTES_FOUND:
                     db_result.error_message = str(connector_error)
+
+                if timed_out_types:
+                    db_result.error_message = (
+                        f"Stopped after {CARRIER_SEARCH_TIMEOUT_SEC / 60:.0f} min on "
+                        f"{', '.join(timed_out_types)}: the carrier site stopped responding."
+                    )
 
                 # Persist quotes
                 for q in all_quotes:
