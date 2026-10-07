@@ -23,6 +23,8 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
   const [fallbackVncPath, setFallbackVncPath] = useState("");
   const [activeTab, setActiveTab] = useState<string>("maersk");
   const [dismissedOverlays, setDismissedOverlays] = useState<Record<string, boolean>>({});
+  // Bumped by "Reconnect" to remount the active viewer with a fresh connection.
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Reset dismissed overlays when a new search starts
   useEffect(() => {
@@ -74,15 +76,18 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
 
   if (!isAvailable) return null;
 
-  // Build full VNC URL helper
+  // Build full VNC URL helper. A 1 s reconnect delay (noVNC defaults to 5 s)
+  // brings a dropped viewer back quickly.
   const getFullVncUrl = (path: string) => {
+    const tuned = `${path}${path.includes("?") ? "&" : "?"}reconnect_delay=1000`;
     try {
       const url = new URL(backendUrl);
-      return `${url.protocol}//${url.host}${path}`;
+      return `${url.protocol}//${url.host}${tuned}`;
     } catch {
-      return `${backendUrl}${path}`;
+      return `${backendUrl}${tuned}`;
     }
   };
+  const activeCarrier = carriers.find((c) => c.code === activeTab);
 
   // Brand colors mapping
   const getBrandColorStyles = (code: string, isActive: boolean) => {
@@ -298,10 +303,23 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
               </div>
             )}
             
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[10px] text-muted-foreground">
-                MULTI-DISPLAY VNC
-              </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setReloadKey((k) => k + 1)}
+                title="Reconnect this browser view"
+                className="rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                Reconnect
+              </button>
+              <a
+                href={getFullVncUrl(activeCarrier?.path ?? fallbackVncPath)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open this browser view full size in a new tab"
+                className="rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                Full size ↗
+              </a>
               <button
                 onClick={() => setIsOpen(false)}
                 className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -329,11 +347,14 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
             </div>
           )}
 
-          {/* VNC iframes (mounted concurrently to maintain state, but toggled via css visibility) */}
+          {/* Only the active tab's viewer is mounted: each viewer is a live VNC stream,
+              and seven at once overloaded the connection. The carrier's browser keeps
+              running server-side, so switching tabs just reconnects (about a second). */}
           <div className="relative flex-1 bg-card dark:bg-black">
             {carriers.length > 0 ? (
               carriers.map((carrier) => {
                 const isActive = activeTab === carrier.code;
+                if (!isActive) return null;
                 const backendKey = getBackendCarrierKey(carrier.code);
                 const result = results?.find((r) => r.carrier === backendKey);
                 const status = result?.status;
@@ -384,11 +405,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
                 }
 
                 return (
-                  <div
-                    key={carrier.code}
-                    className="w-full h-full absolute inset-0"
-                    style={{ display: isActive ? "block" : "none" }}
-                  >
+                  <div key={`${carrier.code}-${reloadKey}`} className="w-full h-full absolute inset-0">
                     <iframe
                       src={getFullVncUrl(carrier.path)}
                       className="w-full h-full border-0"
@@ -422,6 +439,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
             ) : (
               /* Legacy Fallback Single View */
               <iframe
+                key={reloadKey}
                 src={getFullVncUrl(fallbackVncPath)}
                 className="w-full h-full border-0"
                 allow="clipboard-read; clipboard-write"
