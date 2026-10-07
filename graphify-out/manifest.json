@@ -924,9 +924,9 @@
     "semantic_hash": ""
   },
   "frontend/src/app/admin/page.tsx": {
-    "mtime": 1791343252.1446457,
-    "seen": 1791343392.9289486,
-    "ast_hash": "e770fa99ddb444c208fc02533ea7ae9a",
+    "mtime": 1791343620.786592,
+    "seen": 1791343728.8560483,
+    "ast_hash": "b98d3ed474f95c3e36a02a2073784076",
     "semantic_hash": ""
   },
   "frontend/src/app/layout.tsx": {
@@ -1401,6 +1401,12 @@
     "mtime": 1791343252.1561038,
     "seen": 1791343392.929961,
     "ast_hash": "785d0a5d2eb43e095efd073564d90cb2",
+    "semantic_hash": ""
+  },
+  "frontend/src/components/admin/AdminUsers.tsx": {
+    "mtime": 1791343683.4111586,
+    "seen": 1791343728.8571045,
+    "ast_hash": "85f928d59633a4200ba58ae480b7d4b8",
     "semantic_hash": ""
   }
 }
