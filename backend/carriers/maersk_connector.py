@@ -1427,7 +1427,7 @@ class MaerskConnector(BaseCarrierConnector):
                         raw_lower_clean = raw_input.strip().lower()
                         if raw_lower_clean in maersk_dyn_overrides:
                             return maersk_dyn_overrides[raw_lower_clean]
-                        paren_match = re.search(r'\(\s*([A-Za-z]{5})\s*\)', raw_input)
+                        paren_match = re.search(r'[\[\(]\s*([A-Za-z]{5})\s*[\]\)]', raw_input)
                         if paren_match and paren_match.group(1).lower() in maersk_dyn_overrides:
                             return maersk_dyn_overrides[paren_match.group(1).lower()]
                     except Exception as e:
@@ -1816,6 +1816,7 @@ class MaerskConnector(BaseCarrierConnector):
                             
                     if not clicked:
                         print(f"[MAERSK] [ABORT] Could not auto-fill origin port exactly. Aborting to prevent random port selection.")
+                        self.note_port_not_found("origin", origin_query)
                         return CarrierResultStatus.NO_QUOTES_AVAILABLE
                         
                     print("[MAERSK] Origin Port selected successfully.")
@@ -2106,6 +2107,7 @@ class MaerskConnector(BaseCarrierConnector):
                             
                     if not clicked:
                         print(f"[MAERSK] [ABORT] Could not auto-fill destination port exactly. Aborting to prevent random port selection.")
+                        self.note_port_not_found("destination", destination_query)
                         return CarrierResultStatus.NO_QUOTES_AVAILABLE
                         
                     print("[MAERSK] Destination Port selected successfully.")
@@ -2187,6 +2189,7 @@ class MaerskConnector(BaseCarrierConnector):
 
                         if not is_commodity_enabled:
                             print("[MAERSK] [ABORT] Commodity input field remained disabled because Destination port was not registered by Maersk. Aborting to prevent 30s hang.")
+                            self.note_port_not_found("destination", destination_query)
                             return CarrierResultStatus.NO_QUOTES_AVAILABLE
 
                         await commodity_field.scroll_into_view_if_needed()

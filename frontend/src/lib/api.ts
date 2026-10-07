@@ -559,6 +559,41 @@ export async function deleteCarrierOverride(
   return res.json();
 }
 
+export interface PortFix {
+  carrier: string;
+  /** Lower-case LOCODE (or port name) the fix applies to. */
+  key: string;
+  text: string;
+  port_name: string | null;
+  /** "built_in" ships with the app; "user" was saved from the admin page. */
+  source: "built_in" | "user";
+}
+
+export interface PortMiss {
+  carrier: string;
+  key: string;
+  locode: string | null;
+  port_name: string;
+  /** What the bot typed into the carrier's port box the last time. */
+  typed: string | null;
+  searches: number;
+  last_seen: string | null;
+  /** The fix in place now, if one has been saved since. */
+  fix: string | null;
+}
+
+export async function getPortFixes(days = 14, adminPassword?: string): Promise<{ fixes: PortFix[]; misses: PortMiss[]; days: number }> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) {
+    headers["x-admin-password"] = adminPassword;
+  }
+  const res = await failoverFetch(`/api/admin/port-fixes?days=${days}`, { headers });
+  if (!res.ok) {
+    throw new Error(`Failed to load port name fixes: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getExchangeRates(adminPassword?: string): Promise<Record<string, { code: string; name: string; rate_per_usd: number; usd_per_unit: number; symbol: string }>> {
   const headers: Record<string, string> = {};
   if (adminPassword) {

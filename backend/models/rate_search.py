@@ -60,6 +60,9 @@ class CarrierSearchResult(Base):
     matched_destination = Column(String(255), nullable=True)
     has_port_mismatch = Column(Boolean, nullable=True)  # None = Unknown / Could Not Verify, False = Verified Match, True = Mismatch
     mismatch_warning = Column(Text, nullable=True)
+    # Which port the carrier's own search couldn't find ("origin"/"destination") and what was typed.
+    unfound_port_side = Column(String(20), nullable=True)
+    unfound_port_query = Column(String(255), nullable=True)
 
     # Relationships
 

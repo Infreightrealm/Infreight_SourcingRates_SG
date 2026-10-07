@@ -795,6 +795,7 @@ class ONEConnector(BaseCarrierConnector):
 
                 if not origin_selected:
                     print(f"[ONE] Origin: all input strategies failed for '{request.origin}'")
+                    self.note_port_not_found("origin", origin_query)
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
             except Exception as e:
                 print(f"[ONE] Origin combobox failed: {e}")
@@ -864,6 +865,7 @@ class ONEConnector(BaseCarrierConnector):
 
                 if not destination_selected:
                     print(f"[ONE] Destination: all input strategies failed for '{request.destination}'")
+                    self.note_port_not_found("destination", dest_query)
                     return CarrierResultStatus.INVALID_SEARCH_INPUT
             except Exception as e:
                 print(f"[ONE] Destination combobox failed: {e}")

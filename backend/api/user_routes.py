@@ -1,5 +1,5 @@
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -592,6 +592,97 @@ async def delete_carrier_override_endpoint(
         detail=f"Deleted override for {request.carrier.upper()}: '{request.key}'",
     )
     return {"status": "SUCCESS"}
+
+
+# Carrier codes on search results -> the keys port name fixes are stored under.
+_FIX_CARRIER_KEYS = {
+    "MAERSK": "maersk",
+    "CMA_CGM": "cma",
+    "ONE": "one",
+    "HAPAG_LLOYD": "hapag",
+    "HAPAG_LLOYD_API": "hapag",
+    "MSC": "msc",
+    "GREENX": "greenx",
+    "OOCL": "oocl",
+}
+
+
+@admin_router.get("/port-fixes")
+async def fetch_port_fixes(
+    days: int = 14,
+    actor: User = Depends(verify_admin_access),
+    session: AsyncSession = Depends(get_session),
+):
+    """Saved port name fixes, marked built in or admin-added, and the ports each
+    carrier's own search couldn't find in the last `days` days."""
+    from services.port_manager import PortManager, CARRIER_PORT_OVERRIDES
+
+    pm = PortManager()
+    dynamic: Dict[str, Dict[str, str]] = pm.get_carrier_overrides() or {}
+    user_saved: Dict[str, Dict[str, str]] = getattr(pm, "_user_carrier_overrides", {}) or {}
+
+    def port_name(key: str) -> Optional[str]:
+        if len(key) == 5 and key.isalpha():
+            port = pm.get_port_by_code(key.upper())
+            if port:
+                return port.get("name")
+        return None
+
+    fixes = []
+    for carrier, entries in dynamic.items():
+        for key, text in (entries or {}).items():
+            fixes.append({
+                "carrier": carrier,
+                "key": key,
+                "text": text,
+                "port_name": port_name(key),
+                "source": "user" if user_saved.get(carrier, {}).get(key) == text else "built_in",
+            })
+    # Fixes written into the code; a saved fix for the same port takes precedence.
+    for carrier, entries in CARRIER_PORT_OVERRIDES.items():
+        for code, text in entries.items():
+            if code.lower() not in (dynamic.get(carrier) or {}):
+                fixes.append({"carrier": carrier, "key": code.lower(), "text": text, "port_name": port_name(code.lower()), "source": "built_in"})
+    fixes.sort(key=lambda f: (f["carrier"], f["source"] != "user", f["port_name"] or f["key"]))
+
+    def current_fix(carrier: str, key: str) -> Optional[str]:
+        return (dynamic.get(carrier) or {}).get(key) or CARRIER_PORT_OVERRIDES.get(carrier, {}).get(key.upper())
+
+    since = datetime.utcnow() - timedelta(days=max(1, min(days, 90)))
+    rows = (await session.execute(
+        select(CarrierSearchResult).where(
+            CarrierSearchResult.unfound_port_side.is_not(None),
+            CarrierSearchResult.completed_at >= since,
+        )
+    )).scalars().all()
+
+    misses: Dict[tuple, Dict[str, Any]] = {}
+    for r in rows:
+        carrier = _FIX_CARRIER_KEYS.get(r.carrier, r.carrier.lower())
+        is_origin = r.unfound_port_side == "origin"
+        locode = r.resolved_origin_locode if is_origin else r.resolved_destination_locode
+        name = (r.resolved_origin_name if is_origin else r.resolved_destination_name) or (r.raw_origin_input if is_origin else r.raw_destination_input) or ""
+        key = (locode or name).strip().lower()
+        if not key:
+            continue
+        m = misses.setdefault((carrier, key), {
+            "carrier": carrier,
+            "key": key,
+            "locode": locode,
+            "port_name": name,
+            "typed": r.unfound_port_query,
+            "searches": 0,
+            "last_seen": None,
+        })
+        m["searches"] += 1
+        if r.completed_at and (m["last_seen"] is None or r.completed_at.isoformat() > m["last_seen"]):
+            m["last_seen"] = r.completed_at.isoformat()
+            m["typed"] = r.unfound_port_query
+    miss_list = sorted(misses.values(), key=lambda m: m["last_seen"] or "", reverse=True)
+    for m in miss_list:
+        m["fix"] = current_fix(m["carrier"], m["key"])
+
+    return {"fixes": fixes, "misses": miss_list, "days": days}
 
 
 class CustomPortRequest(BaseModel):

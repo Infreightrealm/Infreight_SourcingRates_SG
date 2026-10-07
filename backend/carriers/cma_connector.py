@@ -1410,6 +1410,7 @@ class CMAConnector(BaseCarrierConnector):
             await self.page.wait_for_timeout(2000)
 
             if not await self._select_cma_dropdown_option("Origin", origin_locode, origin_cached, prefer_ramp=prefer_ramp_origin):
+                self.note_port_not_found("origin", origin_query)
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
             
             print(f"[CMA] Origin selected: {origin_locode} (prefer_ramp={prefer_ramp_origin})")
@@ -1483,6 +1484,7 @@ class CMAConnector(BaseCarrierConnector):
             await self.page.wait_for_timeout(2000)
 
             if not await self._select_cma_dropdown_option("Destination", dest_locode, dest_cached, prefer_ramp=prefer_ramp_dest):
+                self.note_port_not_found("destination", dest_query)
                 return CarrierResultStatus.INVALID_SEARCH_INPUT
             
             print(f"[CMA] Destination selected: {dest_locode} (prefer_ramp: {prefer_ramp_dest})")

@@ -176,6 +176,14 @@ async def _run_size_search(connector, request: RateSearchRequest):
     return CarrierResultStatus.TIMEOUT, [], "timeout"
 
 
+def _store_port_not_found(db_result: CarrierSearchResult, connector) -> None:
+    """Copy the connector's "port not found" note onto the result row, if it made one."""
+    note = getattr(connector, "port_not_found", None) if connector else None
+    if note:
+        db_result.unfound_port_side = note.get("side")
+        db_result.unfound_port_query = note.get("typed")
+
+
 async def run_carrier_search(
     search_id: UUID,
     carrier_code: str,
@@ -344,6 +352,7 @@ async def run_carrier_search(
                 db_result.matched_destination = matched_dest
                 db_result.has_port_mismatch = has_port_mismatch
                 db_result.mismatch_warning = mismatch_warning
+                _store_port_not_found(db_result, connector)
 
                 if final_status == CarrierResultStatus.CONNECTOR_NOT_AVAILABLE:
                     db_result.error_message = f"Connector for {carrier_code} is not yet implemented"
@@ -723,6 +732,10 @@ async def run_vertical_batch_searches(
                         if db_result:
                             db_result.status = status.value
                             db_result.completed_at = datetime.utcnow()
+                            # One connector serves every lane in a batch, so take this lane's
+                            # note and clear it before the next lane.
+                            _store_port_not_found(db_result, connector)
+                            connector.port_not_found = None
                             # Save quotes
                             for q_schema in quotes:
                                 c_type = q_schema.container_type or (req.container_types[0] if req.container_types else "FCL")

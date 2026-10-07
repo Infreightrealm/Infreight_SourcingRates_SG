@@ -158,6 +158,8 @@ async def init_db():
                 "matched_destination": "VARCHAR(255)",
                 "has_port_mismatch": "BOOLEAN",
                 "mismatch_warning": "TEXT",
+                "unfound_port_side": "VARCHAR(20)",
+                "unfound_port_query": "VARCHAR(255)",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in columns:
