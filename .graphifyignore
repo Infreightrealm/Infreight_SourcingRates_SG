@@ -1,0 +1,10 @@
+# Paths graphify skips when building graphify-out/ (gitignore syntax; .gitignore
+# is applied as well). Keeps the graph to the app's own source code.
+graphify-out/
+backend/graphify-out/
+backend/experimental/screenshots/
+frontend/public/
+frontend/package-lock.json
+**/*.png
+**/*.ico
+docker/

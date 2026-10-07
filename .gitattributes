@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# graphify code map: generated, so hide it from diffs. merge=graphify uses
+# graphify's union merge where `graphify hook install` has set it up; elsewhere
+# git falls back to its normal merge.
+graphify-out/graph.json merge=graphify -diff linguist-generated
+graphify-out/manifest.json -diff linguist-generated
+graphify-out/GRAPH_REPORT.md linguist-generated
