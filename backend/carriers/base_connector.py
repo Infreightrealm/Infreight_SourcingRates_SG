@@ -32,7 +32,15 @@ class BaseCarrierConnector(ABC):
         self.submitted_destination: Optional[str] = None
         self.matched_origin: Optional[str] = None
         self.matched_destination: Optional[str] = None
+        # Set by note_port_not_found when the carrier's port dropdown has no match;
+        # job_service stores it so admins can add a port name fix.
+        self.port_not_found: Optional[dict] = None
 
+
+    def note_port_not_found(self, side: str, typed: Optional[str]) -> None:
+        """Record that the carrier's port search found nothing for `side` ("origin" or
+        "destination") after typing `typed`, for the admin Port name fixes list."""
+        self.port_not_found = {"side": side, "typed": (typed or "")[:255]}
 
     @property
     def page(self):

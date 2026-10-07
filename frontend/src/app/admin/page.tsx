@@ -13,6 +13,8 @@ import PortAutocomplete from "@/components/PortAutocomplete";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminOverview, { type AnalyticsRange } from "@/components/admin/AdminOverview";
 import AdminUsers, { type AuditEntry } from "@/components/admin/AdminUsers";
+import AdminPortFixes from "@/components/admin/AdminPortFixes";
+import type { PortMiss } from "@/lib/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/lib/preferences";
@@ -43,6 +45,7 @@ export default function AdminDashboard() {
   const [password, setPassword] = useState("");
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [portMisses, setPortMisses] = useState<PortMiss[]>([]);
   const [userSearchTerm, setUserSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -222,6 +225,10 @@ export default function AdminDashboard() {
       if (tab === "overview") {
         fetchAnalytics();
         fetchUsers();
+        import("@/lib/api")
+          .then(({ getPortFixes }) => getPortFixes(14, password))
+          .then((d) => setPortMisses(d.misses))
+          .catch((e) => console.error("Failed to fetch port misses", e));
       } else if (tab === "analytics") {
         fetchAnalytics();
       } else if (tab === "users") {
@@ -673,6 +680,7 @@ export default function AdminDashboard() {
   });
 
   const pendingCount = users.filter((u) => u.status === "pending").length;
+  const unfixedPortCount = portMisses.filter((m) => !m.fix).length;
   const lockDashboard = () => { setAuthenticated(false); setPassword(""); };
 
   const sections = (
@@ -2405,13 +2413,14 @@ export default function AdminDashboard() {
           </div>
         </header>
         <div className="mx-auto flex max-w-[1360px] flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:items-start">
-          <AdminSidebar active={tab} onSelect={setActiveTab} badges={{ users: pendingCount }} />
+          <AdminSidebar active={tab} onSelect={setActiveTab} badges={{ users: pendingCount, overrides: unfixedPortCount }} />
           <main className="min-w-0 flex-1 space-y-6">
             {tab === "overview" && (
               <AdminOverview
                 data={analyticsData}
                 loading={loadingAnalytics}
                 users={users}
+                unfoundPorts={portMisses}
                 range={analyticsTimeRange}
                 onRangeChange={(range: AnalyticsRange) => {
                   setAnalyticsTimeRange(range);
@@ -2443,6 +2452,8 @@ export default function AdminDashboard() {
                   setActiveTab("history");
                 }}
               />
+            ) : tab === "overrides" ? (
+              <AdminPortFixes adminPassword={password} onMissesLoaded={setPortMisses} />
             ) : (
               sections
             )}

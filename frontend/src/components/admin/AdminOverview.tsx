@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle2, CircleSlash, MapPin, RefreshCw, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import type { PortMiss } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AdminSection } from "./AdminSidebar";
 
@@ -64,6 +65,8 @@ interface AdminOverviewProps {
   data: AdminAnalytics | null;
   loading: boolean;
   users: AdminOverviewUser[];
+  /** Ports a carrier's own search couldn't find recently (from /api/admin/port-fixes). */
+  unfoundPorts?: PortMiss[];
   range: AnalyticsRange;
   onRangeChange: (range: AnalyticsRange) => void;
   userFilter: string;
@@ -140,7 +143,9 @@ interface Attention {
   section: AdminSection;
 }
 
-function attentionItems(data: AdminAnalytics | null, users: AdminOverviewUser[]): Attention[] {
+const CARRIER_LABELS: Record<string, string> = { maersk: "Maersk", cma: "CMA CGM", one: "ONE", hapag: "Hapag-Lloyd", msc: "MSC", greenx: "GreenX", oocl: "OOCL" };
+
+function attentionItems(data: AdminAnalytics | null, users: AdminOverviewUser[], unfoundPorts: PortMiss[]): Attention[] {
   const items: Attention[] = [];
   const pending = users.filter((u) => u.status === "pending");
   if (pending.length) {
@@ -152,6 +157,19 @@ function attentionItems(data: AdminAnalytics | null, users: AdminOverviewUser[])
       detail: `${pending.map(userName).join(", ")}. They can't search until approved.`,
       action: "Review requests",
       section: "users",
+    });
+  }
+  const unfixed = unfoundPorts.filter((m) => !m.fix);
+  if (unfixed.length) {
+    const names = unfixed.slice(0, 3).map((m) => `${CARRIER_LABELS[m.carrier] ?? m.carrier}: ${m.port_name}`);
+    items.push({
+      key: "unfound",
+      tone: "warn",
+      icon: <MapPin className="size-[18px]" aria-hidden />,
+      title: `${unfixed.length} port${unfixed.length === 1 ? "" : "s"} a carrier couldn't find`,
+      detail: `${names.join(" · ")}${unfixed.length > 3 ? ` and ${unfixed.length - 3} more` : ""}. Searches for these end with no quotes until fixed.`,
+      action: "Add port name fixes",
+      section: "overrides",
     });
   }
   const carriers = data?.carrier_ranking ?? [];
@@ -193,6 +211,7 @@ export default function AdminOverview({
   data,
   loading,
   users,
+  unfoundPorts = [],
   range,
   onRangeChange,
   userFilter,
@@ -202,7 +221,7 @@ export default function AdminOverview({
 }: AdminOverviewProps) {
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const s = data?.summary ?? {};
-  const attention = attentionItems(data, users);
+  const attention = attentionItems(data, users, unfoundPorts);
   const days = data?.timeline?.per_day ?? [];
   const busiest = Math.max(1, data?.timeline?.busiest_day ?? 1);
   const peakIndex = days.reduce((best, d, i) => (d.searches > (days[best]?.searches ?? -1) ? i : best), 0);

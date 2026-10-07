@@ -508,6 +508,19 @@ DEFAULT_POPULAR_PORTS = {
     "VNVUT", "CNXMN"
 }
 
+_REPO_USER_OVERRIDES_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "user_carrier_overrides.json")
+
+
+def _user_overrides_path() -> str:
+    """Where admin-saved port name fixes are kept. Railway rebuilds /app on every
+    deploy, so when the persistent volume (PERSISTENT_PROFILES_DIR) exists they
+    live there instead of in the repo's data folder."""
+    persistent = os.getenv("PERSISTENT_PROFILES_DIR")
+    if persistent and os.path.isdir(persistent):
+        return os.path.join(persistent, "user_carrier_overrides.json")
+    return _REPO_USER_OVERRIDES_PATH
+
+
 class PortManager:
     _instance = None
     _ports = {}
@@ -593,9 +606,13 @@ class PortManager:
             print(f"Error loading base carrier overrides: {e}")
             self._dynamic_carrier_overrides = {}
 
-        # Load local user custom carrier overrides (persisted across git pulls/resets)
+        # Load local user custom carrier overrides (persisted across git pulls/resets).
+        # Once a copy exists on the persistent volume it is the only one read, so
+        # removals stick; until then the repo's copy seeds it.
         self._user_carrier_overrides = {}
-        user_overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "user_carrier_overrides.json")
+        user_overrides_path = _user_overrides_path()
+        if not os.path.exists(user_overrides_path):
+            user_overrides_path = _REPO_USER_OVERRIDES_PATH
         try:
             if os.path.exists(user_overrides_path):
                 with open(user_overrides_path, 'r', encoding='utf-8') as f:
@@ -709,7 +726,7 @@ class PortManager:
             self._save_config()
 
     def _save_carrier_overrides(self):
-        user_overrides_path = os.path.join(os.path.dirname(__file__), "..", "data", "user_carrier_overrides.json")
+        user_overrides_path = _user_overrides_path()
         try:
             os.makedirs(os.path.dirname(user_overrides_path), exist_ok=True)
             with open(user_overrides_path, 'w', encoding='utf-8') as f:
