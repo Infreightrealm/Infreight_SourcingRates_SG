@@ -69,6 +69,12 @@ def extract_locode_and_country(text: str) -> tuple[Optional[str], Optional[str]]
 
 
 
+def _is_logged_in_url(url: str) -> bool:
+    """True once Maersk has moved past the login pages to a signed-in page."""
+    u = url.lower()
+    return "login" not in u and "auth" not in u and ("hub" in u or "dashboard" in u or "book" in u)
+
+
 class MaerskConnector(BaseCarrierConnector):
     carrier_code = "MAERSK"
     carrier_name = "Maersk Spot"
@@ -927,6 +933,22 @@ class MaerskConnector(BaseCarrierConnector):
     # LOGIN & VERIFICATION GATEWAY
     # ────────────────────────────────────────
 
+    async def _wait_for_session_or_login_form(self, timeout_sec: float = 20.0) -> str:
+        """Wait until the login page either redirects to a signed-in page or shows
+        its form. Returns "session", "form", or "unknown" on timeout."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_sec
+        while loop.time() < deadline:
+            if _is_logged_in_url(self.page.url):
+                return "session"
+            try:
+                if await self.page.locator('#mc-input-username, input[type="password"]').count() > 0:
+                    return "form"
+            except Exception:
+                pass  # page navigating; check again
+            await asyncio.sleep(0.5)
+        return "unknown"
+
     async def login(self) -> bool:
         username = os.getenv("MAERSK_USERNAME")
         password = os.getenv("MAERSK_PASSWORD")
@@ -946,10 +968,17 @@ class MaerskConnector(BaseCarrierConnector):
             # Wait for MDS web components (<mc-input>, <mc-button>) to hydrate
             await self.page.wait_for_timeout(3000)
             print(f"[MAERSK] Landed on: {self.page.url}")
-            
+
+            # With a remembered session, /portaluser/login shows no form and redirects
+            # to the Hub a few seconds later. Wait for either outcome before deciding.
+            if await self._wait_for_session_or_login_form() == "session":
+                print(f"[MAERSK] Redirected to {self.page.url}. Session restored, already logged in.")
+                self.is_login_successful = True
+                return True
+
             # Check if we are already logged in (cookie session remembered in chrome_profile)
             current_url = self.page.url
-            
+
             is_logged_in = False
             if "login" not in current_url.lower() and "auth" not in current_url.lower():
                 if "hub" in current_url.lower():
@@ -1064,6 +1093,12 @@ class MaerskConnector(BaseCarrierConnector):
             except Exception as e:
                 print(f"[MAERSK] Username fill failed completely: {e}")
 
+            # A late redirect to the Hub means the session was valid after all.
+            if _is_logged_in_url(self.page.url):
+                print(f"[MAERSK] Redirected to {self.page.url} during login. Session is active.")
+                self.is_login_successful = True
+                return True
+
             # Fill Password
             password_filled = False
             try:
@@ -1120,6 +1155,11 @@ class MaerskConnector(BaseCarrierConnector):
             except Exception as e:
                 print(f"[MAERSK] Password fill failed completely: {e}")
 
+            if _is_logged_in_url(self.page.url):
+                print(f"[MAERSK] Redirected to {self.page.url} during login. Session is active.")
+                self.is_login_successful = True
+                return True
+
             # Submit Login
             try:
                 # Add a substantial delay (e.g., 2-3.5 seconds) after entering credentials before clicking submit
@@ -1162,7 +1202,7 @@ class MaerskConnector(BaseCarrierConnector):
                 curr_url = self.page.url
                 
                 # Check for successful redirects (redirects to hub or dashboard)
-                if "login" not in curr_url.lower() and "auth" not in curr_url.lower() and ("hub" in curr_url.lower() or "dashboard" in curr_url.lower() or "book" in curr_url.lower()):
+                if _is_logged_in_url(curr_url):
                     print("[MAERSK] Login successful!")
                     self.is_login_successful = True
                     await self.page.wait_for_timeout(2000)
@@ -2042,7 +2082,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         matching.sort((a, b) => b.matchScore - a.matchScore);
                                         if (matching[0].matchScore > 0) {{
                                             matching[0].el.click();
-                                            matching[0].el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+                                            matching[0].el.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, composed: true }}));
                                             return matching[0].txt;
                                         }}
                                     }}
