@@ -10,6 +10,12 @@ import {
 } from "lucide-react";
 import { API_URL, loginAuth, getMe, getAdminOverview, adminUserAction, logoutAuth } from "@/lib/api";
 import PortAutocomplete from "@/components/PortAutocomplete";
+import AdminSidebar from "@/components/admin/AdminSidebar";
+import AdminOverview, { type AnalyticsRange } from "@/components/admin/AdminOverview";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Button } from "@/components/ui/button";
+import { usePreferences } from "@/lib/preferences";
+import Link from "next/link";
 import { toast } from "sonner";
 
 interface UserRecord {
@@ -40,7 +46,11 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates">("analytics");
+  const [activeTab, setActiveTab] = useState<"overview" | "analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates">("overview");
+  // The new layout opens on Overview; Classic has no Overview and opens on analytics.
+  const { prefs } = usePreferences();
+  const isV2 = prefs.layout === "v2";
+  const tab = !isV2 && activeTab === "overview" ? "analytics" : activeTab;
 
   // Consolidated Analytics state
   const [analyticsData, setAnalyticsData] = useState<any>(null);
@@ -207,21 +217,24 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (authenticated) {
-      if (activeTab === "analytics") {
+      if (tab === "overview") {
         fetchAnalytics();
-      } else if (activeTab === "users") {
         fetchUsers();
-      } else if (activeTab === "route_health") {
+      } else if (tab === "analytics") {
+        fetchAnalytics();
+      } else if (tab === "users") {
+        fetchUsers();
+      } else if (tab === "route_health") {
         fetchRouteHealth();
-      } else if (activeTab === "overrides") {
+      } else if (tab === "overrides") {
         fetchOverrides();
-      } else if (activeTab === "history") {
+      } else if (tab === "history") {
         fetchSearchHistory();
-      } else if (activeTab === "exchange_rates") {
+      } else if (tab === "exchange_rates") {
         fetchExchangeRates();
       }
     }
-  }, [authenticated, activeTab]);
+  }, [authenticated, tab]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -643,164 +656,13 @@ export default function AdminDashboard() {
     }
   });
 
-  return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
-        
-        <header className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
-              <ShieldCheck className="w-8 h-8 text-indigo-500" />
-              Admin Registry
-            </h1>
-            <p className="text-muted-foreground mt-1">Manage platform user access, port ranking, and live carrier search overrides.</p>
-          </div>
-          <button 
-            onClick={() => { setAuthenticated(false); setPassword(""); }}
-            className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-accent text-foreground dark:text-white rounded-xl transition-colors font-medium text-sm"
-          >
-            <LogOut className="w-4 h-4" />
-            Lock Dashboard
-          </button>
-        </header>
+  const pendingCount = users.filter((u) => u.status === "pending").length;
+  const lockDashboard = () => { setAuthenticated(false); setPassword(""); };
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                <Users className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Users</p>
-                <p className="text-2xl font-bold text-foreground">{users.length}</p>
-              </div>
-            </div>
-          </div>
-          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                <Activity className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Active Users</p>
-                <p className="text-2xl font-bold text-foreground">{users.filter(u => u.is_active).length}</p>
-              </div>
-            </div>
-          </div>
-          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
-                <Sliders className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Carrier Port Overrides</p>
-                <p className="text-2xl font-bold text-foreground">
-                  {Object.values(carrierOverrides).reduce((acc, obj) => acc + Object.keys(obj || {}).length, 0)}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex gap-4 border-b border-border pb-px flex-wrap">
-          <button
-            onClick={() => setActiveTab("analytics")}
-            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
-              activeTab === "analytics"
-                ? "text-indigo-600 dark:text-indigo-400"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            Consolidated Analytics
-            {activeTab === "analytics" && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("users")}
-            className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
-              activeTab === "users"
-                ? "text-indigo-600 dark:text-indigo-400"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            User Registry
-            {activeTab === "users" && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("ports")}
-            className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
-              activeTab === "ports"
-                ? "text-indigo-600 dark:text-indigo-400"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Port Ranking Config
-            {activeTab === "ports" && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("overrides")}
-            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
-              activeTab === "overrides"
-                ? "text-indigo-600 dark:text-indigo-400"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Carrier Port Overrides
-            {activeTab === "overrides" && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
-              activeTab === "history"
-                ? "text-indigo-600 dark:text-indigo-400"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            User Search History
-            {activeTab === "history" && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("exchange_rates")}
-            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
-              activeTab === "exchange_rates"
-                ? "text-indigo-600 dark:text-indigo-400"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <span>💱 Currency Conversion Rates</span>
-            {activeTab === "exchange_rates" && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("route_health")}
-            className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
-              activeTab === "route_health"
-                ? "text-indigo-600 dark:text-indigo-400"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Route Reliability Matrix
-            {activeTab === "route_health" && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
-            )}
-          </button>
-        </div>
-
+  const sections = (
+    <>
         {/* TAB 0: CONSOLIDATED GLOBAL ANALYTICS */}
-        {activeTab === "analytics" && (
+        {tab === "analytics" && (
           <div className="space-y-6">
             {/* Controls & Filter Bar */}
             <div className="border border-border bg-card rounded-2xl p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -1397,7 +1259,7 @@ export default function AdminDashboard() {
         )}
 
         {/* TAB 1: USER REGISTRY */}
-        {activeTab === "users" && (
+        {tab === "users" && (
           <div className="space-y-6">
             {/* Pending Access Requests Card (if any) */}
             {users.filter((u) => u.status === "pending").length > 0 && (
@@ -1673,7 +1535,7 @@ export default function AdminDashboard() {
         )}
 
         {/* TAB 2: PORT RANKING CONFIG */}
-        {activeTab === "ports" && (
+        {tab === "ports" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
@@ -1964,7 +1826,7 @@ export default function AdminDashboard() {
       )}
 
         {/* TAB 3: CARRIER PORT OVERRIDES (NEW!) */}
-        {activeTab === "overrides" && (
+        {tab === "overrides" && (
           <div className="border border-border bg-card rounded-3xl p-6 shadow-sm space-y-6">
             <div className="flex items-center justify-between border-b border-border pb-4">
               <div>
@@ -2131,7 +1993,7 @@ export default function AdminDashboard() {
         )}
 
         {/* TAB: USER SEARCH HISTORY */}
-        {activeTab === "history" && (
+        {tab === "history" && (
           <div className="border border-border bg-card rounded-3xl shadow-sm overflow-hidden p-6 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-5">
               <div>
@@ -2306,7 +2168,7 @@ export default function AdminDashboard() {
         )}
 
         {/* TAB 4: ROUTE RELIABILITY MATRIX */}
-        {activeTab === "route_health" && (
+        {tab === "route_health" && (
           <div className="border border-border bg-card rounded-3xl shadow-sm overflow-hidden p-6">
 
             <div className="flex items-center justify-between mb-6">
@@ -2411,7 +2273,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Exchange Rates Tab */}
-        {activeTab === "exchange_rates" && (
+        {tab === "exchange_rates" && (
           <div className="border border-border bg-card rounded-3xl p-8 shadow-sm space-y-6">
             <div className="flex items-center justify-between flex-wrap gap-4 border-b border-border pb-4">
               <div>
@@ -2497,6 +2359,224 @@ export default function AdminDashboard() {
             )}
           </div>
         )}
+    </>
+  );
+
+  if (isV2) {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85">
+          <div className="mx-auto flex max-w-[1360px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5 sm:px-6">
+            <Link href="/" className="flex items-center gap-2.5">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background p-1">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/infreight_logo.png" alt="" className="size-full object-contain" />
+              </span>
+              <span className="whitespace-nowrap text-base font-bold text-foreground">
+                Infreight <span className="font-medium text-muted-foreground">Admin</span>
+              </span>
+            </Link>
+            <div className="ml-auto flex items-center gap-2">
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/">Back to search</Link>
+              </Button>
+              <ThemeToggle />
+              <Button variant="outline" size="sm" onClick={lockDashboard}>
+                <LogOut className="size-3.5" />
+                Lock
+              </Button>
+            </div>
+          </div>
+        </header>
+        <div className="mx-auto flex max-w-[1360px] flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:items-start">
+          <AdminSidebar active={tab} onSelect={setActiveTab} badges={{ users: pendingCount }} />
+          <main className="min-w-0 flex-1 space-y-6">
+            {tab === "overview" && (
+              <AdminOverview
+                data={analyticsData}
+                loading={loadingAnalytics}
+                users={users}
+                range={analyticsTimeRange}
+                onRangeChange={(range: AnalyticsRange) => {
+                  setAnalyticsTimeRange(range);
+                  fetchAnalytics(range, analyticsUserFilter, analyticsCarrierFilter);
+                }}
+                userFilter={analyticsUserFilter}
+                onUserFilterChange={(user) => {
+                  setAnalyticsUserFilter(user);
+                  fetchAnalytics(analyticsTimeRange, user, analyticsCarrierFilter);
+                }}
+                onRefresh={() => {
+                  fetchAnalytics();
+                  fetchUsers();
+                }}
+                onNavigate={setActiveTab}
+              />
+            )}
+            {sections}
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background p-8">
+      <div className="max-w-6xl mx-auto space-y-8">
+        
+        <header className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
+              <ShieldCheck className="w-8 h-8 text-indigo-500" />
+              Admin Registry
+            </h1>
+            <p className="text-muted-foreground mt-1">Manage platform user access, port ranking, and live carrier search overrides.</p>
+          </div>
+          <button 
+            onClick={() => { setAuthenticated(false); setPassword(""); }}
+            className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-accent text-foreground dark:text-white rounded-xl transition-colors font-medium text-sm"
+          >
+            <LogOut className="w-4 h-4" />
+            Lock Dashboard
+          </button>
+        </header>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                <Users className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Users</p>
+                <p className="text-2xl font-bold text-foreground">{users.length}</p>
+              </div>
+            </div>
+          </div>
+          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                <Activity className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Active Users</p>
+                <p className="text-2xl font-bold text-foreground">{users.filter(u => u.is_active).length}</p>
+              </div>
+            </div>
+          </div>
+          <div className="border border-border bg-card rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                <Sliders className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Carrier Port Overrides</p>
+                <p className="text-2xl font-bold text-foreground">
+                  {Object.values(carrierOverrides).reduce((acc, obj) => acc + Object.keys(obj || {}).length, 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex gap-4 border-b border-border pb-px flex-wrap">
+          <button
+            onClick={() => setActiveTab("analytics")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              tab === "analytics"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Consolidated Analytics
+            {tab === "analytics" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("users")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
+              tab === "users"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            User Registry
+            {tab === "users" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("ports")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
+              tab === "ports"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Port Ranking Config
+            {tab === "ports" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("overrides")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              tab === "overrides"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Carrier Port Overrides
+            {tab === "overrides" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("history")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              tab === "history"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            User Search History
+            {tab === "history" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("exchange_rates")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative flex items-center gap-2 ${
+              tab === "exchange_rates"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span>💱 Currency Conversion Rates</span>
+            {tab === "exchange_rates" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("route_health")}
+            className={`pb-4 px-2 font-semibold text-sm transition-all relative ${
+              tab === "route_health"
+                ? "text-indigo-600 dark:text-indigo-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Route Reliability Matrix
+            {tab === "route_health" && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+            )}
+          </button>
+        </div>
+
+        {sections}
 
       </div>
     </div>
