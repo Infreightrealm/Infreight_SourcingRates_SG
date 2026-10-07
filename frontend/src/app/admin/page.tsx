@@ -12,6 +12,7 @@ import { API_URL, loginAuth, getMe, getAdminOverview, adminUserAction, logoutAut
 import PortAutocomplete from "@/components/PortAutocomplete";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminOverview, { type AnalyticsRange } from "@/components/admin/AdminOverview";
+import AdminUsers, { type AuditEntry } from "@/components/admin/AdminUsers";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/lib/preferences";
@@ -41,6 +42,7 @@ export default function AdminDashboard() {
   const [adminUsernameInput, setAdminUsernameInput] = useState("");
   const [password, setPassword] = useState("");
   const [users, setUsers] = useState<UserRecord[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [userSearchTerm, setUserSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -297,6 +299,19 @@ export default function AdminDashboard() {
     }
   };
 
+  // Approving can't set a role, so an admin approval is approve followed by a role change.
+  const approveUser = async (userId: string, role: "admin" | "user") => {
+    try {
+      await adminUserAction(userId, "approve", {}, password);
+      if (role === "admin") await adminUserAction(userId, "role", { role: "admin" }, password);
+      toast.success(role === "admin" ? "Approved as an admin." : "Approved.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to approve this request");
+    } finally {
+      fetchUsers();
+    }
+  };
+
   const handleResetAllUsers = async () => {
     if (!confirm("Are you sure you want to kick all users and reset the database list to 0 for a fresh start? All active browser sessions will be logged out.")) {
       return;
@@ -315,6 +330,7 @@ export default function AdminDashboard() {
     try {
       const data = await getAdminOverview(password);
       setUsers(data.users || []);
+      setAudit(data.audit || []);
       if (data.me) setCurrentUser(data.me);
     } catch (e) {
       console.error("Failed to fetch users overview", e);
@@ -2413,7 +2429,23 @@ export default function AdminDashboard() {
                 onNavigate={setActiveTab}
               />
             )}
-            {sections}
+            {tab === "users" ? (
+              <AdminUsers
+                users={users}
+                currentUser={currentUser}
+                audit={audit}
+                onApprove={approveUser}
+                onAction={(id, action, payload) => handleUserAction(id, action, payload)}
+                onRefresh={fetchUsers}
+                onResetAllSessions={handleResetAllUsers}
+                onShowSearches={(userKey) => {
+                  setHistoryUserFilter(userKey);
+                  setActiveTab("history");
+                }}
+              />
+            ) : (
+              sections
+            )}
           </main>
         </div>
       </div>
