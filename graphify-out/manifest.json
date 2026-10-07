@@ -1098,9 +1098,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/VncViewer.tsx": {
-    "mtime": 1791275189.9944837,
-    "seen": 1791338661.5703661,
-    "ast_hash": "d0e9de13a46aa5dfc37d9350e5390e16",
+    "mtime": 1791340298.2139723,
+    "seen": 1791340312.5279572,
+    "ast_hash": "71b9d22ba677fd13b1f78970039d496c",
     "semantic_hash": ""
   },
   "frontend/src/components/WorkspacePanel.tsx": {
