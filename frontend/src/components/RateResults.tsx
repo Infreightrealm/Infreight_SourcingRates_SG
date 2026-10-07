@@ -427,7 +427,102 @@ export default function RateResults({ data }: RateResultsProps) {
 
         <div className="flex min-w-0 flex-[999_1_40rem] flex-col gap-3">
           {rows.length > 0 && (
-            <Card className="overflow-hidden p-0">
+            // Phones get one card per quote; the 56rem table would widen the page and make
+            // Safari zoom everything out.
+            <ul className="flex flex-col gap-2.5 md:hidden">
+              {visible.map((r) => {
+                const q = r.quote;
+                const isOpen = open === r.key;
+                const isPicked = picked.includes(r.key);
+                const isBest = best?.key === r.key;
+                const isFastest = fastest?.key === r.key && !isBest;
+                return (
+                  <li key={r.key}>
+                    <Card className={cn("flex flex-col gap-2.5 p-3.5", isPicked && "border-primary ring-1 ring-primary")}>
+                      <div className="flex items-start gap-1">
+                        <button
+                          type="button"
+                          aria-pressed={isPicked}
+                          aria-label={`Select ${r.carrierName} ${formatQuoteDate(q.etd)}`}
+                          onClick={() => togglePick(r.key)}
+                          className="-ml-2 -mt-2 flex size-11 shrink-0 items-center justify-center"
+                        >
+                          <span
+                            className={cn(
+                              "flex size-5 items-center justify-center rounded border-[1.5px]",
+                              isPicked ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card",
+                            )}
+                          >
+                            {isPicked && <Check className="size-3" strokeWidth={3.5} />}
+                          </span>
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold text-foreground">
+                            <span className="size-2.5 shrink-0 rounded-full ring-1 ring-foreground/15" style={{ backgroundColor: r.color }} aria-hidden />
+                            {r.carrierName}
+                            {isBest && <span className="rounded bg-warning/15 px-1.5 text-[11px] font-bold text-warning-foreground">Best price</span>}
+                            {isFastest && <span className="rounded bg-primary/10 px-1.5 text-[11px] font-bold text-primary">Fastest</span>}
+                            {isSpot(q) && <span className="rounded bg-secondary px-1.5 text-[11px] font-semibold text-muted-foreground">Spot</span>}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {[q.port_of_discharge || q.routing, q.service_name, q.vessel].filter(Boolean).join(" · ") || "—"}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          {isSoldOut(q) ? (
+                            <span className="text-xs font-semibold text-destructive-foreground">{r.carrier === "OOCL" ? "Offline rates" : "Sold out"}</span>
+                          ) : (
+                            <>
+                              <p className={cn("text-lg font-bold leading-tight tabular-nums", isBest ? "text-warning-foreground" : "text-foreground")}>
+                                {money(q.final_freight_value, q.currency)}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">all-in</p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <dl className="grid grid-cols-3 gap-2 border-t border-border/60 pt-2.5 text-sm">
+                        <div>
+                          <dt className="text-[11px] text-muted-foreground">Departs</dt>
+                          <dd className="font-semibold text-foreground">{formatQuoteDate(q.etd)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[11px] text-muted-foreground">Transit</dt>
+                          <dd className="font-semibold text-foreground">{q.transit_time_days ? `${q.transit_time_days} days` : "—"}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[11px] text-muted-foreground">Free time</dt>
+                          <dd className="font-semibold text-foreground">{freeTimeText(q)}</dd>
+                        </div>
+                      </dl>
+                      <button
+                        type="button"
+                        aria-expanded={isOpen}
+                        onClick={() => setOpen(isOpen ? null : r.key)}
+                        className="-mx-1 flex min-h-10 items-center justify-between rounded-lg px-1 text-sm font-semibold text-primary"
+                      >
+                        {isOpen ? "Hide price breakdown" : "See price breakdown"}
+                        <ChevronDown className={cn("size-4 transition-transform", isOpen && "rotate-180")} aria-hidden />
+                      </button>
+                      {isOpen && (
+                        <div className="-mx-3.5 -mb-3.5 border-t border-border pt-3">
+                          <Breakdown q={q} onDetails={() => setDetails({ quote: q, carrier: r.carrier })} />
+                        </div>
+                      )}
+                    </Card>
+                  </li>
+                );
+              })}
+              {visible.length === 0 && (
+                <li className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  No quotes match these filters. Show more carriers or turn off &ldquo;Hide sold-out sailings&rdquo;.
+                </li>
+              )}
+            </ul>
+          )}
+
+          {rows.length > 0 && (
+            <Card className="hidden overflow-hidden p-0 md:block">
               <div className="overflow-x-auto">
                 <div className="min-w-[56rem]">
                   <div className="grid grid-cols-[3rem_9rem_minmax(14rem,2fr)_7rem_5rem_8rem_9rem_3.25rem] items-center gap-x-3 border-b border-border bg-muted px-4 py-2.5 text-xs font-semibold text-muted-foreground">
