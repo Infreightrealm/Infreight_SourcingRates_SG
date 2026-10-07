@@ -213,7 +213,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
-          mr-4 mb-0 px-4 py-2 rounded-t-xl text-xs font-semibold
+          mb-0 mr-20 px-4 py-2 sm:mr-4 rounded-t-xl text-xs font-semibold
           transition-all duration-300 shadow-lg
           flex items-center gap-2
           ${
@@ -258,7 +258,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
       {isOpen && (
         <div
           className="
-            w-[820px] h-[520px]
+            h-[75vh] w-screen sm:h-[520px] sm:w-[820px]
             bg-slate-50/95 dark:bg-[#0a0a0f]/95 backdrop-blur-xl
             border border-slate-300 dark:border-white/10 rounded-tl-2xl
             shadow-2xl shadow-black/20 dark:shadow-black/50
@@ -269,7 +269,7 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
           <div className="flex items-center justify-between border-b border-border bg-muted px-4 py-2">
             {carriers.length > 0 ? (
               /* Multi-Tab Layout */
-              <div className="flex items-center gap-1">
+              <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
                 {carriers.map((carrier) => {
                   const isActive = activeTab === carrier.code;
                   const needsAction = manualActionCarriers.some((c) => c.code === carrier.code);

@@ -525,12 +525,12 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
             </button>
 
             {/* AI Model Selector Dropdown */}
-            <div className="flex min-h-[44px] items-center gap-1.5 self-start rounded-xl border border-border bg-secondary px-3 py-2 text-xs font-semibold text-secondary-foreground shadow-panel sm:self-auto">
+            <div className="flex min-h-[44px] max-w-full items-center gap-1.5 self-start rounded-xl border border-border bg-secondary px-3 py-2 text-xs font-semibold text-secondary-foreground shadow-panel sm:self-auto">
               <span className="text-[11px] font-medium text-muted-foreground">Model:</span>
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
-                className="cursor-pointer bg-transparent text-xs font-bold text-chart-4 outline-none"
+                className="min-w-0 max-w-full cursor-pointer truncate bg-transparent text-xs font-bold text-chart-4 outline-none"
                 title="Select Gemini AI Model to read enquiry"
               >
                 <option value="gemini-2.5-flash">

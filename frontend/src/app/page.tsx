@@ -506,7 +506,7 @@ function HomeContent() {
         />
       ) : (
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl transition-colors supports-[backdrop-filter]:bg-background/65">
-        <div className="mx-auto flex max-w-[98%] items-center justify-between gap-4 px-6 py-3.5">
+        <div className="mx-auto flex max-w-[98%] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3.5 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-card p-1 shadow-panel sm:size-11">
               <img
@@ -518,7 +518,7 @@ function HomeContent() {
 
 
             <div>
-              <h1 className="whitespace-nowrap text-base font-semibold tracking-tight text-foreground sm:text-lg">
+              <h1 className="text-base font-semibold tracking-tight text-foreground sm:whitespace-nowrap sm:text-lg">
                 Infreight <span className="text-gradient-brand">Ocean &amp; Air</span> Rate Automation
               </h1>
               <p className="hidden text-xs text-muted-foreground xl:block">Automated ocean rate searches &amp; airfreight partner routing</p>
@@ -626,7 +626,7 @@ function HomeContent() {
       </header>
       )}
 
-      <main className="max-w-[98%] mx-auto px-6 py-8 space-y-8 flex-1 w-full">
+      <main className="mx-auto w-full flex-1 space-y-8 px-4 pb-28 pt-5 sm:max-w-[98%] sm:px-6 sm:py-8">
         {/* Self-Healing alerts / approvals */}
         <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
 

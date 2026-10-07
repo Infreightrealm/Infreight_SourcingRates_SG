@@ -75,16 +75,17 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
   };
 
   return (
-    <div className="fixed bottom-6 left-6 z-40 flex flex-col items-start">
+    <div className="fixed bottom-4 left-4 z-40 flex flex-col items-start sm:bottom-6 sm:left-6">
       {/* Floating Chat Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
           btn-interactive flex items-center gap-2 rounded-full border border-white/15
-          bg-gradient-brand px-4 py-2.5 text-white shadow-brand hover:brightness-110
+          bg-gradient-brand p-3 text-white shadow-brand hover:brightness-110 sm:px-4 sm:py-2.5
           ${!isOpen ? 'animate-glow-pulse' : ''}
         `}
         title="Open Infreight Assistant"
+        aria-label={isOpen ? "Close chat" : "Ask AI Assistant"}
         id="chat-floating-btn"
       >
         {isOpen ? (
@@ -92,7 +93,7 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
             <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
-            <span className="text-[10px] sm:text-xs font-bold tracking-wider uppercase">Close Chat</span>
+            <span className="hidden text-xs font-bold uppercase tracking-wider sm:inline">Close Chat</span>
           </>
         ) : (
           <>
@@ -103,7 +104,7 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <span className="text-[10px] sm:text-xs font-bold tracking-wider uppercase">Ask AI Assistant</span>
+            <span className="hidden text-xs font-bold uppercase tracking-wider sm:inline">Ask AI Assistant</span>
           </>
         )}
       </button>

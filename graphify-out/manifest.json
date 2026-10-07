@@ -942,9 +942,9 @@
     "semantic_hash": ""
   },
   "frontend/src/app/page.tsx": {
-    "mtime": 1791338088.9343019,
-    "seen": 1791338661.5703406,
-    "ast_hash": "bea0aeb32ab8e962fa5c485e007641b4",
+    "mtime": 1791354250.5111542,
+    "seen": 1791354406.5587173,
+    "ast_hash": "dc7a92a6405725a85e10b28c84805f1f",
     "semantic_hash": ""
   },
   "frontend/src/components/AppHeader.tsx": {
@@ -972,9 +972,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/ChatWidget.tsx": {
-    "mtime": 1790430516.572161,
-    "seen": 1791338661.570345,
-    "ast_hash": "3daaed50327499b2a07539d029de480d",
+    "mtime": 1791354201.3300698,
+    "seen": 1791354406.5590212,
+    "ast_hash": "0e227550ec8348098ded2e3c7b35e5c1",
     "semantic_hash": ""
   },
   "frontend/src/components/LaunchIntro.tsx": {
@@ -1014,9 +1014,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/RateResults.tsx": {
-    "mtime": 1791280953.1721504,
-    "seen": 1791338661.5703516,
-    "ast_hash": "52d1da3fab37d6a7c9b74cfcd9d9ef36",
+    "mtime": 1791354173.4278588,
+    "seen": 1791354406.5593886,
+    "ast_hash": "ae10659e4d8b97e89e2120b556239d7b",
     "semantic_hash": ""
   },
   "frontend/src/components/RateSearchForm.tsx": {
@@ -1032,9 +1032,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/RfqInputSection.tsx": {
-    "mtime": 1791337070.4962924,
-    "seen": 1791338661.5703561,
-    "ast_hash": "7615dad9ddd191ed920a936efea6fbdc",
+    "mtime": 1791354312.2226298,
+    "seen": 1791354406.559499,
+    "ast_hash": "1bc66f423e6d0d8c699e793804ea9f9f",
     "semantic_hash": ""
   },
   "frontend/src/components/RfqWorkspace.tsx": {
@@ -1098,9 +1098,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/VncViewer.tsx": {
-    "mtime": 1791340298.2139723,
-    "seen": 1791340312.5279572,
-    "ast_hash": "71b9d22ba677fd13b1f78970039d496c",
+    "mtime": 1791354206.1330304,
+    "seen": 1791354406.5601594,
+    "ast_hash": "10729e400731985bae9e5c6e2f90fc99",
     "semantic_hash": ""
   },
   "frontend/src/components/WorkspacePanel.tsx": {
