@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { OPEN_ASSISTANT_EVENT } from "@/lib/liveViewer";
 
 interface Message {
   role: "user" | "assistant";
@@ -13,6 +14,13 @@ interface ChatWidgetProps {
 
 export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
+
+  // Opened from the phone "More" menu, where the floating button is hidden.
+  useEffect(() => {
+    const onOpen = () => setIsOpen(true);
+    window.addEventListener(OPEN_ASSISTANT_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_ASSISTANT_EVENT, onOpen);
+  }, []);
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
@@ -75,12 +83,12 @@ export default function ChatWidget({ backendUrl }: ChatWidgetProps) {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-40 flex flex-col items-start sm:bottom-6 sm:left-6">
+    <div className="v2-phone-above-tabbar fixed bottom-4 left-4 z-40 flex flex-col items-start sm:bottom-6 sm:left-6">
       {/* Floating Chat Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
-          btn-interactive flex items-center gap-2 rounded-full border border-white/15
+          v2-phone-hidden btn-interactive flex items-center gap-2 rounded-full border border-white/15
           bg-gradient-brand p-3 text-white shadow-brand hover:brightness-110 sm:px-4 sm:py-2.5
           ${!isOpen ? 'animate-glow-pulse' : ''}
         `}

@@ -64,9 +64,10 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
     return () => window.removeEventListener(OPEN_LIVE_VIEWER_EVENT, onOpen);
   }, []);
 
-  // Auto-open when searching starts
+  // Auto-open when searching starts, except on phones where the panel would cover
+  // the screen; there it opens from "Watch live" or the More menu.
   useEffect(() => {
-    if (isSearching && isAvailable) {
+    if (isSearching && isAvailable && window.matchMedia("(min-width: 768px)").matches) {
       const timer = setTimeout(() => {
         setIsOpen(true);
       }, 0);
@@ -208,11 +209,12 @@ export default function VncViewer({ backendUrl, isSearching, results = [] }: Vnc
   });
 
   return (
-    <div className="fixed bottom-0 right-0 z-50 flex flex-col items-end">
+    <div className="v2-phone-above-tabbar fixed bottom-0 right-0 z-50 flex flex-col items-end">
       {/* Toggle Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
+          ${!isOpen && manualActionCarriers.length === 0 ? "v2-phone-hidden" : ""}
           mb-0 mr-20 px-4 py-2 sm:mr-4 rounded-t-xl text-xs font-semibold
           transition-all duration-300 shadow-lg
           flex items-center gap-2

@@ -20,3 +20,10 @@ export const VNC_TAB_BY_CARRIER: Record<string, string> = {
 export function openLiveViewer(carrier?: string) {
   window.dispatchEvent(new CustomEvent(OPEN_LIVE_VIEWER_EVENT, { detail: { carrier } }));
 }
+
+/** Opens the AI assistant chat, e.g. from the phone "More" menu where its floating button is hidden. */
+export const OPEN_ASSISTANT_EVENT = "infreight:open-assistant";
+/** Opens the colleague messages panel, e.g. from the phone "More" menu. */
+export const OPEN_MESSAGES_EVENT = "infreight:open-messages";
+/** SocialWidget announces its unread total so the phone tab bar can badge "More". */
+export const MESSAGES_UNREAD_EVENT = "infreight:messages-unread";

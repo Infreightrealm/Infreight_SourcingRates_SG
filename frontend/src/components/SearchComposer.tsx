@@ -304,19 +304,19 @@ export default function SearchComposer(p: SearchComposerProps) {
         )}
       </fieldset>
 
-      {/* Summary + actions */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-        <p className="text-sm text-muted-foreground">
+      {/* Summary + actions; on phones it stays pinned above the tab bar while the form is on screen */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 max-md:sticky max-md:bottom-[calc(4rem+env(safe-area-inset-bottom))] max-md:z-20 max-md:-mx-4 max-md:-mb-4 max-md:gap-2 max-md:rounded-b-xl max-md:bg-card/95 max-md:px-4 max-md:pb-3 max-md:pt-3 max-md:backdrop-blur">
+        <p className="text-sm text-muted-foreground max-md:w-full max-md:text-xs">
           {sizes.length ? sizes.join(", ") : "No equipment"} · {carrierCount} carrier{carrierCount === 1 ? "" : "s"} ·{" "}
           {ramp ? "ramp / inland" : "port to port"}
           {p.weight > 0 && ` · ${p.weight.toLocaleString("en-US")} kg`}
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 max-md:w-full max-md:flex-nowrap">
           <Button type="button" variant="outline" size="lg" onClick={p.onClear}>
             <Eraser className="size-4" />
             Clear
           </Button>
-          <Button type="submit" size="lg" disabled={p.isLoading || carrierCount === 0} className="min-w-44 font-semibold">
+          <Button type="submit" size="lg" disabled={p.isLoading || carrierCount === 0} className="min-w-44 font-semibold max-md:min-w-0 max-md:flex-1">
             {p.isLoading ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
             {p.isLoading ? "Searching…" : `Search ${carrierCount} carrier${carrierCount === 1 ? "" : "s"}`}
           </Button>
