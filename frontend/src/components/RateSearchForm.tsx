@@ -63,7 +63,8 @@ export default function RateSearchForm({ onSubmit, isLoading, initialValues, sel
   const [weight, setWeight] = useState(20000);
   const [searchWindow, setSearchWindow] = useState(14);
   const [hapagRegion, setHapagRegion] = useState<'US_CA' | 'EU' | 'ROW'>("ROW");
-  const [hapagUseApi, setHapagUseApi] = useState(false);
+  // Hapag-Lloyd defaults to the Prices API; Portal is one click away per search.
+  const [hapagUseApi, setHapagUseApi] = useState(true);
 
   useEffect(() => {
     if (initialValues) {

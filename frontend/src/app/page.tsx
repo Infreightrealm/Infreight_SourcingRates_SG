@@ -8,6 +8,7 @@ import RateResults from "@/components/RateResults";
 import LoadingState from "@/components/LoadingState";
 import LiveSearchProgress from "@/components/LiveSearchProgress";
 import AppHeader from "@/components/AppHeader";
+import BatchProgressPanel from "@/components/BatchProgressPanel";
 import StatusBadge from "@/components/StatusBadge";
 import VncViewer from "@/components/VncViewer";
 import ChatWidget from "@/components/ChatWidget";
@@ -637,7 +638,26 @@ function HomeContent() {
         )}
 
         {/* Batch Progress & Excel Export Panel */}
-        {batchResults.length > 0 && (
+        {batchResults.length > 0 && isV2 && (
+          <BatchProgressPanel
+            items={batchResults}
+            isRunning={isBatchRunning}
+            viewingDestination={searchResult?.destination}
+            onView={(idx) => {
+              const item = batchResults[idx];
+              if (!item) return;
+              if (item.searchResult) {
+                setSearchResult(item.searchResult);
+                toast.info(`Showing lane ${idx + 1}: ${item.origin} → ${item.destination}`);
+              } else {
+                toast.info(`Lane ${idx + 1} (${item.destination}) is still searching.`);
+              }
+            }}
+            onExportAll={() => exportMultiRouteResultsToExcel(batchResults)}
+            onExportTariff={() => exportTariffMatrixToExcel(batchResults, "PASIR GUDANG / TG PELEPAS", "Pasir_Gudang_168_Tariff_Rates.xlsx")}
+          />
+        )}
+        {batchResults.length > 0 && !isV2 && (
           <Card variant="success" className="animate-fade-in-up space-y-4 p-6 backdrop-blur-md">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-success/20 pb-3">
               <div>
