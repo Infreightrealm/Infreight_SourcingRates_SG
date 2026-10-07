@@ -190,12 +190,31 @@ export function generateRatesExportFilename(origin?: string | null, destination?
 /**
  * Single Search Rate Export — Pixel-perfect matching ResultsTable.tsx styling.
  */
-export async function exportSingleSearchToExcel(
-  data: RateSearchResultResponse,
-  customFilename?: string
-) {
-  if (!data || !data.results) return;
+/** One export row: a carrier sailing with a rate per container size (keyed `rate_<type>`). */
+export interface SingleSearchRow {
+  pol: string;
+  pod: string;
+  carrier: string;
+  tt: string | number;
+  freetime: string | number;
+  demurrage?: string;
+  detention?: string;
+  validity: string;
+  eta: string;
+  validity_till: string;
+  routing: string;
+  remark: string;
+  /** Unformatted dates, for outputs that format them their own way (the email table). */
+  raw: { etd?: string | null; eta?: string | null; validity_till?: string | null };
+  [rate: `rate_${string}`]: string | number;
+}
 
+/**
+ * The rows and rate columns of the single-search export: one row per carrier
+ * sailing, sizes side by side. Shared by the Excel file and the email table so
+ * both always show the same thing.
+ */
+export function buildSingleSearchRows(data: RateSearchResultResponse) {
   // Extract all quotes across carrier results
   const allQuotes = data.results.flatMap((cr) => cr.quotes || []);
 
@@ -222,32 +241,7 @@ export async function exportSingleSearchToExcel(
     width: 18,
   }));
 
-  let sheetName = `${data.origin || "Origin"} to ${data.destination || "Destination"}`;
-  sheetName = sheetName.replace(/[\\\/\?\*\[\]]/g, "");
-  if (sheetName.length > 31) {
-    sheetName = sheetName.substring(0, 31);
-  }
-
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet(sheetName);
-
-  sheet.columns = [
-    { header: "POL", key: "pol", width: 14 },
-    { header: "POD", key: "pod", width: 25 },
-    { header: "Carrier", key: "carrier", width: 16 },
-    ...rateColumns,
-    { header: "T/T", key: "tt", width: 10 },
-    { header: "Free time", key: "freetime", width: 12 },
-    { header: "Demurrage", key: "demurrage", width: 12 },
-    { header: "Detention", key: "detention", width: 12 },
-    { header: "ETD POL", key: "validity", width: 16 },
-    { header: "ETA POD", key: "eta", width: 16 },
-    { header: "Validity Till", key: "validity_till", width: 16 },
-    { header: "Routing", key: "routing", width: 12 },
-    { header: "Remark", key: "remark", width: 35 },
-  ];
-
-  const groupedExcelRows: any[] = [];
+  const groupedExcelRows: SingleSearchRow[] = [];
 
   for (const cr of data.results) {
     const carrierInfo = CARRIERS.find((c) => c.code === cr.carrier);
@@ -270,6 +264,7 @@ export async function exportSingleSearchToExcel(
         validity_till: "-",
         routing: "-",
         remark: cr.error_message || (cr.status === "CONNECTOR_NOT_AVAILABLE" ? "Connector not available" : "No quotes returned"),
+        raw: {},
       });
     } else {
       const scheduleGroups: Record<string, QuoteSchema[]> = {};
@@ -329,19 +324,142 @@ export async function exportSingleSearchToExcel(
           validity_till: formatDate(firstQuote.validity_till),
           routing: firstQuote.port_of_discharge || firstQuote.routing || "Direct",
           remark: `${firstQuote.vessel || "-"}${warnRemark}`,
+          raw: { etd: firstQuote.etd, eta: firstQuote.eta, validity_till: firstQuote.validity_till },
         });
       }
     }
   }
 
-  // Add grouped rows to sheet
-  groupedExcelRows.forEach((row, idx) => {
-    sheet.addRow({
-      pol: idx === 0 ? row.pol : "",
-      pod: idx === 0 ? row.pod : "",
-      carrier: row.carrier,
-      ...row,
+  return { containerTypesList, rateColumns, rows: groupedExcelRows };
+}
+
+/** "6 Oct 2026" for ETD/ETA in the email table. */
+function emailDate(iso?: string | null): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** "15-Oct" for the validity date in the email table. */
+function emailShortDate(iso?: string | null): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : `${d.getDate()}-${d.toLocaleDateString("en-GB", { month: "short" })}`;
+}
+
+/**
+ * The single-search export as a table to paste into an email: same rows, columns
+ * and colours as the Excel file (orange header, navy text, red "Sold out", green
+ * transit time, grey borders, POL and POD merged down the rows). Returns HTML for
+ * mail clients and tab-separated text as the plain-text fallback.
+ */
+export function buildSingleSearchEmailTable(data: RateSearchResultResponse): { html: string; text: string } {
+  const { rateColumns, rows } = buildSingleSearchRows(data);
+  const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const border = "border:1px solid #808080;";
+  const font = "font-family:Arial,sans-serif;font-weight:bold;";
+  const head = `${border}${font}font-size:11pt;color:#000000;background:#FA8C3C;text-align:center;vertical-align:middle;padding:8px 12px;white-space:nowrap;`;
+  const cell = (color = "#323296", size = "11pt") =>
+    `${border}${font}font-size:${size};color:${color};text-align:center;vertical-align:middle;padding:7px 12px;`;
+
+  const headers = ["POL", "POD", "Carrier", ...rateColumns.map((c) => c.header), "T/T", "Free time", "Demurrage", "Detention", "ETD POL", "ETA POD", "Validity Till", "Routing", "Remark"];
+  // "Subic Bay, Philippines [PHSFS]" -> "Subic Bay" (extractCityName is for file names)
+  const portName = (v?: string | null) => (v ?? "").split(/[,[(]/)[0].trim() || v || "";
+  const pol = portName(data.origin);
+  const pod = portName(data.destination);
+
+  const bodyRows = rows.map((row, i) => {
+    const rates = rateColumns.map((c) => {
+      const v = row[c.key as `rate_${string}`];
+      const soldOut = v === "Sold out" || v === "Offline rates";
+      const shown = typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 0 }) : v ?? "-";
+      return `<td style="${cell(soldOut ? "#C00000" : "#323296")}">${esc(shown)}</td>`;
     });
+    const merged =
+      i === 0
+        ? `<td rowspan="${rows.length}" style="${cell()}">${esc(pol)}</td><td rowspan="${rows.length}" style="${cell()}">${esc(pod)}</td>`
+        : "";
+    return (
+      `<tr>${merged}<td style="${cell()}">${esc(row.carrier)}</td>${rates.join("")}` +
+      `<td style="${cell("#385723")}">${esc(row.tt)}</td>` +
+      `<td style="${cell()}">${esc(row.freetime)}</td>` +
+      `<td style="${cell()}">${esc(row.demurrage ?? "-")}</td>` +
+      `<td style="${cell()}">${esc(row.detention ?? "-")}</td>` +
+      `<td style="${cell()}white-space:nowrap;">${esc(emailDate(row.raw.etd))}</td>` +
+      `<td style="${cell()}white-space:nowrap;">${esc(emailDate(row.raw.eta))}</td>` +
+      `<td style="${cell()}white-space:nowrap;">${esc(emailShortDate(row.raw.validity_till))}</td>` +
+      `<td style="${cell()}">${esc(row.routing)}</td>` +
+      `<td style="${cell("#323296", "10pt")}">${esc(row.remark)}</td></tr>`
+    );
+  });
+
+  const html =
+    `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">` +
+    `<tr>${headers.map((h) => `<th style="${head}">${esc(h)}</th>`).join("")}</tr>` +
+    bodyRows.join("") +
+    `</table>`;
+
+  const textRows = rows.map((row) =>
+    [
+      pol,
+      pod,
+      row.carrier,
+      ...rateColumns.map((c) => {
+        const v = row[c.key as `rate_${string}`];
+        return typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 0 }) : v ?? "-";
+      }),
+      row.tt,
+      row.freetime,
+      row.demurrage ?? "-",
+      row.detention ?? "-",
+      emailDate(row.raw.etd),
+      emailDate(row.raw.eta),
+      emailShortDate(row.raw.validity_till),
+      row.routing,
+      row.remark,
+    ].join("\t"),
+  );
+  return { html, text: [headers.join("\t"), ...textRows].join("\n") };
+}
+
+export async function exportSingleSearchToExcel(
+  data: RateSearchResultResponse,
+  customFilename?: string
+) {
+  if (!data || !data.results) return;
+
+  const { rateColumns, rows: groupedExcelRows } = buildSingleSearchRows(data);
+
+  let sheetName = `${data.origin || "Origin"} to ${data.destination || "Destination"}`;
+  sheetName = sheetName.replace(/[\\\/\?\*\[\]]/g, "");
+  if (sheetName.length > 31) {
+    sheetName = sheetName.substring(0, 31);
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(sheetName);
+
+  sheet.columns = [
+    { header: "POL", key: "pol", width: 14 },
+    { header: "POD", key: "pod", width: 25 },
+    { header: "Carrier", key: "carrier", width: 16 },
+    ...rateColumns,
+    { header: "T/T", key: "tt", width: 10 },
+    { header: "Free time", key: "freetime", width: 12 },
+    { header: "Demurrage", key: "demurrage", width: 12 },
+    { header: "Detention", key: "detention", width: 12 },
+    { header: "ETD POL", key: "validity", width: 16 },
+    { header: "ETA POD", key: "eta", width: 16 },
+    { header: "Validity Till", key: "validity_till", width: 16 },
+    { header: "Routing", key: "routing", width: 12 },
+    { header: "Remark", key: "remark", width: 35 },
+  ];
+
+  // Add grouped rows to sheet
+  // POL and POD are merged down the first column pair below, so every row carrying
+  // them is fine (the spread already overrode the old first-row-only values).
+  groupedExcelRows.forEach((row) => {
+    sheet.addRow(row);
   });
 
   if (groupedExcelRows.length > 0) {

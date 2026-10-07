@@ -1014,9 +1014,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/RateResults.tsx": {
-    "mtime": 1791355657.25496,
-    "seen": 1791355704.4278271,
-    "ast_hash": "95110b38856e4ecd6d2f84649678ec19",
+    "mtime": 1791355864.8608115,
+    "seen": 1791355952.2320213,
+    "ast_hash": "dd6ff2ed7c8e9f06d64047c9f7bc30a9",
     "semantic_hash": ""
   },
   "frontend/src/components/RateSearchForm.tsx": {
@@ -1200,9 +1200,9 @@
     "semantic_hash": ""
   },
   "frontend/src/lib/excelExport.ts": {
-    "mtime": 1791281005.0858061,
-    "seen": 1791338661.5703828,
-    "ast_hash": "637a6b2781c373db8835795aaec65861",
+    "mtime": 1791355942.2898533,
+    "seen": 1791355952.2331798,
+    "ast_hash": "33297b0986b4a184026f175fb1c03f06",
     "semantic_hash": ""
   },
   "frontend/src/lib/formatQuoteDate.ts": {

@@ -208,35 +208,26 @@ export default function RateResults({ data }: RateResultsProps) {
   const toggleCarrier = (code: string) =>
     setHidden((h) => (h.includes(code) ? h.filter((c) => c !== code) : [...h, code]));
 
-  /** The same workbook as Classic, limited to the given rows (carriers without any are left out). */
-  const exportRows = async (subset: Row[] | null) => {
-    const { exportSingleSearchToExcel } = await import("@/lib/excelExport");
-    const results = subset
+  /** The search limited to the given rows (carriers without any are left out); null = every shown carrier. */
+  const subsetData = (subset: Row[] | null): RateSearchResultResponse => ({
+    ...data,
+    results: subset
       ? data.results
           .map((cr) => ({ ...cr, quotes: cr.quotes.filter((_, i) => subset.some((r) => r.key === `${cr.carrier}:${i}`)) }))
           .filter((cr) => cr.quotes.length > 0)
-      : data.results.filter((cr) => !hidden.includes(cr.carrier));
-    await exportSingleSearchToExcel({ ...data, results });
+      : data.results.filter((cr) => !hidden.includes(cr.carrier)),
+  });
+
+  /** The same workbook as Classic, limited to the given rows. */
+  const exportRows = async (subset: Row[] | null) => {
+    const { exportSingleSearchToExcel } = await import("@/lib/excelExport");
+    await exportSingleSearchToExcel(subsetData(subset));
   };
 
+  /** The selected quotes as the Excel export's table (same columns and colours), ready to paste into an email. */
   const copyForEmail = async () => {
-    const header = ["Carrier", "Size", "Departs", "Transit", "Free time", "Routing", "All-in"];
-    const lines = pickedRows.map((r) => [
-      r.carrierName,
-      containerLabel(r.size),
-      formatQuoteDate(r.quote.etd),
-      r.quote.transit_time_days ? `${r.quote.transit_time_days} days` : "—",
-      freeTimeText(r.quote),
-      r.quote.port_of_discharge || r.quote.routing || "—",
-      isSoldOut(r.quote) ? "Sold out" : money(r.quote.final_freight_value, r.quote.currency),
-    ]);
-    const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-    const html =
-      `<table border="1" cellpadding="6" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px">` +
-      `<tr>${header.map((h) => `<th style="background:#f0f2f5;text-align:left">${esc(h)}</th>`).join("")}</tr>` +
-      lines.map((l) => `<tr>${l.map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`).join("") +
-      `</table>`;
-    const text = [header, ...lines].map((l) => l.join("\t")).join("\n");
+    const { buildSingleSearchEmailTable } = await import("@/lib/excelExport");
+    const { html, text } = buildSingleSearchEmailTable(subsetData(pickedRows));
     try {
       await navigator.clipboard.write([
         new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) }),
