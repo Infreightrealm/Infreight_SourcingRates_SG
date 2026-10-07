@@ -32,6 +32,7 @@ CARRIER_PORT_OVERRIDES = {
         "THLCH": "Laem Chabang",
         # New port mappings requested
         "YEADE": "Aden, Yemen",
+        "JOAQJ": "Aqaba, Jordan",          # UN/LOCODE name "Al 'Aqabah" finds nothing on Maersk
         "KHKOS": "Sihanoukville, Cambodia",
         "MYPEN": "Penang (Pulau Pinang), Malaysia",
         "MYPGU": "Pasir Gudang (Johor), Malaysia",

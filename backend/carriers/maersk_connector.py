@@ -2082,7 +2082,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         matching.sort((a, b) => b.matchScore - a.matchScore);
                                         if (matching[0].matchScore > 0) {{
                                             matching[0].el.click();
-                                            matching[0].el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+                                            matching[0].el.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, composed: true }}));
                                             return matching[0].txt;
                                         }}
                                     }}
