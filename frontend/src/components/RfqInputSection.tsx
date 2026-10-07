@@ -6,6 +6,8 @@ import type { RateSearchRequest, RFQParseResult } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import RfqWorkspace from "./RfqWorkspace";
+import { usePreferences } from "@/lib/preferences";
 
 interface RfqInputSectionProps {
   onParsedSuccess: (parsedFields: RateSearchRequest) => void;
@@ -47,6 +49,7 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
   const [showDebug, setShowDebug] = useState(false);
   const [selectedPairIndex, setSelectedPairIndex] = useState<number>(0);
   const [selectedModel, setSelectedModel] = useState<string>("gemini-2.5-flash");
+  const { prefs } = usePreferences();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -301,6 +304,62 @@ export default function RfqInputSection({ onParsedSuccess, onBatchRunAll, select
     navigator.clipboard.writeText(text);
     toast.success(`Copied ${label} to clipboard!`);
   };
+
+  const useExample = (text: string) => {
+    setRfqText(text);
+    setImageBase64(null);
+    setImageMime(null);
+    setImagePreview(null);
+    setParseResult(null);
+  };
+
+  const answerMode = (mode: "Air" | "Ocean") => {
+    const updatedText = `${rfqText}\nClarification update: ${mode}`;
+    setRfqText(updatedText);
+    handleParse(updatedText, imageBase64, imageMime);
+  };
+
+  if (prefs.layout === "v2") {
+    return (
+      <RfqWorkspace
+        rfqText={rfqText}
+        onTextChange={(text) => {
+          setRfqText(text);
+          if (parseResult) setParseResult(null);
+        }}
+        imagePreview={imagePreview}
+        onRemoveImage={() => {
+          setImageBase64(null);
+          setImageMime(null);
+          setImagePreview(null);
+          if (parseResult) setParseResult(null);
+        }}
+        isDragging={isDragging}
+        onDragChange={setIsDragging}
+        onDrop={handleDrop}
+        onFileSelect={handleFileSelect}
+        examples={DEMO_EXAMPLES}
+        onUseExample={useExample}
+        model={selectedModel}
+        onModelChange={setSelectedModel}
+        isParsing={isParsing}
+        onParse={() => handleParse(rfqText, imageBase64, imageMime)}
+        onClearText={handleClearAllText}
+        parseResult={parseResult}
+        selectedPairIndex={selectedPairIndex}
+        onFillForm={handlePairSelect}
+        onClearForm={handleClearSearchFields}
+        clarification={clarificationInput}
+        onClarificationChange={setClarificationInput}
+        onClarify={handleClarifySubmit}
+        onAnswerMode={answerMode}
+        quickMode={quickSearchMode}
+        onQuickModeChange={setQuickSearchMode}
+        onRunLanes={onBatchRunAll}
+        onCopy={copyToClipboard}
+      />
+    );
+  }
 
   return (
     <Card variant="glass" className="animate-fade-in-up border-chart-4/25 p-6">
