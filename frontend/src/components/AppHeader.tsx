@@ -35,6 +35,13 @@ function initials(name: string) {
     .join("");
 }
 
+/** The status pill's wording, shared with the phone More menu. */
+export function systemStatus(mockMode: boolean | null, backendLabel: string, isPrimaryBackend: boolean) {
+  const word = mockMode === null ? "Connecting" : mockMode ? "Mock mode" : "Live";
+  const backend = backendLabel.replace(" (Configure Server)", "");
+  return { word, backend, text: `${word} · ${backend}`, healthy: mockMode === false && isPrimaryBackend };
+}
+
 const navItem =
   "inline-flex min-h-9 shrink-0 items-center whitespace-nowrap rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
@@ -61,8 +68,7 @@ export default function AppHeader(p: AppHeaderProps) {
     };
   }, [menuOpen]);
 
-  const healthy = p.mockMode === false && p.isPrimaryBackend;
-  const systemText = `${p.mockMode === null ? "Connecting" : p.mockMode ? "Mock mode" : "Live"} · ${p.backendLabel.replace(" (Configure Server)", "")}`;
+  const { word, backend, healthy } = systemStatus(p.mockMode, p.backendLabel, p.isPrimaryBackend);
   const isAdmin = p.userRole === "admin";
 
   return (
@@ -74,13 +80,13 @@ export default function AppHeader(p: AppHeaderProps) {
             <img src="/infreight_logo.png" alt="" className="size-full object-contain" />
           </div>
           <p className="whitespace-nowrap text-base font-bold text-foreground">
-            Infreight <span className="font-medium text-muted-foreground">Rate Sourcing</span>
+            Infreight <span className="font-medium text-muted-foreground max-sm:hidden">Rate Sourcing</span>
           </p>
         </div>
 
         <nav
           aria-label="Primary"
-          className="order-3 -mx-1 flex w-full items-center gap-1 overflow-x-auto px-1 md:order-none md:mx-0 md:w-auto md:flex-1 md:px-0"
+          className="order-3 -mx-1 flex w-full items-center gap-1 overflow-x-auto px-1 max-md:hidden md:order-none md:mx-0 md:w-auto md:flex-1 md:px-0"
         >
           <button
             type="button"
@@ -118,26 +124,29 @@ export default function AppHeader(p: AppHeaderProps) {
             )}
           >
             <span className={cn("size-2 rounded-full", healthy ? "bg-success" : "animate-pulse bg-warning")} aria-hidden />
-            {systemText}
+            {word}
+            <span className="hidden sm:inline">· {backend}</span>
           </button>
 
           {p.searchStatus && <StatusBadge status={p.searchStatus} size="md" />}
 
           {p.searchStatus && (
-            <Button variant="outline" size="sm" onClick={p.onNewSearch}>
+            <Button variant="outline" size="sm" onClick={p.onNewSearch} className="max-md:hidden">
               <RotateCcw className="size-3.5" />
               New search
             </Button>
           )}
-          <Button variant="destructive" size="sm" onClick={p.onForceStop} title="Stop every queued and running search and close all carrier browsers">
+          <Button variant="destructive" size="sm" onClick={p.onForceStop} className="max-md:hidden" title="Stop every queued and running search and close all carrier browsers">
             <OctagonX className="size-3.5" />
             Force Stop
           </Button>
 
-          <Button variant="ghost" size="icon" onClick={p.onOpenWorkspace} aria-label="Workspace: activity, saved lanes, appearance and panels" title="Workspace">
+          <Button variant="ghost" size="icon" onClick={p.onOpenWorkspace} className="max-md:hidden" aria-label="Workspace: activity, saved lanes, appearance and panels" title="Workspace">
             <SlidersHorizontal className="size-4" />
           </Button>
-          <ThemeToggle />
+          <span className="max-md:hidden">
+            <ThemeToggle />
+          </span>
 
           {p.userName && (
             <div ref={menuRef} className="relative">

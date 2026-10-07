@@ -11,6 +11,9 @@ import AppHeader from "@/components/AppHeader";
 import BatchProgressPanel from "@/components/BatchProgressPanel";
 import StatusBadge from "@/components/StatusBadge";
 import VncViewer from "@/components/VncViewer";
+import MobileTabBar, { type MobileTab } from "@/components/MobileTabBar";
+import { cn } from "@/lib/utils";
+import { systemStatus } from "@/components/AppHeader";
 import ChatWidget from "@/components/ChatWidget";
 import SelfHealingAlerts from "@/components/SelfHealingAlerts";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -62,6 +65,13 @@ function HomeContent() {
   const [formRoute, setFormRoute] = useState<{ origin: string; destination: string; containerTypes: string[]; weightKg: number } | null>(null);
   const { prefs, setPanel } = usePreferences();
   const isV2 = prefs.layout === "v2";
+  // Phones in the v2 layout show one area at a time, picked in the bottom tab bar.
+  const [mobileTab, setMobileTab] = useState<MobileTab>("search");
+  const phoneOnly = (tab: MobileTab) => (isV2 && mobileTab !== tab ? "max-md:hidden" : "");
+  const showTab = (tab: MobileTab) => {
+    setMobileTab(tab);
+    window.scrollTo({ top: 0 });
+  };
   const [parsedRfqFields, setParsedRfqFields] = useState<RateSearchRequest | undefined>(undefined);
 
   // Continuous Batch Multi-Route Execution State
@@ -626,19 +636,24 @@ function HomeContent() {
       </header>
       )}
 
-      <main className="mx-auto w-full flex-1 space-y-8 px-4 pb-28 pt-5 sm:max-w-[98%] sm:px-6 sm:py-8">
+      <main className={cn("mx-auto w-full flex-1 space-y-8 px-4 pb-28 pt-5 sm:max-w-[98%] sm:px-6 sm:py-8", isV2 && "max-md:space-y-5 max-md:pb-[calc(11rem+env(safe-area-inset-bottom))]")}>
         {/* Self-Healing alerts / approvals */}
         <SelfHealingAlerts backendUrl={backendUrl} isSearching={isLoading} />
 
         {/* AI RFQ Front Door */}
         {prefs.panels.rfq && (
-          <div id="rfq" className="scroll-mt-24">
-            <RfqInputSection onParsedSuccess={(fields) => setParsedRfqFields(fields)} onBatchRunAll={handleBatchRunAll} selectedCarriers={selectedCarriers} />
+          <div id="rfq" className={cn("scroll-mt-24", phoneOnly("rfq"))}>
+            <RfqInputSection
+              onParsedSuccess={(fields) => {
+                setParsedRfqFields(fields);
+                setMobileTab("search");
+              }} onBatchRunAll={handleBatchRunAll} selectedCarriers={selectedCarriers} />
           </div>
         )}
 
         {/* Batch Progress & Excel Export Panel */}
         {batchResults.length > 0 && isV2 && (
+          <div className={phoneOnly("rfq")}>
           <BatchProgressPanel
             items={batchResults}
             isRunning={isBatchRunning}
@@ -648,6 +663,7 @@ function HomeContent() {
               if (!item) return;
               if (item.searchResult) {
                 setSearchResult(item.searchResult);
+                setMobileTab("search");
                 toast.info(`Showing lane ${idx + 1}: ${item.origin} → ${item.destination}`);
               } else {
                 toast.info(`Lane ${idx + 1} (${item.destination}) is still searching.`);
@@ -656,6 +672,7 @@ function HomeContent() {
             onExportAll={() => exportMultiRouteResultsToExcel(batchResults)}
             onExportTariff={() => exportTariffMatrixToExcel(batchResults, "PASIR GUDANG / TG PELEPAS", "Pasir_Gudang_168_Tariff_Rates.xlsx")}
           />
+          </div>
         )}
         {batchResults.length > 0 && !isV2 && (
           <Card variant="success" className="animate-fade-in-up space-y-4 p-6 backdrop-blur-md">
@@ -753,7 +770,7 @@ function HomeContent() {
 
 
         {/* Search Form Card */}
-        <Card variant={isV2 ? "default" : "glass"} className={isV2 ? "p-5 sm:p-6" : "animate-fade-in-up stagger-1 p-6"}>
+        <Card variant={isV2 ? "default" : "glass"} className={isV2 ? cn("p-4 sm:p-6", phoneOnly("search")) : "animate-fade-in-up stagger-1 p-6"}>
           {isV2 ? (
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <h1 className="text-xl font-bold text-foreground">New rate search</h1>
@@ -787,7 +804,7 @@ function HomeContent() {
 
         {/* Queue Status Overlay */}
         {searchResult && searchResult.status === "QUEUED" && searchResult.queue_position !== undefined && (
-          <Card variant="info" className="p-6 text-center backdrop-blur-sm animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <Card variant="info" className={cn("p-6 text-center backdrop-blur-sm animate-in fade-in slide-in-from-bottom-4 duration-500", phoneOnly("search"))}>
             <h3 className="mb-2 text-xl font-semibold text-info-foreground">
               {searchResult.queue_position > 0 ? `You are #${searchResult.queue_position} in line` : "Your search is starting…"}
             </h3>
@@ -802,6 +819,7 @@ function HomeContent() {
 
         {/* Loading / live carrier progress */}
         {isV2 && (isLoading || searchResult) && (
+          <div className={phoneOnly("search")}>
           <LiveSearchProgress
             key={searchResult?.search_id ?? searchId ?? "pending"}
             result={searchResult}
@@ -809,12 +827,13 @@ function HomeContent() {
             liveViewerEnabled={prefs.panels.liveViewer}
             onEnableLiveViewer={() => setPanel("liveViewer", true)}
           />
+          </div>
         )}
         {!isV2 && isLoading && !searchResult && <LoadingState />}
 
         {/* Results */}
         {searchResult && (
-          <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <section className={cn("animate-in fade-in slide-in-from-bottom-4 duration-500", phoneOnly("search"))}>
             {isV2 ? <RateResults data={searchResult} /> : <ResultsTable data={searchResult} />}
           </section>
         )}
@@ -892,6 +911,7 @@ function HomeContent() {
         userName={userName}
         onSelectSearch={(res) => {
           setSearchResult(res);
+          setMobileTab("search");
           if (res?.search_id) {
             setSearchId(res.search_id);
           }
@@ -901,6 +921,30 @@ function HomeContent() {
           }
         }}
       />
+
+      {isV2 && userName && (
+        <MobileTabBar
+          active={mobileTab}
+          showRfq={prefs.panels.rfq}
+          isAdmin={userRole === "admin"}
+          hasSearch={!!searchId}
+          liveViewerEnabled={prefs.panels.liveViewer}
+          assistantEnabled={prefs.panels.assistant}
+          systemText={systemStatus(mockMode, backendLabel, isPrimaryBackend).text}
+          healthy={systemStatus(mockMode, backendLabel, isPrimaryBackend).healthy}
+          onTab={showTab}
+          onHistory={() => setIsHistoryModalOpen(true)}
+          onNewSearch={() => {
+            startNewSearch();
+            setMobileTab("search");
+          }}
+          onForceStop={forceStopAll}
+          onOpenBackend={() => setIsBackendModalOpen(true)}
+          onOpenWorkspace={() => setIsWorkspaceOpen(true)}
+          onOpenAdmin={() => router.push("/admin")}
+          onSignOut={signOut}
+        />
+      )}
 
       {/* Floating bottom-right launcher — colleague messaging, always available once signed in */}
       {userName && (

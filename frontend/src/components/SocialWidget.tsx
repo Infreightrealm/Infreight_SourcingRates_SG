@@ -33,6 +33,7 @@ import {
   type DirectMessageItem,
 } from "@/lib/api";
 import { toast } from "sonner";
+import { MESSAGES_UNREAD_EVENT, OPEN_MESSAGES_EVENT } from "@/lib/liveViewer";
 
 interface SocialWidgetProps {
   currentUserRole?: string | null;
@@ -383,6 +384,17 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
     [colleagues],
   );
 
+  // The phone tab bar opens this panel and shows the unread count, since the
+  // floating launcher is hidden there.
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener(OPEN_MESSAGES_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_MESSAGES_EVENT, onOpen);
+  }, []);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(MESSAGES_UNREAD_EVENT, { detail: totalUnread }));
+  }, [totalUnread]);
+
   // Unread conversations first, then most recently texted, then everyone else
   // alphabetically — "you" sinks to the bottom since there's nobody to message there.
   const rows = useMemo(() => {
@@ -440,7 +452,7 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
 
       {/* Anchored panel */}
       {open && (
-        <div className="fixed bottom-24 right-4 sm:right-6 z-40 flex h-[min(640px,calc(100vh-8rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950/97 text-slate-100 shadow-2xl backdrop-blur-2xl">
+        <div className="v2-phone-above-tabbar fixed bottom-24 right-4 sm:right-6 z-40 flex h-[min(640px,calc(100dvh-9rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950/97 text-slate-100 shadow-2xl backdrop-blur-2xl">
           {selectedColleague ? (
             // ---- Chat view ----
             <>
@@ -852,7 +864,7 @@ export default function SocialWidget({ currentUserRole, onAvatarUpdated }: Socia
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex size-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-lg shadow-sky-500/30 transition-transform hover:scale-105 hover:bg-sky-400 cursor-pointer"
+        className="v2-phone-hidden fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex size-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-lg shadow-sky-500/30 transition-transform hover:scale-105 hover:bg-sky-400 cursor-pointer"
         title={open ? "Close Team Social" : "Team Social — colleague messaging"}
       >
         {open ? (

@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, ClipboardCopy, Download, MoveRight, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ClipboardCopy, Download, MoveRight, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import QuoteBreakdownDrawer from "./QuoteBreakdownDrawer";
+import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CARRIERS, containerLabel, type ChargeSchema, type QuoteSchema, type RateSearchResultResponse } from "@/lib/types";
@@ -133,6 +134,9 @@ export default function RateResults({ data }: RateResultsProps) {
   const [open, setOpen] = useState<string | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [details, setDetails] = useState<{ quote: QuoteSchema; carrier: string } | null>(null);
+  // Phones: filters and a quote's price breakdown open as bottom sheets.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [sheetKey, setSheetKey] = useState<string | null>(null);
 
   const rows = useMemo<Row[]>(() => {
     if (!data) return [];
@@ -244,6 +248,82 @@ export default function RateResults({ data }: RateResultsProps) {
   };
 
   const sizesRequested = data.container_types ?? (data.container_type ? [data.container_type] : []);
+  const filterControls = (
+    <>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sort by</p>
+        <div className="flex flex-col gap-1">
+          {(
+            [
+              ["price", "Cheapest all-in"],
+              ["transit", "Fastest transit"],
+              ["departure", "Earliest departure"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={sort === id}
+              onClick={() => setSort(id)}
+              className={cn(
+                "min-h-10 rounded-lg px-3 text-left text-sm transition-colors",
+                sort === id ? "bg-primary/10 font-semibold text-primary" : "text-foreground hover:bg-accent",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Show carriers</p>
+        <div className="flex flex-col gap-0.5">
+          {[...carrierCounts.entries()].map(([code, c]) => {
+            const on = !hidden.includes(code);
+            return (
+              <button
+                key={code}
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggleCarrier(code)}
+                className="flex min-h-10 items-center gap-2.5 rounded-lg px-1 text-left text-sm hover:bg-accent"
+              >
+                <span
+                  className={cn(
+                    "flex size-4.5 shrink-0 items-center justify-center rounded border-[1.5px]",
+                    on ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card",
+                  )}
+                >
+                  {on && <Check className="size-3" strokeWidth={3.5} />}
+                </span>
+                <span className="size-2 shrink-0 rounded-full ring-1 ring-foreground/20" style={{ backgroundColor: c.color }} aria-hidden />
+                <span className="flex-1 font-medium text-foreground">{c.name}</span>
+                <span className="text-xs text-muted-foreground">{c.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <button
+        type="button"
+        aria-pressed={hideSoldOut}
+        onClick={() => setHideSoldOut((v) => !v)}
+        className="flex min-h-10 items-center justify-between gap-3 text-left text-sm font-medium text-foreground"
+      >
+        Hide sold-out sailings
+        <span className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", hideSoldOut ? "bg-primary" : "bg-input")}>
+          <span className={cn("absolute top-0.5 size-4 rounded-full bg-card transition-[left]", hideSoldOut ? "left-4.5" : "left-0.5")} />
+        </span>
+      </button>
+      <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+        All-in = ocean freight + freight surcharges. Origin and destination charges are listed in each breakdown but not added.
+      </p>
+    </>
+  );
+  /** Carriers switched off, for the phone Filters button (sold-out hiding is the default, so not counted). */
+  const filterCount = hidden.length;
+  const sheetRow = sheetKey ? rows.find((r) => r.key === sheetKey) : undefined;
+
 
   return (
     <section aria-labelledby="results-h" className="flex flex-col gap-4">
@@ -283,7 +363,7 @@ export default function RateResults({ data }: RateResultsProps) {
           {rows.length > 0 && (
             <Button variant="outline" onClick={() => exportRows(null)}>
               <Download className="size-4" />
-              Export to Excel
+              Export<span className="hidden sm:inline"> to Excel</span>
             </Button>
           )}
         </div>
@@ -307,20 +387,20 @@ export default function RateResults({ data }: RateResultsProps) {
       )}
 
       {rows.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <Card className="p-4">
             <p className="text-xs font-semibold text-muted-foreground">Best all-in</p>
-            <p className="text-2xl font-bold text-foreground">{best ? money(best.quote.final_freight_value, best.quote.currency) : "—"}</p>
+            <p className="text-xl font-bold text-foreground sm:text-2xl">{best ? money(best.quote.final_freight_value, best.quote.currency) : "—"}</p>
             <p className="text-xs text-muted-foreground">{best ? `${best.carrierName} · departs ${formatQuoteDate(best.quote.etd)}` : "No priced quotes"}</p>
           </Card>
           <Card className="p-4">
             <p className="text-xs font-semibold text-muted-foreground">Fastest</p>
-            <p className="text-2xl font-bold text-foreground">{fastest ? `${fastest.quote.transit_time_days} days` : "—"}</p>
+            <p className="text-xl font-bold text-foreground sm:text-2xl">{fastest ? `${fastest.quote.transit_time_days} days` : "—"}</p>
             <p className="text-xs text-muted-foreground">
               {fastest ? `${fastest.carrierName} · ${money(fastest.quote.final_freight_value, fastest.quote.currency)}` : "No transit times"}
             </p>
           </Card>
-          <Card className="p-4 sm:col-span-2">
+          <Card className="col-span-2 p-4">
             <div className="flex justify-between text-xs font-semibold text-muted-foreground">
               <span>Price range by carrier</span>
               {priced.length > 0 && <span>{money(lo, currency)} – {money(hi, currency)}</span>}
@@ -353,86 +433,40 @@ export default function RateResults({ data }: RateResultsProps) {
 
       <div className="flex flex-wrap items-start gap-4">
         {rows.length > 0 && (
-          <Card className="flex max-w-full flex-[1_1_15rem] flex-col gap-5 p-4">
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sort by</p>
-              <div className="flex flex-col gap-1">
-                {(
-                  [
-                    ["price", "Cheapest all-in"],
-                    ["transit", "Fastest transit"],
-                    ["departure", "Earliest departure"],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={sort === id}
-                    onClick={() => setSort(id)}
-                    className={cn(
-                      "min-h-10 rounded-lg px-3 text-left text-sm transition-colors",
-                      sort === id ? "bg-primary/10 font-semibold text-primary" : "text-foreground hover:bg-accent",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Show carriers</p>
-              <div className="flex flex-col gap-0.5">
-                {[...carrierCounts.entries()].map(([code, c]) => {
-                  const on = !hidden.includes(code);
-                  return (
-                    <button
-                      key={code}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => toggleCarrier(code)}
-                      className="flex min-h-10 items-center gap-2.5 rounded-lg px-1 text-left text-sm hover:bg-accent"
-                    >
-                      <span
-                        className={cn(
-                          "flex size-4.5 shrink-0 items-center justify-center rounded border-[1.5px]",
-                          on ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card",
-                        )}
-                      >
-                        {on && <Check className="size-3" strokeWidth={3.5} />}
-                      </span>
-                      <span className="size-2 shrink-0 rounded-full ring-1 ring-foreground/20" style={{ backgroundColor: c.color }} aria-hidden />
-                      <span className="flex-1 font-medium text-foreground">{c.name}</span>
-                      <span className="text-xs text-muted-foreground">{c.count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <button
-              type="button"
-              aria-pressed={hideSoldOut}
-              onClick={() => setHideSoldOut((v) => !v)}
-              className="flex min-h-10 items-center justify-between gap-3 text-left text-sm font-medium text-foreground"
-            >
-              Hide sold-out sailings
-              <span className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", hideSoldOut ? "bg-primary" : "bg-input")}>
-                <span className={cn("absolute top-0.5 size-4 rounded-full bg-card transition-[left]", hideSoldOut ? "left-4.5" : "left-0.5")} />
-              </span>
-            </button>
-            <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-              All-in = ocean freight + freight surcharges. Origin and destination charges are listed in each breakdown but not added.
-            </p>
+          <Card className="flex max-w-full flex-[1_1_15rem] flex-col gap-5 p-4 max-md:hidden">
+            {filterControls}
           </Card>
         )}
 
         <div className="flex min-w-0 flex-[999_1_40rem] flex-col gap-3">
+          {rows.length > 0 && (
+            <div className="flex gap-2 md:hidden">
+              <label className="relative min-w-0 flex-1">
+                <span className="sr-only">Sort quotes</span>
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as typeof sort)}
+                  className="h-11 w-full appearance-none rounded-xl border border-border bg-card pl-3 pr-9 text-sm font-semibold text-foreground"
+                >
+                  <option value="price">Cheapest first</option>
+                  <option value="transit">Fastest transit</option>
+                  <option value="departure">Earliest departure</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              </label>
+              <Button variant="outline" className="h-11 flex-1 rounded-xl font-semibold" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
+                <SlidersHorizontal className="size-4" />
+                Filters{filterCount > 0 && ` · ${filterCount}`}
+              </Button>
+            </div>
+          )}
+
           {rows.length > 0 && (
             // Phones get one card per quote; the 56rem table would widen the page and make
             // Safari zoom everything out.
             <ul className="flex flex-col gap-2.5 md:hidden">
               {visible.map((r) => {
                 const q = r.quote;
-                const isOpen = open === r.key;
                 const isPicked = picked.includes(r.key);
                 const isBest = best?.key === r.key;
                 const isFastest = fastest?.key === r.key && !isBest;
@@ -497,18 +531,13 @@ export default function RateResults({ data }: RateResultsProps) {
                       </dl>
                       <button
                         type="button"
-                        aria-expanded={isOpen}
-                        onClick={() => setOpen(isOpen ? null : r.key)}
+                        aria-haspopup="dialog"
+                        onClick={() => setSheetKey(r.key)}
                         className="-mx-1 flex min-h-10 items-center justify-between rounded-lg px-1 text-sm font-semibold text-primary"
                       >
-                        {isOpen ? "Hide price breakdown" : "See price breakdown"}
-                        <ChevronDown className={cn("size-4 transition-transform", isOpen && "rotate-180")} aria-hidden />
+                        See price breakdown
+                        <ChevronRight className="size-4" aria-hidden />
                       </button>
-                      {isOpen && (
-                        <div className="-mx-3.5 -mb-3.5 border-t border-border pt-3">
-                          <Breakdown q={q} onDetails={() => setDetails({ quote: q, carrier: r.carrier })} />
-                        </div>
-                      )}
                     </Card>
                   </li>
                 );
@@ -640,23 +669,29 @@ export default function RateResults({ data }: RateResultsProps) {
       </div>
 
       {pickedRows.length > 0 && (
-        <div className="sticky bottom-4 z-10">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-foreground px-4 py-3 text-background shadow-card">
-            <span className="font-semibold">
-              {pickedRows.length} quote{pickedRows.length === 1 ? "" : "s"} selected for the customer quotation
+        <div className="sticky bottom-4 z-10 max-md:bottom-[calc(4.75rem+env(safe-area-inset-bottom))]">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-foreground px-4 py-3 text-background shadow-card max-md:flex-nowrap max-md:gap-1 max-md:px-3 max-md:py-2">
+            <span className="font-semibold max-md:text-sm">
+              {pickedRows.length} <span className="md:hidden">selected</span>
+              <span className="max-md:hidden">quote{pickedRows.length === 1 ? "" : "s"} selected for the customer quotation</span>
             </span>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="ghost" className="text-background hover:bg-background/15 hover:text-background" onClick={() => setPicked([])}>
+            <div className="flex flex-wrap gap-2 max-md:flex-nowrap max-md:gap-1">
+              <Button
+                variant="ghost"
+                className="text-background hover:bg-background/15 hover:text-background max-md:size-11 max-md:px-0"
+                onClick={() => setPicked([])}
+                aria-label="Clear selection"
+              >
                 <X className="size-4" />
-                Clear
+                <span className="max-md:hidden">Clear</span>
               </Button>
-              <Button variant="ghost" className="text-background hover:bg-background/15 hover:text-background" onClick={copyForEmail}>
+              <Button variant="ghost" className="text-background hover:bg-background/15 hover:text-background max-md:h-11 max-md:px-2.5" onClick={copyForEmail}>
                 <ClipboardCopy className="size-4" />
-                Copy as email table
+                Copy<span className="max-md:hidden"> as email table</span>
               </Button>
-              <Button className="bg-background text-foreground hover:bg-background/90" onClick={() => exportRows(pickedRows)}>
+              <Button className="bg-background text-foreground hover:bg-background/90 max-md:h-11 max-md:px-3" onClick={() => exportRows(pickedRows)}>
                 <Download className="size-4" />
-                Export selected
+                Export<span className="max-md:hidden"> selected</span>
               </Button>
             </div>
           </div>
@@ -664,6 +699,64 @@ export default function RateResults({ data }: RateResultsProps) {
       )}
 
       <QuoteBreakdownDrawer quote={details?.quote || null} carrier={details?.carrier || ""} onClose={() => setDetails(null)} />
+
+      <BottomSheet
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title="Filters"
+        footer={
+          <Button size="lg" className="w-full" onClick={() => setFiltersOpen(false)}>
+            Show {visible.length} quote{visible.length === 1 ? "" : "s"}
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-5">{filterControls}</div>
+      </BottomSheet>
+
+      <BottomSheet
+        open={!!sheetRow}
+        onClose={() => setSheetKey(null)}
+        title={sheetRow ? `${sheetRow.carrierName} · ${containerLabel(sheetRow.size)}` : ""}
+        subtitle={
+          sheetRow &&
+          [
+            `departs ${formatQuoteDate(sheetRow.quote.etd)}`,
+            sheetRow.quote.transit_time_days && `${sheetRow.quote.transit_time_days} days`,
+            [sheetRow.quote.service_name, sheetRow.quote.vessel].filter(Boolean).join(" · "),
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        }
+        footer={
+          sheetRow && (
+            <Button
+              size="lg"
+              variant={picked.includes(sheetRow.key) ? "outline" : "default"}
+              className="w-full"
+              onClick={() => {
+                togglePick(sheetRow.key);
+                setSheetKey(null);
+              }}
+            >
+              {picked.includes(sheetRow.key) ? "Remove from selection" : "Add to selection"}
+            </Button>
+          )
+        }
+      >
+        {sheetRow && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-baseline justify-between">
+              <span className="text-sm text-muted-foreground">All-in freight</span>
+              <span className="text-2xl font-bold tabular-nums text-foreground">
+                {isSoldOut(sheetRow.quote) ? "Sold out" : money(sheetRow.quote.final_freight_value, sheetRow.quote.currency)}
+              </span>
+            </div>
+            <div className="-mx-4">
+              <Breakdown q={sheetRow.quote} onDetails={() => setDetails({ quote: sheetRow.quote, carrier: sheetRow.carrier })} />
+            </div>
+          </div>
+        )}
+      </BottomSheet>
     </section>
   );
 }

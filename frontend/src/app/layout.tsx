@@ -56,6 +56,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // Lets fixed bottom bars pad for the home indicator via env(safe-area-inset-bottom).
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

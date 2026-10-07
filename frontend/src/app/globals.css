@@ -1001,3 +1001,15 @@ body::after {
   font-family: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }
+
+/* Phones in the v2 layout have a bottom tab bar (MobileTabBar): floating
+   launchers move into its More menu, and anything pinned to the bottom sits
+   above the bar instead of under it. */
+@media (max-width: 767.98px) {
+  [data-layout="v2"] .v2-phone-hidden {
+    display: none !important;
+  }
+  [data-layout="v2"] .v2-phone-above-tabbar {
+    bottom: calc(4rem + env(safe-area-inset-bottom)) !important;
+  }
+}
