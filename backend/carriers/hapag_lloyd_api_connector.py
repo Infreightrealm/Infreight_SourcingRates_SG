@@ -271,18 +271,18 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         if not self.freetime_config:
             return 4  # Default fallback
 
-        norm_ct = "20GP" if "20" in container_type else "40GP"
+        from services.hapag_freetime import freetime_days, match_freetime_entry
+        from services.port_manager import COUNTRY_CODE_TO_NAME
 
-        # Check by country name or destination name
+        # The country from the LOCODE (e.g. JOAQJ -> Jordan) plus whatever was typed
+        # ("Apapa, Nigeria [NGAPP]"), matched as whole words.
         port_obj = self.port_manager.get_port_by_code(destination_locode) if destination_locode else None
-        country = port_obj.get("country_name") or port_obj.get("country") if port_obj else ""
-
-        for key, val in self.freetime_config.items():
-            if (country and key.lower() in country.lower()) or (destination_name and key.lower() in destination_name.lower()):
-                if isinstance(val, dict):
-                    return val.get(norm_ct, val.get("40GP", 4))
-                elif isinstance(val, int):
-                    return val
+        country = COUNTRY_CODE_TO_NAME.get((port_obj or {}).get("country", ""), "") if port_obj else ""
+        hit = match_freetime_entry(self.freetime_config, f"{country} {destination_name or ''}")
+        if hit:
+            days = freetime_days(hit[1], container_type)
+            if days is not None:
+                return days
 
         # Common destination fallbacks
         if destination_locode.startswith("DE"):  # Germany
