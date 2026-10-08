@@ -30,3 +30,10 @@ def test_api_connector_uses_the_locode_country():
     c = HapagLloydAPIConnector()
     assert c._get_freetime_days("NGAPP", "Apapa", "DRY 20") == 7
     assert c._get_freetime_days("PKKHI", "Karachi", "DRY 40") == 5
+
+
+def test_default_free_time_is_marked_estimated():
+    c = HapagLloydAPIConnector()
+    assert c._lookup_freetime("JOAQJ", "Al 'Aqabah, Jordan [JOAQJ]", "DRY 20") == (4, True)  # Jordan not in the table
+    assert c._lookup_freetime("NGAPP", "Apapa", "DRY 20") == (7, False)
+    assert c._lookup_freetime("USLAX", "Los Angeles", "DRY 40") == (4, False)  # set figure, not a guess

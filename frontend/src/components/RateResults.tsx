@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CARRIERS, containerLabel, type ChargeSchema, type QuoteSchema, type RateSearchResultResponse } from "@/lib/types";
 import { formatQuoteDate } from "@/lib/formatQuoteDate";
+import { routingLabel, transitVia } from "@/lib/routing";
 import { cn } from "@/lib/utils";
 
 type SortKey = "price" | "transit" | "departure";
@@ -490,7 +491,9 @@ export default function RateResults({ data }: RateResultsProps) {
                             {isSpot(q) && <span className="rounded bg-secondary px-1.5 text-[11px] font-semibold text-muted-foreground">Spot</span>}
                           </p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {[q.port_of_discharge || q.routing, q.service_name, q.vessel].filter(Boolean).join(" · ") || "—"}
+                            {[routingLabel(q, data.destination), transitVia(q, data.destination) && `via ${transitVia(q, data.destination)}`, q.service_name, q.vessel]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
@@ -592,7 +595,10 @@ export default function RateResults({ data }: RateResultsProps) {
                             <p className="text-[11px] text-muted-foreground">via {q.source === "carrier_api" ? "API" : "portal"}</p>
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-foreground">{q.port_of_discharge || q.routing || "—"}</p>
+                            <p className="truncate font-medium text-foreground">
+                              {routingLabel(q, data.destination)}
+                              {transitVia(q, data.destination) && <span className="font-normal text-muted-foreground"> · via {transitVia(q, data.destination)}</span>}
+                            </p>
                             <p className="truncate text-xs text-muted-foreground">
                               {[q.service_name, q.vessel].filter(Boolean).join(" · ") || "—"}
                             </p>
