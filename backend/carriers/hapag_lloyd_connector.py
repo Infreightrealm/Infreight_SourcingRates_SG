@@ -4677,16 +4677,13 @@ class HapagLloydConnector(BaseCarrierConnector):
             except Exception as e:
                 print(f"[HAPAG] Port expansion fallback error: {e}")
 
-            for country, ft_data in freetime_config.items():
-                country_clean = country.lower().replace(" ", "")
-                expanded_clean = expanded_dest.replace(" ", "")
-                if country_clean in expanded_clean:
-                    c_type = normalized.container_type or request.container_type
-                    if "20" in c_type:
-                        normalized.free_time = ft_data.get("20GP")
-                    elif "40" in c_type:
-                        normalized.free_time = ft_data.get("40GP")
-                    break
+            # Whole-word match, so "Niger" no longer claims Nigerian ports.
+            from services.hapag_freetime import freetime_days, match_freetime_entry
+            hit = match_freetime_entry(freetime_config, expanded_dest)
+            if hit:
+                c_type = normalized.container_type or request.container_type
+                if "20" in c_type or "40" in c_type:
+                    normalized.free_time = freetime_days(hit[1], c_type)
 
         try:
             # Step 1: Login if not already logged in / session active
