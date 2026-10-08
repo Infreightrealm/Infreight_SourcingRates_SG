@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { CARRIERS, containerLabel, type RateSearchResultResponse, type QuoteSchema } from "./types";
+import { routingLabel } from "./routing";
 
 export interface BatchRouteResult {
   origin: string;
@@ -322,7 +323,7 @@ export function buildSingleSearchRows(data: RateSearchResultResponse) {
           validity: formatDate(firstQuote.etd),
           eta: formatDate(firstQuote.eta),
           validity_till: formatDate(firstQuote.validity_till),
-          routing: firstQuote.port_of_discharge || firstQuote.routing || "Direct",
+          routing: routingLabel(firstQuote, data.destination),
           remark: `${firstQuote.vessel || "-"}${warnRemark}`,
           raw: { etd: firstQuote.etd, eta: firstQuote.eta, validity_till: firstQuote.validity_till },
         });

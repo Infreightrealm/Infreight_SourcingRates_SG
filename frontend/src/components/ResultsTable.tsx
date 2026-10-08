@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CalendarDays, CircleDollarSign, Download, Inbox, MoveRight, Timer, TriangleAlert } from "lucide-react";
 import { generateRatesExportFilename } from "@/lib/excelExport";
+import { routingLabel } from "@/lib/routing";
 import { formatQuoteDate as formatDate } from "@/lib/formatQuoteDate";
 
 interface ResultsTableProps {
@@ -260,7 +261,7 @@ export default function ResultsTable({ data }: ResultsTableProps) {
             validity: formatDate(firstQuote.etd),
             eta: formatDate(firstQuote.eta),
             validity_till: formatDate(firstQuote.validity_till),
-            routing: firstQuote.port_of_discharge || firstQuote.routing || "Direct",
+            routing: routingLabel(firstQuote, data.destination),
             remark: firstQuote.vessel || "-"
           });
         }
