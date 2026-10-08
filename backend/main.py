@@ -37,8 +37,21 @@ async def lifespan(app: FastAPI):
     # Clear per-search profile copies left by crashed runs and restore any master
     # profile whose save was interrupted. No search can be running yet.
     try:
-        from services.browser_cleanup import remove_stale_temp_profiles
+        from services.browser_cleanup import remove_stale_temp_profiles, profile_base_dirs, purge_carrier_profile
         await asyncio.to_thread(remove_stale_temp_profiles)
+
+        # One-time startup purge of tainted Maersk profile across persistent storage & Cloud Run volume
+        for base_dir in profile_base_dirs():
+            reset_marker = os.path.join(base_dir, ".maersk_profile_purged_v1")
+            if not os.path.exists(reset_marker):
+                purged = purge_carrier_profile("maersk")
+                if purged:
+                    print(f"[CLEANUP] Purged {len(purged)} tainted Maersk profile(s) on deployment: {purged}")
+                try:
+                    with open(reset_marker, "w") as f:
+                        f.write("purged")
+                except Exception:
+                    pass
     except Exception as e:
         print(f"[CLEANUP] Startup profile cleanup failed: {e}")
     

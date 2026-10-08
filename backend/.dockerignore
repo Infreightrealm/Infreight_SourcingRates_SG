@@ -1,0 +1,8 @@
+chrome_profile_*
+chrome_profile_*/**
+__pycache__
+*.pyc
+.pytest_cache
+scratch/
+*.png
+*.log

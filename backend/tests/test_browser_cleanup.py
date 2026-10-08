@@ -81,6 +81,18 @@ def test_an_interrupted_save_restores_the_master(profiles):
     assert sorted(p.name for p in profiles.iterdir()) == ["chrome_profile_maersk"]
 
 
+def test_purge_carrier_profile(profiles):
+    _make_profile(profiles / "chrome_profile_maersk")
+    _make_profile(profiles / "chrome_profile_maersk_tmp_1234")
+    _make_profile(profiles / "chrome_profile_one")
+
+    purged = bc.purge_carrier_profile("maersk")
+    assert any("chrome_profile_maersk" in p for p in purged)
+    assert not (profiles / "chrome_profile_maersk").exists()
+    assert not (profiles / "chrome_profile_maersk_tmp_1234").exists()
+    assert (profiles / "chrome_profile_one").exists()
+
+
 CHROME = os.getenv("CLEANUP_TEST_CHROME")
 needs_chrome = pytest.mark.skipif(
     not CHROME or os.name == "nt", reason="set CLEANUP_TEST_CHROME to a Chrome binary (Linux) to run"

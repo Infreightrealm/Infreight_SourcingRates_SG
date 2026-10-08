@@ -214,3 +214,28 @@ def replace_master_profile(source_dir: str, master_dir: str) -> None:
         shutil.rmtree(staging, ignore_errors=True)
         raise
     shutil.rmtree(previous, ignore_errors=True)
+
+
+def purge_carrier_profile(carrier: str) -> list[str]:
+    """
+    Delete master and temporary profiles for a given carrier across all base directories
+    (e.g. PERSISTENT_PROFILES_DIR and local backend/).
+    """
+    carrier_lower = carrier.lower().strip()
+    target_prefix = f"chrome_profile_{carrier_lower}"
+    purged = []
+    for base in profile_base_dirs():
+        if not os.path.isdir(base):
+            continue
+        try:
+            for entry in os.listdir(base):
+                if entry.startswith(target_prefix):
+                    path = os.path.join(base, entry)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=True)
+                        purged.append(path)
+        except Exception as e:
+            print(f"[CLEANUP] Error purging profiles in {base}: {e}")
+    if purged:
+        print(f"[CLEANUP] Purged {len(purged)} profile folder(s) for {carrier}: {purged}")
+    return purged

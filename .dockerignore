@@ -1,0 +1,12 @@
+backend/chrome_profile_*
+backend/chrome_profile_*/**
+chrome_profile_*
+chrome_profile_*/**
+__pycache__
+*.pyc
+.pytest_cache
+scratch/
+*.png
+*.log
+node_modules/
+.next/

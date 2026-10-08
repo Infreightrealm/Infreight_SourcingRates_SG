@@ -792,3 +792,29 @@ async def manual_storage_cleanup_endpoint(
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@admin_router.post("/reset-profile/{carrier}")
+async def reset_carrier_profile_endpoint(
+    carrier: str,
+    actor: User = Depends(verify_admin_access),
+    session: AsyncSession = Depends(get_session),
+):
+    """Purge master and temp browser profiles for a carrier across persistent volume and local paths."""
+    from services.browser_cleanup import purge_carrier_profile
+    try:
+        purged = purge_carrier_profile(carrier)
+        await record_audit_event(
+            session,
+            actor_username=actor.username or "admin",
+            action="reset_carrier_profile",
+            detail=f"Purged {len(purged)} browser profile(s) for carrier '{carrier}'",
+        )
+        return {
+            "status": "SUCCESS",
+            "carrier": carrier,
+            "purged_directories": purged,
+            "message": f"Successfully purged {len(purged)} profile directory(ies) for {carrier}."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
