@@ -594,6 +594,36 @@ export async function getPortFixes(days = 14, adminPassword?: string): Promise<{
   return res.json();
 }
 
+export interface CarrierSwitch {
+  enabled: boolean;
+  /** Why it is off, e.g. "Portal under maintenance until 6pm". */
+  reason: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+/** Which carriers an admin has switched off, keyed by carrier code (MAERSK, CMA_CGM, ...). */
+export async function getCarrierSwitches(): Promise<Record<string, CarrierSwitch>> {
+  const res = await failoverFetch(`/api/carriers/status`);
+  if (!res.ok) throw new Error(`Failed to load carrier status: ${res.status}`);
+  return res.json();
+}
+
+export async function setCarrierSwitch(code: string, enabled: boolean, reason?: string, adminPassword?: string): Promise<CarrierSwitch> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (adminPassword) headers["x-admin-password"] = adminPassword;
+  const res = await failoverFetch(`/api/admin/carriers/${encodeURIComponent(code)}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ enabled, reason: reason || null }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to switch ${code}: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getExchangeRates(adminPassword?: string): Promise<Record<string, { code: string; name: string; rate_per_usd: number; usd_per_unit: number; symbol: string }>> {
   const headers: Record<string, string> = {};
   if (adminPassword) {

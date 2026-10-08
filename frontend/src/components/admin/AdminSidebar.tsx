@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Activity, ArrowLeftRight, History, LayoutDashboard, ListOrdered, MapPin, Table2, Users } from "lucide-react";
+import { Activity, ArrowLeftRight, History, LayoutDashboard, ListOrdered, MapPin, Power, Table2, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type AdminSection =
@@ -12,7 +12,8 @@ export type AdminSection =
   | "overrides"
   | "ports"
   | "exchange_rates"
-  | "route_health";
+  | "route_health"
+  | "carriers";
 
 interface NavItem {
   id: AdminSection;
@@ -40,6 +41,7 @@ const GROUPS: Array<{ label: string | null; items: NavItem[] }> = [
   {
     label: "Health",
     items: [
+      { id: "carriers", label: "Carriers on / off", icon: Power },
       { id: "analytics", label: "Carrier & lane analytics", icon: Activity },
       { id: "route_health", label: "Route reliability", icon: Table2 },
     ],

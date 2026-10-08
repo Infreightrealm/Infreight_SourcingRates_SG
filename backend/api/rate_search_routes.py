@@ -254,6 +254,13 @@ async def create_batch_rate_search(
     )
 
 
+@router.get("/carriers/status")
+async def carrier_switch_status():
+    """Which carriers an admin has switched off (and why), for the search form."""
+    from services.carrier_switches import get_switches
+    return get_switches()
+
+
 @router.get("/rate-search/status", response_model=List[BatchSearchStatusItem])
 async def get_batch_search_status(
     ids: str,

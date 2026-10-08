@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { CARRIERS, CONTAINER_TYPES, REEFER_CONTAINER_TYPES, containerLabel, isReeferType } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useSwitchedOffCarriers } from "@/lib/carrierSwitches";
 
 export type HapagRegion = "US_CA" | "EU" | "ROW";
 export type DeliveryType = "PORT" | "RAMP";
@@ -98,8 +99,10 @@ function Segmented<T extends string>({
  */
 export default function SearchComposer(p: SearchComposerProps) {
   const all = isAllCarriers(p.carriers);
-  const isOn = (code: string) => all || p.carriers.includes(code);
-  const carrierCount = all ? CARRIERS.length : p.carriers.length;
+  // Carriers an admin switched off (site down) can't be picked; the backend skips them too.
+  const switchedOff = useSwitchedOffCarriers();
+  const isOn = (code: string) => !(code in switchedOff) && (all || p.carriers.includes(code));
+  const carrierCount = CARRIERS.filter((c) => isOn(c.code)).length;
   const hapagOn = isOn("HAPAG_LLOYD");
   const ramp = p.delivery === "RAMP";
   const sizes = p.selectedTypes.map(containerLabel);
@@ -217,6 +220,7 @@ export default function SearchComposer(p: SearchComposerProps) {
             {ramp
               ? "Ramp / inland is searched by CMA CGM only today. The others quote port to port."
               : `${carrierCount} of ${CARRIERS.length} selected`}
+            {!ramp && Object.keys(switchedOff).length > 0 && ` · ${Object.keys(switchedOff).length} switched off by admin`}
           </span>
         </legend>
         <div className="flex flex-wrap gap-2">
@@ -234,7 +238,10 @@ export default function SearchComposer(p: SearchComposerProps) {
           {CARRIERS.map((c) => {
             const on = isOn(c.code);
             const isHapag = c.code === "HAPAG_LLOYD";
-            const note = !on
+            const offByAdmin = c.code in switchedOff;
+            const note = offByAdmin
+              ? `Switched off${switchedOff[c.code] ? `: ${switchedOff[c.code]}` : ""}`
+              : !on
               ? "Off"
               : ramp
                 ? c.code === RAMP_CARRIER
@@ -256,8 +263,10 @@ export default function SearchComposer(p: SearchComposerProps) {
                 <button
                   type="button"
                   aria-pressed={on}
+                  disabled={offByAdmin}
+                  title={offByAdmin ? note ?? undefined : undefined}
                   onClick={() => p.onCarriersChange(toggleCarrierSelection(p.carriers, c.code))}
-                  className="flex min-h-11 items-center gap-2 py-1.5 pl-3 pr-3 text-left"
+                  className="flex min-h-11 max-w-64 items-center gap-2 py-1.5 pl-3 pr-3 text-left disabled:cursor-not-allowed"
                 >
                   <span
                     className="size-2.5 shrink-0 rounded-full ring-1 ring-foreground/15"
@@ -269,8 +278,12 @@ export default function SearchComposer(p: SearchComposerProps) {
                     {note && (
                       <span
                         className={cn(
-                          "text-[11px]",
-                          ramp && on && c.code !== RAMP_CARRIER ? "font-semibold text-warning-foreground" : "text-muted-foreground",
+                          "truncate text-[11px]",
+                          offByAdmin
+                            ? "font-semibold text-destructive-foreground"
+                            : ramp && on && c.code !== RAMP_CARRIER
+                              ? "font-semibold text-warning-foreground"
+                              : "text-muted-foreground",
                         )}
                       >
                         {note}

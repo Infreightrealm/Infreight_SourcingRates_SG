@@ -78,9 +78,9 @@
     "semantic_hash": ""
   },
   "backend/api/rate_search_routes.py": {
-    "mtime": 1790430516.1873274,
-    "seen": 1791445443.3848298,
-    "ast_hash": "968fca952fe4b8242faa52d4b69158d8",
+    "mtime": 1791446325.3611,
+    "seen": 1791446976.6189966,
+    "ast_hash": "ad17ae4c65b289488bde8969947ee425",
     "semantic_hash": ""
   },
   "backend/api/rfq_routes.py": {
@@ -96,9 +96,9 @@
     "semantic_hash": ""
   },
   "backend/api/user_routes.py": {
-    "mtime": 1791445406.4472587,
-    "seen": 1791445443.3848374,
-    "ast_hash": "d8af3e360197da303dbff6d0a9d69014",
+    "mtime": 1791446325.3604069,
+    "seen": 1791446976.6190689,
+    "ast_hash": "1accdf6532cc9a1fccd325586b0c2c60",
     "semantic_hash": ""
   },
   "backend/auto_updater.py": {
@@ -426,9 +426,9 @@
     "semantic_hash": ""
   },
   "backend/services/job_service.py": {
-    "mtime": 1791345037.9281805,
-    "seen": 1791445443.3849566,
-    "ast_hash": "56a6ef6a2bb8b2353b8a500f785edc9d",
+    "mtime": 1791446357.0530736,
+    "seen": 1791446976.62113,
+    "ast_hash": "7ed9de61aeefbb2326bcedf0486c1cff",
     "semantic_hash": ""
   },
   "backend/services/normalizer.py": {
@@ -924,9 +924,9 @@
     "semantic_hash": ""
   },
   "frontend/src/app/admin/page.tsx": {
-    "mtime": 1791445406.4512587,
-    "seen": 1791445443.3851082,
-    "ast_hash": "1675edfef8b7e78eb7b3afc42082dea5",
+    "mtime": 1791446862.652209,
+    "seen": 1791446976.6244292,
+    "ast_hash": "60990d17c3a643afdf3b1797b76d42b5",
     "semantic_hash": ""
   },
   "frontend/src/app/layout.tsx": {
@@ -966,9 +966,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/CarrierMultiSelect.tsx": {
-    "mtime": 1791131118.4811172,
-    "seen": 1791445443.3851178,
-    "ast_hash": "1a5cd7ae83257e7873e53d2c7495207c",
+    "mtime": 1791446834.0415547,
+    "seen": 1791446976.6246767,
+    "ast_hash": "14be094e5bcda47715e906e80ea0edb1",
     "semantic_hash": ""
   },
   "frontend/src/components/ChatWidget.tsx": {
@@ -1050,9 +1050,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/SearchComposer.tsx": {
-    "mtime": 1791355452.8262217,
-    "seen": 1791445443.3851402,
-    "ast_hash": "d3e2a8cef1ca326c58cb5b8091e75e79",
+    "mtime": 1791446811.3665822,
+    "seen": 1791446976.6252136,
+    "ast_hash": "0d13f631ac18f1ebca4fbe38b4a8095a",
     "semantic_hash": ""
   },
   "frontend/src/components/SearchHistoryModal.tsx": {
@@ -1194,9 +1194,9 @@
     "semantic_hash": ""
   },
   "frontend/src/lib/api.ts": {
-    "mtime": 1791345064.648683,
-    "seen": 1791445443.3851793,
-    "ast_hash": "ec0535bbd34bb88d9f4e3ce12b990bb2",
+    "mtime": 1791446789.057801,
+    "seen": 1791446976.6264014,
+    "ast_hash": "56223ab08ee3649aca749a29f75a7c27",
     "semantic_hash": ""
   },
   "frontend/src/lib/excelExport.ts": {
@@ -1398,9 +1398,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/admin/AdminSidebar.tsx": {
-    "mtime": 1791343252.1561038,
-    "seen": 1791445443.3851573,
-    "ast_hash": "785d0a5d2eb43e095efd073564d90cb2",
+    "mtime": 1791446862.6482825,
+    "seen": 1791446976.6257207,
+    "ast_hash": "6e21a4095441ec220cef1989b140b047",
     "semantic_hash": ""
   },
   "frontend/src/components/admin/AdminUsers.tsx": {
@@ -1461,6 +1461,30 @@
     "mtime": 1791445516.892253,
     "seen": 1791445636.4077742,
     "ast_hash": "26ac80e1dfde53bfad179b6226fdbbae",
+    "semantic_hash": ""
+  },
+  "backend/services/carrier_switches.py": {
+    "mtime": 1791446325.277375,
+    "seen": 1791446976.621023,
+    "ast_hash": "83f2b1811bf9753b5afd79fd077fc6f0",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_carrier_switches.py": {
+    "mtime": 1791446664.7781863,
+    "seen": 1791446976.6232305,
+    "ast_hash": "2d959296f9006879aef4f2c29c444cfb",
+    "semantic_hash": ""
+  },
+  "frontend/src/components/admin/AdminCarriers.tsx": {
+    "mtime": 1791446854.4493942,
+    "seen": 1791446976.625608,
+    "ast_hash": "2f19dee3cf429e86775ea6a8c18a13ec",
+    "semantic_hash": ""
+  },
+  "frontend/src/lib/carrierSwitches.ts": {
+    "mtime": 1791446789.0613918,
+    "seen": 1791446976.6264036,
+    "ast_hash": "4b83c08930a99586e3b2df391c21f281",
     "semantic_hash": ""
   }
 }
