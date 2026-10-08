@@ -1461,15 +1461,20 @@ class OOCLConnector(BaseCarrierConnector):
 
                         if c_code == "CWX" or "CWX" in c_code or "HEAVY WEIGHT" in c_name.upper():
                             if unit in ("20GP", "20RF", "20", "20'", ""):
-                                is_at_or_above = any(k in combined for k in ["at or above", "or above", "above", ">=", "exceeding"])
-                                is_below = any(k in combined for k in ["below", "under", "<"])
-
-                                if is_at_or_above and user_weight_kg >= 21000.0:
+                                from services.charge_classifier import is_weight_surcharge_applicable
+                                text_to_eval = f"{c_name} {remarks}"
+                                is_app, app_reason = is_weight_surcharge_applicable(
+                                    text_to_eval,
+                                    user_weight_kg,
+                                    unit or "20GP"
+                                )
+                                if is_app:
                                     surcharges_dict.setdefault("DRY 20", {})["CWX"] = price_val
-                                    print(f"[OOCL] [CONDITIONAL] CWX applied: {price_val} USD (weight={user_weight_kg}kg >= 21000kg)")
-                                elif is_below and user_weight_kg < 21000.0:
-                                    surcharges_dict.setdefault("DRY 20", {})["CWX"] = price_val
-                                    print(f"[OOCL] [CONDITIONAL] CWX below tier: {price_val} USD (weight={user_weight_kg}kg < 21000kg)")
+                                    surcharges_dict.setdefault("DRY 20", {})["CWX_NAME"] = c_name or "CWX 20' Heavy Weight Charge"
+                                    surcharges_dict.setdefault("DRY 20", {})["CWX_REASON"] = f"{c_name} ({remarks})"
+                                    print(f"[OOCL] [CONDITIONAL] CWX tier matched for port pair: {price_val} USD ({app_reason})")
+                                else:
+                                    print(f"[OOCL] [CONDITIONAL] CWX tier skipped: {price_val} USD ({app_reason})")
             except Exception as cond_err:
                 print(f"[OOCL] Note extracting conditional charges tab: {cond_err}")
 
@@ -1636,16 +1641,11 @@ class OOCLConnector(BaseCarrierConnector):
                         min_total = row_total
                         cheapest_idx = idx
 
+                surcharges, is_unavail, warn_msg = await self._fs_extract_dialog_charges(page, parsed_cards[cheapest_idx][0], request=request)
                 for idx, (card, parsed) in enumerate(parsed_cards):
-                    if idx == cheapest_idx:
-                        surcharges, is_unavail, warn_msg = await self._fs_extract_dialog_charges(page, card, request=request)
-                        parsed["dialog_charges"] = surcharges
-                        parsed["is_breakdown_unavailable"] = is_unavail
-                        parsed["warning_message"] = warn_msg
-                    else:
-                        parsed["dialog_charges"] = {}
-                        parsed["is_breakdown_unavailable"] = False
-                        parsed["warning_message"] = None
+                    parsed["dialog_charges"] = surcharges
+                    parsed["is_breakdown_unavailable"] = is_unavail
+                    parsed["warning_message"] = warn_msg
 
                     # Deduplicate
                     key = (parsed["kind"], parsed.get("etd"), parsed.get("total_price"),
@@ -2252,7 +2252,7 @@ class OOCLConnector(BaseCarrierConnector):
                 final_freight_value += lsa_val
 
         # CWX 20' Heavy Weight Charge:
-        # Applies when container is 20GP (DRY 20) and cargo weight is At or Above 21000.000 KG (e.g. 25,000 KG -> 250 USD)
+        # Dynamically extracted per port pair from OOCL Conditional Charges tab.
         is_quote_20gp = False
         if container_type:
             c_norm = container_type.upper().replace("'", "").replace(" ", "").replace("_", "")
@@ -2261,24 +2261,21 @@ class OOCLConnector(BaseCarrierConnector):
         req = request or getattr(self, "_current_request", None)
         user_weight_kg = getattr(req, "weight_per_container_kg", 20000.0) if req else 20000.0
 
-        if is_quote_20gp:
-            cwx_val = None
-            if target_charges and "CWX" in target_charges:
-                cwx_val = target_charges["CWX"]
-            elif user_weight_kg >= 21000.0:
-                cwx_val = 250.0
-
-            if cwx_val is not None and cwx_val > 0:
+        if is_quote_20gp and target_charges and "CWX" in target_charges:
+            cwx_val = target_charges["CWX"]
+            if cwx_val > 0:
+                cwx_name = target_charges.get("CWX_NAME") or "CWX 20' Heavy Weight Charge"
+                cwx_reason = target_charges.get("CWX_REASON") or f"CWX 20' Heavy Weight Charge (Weight: {user_weight_kg:,.0f} KG)"
                 from models.schemas import ChargeSchema
                 included_surcharges.append(ChargeSchema(
-                    name="CWX 20' Heavy Weight Charge",
+                    name=cwx_name,
                     amount=cwx_val,
                     currency="USD",
                     category="FREIGHT_SURCHARGE_INCLUDED",
-                    reason=f"CWX 20' Heavy Weight Charge (Weight: {user_weight_kg:,.0f} KG >= 21000.000 KG)"
+                    reason=cwx_reason
                 ))
                 final_freight_value += cwx_val
-                print(f"[OOCL] Applied CWX 20' Heavy Weight Charge: {cwx_val} USD (weight={user_weight_kg}kg)")
+                print(f"[OOCL] Applied port-pair specific CWX: {cwx_val} USD (weight={user_weight_kg}kg)")
 
         raw_quote["included_freight_surcharges"] = included_surcharges
         raw_quote["final_freight_value"] = round(final_freight_value, 2)
@@ -2315,19 +2312,7 @@ class OOCLConnector(BaseCarrierConnector):
             if q_ct_norm and q_ct_norm == req_ct_norm:
                 out.append(q.model_copy(deep=True, update={"container_type": request.container_type}))
             elif not q.container_type:
-                q_copy = q.model_copy(deep=True, update={"container_type": request.container_type})
-                if req_ct_norm == "20GP" and getattr(request, "weight_per_container_kg", 20000.0) >= 21000.0:
-                    if not any("CWX" in c.name or "HEAVY WEIGHT" in c.name.upper() for c in q_copy.included_freight_surcharges):
-                        from models.schemas import ChargeSchema
-                        q_copy.included_freight_surcharges.append(ChargeSchema(
-                            name="CWX 20' Heavy Weight Charge",
-                            amount=250.0,
-                            currency="USD",
-                            category="FREIGHT_SURCHARGE_INCLUDED",
-                            reason=f"CWX 20' Heavy Weight Charge (Weight: {request.weight_per_container_kg:,.0f} KG >= 21000.000 KG)"
-                        ))
-                        q_copy.final_freight_value = round(q_copy.final_freight_value + 250.0, 2)
-                out.append(q_copy)
+                out.append(q.model_copy(deep=True, update={"container_type": request.container_type}))
         return out
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
