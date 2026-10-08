@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/lib/preferences";
 import Link from "next/link";
 import { toast } from "sonner";
+import { DEFAULT_COUNTRIES_MAP } from "@/lib/countries";
 
 interface UserRecord {
   id: string;
@@ -69,7 +70,7 @@ export default function AdminDashboard() {
   // Ports config state
   const [popularPorts, setPopularPorts] = useState<string[]>([]);
   const [boostedCountries, setBoostedCountries] = useState<string[]>([]);
-  const [countriesMap, setCountriesMap] = useState<Record<string, string>>({});
+  const [countriesMap, setCountriesMap] = useState<Record<string, string>>(DEFAULT_COUNTRIES_MAP);
 
   // Route health matrix state
   const [routeHealth, setRouteHealth] = useState<{ carriers: string[]; routes: any[] } | null>(null);
@@ -239,6 +240,8 @@ export default function AdminDashboard() {
         fetchOverrides();
       } else if (tab === "history") {
         fetchSearchHistory();
+      } else if (tab === "ports") {
+        fetchPortsConfig();
       } else if (tab === "exchange_rates") {
         fetchExchangeRates();
       }
@@ -365,15 +368,25 @@ export default function AdminDashboard() {
   const fetchPortsConfig = async () => {
     try {
       const { getPortsConfig, getCountriesMap } = await import("@/lib/api");
+
+      // 1. Fetch live countries map
+      getCountriesMap()
+        .then((countries) => {
+          if (countries && Object.keys(countries).length > 0) {
+            setCountriesMap(countries);
+          }
+        })
+        .catch((e) => console.error("Failed to fetch countries map:", e));
+
+      // 2. Fetch custom registered ports
+      fetchCustomPorts();
+
+      // 3. Fetch ports config (popular ports & boosted countries)
       const config = await getPortsConfig(password);
       setPopularPorts(config.popular_ports || []);
       setBoostedCountries(config.boosted_countries || []);
-      
-      const countries = await getCountriesMap();
-      setCountriesMap(countries);
-      fetchCustomPorts();
     } catch (e) {
-      console.error("Failed to fetch ports config/countries:", e);
+      console.error("Failed to fetch ports config:", e);
     }
   };
 
@@ -1746,7 +1759,16 @@ export default function AdminDashboard() {
                     type="text"
                     maxLength={5}
                     value={customCode}
-                    onChange={(e) => setCustomCode(e.target.value.toUpperCase())}
+                    onChange={(e) => {
+                      const code = e.target.value.toUpperCase();
+                      setCustomCode(code);
+                      if (code.length >= 2) {
+                        const prefix = code.substring(0, 2);
+                        if (countriesMap[prefix]) {
+                          setCustomCountry(prefix);
+                        }
+                      }
+                    }}
                     placeholder="e.g. INKCH"
                     className="w-full border border-input bg-card dark:bg-white/[0.04] rounded-xl px-3 py-2 text-sm font-mono text-foreground uppercase focus:outline-none focus:ring-2 focus-visible:ring-ring h-[42px]"
                     required
