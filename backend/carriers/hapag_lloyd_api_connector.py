@@ -268,8 +268,13 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
 
     def _get_freetime_days(self, destination_locode: str, destination_name: str, container_type: str) -> Optional[int]:
         """Looks up standard destination demurrage/detention free time days."""
+        return self._lookup_freetime(destination_locode, destination_name, container_type)[0]
+
+    def _lookup_freetime(self, destination_locode: str, destination_name: str, container_type: str) -> Tuple[int, bool]:
+        """(days, estimated): estimated when the destination has no entry in the free
+        time table and no set figure, so the 4-day default is a guess."""
         if not self.freetime_config:
-            return 4  # Default fallback
+            return 4, True
 
         from services.hapag_freetime import freetime_days, match_freetime_entry
         from services.port_manager import COUNTRY_CODE_TO_NAME
@@ -282,17 +287,18 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         if hit:
             days = freetime_days(hit[1], container_type)
             if days is not None:
-                return days
+                return days, False
 
         # Common destination fallbacks
-        if destination_locode.startswith("DE"):  # Germany
-            return 4
-        if destination_locode.startswith("US") or destination_locode.startswith("CA"):
-            return 4
-        if destination_locode.startswith("SG"):  # Singapore
-            return 5
+        locode = destination_locode or ""
+        if locode.startswith("DE"):  # Germany
+            return 4, False
+        if locode.startswith("US") or locode.startswith("CA"):
+            return 4, False
+        if locode.startswith("SG"):  # Singapore
+            return 5, False
 
-        return 4
+        return 4, True
 
     def build_offer_request_payload(
         self,
@@ -504,7 +510,7 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             self._record_error_reason(api_data.get("overarchingErrorReason"))
             return quotes
 
-        free_time_days = self._get_freetime_days(destination_locode, destination_name, requested_container_type)
+        free_time_days, free_time_estimated = self._lookup_freetime(destination_locode, destination_name, requested_container_type)
 
         for offer in offers:
             if offer.get("errorReason") and not offer.get("equipments"):
@@ -640,6 +646,7 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                         ft_days = vas.get("freetimeDays")
                         if ft_days and ft_days > 0:
                             free_time_days = ft_days
+                            free_time_estimated = False
 
                 quote = QuoteSchema(
                     etd=etd,
@@ -649,7 +656,8 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                     vessel=vessel_display,
                     routing=", ".join(transshipment_ports) if transshipment_ports else "Direct",
                     port_of_discharge=port_of_discharge,
-                    free_time=f"{free_time_days} days" if free_time_days else None,
+                    # "(est.)" marks the default for destinations missing from the free time table.
+                    free_time=(f"{free_time_days} days" + (" (est.)" if free_time_estimated else "")) if free_time_days else None,
                     container_type=container_type,
                     container_quantity=1,
                     currency=currency,
