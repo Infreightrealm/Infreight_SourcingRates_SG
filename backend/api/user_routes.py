@@ -594,6 +594,34 @@ async def delete_carrier_override_endpoint(
     return {"status": "SUCCESS"}
 
 
+class CarrierSwitchRequest(BaseModel):
+    enabled: bool
+    reason: Optional[str] = None
+
+
+@admin_router.put("/carriers/{carrier_code}")
+async def switch_carrier(
+    carrier_code: str,
+    request: CarrierSwitchRequest,
+    actor: User = Depends(verify_admin_access),
+    session: AsyncSession = Depends(get_session),
+):
+    """Switch a carrier on or off for everyone, e.g. while its site is down."""
+    from services.carrier_switches import set_switch
+    try:
+        entry = set_switch(carrier_code, request.enabled, request.reason, actor.username or "admin")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    await record_audit_event(
+        session,
+        actor_username=actor.username or "admin",
+        action="switch_carrier",
+        detail=f"{'Switched on' if request.enabled else 'Switched off'} {carrier_code.upper()}"
+        + (f": {entry['reason']}" if entry.get("reason") else ""),
+    )
+    return entry
+
+
 # Carrier codes on search results -> the keys port name fixes are stored under.
 _FIX_CARRIER_KEYS = {
     "MAERSK": "maersk",

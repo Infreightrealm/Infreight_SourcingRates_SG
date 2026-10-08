@@ -5,6 +5,7 @@ Creates background tasks per carrier, runs connectors, persists results.
 """
 import asyncio
 import os
+from services.carrier_switches import off_message
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -205,6 +206,16 @@ async def run_carrier_search(
             db_result = (await session.execute(result_query)).scalar_one_or_none()
             if not db_result:
                 print(f"[JOB] No CarrierSearchResult found for {carrier_code}")
+                return
+
+            # Switched off by an admin (site down / maintenance): skip without opening a browser.
+            off = off_message(carrier_code)
+            if off:
+                print(f"[JOB] {carrier_code}: skipped, {off}")
+                db_result.status = CarrierResultStatus.SERVICE_UNAVAILABLE.value
+                db_result.error_message = off
+                db_result.completed_at = datetime.utcnow()
+                await session.commit()
                 return
 
             # Mark as RUNNING
@@ -520,7 +531,9 @@ async def update_search_status(search_id: UUID):
         statuses = [r.status for r in results]
 
         running_statuses = {"QUEUED", "RUNNING", "WAITING_FOR_HUMAN_VERIFICATION", "MANUAL_ACTION_REQUIRED"}
-        finished_statuses = {"AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "LOGIN_FAILED", "TIMEOUT", "UNKNOWN_ERROR", "EXTRACTION_FAILED", "FAILED", "COMPLETED"}
+        # SERVICE_UNAVAILABLE / CONNECTOR_NOT_AVAILABLE are final too (e.g. a carrier switched off
+        # by an admin); without them a search of only such carriers stayed RUNNING.
+        finished_statuses = {"AVAILABLE_QUOTES_FOUND", "NO_QUOTES_AVAILABLE", "LOGIN_FAILED", "TIMEOUT", "UNKNOWN_ERROR", "EXTRACTION_FAILED", "FAILED", "COMPLETED", "SERVICE_UNAVAILABLE", "CONNECTOR_NOT_AVAILABLE"}
         
         has_finished_carrier = any(s in finished_statuses for s in statuses)
         has_running_carrier = any(s in running_statuses or (s.startswith("RUNNING") if s else False) for s in statuses)
@@ -711,6 +724,24 @@ async def run_vertical_batch_searches(
                 await _run_carrier_batch_locked(carrier_code)
 
     async def _run_carrier_batch_locked(carrier_code: str):
+            off = off_message(carrier_code)
+            if off:
+                print(f"[VERTICAL BATCH] {carrier_code}: skipped, {off}")
+                async with get_async_session_maker()() as session:
+                    rows = (await session.execute(
+                        select(CarrierSearchResult).where(
+                            CarrierSearchResult.search_id.in_(batch_search_ids),
+                            CarrierSearchResult.carrier == carrier_code,
+                        )
+                    )).scalars().all()
+                    for row in rows:
+                        row.status = CarrierResultStatus.SERVICE_UNAVAILABLE.value
+                        row.error_message = off
+                        row.completed_at = datetime.utcnow()
+                    await session.commit()
+                for s_id in batch_search_ids:
+                    await asyncio.shield(update_search_status(s_id))
+                return
             connector = get_connector(carrier_code, hapag_use_api=requests[0].hapag_use_api if requests else None)
             if not connector:
                 print(f"[VERTICAL BATCH] No connector for {carrier_code}")

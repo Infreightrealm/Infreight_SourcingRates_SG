@@ -14,6 +14,7 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminOverview, { type AnalyticsRange } from "@/components/admin/AdminOverview";
 import AdminUsers, { type AuditEntry } from "@/components/admin/AdminUsers";
 import AdminPortFixes from "@/components/admin/AdminPortFixes";
+import AdminCarriers from "@/components/admin/AdminCarriers";
 import type { PortMiss } from "@/lib/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,7 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"overview" | "analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "analytics" | "users" | "ports" | "overrides" | "history" | "route_health" | "exchange_rates" | "carriers">("overview");
   // The new layout opens on Overview; Classic has no Overview and opens on analytics.
   const { prefs } = usePreferences();
   const isV2 = prefs.layout === "v2";
@@ -2474,6 +2475,8 @@ export default function AdminDashboard() {
                   setActiveTab("history");
                 }}
               />
+            ) : tab === "carriers" ? (
+              <AdminCarriers adminPassword={password} />
             ) : tab === "overrides" ? (
               <AdminPortFixes adminPassword={password} onMissesLoaded={setPortMisses} />
             ) : (
