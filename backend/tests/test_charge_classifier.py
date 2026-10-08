@@ -107,9 +107,24 @@ def test_section_override_precedence():
     cat, _ = classify_charge("Basic Ocean Freight", 556, "Freight charges")
     assert cat == ChargeCategory.BASIC_OCEAN_FREIGHT
 
-    # 3. Unclassified charge under 'Freight charges' fallback to BASIC_OCEAN_FREIGHT
+    # 3. Unclassified charge under 'Freight charges' fallback to FREIGHT_SURCHARGE_INCLUDED
     cat, _ = classify_charge("Some Arbitrary Freight Fee", 100, "Freight charges")
-    assert cat == ChargeCategory.BASIC_OCEAN_FREIGHT
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+
+def test_cwx_heavy_weight_charge():
+    # 1. 25,000 KG is at or above 21,000 KG -> FREIGHT_SURCHARGE_INCLUDED
+    cat, _ = classify_charge("CWX 20' Heavy Weight Charge - 2nd tier Weight: At or Above 21000.000 Net KG", 250, weight_per_container_kg=25000)
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+    # 2. 20,000 KG is below 21,000 KG -> UNCERTAIN_EXCLUDED
+    cat, _ = classify_charge("CWX 20' Heavy Weight Charge - 2nd tier Weight: At or Above 21000.000 Net KG", 250, weight_per_container_kg=20000)
+    assert cat == ChargeCategory.UNCERTAIN_EXCLUDED
+
+    # 3. Exactly 21,000 KG -> FREIGHT_SURCHARGE_INCLUDED
+    cat, _ = classify_charge("CWX 20' Heavy Weight Charge - 2nd tier Weight: At or Above 21000.000 Net KG", 250, weight_per_container_kg=21000)
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
 
 
 def test_short_keyword_boundaries():

@@ -1204,10 +1204,11 @@ class OOCLConnector(BaseCarrierConnector):
             "is_sold_out": is_sold_out,
         }
 
-    async def _fs_extract_dialog_charges(self, page, card) -> tuple[dict, bool, Optional[str]]:
+    async def _fs_extract_dialog_charges(self, page, card, request: Optional[RateSearchRequest] = None) -> tuple[dict, bool, Optional[str]]:
         """
         Opens the Details dialog for a card, clicks the Charge Breakdown tab,
-        extracts ETS and EBS surcharges, and closes the dialog.
+        extracts ETS and EBS surcharges, checks Conditional Charges tab when applicable,
+        and closes the dialog.
         Returns: (surcharges_dict, is_breakdown_unavailable, warning_message)
         """
         surcharges_dict = {}
@@ -1375,6 +1376,103 @@ class OOCLConnector(BaseCarrierConnector):
 
             print(f"[OOCL] Parsed OOCL surcharges: {surcharges_dict}")
 
+            # 7. Check the "Conditional Charges" tab (e.g. for CWX 20' Heavy Weight Charge)
+            cond_tab_sel = '.ant-tabs-tab:has-text("Conditional Charges"), .el-tabs__item:has-text("Conditional Charges"), [role="tab"]:has-text("Conditional Charges")'
+            cond_tab_btn = page.locator(cond_tab_sel).first
+            try:
+                if await cond_tab_btn.is_visible(timeout=1500):
+                    await cond_tab_btn.evaluate("el => el.click()")
+                    print("[OOCL] Clicked Conditional Charges tab.")
+                    await page.wait_for_timeout(1000)
+
+                    cond_extracted = await page.evaluate(r"""() => {
+                        const tableRows = Array.from(document.querySelectorAll('.ant-modal tr, .el-dialog tr, [role="dialog"] tr, .ant-table-row'));
+                        let currentCode = "";
+                        let currentName = "";
+                        const results = [];
+
+                        tableRows.forEach(row => {
+                            const cells = Array.from(row.querySelectorAll('td, th')).map(c => c.innerText.trim());
+                            if (cells.length === 0) return;
+                            
+                            let name = "";
+                            let code = "";
+                            let unit = "";
+                            let priceStr = "";
+                            let remarks = "";
+
+                            if (cells.length >= 7) {
+                                name = cells[0];
+                                code = cells[1];
+                                unit = cells[4];
+                                priceStr = cells[5];
+                                remarks = cells[6];
+                                currentName = name;
+                                currentCode = code;
+                            } else if (cells.length === 6) {
+                                name = cells[0];
+                                code = cells[1];
+                                unit = cells[3];
+                                priceStr = cells[4];
+                                remarks = cells[5];
+                                currentName = name;
+                                currentCode = code;
+                            } else if (cells.length === 3) {
+                                name = currentName;
+                                code = currentCode;
+                                unit = cells[0];
+                                priceStr = cells[1];
+                                remarks = cells[2];
+                            } else if (cells.length === 2) {
+                                name = currentName;
+                                code = currentCode;
+                                unit = cells[0];
+                                priceStr = cells[1];
+                            }
+
+                            if ((code || currentCode) && priceStr) {
+                                results.push({
+                                    name: name || currentName,
+                                    code: code || currentCode,
+                                    unit,
+                                    priceStr,
+                                    remarks
+                                });
+                            }
+                        });
+                        return results;
+                    }""")
+                    print(f"[OOCL] Extracted conditional charges: {cond_extracted}")
+
+                    req_obj = request or getattr(self, "_current_request", None)
+                    user_weight_kg = getattr(req_obj, "weight_per_container_kg", 20000.0) if req_obj else 20000.0
+                    for item in cond_extracted:
+                        c_name = (item.get("name") or "").strip()
+                        c_code = (item.get("code") or "").strip().upper()
+                        unit = (item.get("unit") or "").strip().upper()
+                        price_str = item.get("priceStr") or ""
+                        remarks = (item.get("remarks") or "").strip()
+                        combined = f"{c_name} {remarks}".lower()
+
+                        m_price = re.search(r"([\d,]+(?:\.\d{1,2})?)", price_str)
+                        if not m_price:
+                            continue
+                        price_val = float(m_price.group(1).replace(",", ""))
+
+                        if c_code == "CWX" or "CWX" in c_code or "HEAVY WEIGHT" in c_name.upper():
+                            if unit in ("20GP", "20RF", "20", "20'", ""):
+                                is_at_or_above = any(k in combined for k in ["at or above", "or above", "above", ">=", "exceeding"])
+                                is_below = any(k in combined for k in ["below", "under", "<"])
+
+                                if is_at_or_above and user_weight_kg >= 21000.0:
+                                    surcharges_dict.setdefault("DRY 20", {})["CWX"] = price_val
+                                    print(f"[OOCL] [CONDITIONAL] CWX applied: {price_val} USD (weight={user_weight_kg}kg >= 21000kg)")
+                                elif is_below and user_weight_kg < 21000.0:
+                                    surcharges_dict.setdefault("DRY 20", {})["CWX"] = price_val
+                                    print(f"[OOCL] [CONDITIONAL] CWX below tier: {price_val} USD (weight={user_weight_kg}kg < 21000kg)")
+            except Exception as cond_err:
+                print(f"[OOCL] Note extracting conditional charges tab: {cond_err}")
+
         except Exception as e:
             print(f"[OOCL] Error extracting details: {e}")
             is_breakdown_unavailable = True
@@ -1399,7 +1497,7 @@ class OOCLConnector(BaseCarrierConnector):
 
         return surcharges_dict, is_breakdown_unavailable, warning_message
 
-    async def _fs_extract_rows(self, page) -> List[dict]:
+    async def _fs_extract_rows(self, page, request: Optional[RateSearchRequest] = None) -> List[dict]:
         """Collects result cards from the FreightSmart quote results page."""
         os.makedirs("scratch", exist_ok=True)
         try:
@@ -1540,7 +1638,7 @@ class OOCLConnector(BaseCarrierConnector):
 
                 for idx, (card, parsed) in enumerate(parsed_cards):
                     if idx == cheapest_idx:
-                        surcharges, is_unavail, warn_msg = await self._fs_extract_dialog_charges(page, card)
+                        surcharges, is_unavail, warn_msg = await self._fs_extract_dialog_charges(page, card, request=request)
                         parsed["dialog_charges"] = surcharges
                         parsed["is_breakdown_unavailable"] = is_unavail
                         parsed["warning_message"] = warn_msg
@@ -1589,7 +1687,7 @@ class OOCLConnector(BaseCarrierConnector):
                         continue
 
                     # Extract dialog charges (surcharges) if available
-                    surcharges, is_unavail, warn_msg = await self._fs_extract_dialog_charges(page, cards.nth(i))
+                    surcharges, is_unavail, warn_msg = await self._fs_extract_dialog_charges(page, cards.nth(i), request=request)
                     parsed["dialog_charges"] = surcharges
                     parsed["is_breakdown_unavailable"] = is_unavail
                     parsed["warning_message"] = warn_msg
@@ -1795,8 +1893,8 @@ class OOCLConnector(BaseCarrierConnector):
         print(f"[OOCL] [FS] Dates with availability in next 14 days: {date_strings}")
 
         if not date_strings:
-            print("[OOCL] [FS] No dated availability found â€” extracting current active date only.")
-            return await self._fs_extract_rows(page)
+            print("[OOCL] [FS] No dated availability found — extracting current active date only.")
+            return await self._fs_extract_rows(page, request=request)
 
         # Step 3: For each available date, click it and extract rows
         for target_date_str in date_strings:
@@ -1839,7 +1937,7 @@ class OOCLConnector(BaseCarrierConnector):
 
             # Extract rows for this date
             try:
-                date_rows = await self._fs_extract_rows(page)
+                date_rows = await self._fs_extract_rows(page, request=request)
                 for r in date_rows:
                     r_copy = dict(r)
                     if r_copy.get("kind") != "E-Spot":
@@ -2084,7 +2182,7 @@ class OOCLConnector(BaseCarrierConnector):
     async def extract_charge_breakdown(self) -> list[dict]:
         return []
 
-    async def normalize_result(self, raw_quote: dict, raw_charges: list[dict]) -> QuoteSchema:
+    async def normalize_result(self, raw_quote: dict, raw_charges: list[dict], request: Optional[RateSearchRequest] = None) -> QuoteSchema:
         raw_quote["etd"] = standardize_date_string(raw_quote.get("etd"))
         raw_quote["eta"] = standardize_date_string(raw_quote.get("eta"))
         
@@ -2153,6 +2251,35 @@ class OOCLConnector(BaseCarrierConnector):
                 ))
                 final_freight_value += lsa_val
 
+        # CWX 20' Heavy Weight Charge:
+        # Applies when container is 20GP (DRY 20) and cargo weight is At or Above 21000.000 KG (e.g. 25,000 KG -> 250 USD)
+        is_quote_20gp = False
+        if container_type:
+            c_norm = container_type.upper().replace("'", "").replace(" ", "").replace("_", "")
+            is_quote_20gp = c_norm in ("20GP", "20FT", "20STD", "DRY20", "20", "20RF")
+
+        req = request or getattr(self, "_current_request", None)
+        user_weight_kg = getattr(req, "weight_per_container_kg", 20000.0) if req else 20000.0
+
+        if is_quote_20gp:
+            cwx_val = None
+            if target_charges and "CWX" in target_charges:
+                cwx_val = target_charges["CWX"]
+            elif user_weight_kg >= 21000.0:
+                cwx_val = 250.0
+
+            if cwx_val is not None and cwx_val > 0:
+                from models.schemas import ChargeSchema
+                included_surcharges.append(ChargeSchema(
+                    name="CWX 20' Heavy Weight Charge",
+                    amount=cwx_val,
+                    currency="USD",
+                    category="FREIGHT_SURCHARGE_INCLUDED",
+                    reason=f"CWX 20' Heavy Weight Charge (Weight: {user_weight_kg:,.0f} KG >= 21000.000 KG)"
+                ))
+                final_freight_value += cwx_val
+                print(f"[OOCL] Applied CWX 20' Heavy Weight Charge: {cwx_val} USD (weight={user_weight_kg}kg)")
+
         raw_quote["included_freight_surcharges"] = included_surcharges
         raw_quote["final_freight_value"] = round(final_freight_value, 2)
         raw_quote["basic_ocean_freight"] = round(basic_ocean_freight, 2)
@@ -2188,7 +2315,19 @@ class OOCLConnector(BaseCarrierConnector):
             if q_ct_norm and q_ct_norm == req_ct_norm:
                 out.append(q.model_copy(deep=True, update={"container_type": request.container_type}))
             elif not q.container_type:
-                out.append(q.model_copy(deep=True, update={"container_type": request.container_type}))
+                q_copy = q.model_copy(deep=True, update={"container_type": request.container_type})
+                if req_ct_norm == "20GP" and getattr(request, "weight_per_container_kg", 20000.0) >= 21000.0:
+                    if not any("CWX" in c.name or "HEAVY WEIGHT" in c.name.upper() for c in q_copy.included_freight_surcharges):
+                        from models.schemas import ChargeSchema
+                        q_copy.included_freight_surcharges.append(ChargeSchema(
+                            name="CWX 20' Heavy Weight Charge",
+                            amount=250.0,
+                            currency="USD",
+                            category="FREIGHT_SURCHARGE_INCLUDED",
+                            reason=f"CWX 20' Heavy Weight Charge (Weight: {request.weight_per_container_kg:,.0f} KG >= 21000.000 KG)"
+                        ))
+                        q_copy.final_freight_value = round(q_copy.final_freight_value + 250.0, 2)
+                out.append(q_copy)
         return out
 
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
@@ -2196,10 +2335,11 @@ class OOCLConnector(BaseCarrierConnector):
         One crawl serves all container-type cycles (cached), combining:
           1. Sailing schedules (existing 2-week CargoSmart crawl), and
           2. FreightSmart price quotes (E-Quote / E-Spot), paired to schedules by ETD
-             per business rules (all E-Spots; cheapest whole E-Quote row per date).
+              per business rules (all E-Spots; cheapest whole E-Quote row per date).
         The FreightSmart phase is best-effort: any failure there degrades to the
         schedules-only behavior this connector always had.
         """
+        self._current_request = request
         if not hasattr(self, "_cached_quotes"):
             self._cached_quotes = None
             self._cached_status = None
@@ -2229,7 +2369,7 @@ class OOCLConnector(BaseCarrierConnector):
                 except Exception as fs_err:
                     print(f"[OOCL] [FS] FreightSmart phase failed (falling back to schedules-only): {fs_err}")
             else:
-                print("[OOCL] OOCL_QUERY_FREIGHTSMART=false â€” schedules-only mode.")
+                print("[OOCL] OOCL_QUERY_FREIGHTSMART=false — schedules-only mode.")
 
             # Step 3: Pair & select per business rules
             window_days = min(request.search_window_days or 14, 28)
@@ -2245,7 +2385,7 @@ class OOCLConnector(BaseCarrierConnector):
             quotes: list[QuoteSchema] = []
             for raw in merged_dicts:
                 try:
-                    quotes.append(await self.normalize_result(dict(raw), []))
+                    quotes.append(await self.normalize_result(dict(raw), [], request=request))
                 except Exception as norm_err:
                     print(f"[OOCL] Warning: could not normalize merged quote: {norm_err}")
 

@@ -74,14 +74,14 @@ def is_weight_surcharge_applicable(
             return False, f"Not applicable: {wt_type_str} is outside required range [{min_tons:.1f}T - {max_tons:.1f}T]"
         return True, "Applicable: weight falls within tier range"
 
-    # 2. Pattern: Over / Exceeding / Above / > MIN ton/tons/mt/kg
+    # 2. Pattern: Over / Exceeding / Above / At or Above / > MIN ton/tons/mt/kg
     m_over = re.search(
-        r"(?:over|exceeding|above|>)\s*(\d+(?:\.\d+)?)\s*(ton|tons|mt|tonne|tonnes|kg)?",
+        r"(?:at\s+or\s+above|at\s+or\s+over|or\s+above|over|exceeding|above|>=|>)\s*(\d+(?:\.\d+)?)\s*(?:net\s*|gross\s*)?(ton|tons|mt|tonne|tonnes|kg)?",
         name_clean
     )
     if m_over:
         val = float(m_over.group(1))
-        unit = (m_over.group(2) or "ton").lower()
+        unit = (m_over.group(2) or ("kg" if val > 500 else "ton")).lower()
         thresh_kg = val if unit == "kg" else val * 1000.0
         thresh_tons = thresh_kg / 1000.0
 
@@ -89,10 +89,17 @@ def is_weight_surcharge_applicable(
         eval_kg = gross_wt_kg if is_gross else cargo_wt_kg
         eval_tons = gross_wt_tons if is_gross else cargo_wt_tons
 
-        if eval_kg <= thresh_kg:
-            wt_type_str = f"Gross Weight ({eval_tons:.1f}T)" if is_gross else f"Cargo Weight ({eval_tons:.1f}T)"
-            return False, f"Not applicable: {wt_type_str} does not exceed threshold of {thresh_tons:.1f}T"
-        return True, "Applicable: weight exceeds threshold"
+        is_inclusive = any(k in m_over.group(0).lower() for k in ["at or", ">=", "or above"])
+        if is_inclusive:
+            if eval_kg < (thresh_kg - 0.1):
+                wt_type_str = f"Gross Weight ({eval_tons:.1f}T)" if is_gross else f"Cargo Weight ({eval_tons:.1f}T)"
+                return False, f"Not applicable: {wt_type_str} is below required threshold of {thresh_tons:.1f}T"
+            return True, "Applicable: weight meets or exceeds threshold"
+        else:
+            if eval_kg <= thresh_kg:
+                wt_type_str = f"Gross Weight ({eval_tons:.1f}T)" if is_gross else f"Cargo Weight ({eval_tons:.1f}T)"
+                return False, f"Not applicable: {wt_type_str} does not exceed threshold of {thresh_tons:.1f}T"
+            return True, "Applicable: weight exceeds threshold"
 
     # 3. Pattern: Up to / Under / Below / < MAX ton/tons/mt/kg
     m_under = re.search(
@@ -345,7 +352,12 @@ def classify_charge(
         "one bunker",
         "winter surcharge",
         "heavy weight surcharge",
+        "heavy weight charge",
+        "heavy weight",
         "overweight surcharge",
+        "overweight charge",
+        "overweight",
+        "cwx",
         "reefer surcharge",
         "imdg surcharge",
         "hazardous surcharge",
