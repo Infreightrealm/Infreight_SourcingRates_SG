@@ -72,7 +72,9 @@ def extract_locode_and_country(text: str) -> tuple[Optional[str], Optional[str]]
 def _is_logged_in_url(url: str) -> bool:
     """True once Maersk has moved past the login pages to a signed-in page."""
     u = url.lower()
-    return "login" not in u and "auth" not in u and ("hub" in u or "dashboard" in u or "book" in u)
+    if "login" in u or "auth" in u or "challenge" in u:
+        return False
+    return any(k in u for k in ["hub", "dashboard", "book", "instantprice", "portal", "quote", "maersk.com"])
 
 
 class MaerskConnector(BaseCarrierConnector):
@@ -1201,10 +1203,38 @@ class MaerskConnector(BaseCarrierConnector):
                 await asyncio.sleep(1)
                 curr_url = self.page.url
                 
-                # Check for successful redirects (redirects to hub or dashboard)
-                if _is_logged_in_url(curr_url):
-                    print("[MAERSK] Login successful!")
+                # Check for successful redirects or logged-in indicators
+                is_authed = _is_logged_in_url(curr_url)
+                if not is_authed:
+                    try:
+                        login_indicators = [
+                            'text="Log out"',
+                            'text="Sign out"',
+                            'text="Log Out"',
+                            'text="Sign Out"',
+                            'a[href*="logout"]',
+                            'a[href*="signout"]',
+                            'mc-header [slot="user"]',
+                            'mc-header [class*="profile"]'
+                        ]
+                        for sel in login_indicators:
+                            if await self.page.locator(sel).first.is_visible(timeout=100):
+                                is_authed = True
+                                break
+                    except Exception:
+                        pass
+
+                if is_authed:
+                    print(f"[MAERSK] Login successful! Detected authenticated state on: {curr_url}")
                     self.is_login_successful = True
+                    # Immediately sync session to master profile so manual solve is never lost
+                    if self.temp_profile_dir and self.master_profile_dir and os.path.exists(self.temp_profile_dir):
+                        try:
+                            from services.browser_cleanup import replace_master_profile
+                            replace_master_profile(self.temp_profile_dir, self.master_profile_dir)
+                            print("[MAERSK] Successfully synced fresh login session to master profile immediately.")
+                        except Exception as sync_err:
+                            print(f"[MAERSK] Early sync warning: {sync_err}")
                     await self.page.wait_for_timeout(2000)
                     return True
 
