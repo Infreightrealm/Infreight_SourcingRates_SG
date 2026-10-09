@@ -1,11 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Power, RefreshCw, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Power, RefreshCw, RotateCcw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getCarrierSwitches, resetCarrierProfile, setCarrierSwitch, type CarrierSwitch } from "@/lib/api";
+import {
+  getCarrierSession,
+  getCarrierSwitches,
+  resetCarrierProfile,
+  setCarrierSwitch,
+  uploadCarrierSession,
+  type CarrierSession,
+  type CarrierSwitch,
+} from "@/lib/api";
 import { CARRIERS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +36,9 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
   const [busy, setBusy] = useState<string | null>(null);
   // Carrier being switched off: the reason box is open for it.
   const [pending, setPending] = useState<{ code: string; reason: string } | null>(null);
+  // Maersk saved login uploaded from an admin's PC (EXPORT_MAERSK_LOGIN.bat).
+  const [maerskSession, setMaerskSession] = useState<CarrierSession | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -45,10 +56,25 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
       .then((s) => alive && setSwitches(s))
       .catch((e) => alive && toast.error(e instanceof Error ? e.message : "Failed to load carriers"))
       .finally(() => alive && setLoading(false));
+    getCarrierSession("maersk", adminPassword).then((s) => alive && setMaerskSession(s));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [adminPassword]);
+
+  const uploadSession = async (file: File) => {
+    setBusy("MAERSK");
+    try {
+      const info = await uploadCarrierSession("maersk", await file.text(), adminPassword);
+      setMaerskSession(info);
+      toast.success(`Maersk saved login uploaded (${info.cookies} cookies). The next Maersk search uses it.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setBusy(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   const apply = async (code: string, enabled: boolean, reason?: string) => {
     const name = CARRIERS.find((c) => c.code === code)?.name ?? code;
@@ -159,6 +185,29 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
                     {on ? "On" : "Off"}
                   </button>
                 </div>
+                {c.code === "MAERSK" && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-muted/50 px-3 py-2 text-sm">
+                    <span className="min-w-0 flex-[1_1_240px] text-muted-foreground">
+                      {maerskSession
+                        ? `Saved login uploaded ${when(maerskSession.uploaded_at)}${maerskSession.uploaded_by ? ` by ${maerskSession.uploaded_by}` : ""} · ${maerskSession.cookies} cookies`
+                        : "No saved login uploaded. Run EXPORT_MAERSK_LOGIN.bat on your PC, log in, then upload maersk_session.json."}
+                    </span>
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept=".json,application/json"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void uploadSession(f);
+                      }}
+                    />
+                    <Button type="button" variant="outline" className="h-9 gap-1.5" disabled={busy === "MAERSK"} onClick={() => fileRef.current?.click()}>
+                      <Upload className="size-4" aria-hidden />
+                      Upload saved login
+                    </Button>
+                  </div>
+                )}
                 {isPending && (
                   <form
                     className="flex flex-wrap items-end gap-2 rounded-xl bg-muted/50 p-3"

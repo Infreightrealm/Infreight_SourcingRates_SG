@@ -747,8 +747,40 @@ class MaerskConnector(BaseCarrierConnector):
             
         self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
         self.browser = None  # Handled by persistent context
+        await self._apply_uploaded_session()
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         self.page.set_default_timeout(30000)
+
+    async def _apply_uploaded_session(self):
+        """Load the saved login an admin uploaded (Admin > Carriers on / off) into this browser.
+
+        Runs on every launch and only adds uploaded cookies the profile doesn't have:
+        cookies the profile already holds (possibly refreshed since the upload) are left
+        alone, while session-only cookies, which Chrome drops when it closes, come back.
+        """
+        from services.carrier_sessions import load_session
+        import json as _json
+        saved = load_session("maersk")
+        if not saved:
+            return
+        try:
+            have = {(c["name"], c["domain"], c.get("path", "/")) for c in await self.context.cookies()}
+            missing = [c for c in saved["cookies"] if (c["name"], c["domain"], c.get("path", "/")) not in have]
+            if missing:
+                await self.context.add_cookies(missing)
+            origins = {o["origin"]: {i["name"]: i["value"] for i in o["localStorage"]} for o in saved.get("origins", [])}
+            if origins:
+                # Set the saved localStorage once per upload in this profile.
+                await self.context.add_init_script(
+                    "(() => { const all = %s; const tag = %s; const items = all[location.origin];"
+                    " if (!items) return; try { if (localStorage.getItem('__infreight_session') === tag) return;"
+                    " for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v);"
+                    " localStorage.setItem('__infreight_session', tag); } catch (e) {} })();"
+                    % (_json.dumps(origins), _json.dumps(saved.get("uploaded_at", "")))
+                )
+            print(f"[MAERSK] Uploaded saved login (from {saved.get('uploaded_at')} by {saved.get('uploaded_by')}): added {len(missing)} of {len(saved['cookies'])} cookies.")
+        except Exception as e:
+            print(f"[MAERSK] Could not load the uploaded saved login: {e}")
 
     def _extract_port_name(self, text: str) -> str:
         """Extracts the port/city name by removing any UN/LOCODE parentheses (e.g., 'Singapore (SGSIN)' -> 'Singapore')."""

@@ -636,6 +636,37 @@ export async function resetCarrierProfile(carrier: string, adminPassword?: strin
   return res.json();
 }
 
+export interface CarrierSession {
+  uploaded_by: string | null;
+  uploaded_at: string | null;
+  cookies: number;
+}
+
+/** The saved login an admin uploaded for a carrier, or null. */
+export async function getCarrierSession(carrier: string, adminPassword?: string): Promise<CarrierSession | null> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) headers["x-admin-password"] = adminPassword;
+  const res = await failoverFetch(`/api/admin/carrier-session/${encodeURIComponent(carrier)}`, { headers });
+  if (!res.ok) return null;
+  return (await res.json()).session ?? null;
+}
+
+/** Upload a saved login (the maersk_session.json from EXPORT_MAERSK_LOGIN.bat). */
+export async function uploadCarrierSession(carrier: string, fileText: string, adminPassword?: string): Promise<CarrierSession> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (adminPassword) headers["x-admin-password"] = adminPassword;
+  const res = await failoverFetch(`/api/admin/carrier-session/${encodeURIComponent(carrier)}`, {
+    method: "POST",
+    headers,
+    body: fileText,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Upload failed: ${res.status}`);
+  }
+  return (await res.json()).session;
+}
+
 export async function getExchangeRates(adminPassword?: string): Promise<Record<string, { code: string; name: string; rate_per_usd: number; usd_per_unit: number; symbol: string }>> {
   const headers: Record<string, string> = {};
   if (adminPassword) {
