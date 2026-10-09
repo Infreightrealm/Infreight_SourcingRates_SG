@@ -79,6 +79,34 @@ def _is_logged_in_url(url: str) -> bool:
     return any(k in u for k in ["hub", "dashboard", "book", "instantprice", "portal", "quote"])
 
 
+def maersk_proxy_settings() -> Optional[dict]:
+    """Proxy for the Maersk browser, from environment variables, or None.
+
+    Any provider: MAERSK_PROXY_SERVER (e.g. http://gw.dataimpulse.com:10000) with
+    MAERSK_PROXY_USER / MAERSK_PROXY_PASS. Country and sticky-session settings are made
+    in the provider's dashboard or username, as the provider documents.
+
+    Without MAERSK_PROXY_SERVER the old Bright Data setup applies: its residential
+    server, and a "-session-<id>" suffix on the username to pin one IP per search.
+    """
+    user = os.getenv("MAERSK_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
+    password = os.getenv("MAERSK_PROXY_PASS") or os.getenv("BRIGHTDATA_PROXY_PASS")
+    if not (user and password):
+        return None
+    server = (os.getenv("MAERSK_PROXY_SERVER") or "").strip()
+    if server:
+        if "://" not in server:
+            server = "http://" + server
+        return {"server": server, "username": user, "password": password}
+
+    server = os.getenv("BRIGHTDATA_RESIDENTIAL_PROXY_SERVER") or os.getenv("BRIGHTDATA_PROXY_SERVER") or "http://brd.superproxy.io:22225"
+    server = server.replace(":33335", ":22225")  # Web Unlocker port -> standard residential port
+    if "-session-" not in user:
+        import uuid
+        user = f"{user}-session-{str(uuid.uuid4())[:8]}"
+    return {"server": server, "username": user, "password": password}
+
+
 class MaerskConnector(BaseCarrierConnector):
     carrier_code = "MAERSK"
     carrier_name = "Maersk Spot"
@@ -716,30 +744,13 @@ class MaerskConnector(BaseCarrierConnector):
         if not is_prod:
             launch_kwargs["channel"] = "chrome"
 
-        # Check if Bright Data Web Unlocker or Residential proxy credentials are set
-        proxy_user = os.getenv("MAERSK_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
-        proxy_pass = os.getenv("MAERSK_PROXY_PASS") or os.getenv("BRIGHTDATA_PROXY_PASS")
-        
-        if proxy_user and proxy_pass:
-            proxy_server = os.getenv("BRIGHTDATA_RESIDENTIAL_PROXY_SERVER") or os.getenv("BRIGHTDATA_PROXY_SERVER")
-            if not proxy_server:
-                proxy_server = "http://brd.superproxy.io:22225"
-            elif ":33335" in proxy_server:
-                proxy_server = proxy_server.replace(":33335", ":22225") # Override Web Unlocker to standard Residential Proxy
-            
-            if "-session-" not in proxy_user:
-                import uuid
-                session_id = str(uuid.uuid4())[:8]
-                proxy_user = f"{proxy_user}-session-{session_id}"
-            print(f"[MAERSK] [Proxy] Routing browser session through Bright Data Residential Proxy ({proxy_server}) with session pinning ({proxy_user.split('-session-')[-1]})...")
-            launch_kwargs["proxy"] = {
-                "server": proxy_server,
-                "username": proxy_user,
-                "password": proxy_pass,
-            }
+        proxy = maersk_proxy_settings()
+        if proxy:
+            launch_kwargs["proxy"] = proxy
+            print(f"[MAERSK] [Proxy] Routing the Maersk browser through {proxy['server']}.")
         else:
-            print("[MAERSK] [Proxy] Bright Data Proxy not configured in .env. Running on local system Chrome naturally...")
-        
+            print("[MAERSK] [Proxy] No proxy configured. Using this server's own connection.")
+
         # NOTE: Bright Data Web Unlocker proxies break Playwright browser sessions (returns empty pages)
         # because the Web Unlocker MITM-intercepts TLS and serves API-processed content, not live HTML.
         # Patchright's stealth-compiled Chromium engine is used instead to pass Akamai fingerprint checks.
@@ -2780,19 +2791,29 @@ class MaerskConnector(BaseCarrierConnector):
             results_loaded = False
             spinner_time = 0
             deadlock_timeouts = 0
-            for i in range(90):
+            # 90 s for results, with the clock paused while a CAPTCHA is on screen so a
+            # person has up to 5 minutes to solve it in the live browser tab. (The Book
+            # button keeps spinning under the hCaptcha; counting that as a frozen spinner
+            # used to abort the search 20 s into solving it.)
+            i = -1
+            captcha_seconds = 0
+            while i < 89 and captcha_seconds < 300:
                 await asyncio.sleep(1)
-                if i % 4 == 1 and not self.captcha_detected:
-                    await self._idle_mouse()
-                
+
                 # Active challenge/captcha/2FA detection
                 if await self.check_captcha_challenge():
                     if not self.captcha_detected:
                         self.captcha_detected = True
                         print("[MAERSK] [ACTION REQUIRED] Bot challenge, CAPTCHA, or 2FA verification page detected! Please look at the VNC window.")
-                    if i % 10 == 0:
-                        print("[MAERSK] [ACTION REQUIRED] Solving captcha challenge in VNC window...")
-                
+                    if captcha_seconds % 15 == 0:
+                        print(f"[MAERSK] [ACTION REQUIRED] Waiting for the CAPTCHA to be solved in the live browser tab ({300 - captcha_seconds}s left)...")
+                    captcha_seconds += 1
+                    spinner_time = 0
+                    continue
+                i += 1
+                if i % 4 == 1 and not self.captcha_detected:
+                    await self._idle_mouse()
+
                 # --- Watchdog Deadlock Check ---
                 try:
                     await self.page.evaluate("1", timeout=1500)
