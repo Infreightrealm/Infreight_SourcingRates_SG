@@ -709,8 +709,10 @@ class MaerskConnector(BaseCarrierConnector):
             "--disable-renderer-backgrounding",
         ]
         if is_prod:
-            # Chrome refuses to start as root in Docker without these.
-            args += ["--no-sandbox", "--disable-setuid-sandbox"]
+            # Chrome refuses to start as root in Docker without it. (--disable-setuid-sandbox
+            # is left out: real Chrome shows an "unsupported command-line flag" bar for it.)
+            args.append("--no-sandbox")
+        self._disable_password_manager(self.temp_profile_dir)
         launch_kwargs = {
             "user_data_dir": self.temp_profile_dir,
             "headless": False,  # Always non-headless: local = real screen, prod = Xvfb virtual display
@@ -898,6 +900,31 @@ class MaerskConnector(BaseCarrierConnector):
         
         # Post-typing pause
         await self.page.wait_for_timeout(random.randint(800, 1500))
+
+    @staticmethod
+    def _disable_password_manager(profile_dir: str):
+        """Turn off Chrome's password manager and autofill in this profile.
+
+        Real Chrome autofills the saved Maersk login, but keeps autofilled values hidden
+        from the page until a real user gesture, so Maersk receives an empty username
+        ("You can not login under undefined tenant as you are null user").
+        """
+        import json
+        prefs_path = os.path.join(profile_dir, "Default", "Preferences")
+        try:
+            prefs = {}
+            if os.path.exists(prefs_path):
+                with open(prefs_path, encoding="utf-8") as f:
+                    prefs = json.load(f)
+            prefs["credentials_enable_service"] = False
+            prefs["credentials_enable_autosignin"] = False
+            prefs.setdefault("profile", {})["password_manager_enabled"] = False
+            prefs.setdefault("autofill", {}).update({"profile_enabled": False, "credit_card_enabled": False})
+            os.makedirs(os.path.dirname(prefs_path), exist_ok=True)
+            with open(prefs_path, "w", encoding="utf-8") as f:
+                json.dump(prefs, f)
+        except Exception as e:
+            print(f"[MAERSK] Could not turn off Chrome's password manager: {e}")
 
     async def _viewport(self) -> dict:
         """Visible page size. With no_viewport the size comes from the real window."""
@@ -1306,9 +1333,34 @@ class MaerskConnector(BaseCarrierConnector):
 
             # Verification Loop (HITL Bypassing)
             print("[MAERSK] Waiting for verification gate or redirect...")
+            tenant_retry_done = False
             for i in range(300):
                 await asyncio.sleep(1)
                 curr_url = self.page.url
+
+                # "You can not login under undefined tenant as you are null user": Maersk got
+                # an empty username or a stale login flow. Start over once with fresh login
+                # cookies and typed (not autofilled) credentials.
+                if not tenant_retry_done and i % 3 == 0:
+                    try:
+                        tenant_error = await self.page.locator('text=/undefined tenant|null user/i').first.is_visible(timeout=200)
+                    except Exception:
+                        tenant_error = False
+                    if tenant_error:
+                        tenant_retry_done = True
+                        print("[MAERSK] Maersk rejected the login as 'null user'. Clearing login cookies and retrying once...")
+                        try:
+                            await self.context.clear_cookies(domain="accounts.maersk.com")
+                            await self.page.goto("https://www.maersk.com/login", wait_until="domcontentloaded", timeout=40000)
+                            await self.page.wait_for_timeout(3000)
+                            if await self._wait_for_session_or_login_form() == "form":
+                                await self._human_type(self.page.locator('#mc-input-username input').first, username)
+                                await self._human_type(self.page.locator('#mc-input-password input').first, password)
+                                await self._human_click(self.page.locator('#login-submit-button').first)
+                                print("[MAERSK] Login re-submitted.")
+                        except Exception as retry_err:
+                            print(f"[MAERSK] Login retry failed: {retry_err}")
+                        continue
                 
                 # Check for successful redirects or logged-in indicators
                 is_authed = _is_logged_in_url(curr_url)
