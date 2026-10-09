@@ -74,7 +74,9 @@ def _is_logged_in_url(url: str) -> bool:
     u = url.lower()
     if "login" in u or "auth" in u or "challenge" in u:
         return False
-    return any(k in u for k in ["hub", "dashboard", "book", "instantprice", "portal", "quote", "maersk.com"])
+    # A bare maersk.com page (e.g. the public home page) is not proof of a session;
+    # login() falls back to looking for a Log out link on the page instead.
+    return any(k in u for k in ["hub", "dashboard", "book", "instantprice", "portal", "quote"])
 
 
 class MaerskConnector(BaseCarrierConnector):
@@ -691,25 +693,34 @@ class MaerskConnector(BaseCarrierConnector):
         if is_prod:
             browser_env["DISPLAY"] = ":99"
 
+        # Fingerprint hygiene (Akamai scores these before the Search click):
+        # - no --disable-blink-features=AutomationControlled: Patchright already hides
+        #   automation, and the flag itself is a known bot tell;
+        # - no_viewport: the page size follows the real window instead of a fixed
+        #   viewport that disagrees with the window/screen size;
+        # - real Google Chrome (installed in the Docker image and on Windows) rather than
+        #   the bundled Chromium, which claims to be Chrome but lacks Chrome's codecs.
+        args = [
+            "--window-size=1920,1080",
+            "--window-position=0,0",
+            "--disable-dev-shm-usage",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+        ]
+        if is_prod:
+            # Chrome refuses to start as root in Docker without these.
+            args += ["--no-sandbox", "--disable-setuid-sandbox"]
         launch_kwargs = {
             "user_data_dir": self.temp_profile_dir,
             "headless": False,  # Always non-headless: local = real screen, prod = Xvfb virtual display
             "ignore_https_errors": True,
             "slow_mo": random.randint(80, 150),
-            "viewport": {"width": 1920, "height": 1080},
+            "no_viewport": True,
             "env": browser_env,
-            "args": [
-                "--disable-blink-features=AutomationControlled",  # Mask automation flag
-                "--no-sandbox",  # Required for Docker
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-            ]
+            "channel": "chrome",
+            "args": args,
         }
-        if not is_prod:
-            launch_kwargs["channel"] = "chrome"
         
         # Check if Bright Data Web Unlocker or Residential proxy credentials are set
         proxy_user = os.getenv("MAERSK_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
@@ -740,7 +751,13 @@ class MaerskConnector(BaseCarrierConnector):
         # Patchright's stealth-compiled Chromium engine is used instead to pass Akamai fingerprint checks.
         print("[MAERSK] Running via Patchright stealth engine (non-headless on Xvfb for VNC HITL).")
             
-        self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
+        try:
+            self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
+        except Exception as chrome_err:
+            # Google Chrome missing on this machine: fall back to Patchright's bundled Chromium.
+            print(f"[MAERSK] Google Chrome unavailable ({chrome_err}); using bundled Chromium.")
+            launch_kwargs.pop("channel", None)
+            self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
         self.browser = None  # Handled by persistent context
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         self.page.set_default_timeout(30000)
@@ -882,6 +899,87 @@ class MaerskConnector(BaseCarrierConnector):
         # Post-typing pause
         await self.page.wait_for_timeout(random.randint(800, 1500))
 
+    async def _viewport(self) -> dict:
+        """Visible page size. With no_viewport the size comes from the real window."""
+        try:
+            w, h = await self.page.evaluate("[window.innerWidth, window.innerHeight]")
+            if w and h:
+                return {"width": w, "height": h}
+        except Exception:
+            pass
+        return {"width": 1600, "height": 900}
+
+    async def _mouse_glide_to(self, x: float, y: float):
+        """Move the real mouse pointer to (x, y) along a slightly curved, uneven path.
+
+        Akamai's sensor records pointer movement and sends it with protected requests
+        (the Search / Continue to book submit); a page where the pointer never moves
+        and buttons are clicked by teleporting is scored as a bot.
+        """
+        start = getattr(self, "_mouse_pos", None)
+        if not start:
+            vp = await self._viewport()
+            start = (random.uniform(0.3, 0.7) * vp["width"], random.uniform(0.3, 0.7) * vp["height"])
+        sx, sy = start
+        # One control point off the straight line gives a gentle arc.
+        cx = (sx + x) / 2 + random.uniform(-120, 120)
+        cy = (sy + y) / 2 + random.uniform(-80, 80)
+        steps = random.randint(18, 32)
+        for i in range(1, steps + 1):
+            t = i / steps
+            t = t * t * (3 - 2 * t)  # ease in/out: slow start, fast middle, slow finish
+            px = (1 - t) ** 2 * sx + 2 * (1 - t) * t * cx + t * t * x
+            py = (1 - t) ** 2 * sy + 2 * (1 - t) * t * cy + t * t * y
+            await self.page.mouse.move(px + random.uniform(-1.5, 1.5), py + random.uniform(-1.5, 1.5))
+            await asyncio.sleep(random.uniform(0.008, 0.025))
+        await self.page.mouse.move(x, y)
+        self._mouse_pos = (x, y)
+
+    async def _mouse_click(self, locator):
+        """Scroll with the wheel if needed, glide to the element, hover, then press and release.
+
+        Falls back to a forced click when the element has no box (e.g. inside a closed
+        shadow root) so the flow never gets stuck.
+        """
+        try:
+            box = await locator.bounding_box()
+            vp = await self._viewport()
+            for _ in range(8):
+                if not box or 80 <= box["y"] + box["height"] / 2 <= vp["height"] - 80:
+                    break
+                delta = box["y"] + box["height"] / 2 - vp["height"] / 2
+                await self.page.mouse.wheel(0, max(-600, min(600, delta)) + random.uniform(-40, 40))
+                await self.page.wait_for_timeout(random.randint(250, 500))
+                box = await locator.bounding_box()
+            if not box:
+                raise ValueError("no bounding box")
+            x = box["x"] + box["width"] * random.uniform(0.35, 0.65)
+            y = box["y"] + box["height"] * random.uniform(0.35, 0.65)
+            await self._mouse_glide_to(x, y)
+            await self.page.wait_for_timeout(random.randint(180, 420))  # hover before pressing
+            await self.page.mouse.down()
+            await self.page.wait_for_timeout(random.randint(70, 160))
+            await self.page.mouse.up()
+        except Exception:
+            try:
+                await locator.scroll_into_view_if_needed()
+            except Exception:
+                pass
+            await locator.click(force=True, delay=random.randint(100, 250))
+
+    async def _idle_mouse(self):
+        """Small aimless pointer drift, as a person does while a page loads."""
+        try:
+            pos = getattr(self, "_mouse_pos", None)
+            vp = await self._viewport()
+            if not pos:
+                pos = (vp["width"] / 2, vp["height"] / 2)
+            x = min(max(pos[0] + random.uniform(-160, 160), 20), vp["width"] - 20)
+            y = min(max(pos[1] + random.uniform(-110, 110), 20), vp["height"] - 20)
+            await self._mouse_glide_to(x, y)
+        except Exception:
+            pass
+
     async def _human_click(self, locator, force: bool = True):
         """Clicks an element with pre-click and post-click human-like reaction pauses."""
         try:
@@ -889,8 +987,17 @@ class MaerskConnector(BaseCarrierConnector):
         except Exception:
             pass
         
-        # Pre-click pause
+        # Pre-click pause, with the pointer travelling to the element first
         await self.page.wait_for_timeout(random.randint(400, 800))
+        try:
+            box = await locator.bounding_box()
+            if box:
+                await self._mouse_glide_to(
+                    box["x"] + box["width"] * random.uniform(0.35, 0.65),
+                    box["y"] + box["height"] * random.uniform(0.35, 0.65),
+                )
+        except Exception:
+            pass
         
         # Click with randomized button-down/up duration
         await locator.click(force=force, delay=random.randint(100, 250))
@@ -2552,7 +2659,9 @@ class MaerskConnector(BaseCarrierConnector):
                         '[class*="continue" i]'
                     ]
                     
-                    max_retries = 5
+                    # Each extra submit adds to Maersk's velocity score, so retry
+                    # sparingly and wait like a person would before trying again.
+                    max_retries = 3
                     for attempt in range(max_retries):
                         await self.page.wait_for_timeout(1000)
                         continue_clicked = False
@@ -2567,8 +2676,7 @@ class MaerskConnector(BaseCarrierConnector):
                                         print(f"[MAERSK] Button {selector} is disabled, waiting 2 seconds...")
                                         await self.page.wait_for_timeout(2000)
                                     
-                                    await btn.scroll_into_view_if_needed()
-                                    await btn.click(force=True)
+                                    await self._mouse_click(btn)
                                     print(f"[MAERSK] Clicked Submit Form (Attempt {attempt + 1}/{max_retries}) using: {selector}")
                                     continue_clicked = True
                                     break
@@ -2602,8 +2710,9 @@ class MaerskConnector(BaseCarrierConnector):
                                 continue
                                 
                         if error_detected:
-                            print(f"[MAERSK] Maersk API reports a temporary issue. Waiting 5 seconds before retrying Submit Form...")
-                            await self.page.wait_for_timeout(5000)
+                            wait_ms = random.randint(15000, 30000)
+                            print(f"[MAERSK] Maersk API reports a temporary issue. Waiting {wait_ms // 1000} seconds before retrying Submit Form...")
+                            await self.page.wait_for_timeout(wait_ms)
                             # Let the loop continue and click again!
                         else:
                             # No error banner detected, we are good to go!
@@ -2628,6 +2737,8 @@ class MaerskConnector(BaseCarrierConnector):
             deadlock_timeouts = 0
             for i in range(90):
                 await asyncio.sleep(1)
+                if i % 4 == 1 and not self.captcha_detected:
+                    await self._idle_mouse()
                 
                 # Active challenge/captcha/2FA detection
                 if await self.check_captcha_challenge():
