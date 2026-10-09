@@ -203,7 +203,11 @@ def replace_master_profile(source_dir: str, master_dir: str) -> None:
     tag = uuid.uuid4().hex[:8]
     staging = f"{master_dir}{_STAGING_MARK}{tag}"
     previous = f"{master_dir}{_PREVIOUS_MARK}{tag}"
-    shutil.copytree(source_dir, staging, ignore=shutil.ignore_patterns(*PROFILE_CACHE_DIRS, *_CHROME_LOCK_FILES))
+    try:
+        shutil.copytree(source_dir, staging, ignore=shutil.ignore_patterns(*PROFILE_CACHE_DIRS, *_CHROME_LOCK_FILES))
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)  # e.g. a file Chrome still holds on Windows
+        raise
     try:
         if os.path.exists(master_dir):
             os.rename(master_dir, previous)

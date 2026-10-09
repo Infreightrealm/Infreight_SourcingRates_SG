@@ -733,15 +733,17 @@ class MaerskConnector(BaseCarrierConnector):
             "env": browser_env,
             "args": [
                 "--disable-blink-features=AutomationControlled",  # Mask automation flag
-                "--no-sandbox",  # Required for Docker
-                "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
             ]
         }
-        if not is_prod:
+        if is_prod:
+            # Required for Docker (Chrome as root); on Windows real Chrome shows an
+            # "unsupported command-line flag" bar for them, so they're Linux-only.
+            launch_kwargs["args"] += ["--no-sandbox", "--disable-setuid-sandbox"]
+        else:
             launch_kwargs["channel"] = "chrome"
 
         proxy = maersk_proxy_settings()
@@ -3745,18 +3747,32 @@ class MaerskConnector(BaseCarrierConnector):
                     print(f"[MAERSK] Login was successful or restored. Syncing temporary profile back to master: {self.master_profile_dir}")
                     # Build the new master beside the old one and swap it in, so an
                     # interrupted save never leaves Maersk without a master profile.
-                    try:
-                        from services.browser_cleanup import replace_master_profile
-                        replace_master_profile(self.temp_profile_dir, self.master_profile_dir)
-                        print("[MAERSK] Master profile updated with fresh session data.")
-                    except Exception as copy_err:
-                        print(f"[MAERSK] Failed to sync profile to master: {copy_err}")
-                
+                    # On Windows, Chrome keeps the profile's files (Cookies etc.) locked for a
+                    # few seconds after closing, so a single immediate copy failed and the
+                    # session was lost: every search then logged in from scratch until Maersk
+                    # refused ("Something went wrong"). Retry while Chrome finishes exiting.
+                    from services.browser_cleanup import replace_master_profile
+                    for attempt in range(8):
+                        try:
+                            await asyncio.to_thread(replace_master_profile, self.temp_profile_dir, self.master_profile_dir)
+                            print("[MAERSK] Master profile updated with fresh session data.")
+                            break
+                        except Exception as copy_err:
+                            if attempt == 7:
+                                print(f"[MAERSK] Failed to sync profile to master: {copy_err}")
+                            else:
+                                await asyncio.sleep(2)
+
                 # Delete temporary directory completely
                 print(f"[MAERSK] Cleaning up temporary isolated profile directory: {self.temp_profile_dir}")
-                try:
-                    shutil.rmtree(self.temp_profile_dir)
-                except Exception as rmtree_err:
-                    print(f"[MAERSK] Failed to clean up temp profile directory: {rmtree_err}")
+                for attempt in range(5):
+                    try:
+                        await asyncio.to_thread(shutil.rmtree, self.temp_profile_dir)
+                        break
+                    except Exception as rmtree_err:
+                        if attempt == 4:
+                            print(f"[MAERSK] Failed to clean up temp profile directory: {rmtree_err}")
+                        else:
+                            await asyncio.sleep(2)
         except Exception as e:
             print(f"[MAERSK] Failed during profile synchronization and cleanup: {e}")
