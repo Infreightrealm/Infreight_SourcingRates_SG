@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Power, RefreshCw } from "lucide-react";
+import { Power, RefreshCw, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getCarrierSwitches, setCarrierSwitch, type CarrierSwitch } from "@/lib/api";
+import { getCarrierSwitches, resetCarrierProfile, setCarrierSwitch, type CarrierSwitch } from "@/lib/api";
 import { CARRIERS } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+// Carriers whose connector keeps a saved browser profile (chrome_profile_<name>).
+const PROFILE_NAMES: Record<string, string> = { MAERSK: "maersk", ONE: "one", CMA_CGM: "cma" };
 
 function when(iso: string | null): string {
   if (!iso) return "";
@@ -62,6 +65,20 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
     }
   };
 
+  const resetProfile = async (code: string) => {
+    const name = CARRIERS.find((c) => c.code === code)?.name ?? code;
+    if (!confirm(`Reset ${name}'s saved login? The next ${name} search starts with a clean browser and will need logging in again in the live browser tab.`)) return;
+    setBusy(code);
+    try {
+      const res = await resetCarrierProfile(PROFILE_NAMES[code], adminPassword);
+      toast.success(res.purged_directories.length ? `${name}'s saved login was reset.` : `${name} had no saved login to reset.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Failed to reset ${name}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const offCount = Object.values(switches).filter((s) => !s.enabled).length;
 
   return (
@@ -111,6 +128,19 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
                       )}
                     </p>
                   </div>
+                  {PROFILE_NAMES[c.code] && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-11 gap-1.5 text-sm text-muted-foreground"
+                      disabled={loading || busy === c.code}
+                      onClick={() => void resetProfile(c.code)}
+                      title="Delete the saved browser login so the next search starts clean"
+                    >
+                      <RotateCcw className="size-4" aria-hidden />
+                      Reset saved login
+                    </Button>
+                  )}
                   <button
                     type="button"
                     role="switch"
