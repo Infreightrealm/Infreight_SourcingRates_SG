@@ -63,8 +63,21 @@ class CarrierSearchResult(Base):
     # Which port the carrier's own search couldn't find ("origin"/"destination") and what was typed.
     unfound_port_side = Column(String(20), nullable=True)
     unfound_port_query = Column(String(255), nullable=True)
+    # Handing a carrier to a worker machine (services/remote_worker.py): "remote" while it
+    # waits for one, then the claiming worker's id; None = run by the API server itself.
+    worker = Column(String(100), nullable=True)
+    worker_request = Column(Text, nullable=True)  # RateSearchRequest JSON for the worker
 
     # Relationships
 
     rate_search = relationship("RateSearch", back_populates="carrier_results")
     quotes = relationship("Quote", back_populates="carrier_result", cascade="all, delete-orphan")
+
+
+class WorkerHeartbeat(Base):
+    """A worker machine (e.g. the office laptop) that runs some carriers' searches."""
+    __tablename__ = "worker_heartbeats"
+
+    worker_id = Column(String(100), primary_key=True)
+    carriers = Column(String(255), nullable=False)  # comma-separated carrier codes
+    last_seen = Column(DateTime, nullable=False, default=datetime.utcnow)

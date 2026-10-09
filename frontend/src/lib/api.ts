@@ -667,6 +667,22 @@ export async function uploadCarrierSession(carrier: string, fileText: string, ad
   return (await res.json()).session;
 }
 
+export interface WorkerInfo {
+  worker_id: string;
+  carriers: string[];
+  last_seen: string | null;
+  online: boolean;
+}
+
+/** Worker machines (e.g. the office laptop running Maersk) and whether they're online. */
+export async function getWorkers(adminPassword?: string): Promise<WorkerInfo[]> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) headers["x-admin-password"] = adminPassword;
+  const res = await failoverFetch(`/api/admin/workers`, { headers });
+  if (!res.ok) return [];
+  return (await res.json()).workers ?? [];
+}
+
 export async function getExchangeRates(adminPassword?: string): Promise<Record<string, { code: string; name: string; rate_per_usd: number; usd_per_unit: number; symbol: string }>> {
   const headers: Record<string, string> = {};
   if (adminPassword) {

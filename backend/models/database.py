@@ -160,6 +160,8 @@ async def init_db():
                 "mismatch_warning": "TEXT",
                 "unfound_port_side": "VARCHAR(20)",
                 "unfound_port_query": "VARCHAR(255)",
+                "worker": "VARCHAR(100)",
+                "worker_request": "TEXT",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in columns:

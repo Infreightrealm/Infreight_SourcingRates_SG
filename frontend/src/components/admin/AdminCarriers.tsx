@@ -8,11 +8,13 @@ import { Card } from "@/components/ui/card";
 import {
   getCarrierSession,
   getCarrierSwitches,
+  getWorkers,
   resetCarrierProfile,
   setCarrierSwitch,
   uploadCarrierSession,
   type CarrierSession,
   type CarrierSwitch,
+  type WorkerInfo,
 } from "@/lib/api";
 import { CARRIERS } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -39,8 +41,11 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
   // Maersk saved login uploaded from an admin's PC (EXPORT_MAERSK_LOGIN.bat).
   const [maerskSession, setMaerskSession] = useState<CarrierSession | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Worker machines that run some carriers (WORKER_CARRIERS on the office laptop).
+  const [workers, setWorkers] = useState<WorkerInfo[]>([]);
 
   const load = useCallback(async () => {
+    getWorkers(adminPassword).then(setWorkers);
     try {
       setSwitches(await getCarrierSwitches());
     } catch (e) {
@@ -48,7 +53,7 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [adminPassword]);
 
   useEffect(() => {
     let alive = true;
@@ -57,6 +62,7 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
       .catch((e) => alive && toast.error(e instanceof Error ? e.message : "Failed to load carriers"))
       .finally(() => alive && setLoading(false));
     getCarrierSession("maersk", adminPassword).then((s) => alive && setMaerskSession(s));
+    getWorkers(adminPassword).then((w) => alive && setWorkers(w));
     return () => {
       alive = false;
     };
@@ -140,6 +146,18 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
                   <span className="size-3 shrink-0 rounded-full ring-1 ring-foreground/15" style={{ backgroundColor: c.color }} aria-hidden />
                   <div className="min-w-0 flex-[1_1_220px]">
                     <p className="font-semibold text-foreground">{c.name}</p>
+                    {(() => {
+                      const w = workers.filter((x) => x.carriers.includes(c.code));
+                      if (!w.length) return null;
+                      const online = w.find((x) => x.online);
+                      return (
+                        <p className={cn("text-xs font-semibold", online ? "text-success-foreground" : "text-muted-foreground")}>
+                          {online
+                            ? `Runs on ${online.worker_id} (online)`
+                            : `${w[0].worker_id} offline (last seen ${when(w[0].last_seen)}), so this server runs it`}
+                        </p>
+                      );
+                    })()}
                     <p className="text-sm text-muted-foreground">
                       {loading
                         ? "Loading…"

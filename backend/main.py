@@ -96,33 +96,39 @@ async def lifespan(app: FastAPI):
         except Exception as admin_err:
             print(f"[WARN] Bootstrap admin check failed: {admin_err}")
 
-    # Self-healing clean up of stuck statuses on server startup
-    try:
-        from models.database import get_async_session_maker
-        from sqlalchemy import update, or_
-        from models.rate_search import RateSearch, CarrierSearchResult
-        async with get_async_session_maker()() as session:
-            # Update all RUNNING/QUEUED carrier results to FAILED
-            await session.execute(
-                update(CarrierSearchResult)
-                .where(
-                    or_(
-                        CarrierSearchResult.status.in_(["QUEUED", "RUNNING"]),
-                        CarrierSearchResult.status.like("RUNNING%")
+    # Self-healing clean up of stuck statuses on server startup. Not on a worker machine
+    # (WORKER_CARRIERS set): it shares the database with the API server, whose running
+    # searches this would mark failed.
+    from services.remote_worker import is_worker, start_worker
+    if is_worker():
+        print("[WORKER] Worker machine: leaving stale search statuses to the API server.")
+    else:
+        try:
+            from models.database import get_async_session_maker
+            from sqlalchemy import update, or_
+            from models.rate_search import RateSearch, CarrierSearchResult
+            async with get_async_session_maker()() as session:
+                # Update all RUNNING/QUEUED carrier results to FAILED
+                await session.execute(
+                    update(CarrierSearchResult)
+                    .where(
+                        or_(
+                            CarrierSearchResult.status.in_(["QUEUED", "RUNNING"]),
+                            CarrierSearchResult.status.like("RUNNING%")
+                        )
                     )
+                    .values(status="FAILED", error_message="Server restarted during search")
                 )
-                .values(status="FAILED", error_message="Server restarted during search")
-            )
-            # Update all QUEUED/RUNNING rate searches to FAILED
-            await session.execute(
-                update(RateSearch)
-                .where(RateSearch.status.in_(["QUEUED", "RUNNING"]))
-                .values(status="FAILED")
-            )
-            await session.commit()
-            print("[OK] Cleared stale QUEUED/RUNNING statuses from database.")
-    except Exception as e:
-        print(f"[WARN] Failed to clear stale statuses: {e}")
+                # Update all QUEUED/RUNNING rate searches to FAILED
+                await session.execute(
+                    update(RateSearch)
+                    .where(RateSearch.status.in_(["QUEUED", "RUNNING"]))
+                    .values(status="FAILED")
+                )
+                await session.commit()
+                print("[OK] Cleared stale QUEUED/RUNNING statuses from database.")
+        except Exception as e:
+            print(f"[WARN] Failed to clear stale statuses: {e}")
 
     mock_mode = os.getenv("USE_MOCK_CARRIERS", "true").lower() in ("true", "1", "yes")
     print(f"[MODE] Mock mode: {'ENABLED' if mock_mode else 'DISABLED - using live connectors'}")
@@ -135,7 +141,11 @@ async def lifespan(app: FastAPI):
     except Exception as cleanup_err:
         print(f"[WARN] Storage cleanup failed on startup: {cleanup_err}")
 
+    worker_tasks = start_worker()
+
     yield
+    for t in worker_tasks:
+        t.cancel()
     print("[*] Shutting down...")
 
 

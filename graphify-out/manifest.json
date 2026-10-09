@@ -96,9 +96,9 @@
     "semantic_hash": ""
   },
   "backend/api/user_routes.py": {
-    "mtime": 1791531661.9475527,
-    "seen": 1791533282.2607255,
-    "ast_hash": "1607938c6740a4573d0a000447f750a2",
+    "mtime": 1791535331.6295285,
+    "seen": 1791535645.1647816,
+    "ast_hash": "243217d16b68f1321e48c44113726d39",
     "semantic_hash": ""
   },
   "backend/auto_updater.py": {
@@ -312,9 +312,9 @@
     "semantic_hash": ""
   },
   "backend/main.py": {
-    "mtime": 1791445406.4472587,
-    "seen": 1791533282.26078,
-    "ast_hash": "6ce5ed5873681276f9c60128206a20d7",
+    "mtime": 1791535321.828539,
+    "seen": 1791535645.1659083,
+    "ast_hash": "55c0a4d647d120a651ec5cacf49b32ec",
     "semantic_hash": ""
   },
   "backend/models/__init__.py": {
@@ -324,9 +324,9 @@
     "semantic_hash": ""
   },
   "backend/models/database.py": {
-    "mtime": 1791345037.9241803,
-    "seen": 1791533282.2607832,
-    "ast_hash": "a4d4e97dd71dbe661fcb43ddd10cbffc",
+    "mtime": 1791535264.0330915,
+    "seen": 1791535645.1659446,
+    "ast_hash": "b50e055c1be636b8a44672c1ee18f567",
     "semantic_hash": ""
   },
   "backend/models/quote.py": {
@@ -336,9 +336,9 @@
     "semantic_hash": ""
   },
   "backend/models/rate_search.py": {
-    "mtime": 1791345037.9241803,
-    "seen": 1791533282.2607863,
-    "ast_hash": "fd0cc85c4fb91aaca0dd54bac6249c59",
+    "mtime": 1791535264.0325177,
+    "seen": 1791535645.166045,
+    "ast_hash": "203d88bed62ee4a6274b036bffd7353a",
     "semantic_hash": ""
   },
   "backend/models/schemas.py": {
@@ -426,9 +426,9 @@
     "semantic_hash": ""
   },
   "backend/services/job_service.py": {
-    "mtime": 1791446357.0530736,
-    "seen": 1791533282.2608168,
-    "ast_hash": "7ed9de61aeefbb2326bcedf0486c1cff",
+    "mtime": 1791535313.2666826,
+    "seen": 1791535645.1665611,
+    "ast_hash": "d4e7c47a375bd56d19ad91f24182ba1b",
     "semantic_hash": ""
   },
   "backend/services/normalizer.py": {
@@ -1194,9 +1194,9 @@
     "semantic_hash": ""
   },
   "frontend/src/lib/api.ts": {
-    "mtime": 1791531661.9475527,
-    "seen": 1791533282.2612433,
-    "ast_hash": "adc76d339608b1ad7fc35713a713723b",
+    "mtime": 1791535597.9842947,
+    "seen": 1791535645.1708083,
+    "ast_hash": "58ba146152e81565d066da0d400a6e0e",
     "semantic_hash": ""
   },
   "frontend/src/lib/excelExport.ts": {
@@ -1476,9 +1476,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/admin/AdminCarriers.tsx": {
-    "mtime": 1791531661.9475527,
-    "seen": 1791533282.2611508,
-    "ast_hash": "078db274821f434a89afefe0330c070b",
+    "mtime": 1791535597.985203,
+    "seen": 1791535645.1701665,
+    "ast_hash": "a003678e3839c6a1a3406abdba81b5ae",
     "semantic_hash": ""
   },
   "frontend/src/lib/carrierSwitches.ts": {
@@ -1509,6 +1509,18 @@
     "mtime": 1791533847.493747,
     "seen": 1791533872.5263774,
     "ast_hash": "0dbad09fa069a7d923c24ba742da3bee",
+    "semantic_hash": ""
+  },
+  "backend/services/remote_worker.py": {
+    "mtime": 1791535331.6281626,
+    "seen": 1791535645.1666439,
+    "ast_hash": "9c4be855fb77552445d3df4f09fd2f7f",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_remote_worker.py": {
+    "mtime": 1791535465.53903,
+    "seen": 1791535645.1687143,
+    "ast_hash": "a49af44ed4d4433ff8b45f22a29d6324",
     "semantic_hash": ""
   }
 }
