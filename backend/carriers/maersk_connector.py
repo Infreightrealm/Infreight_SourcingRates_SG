@@ -79,6 +79,34 @@ def _is_logged_in_url(url: str) -> bool:
     return any(k in u for k in ["hub", "dashboard", "book", "instantprice", "portal", "quote"])
 
 
+def maersk_proxy_settings() -> Optional[dict]:
+    """Proxy for the Maersk browser, from environment variables, or None.
+
+    Any provider: MAERSK_PROXY_SERVER (e.g. http://gw.dataimpulse.com:10000) with
+    MAERSK_PROXY_USER / MAERSK_PROXY_PASS. Country and sticky-session settings are made
+    in the provider's dashboard or username, as the provider documents.
+
+    Without MAERSK_PROXY_SERVER the old Bright Data setup applies: its residential
+    server, and a "-session-<id>" suffix on the username to pin one IP per search.
+    """
+    user = os.getenv("MAERSK_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
+    password = os.getenv("MAERSK_PROXY_PASS") or os.getenv("BRIGHTDATA_PROXY_PASS")
+    if not (user and password):
+        return None
+    server = (os.getenv("MAERSK_PROXY_SERVER") or "").strip()
+    if server:
+        if "://" not in server:
+            server = "http://" + server
+        return {"server": server, "username": user, "password": password}
+
+    server = os.getenv("BRIGHTDATA_RESIDENTIAL_PROXY_SERVER") or os.getenv("BRIGHTDATA_PROXY_SERVER") or "http://brd.superproxy.io:22225"
+    server = server.replace(":33335", ":22225")  # Web Unlocker port -> standard residential port
+    if "-session-" not in user:
+        import uuid
+        user = f"{user}-session-{str(uuid.uuid4())[:8]}"
+    return {"server": server, "username": user, "password": password}
+
+
 class MaerskConnector(BaseCarrierConnector):
     carrier_code = "MAERSK"
     carrier_name = "Maersk Spot"
@@ -716,30 +744,13 @@ class MaerskConnector(BaseCarrierConnector):
         if not is_prod:
             launch_kwargs["channel"] = "chrome"
 
-        # Check if Bright Data Web Unlocker or Residential proxy credentials are set
-        proxy_user = os.getenv("MAERSK_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
-        proxy_pass = os.getenv("MAERSK_PROXY_PASS") or os.getenv("BRIGHTDATA_PROXY_PASS")
-        
-        if proxy_user and proxy_pass:
-            proxy_server = os.getenv("BRIGHTDATA_RESIDENTIAL_PROXY_SERVER") or os.getenv("BRIGHTDATA_PROXY_SERVER")
-            if not proxy_server:
-                proxy_server = "http://brd.superproxy.io:22225"
-            elif ":33335" in proxy_server:
-                proxy_server = proxy_server.replace(":33335", ":22225") # Override Web Unlocker to standard Residential Proxy
-            
-            if "-session-" not in proxy_user:
-                import uuid
-                session_id = str(uuid.uuid4())[:8]
-                proxy_user = f"{proxy_user}-session-{session_id}"
-            print(f"[MAERSK] [Proxy] Routing browser session through Bright Data Residential Proxy ({proxy_server}) with session pinning ({proxy_user.split('-session-')[-1]})...")
-            launch_kwargs["proxy"] = {
-                "server": proxy_server,
-                "username": proxy_user,
-                "password": proxy_pass,
-            }
+        proxy = maersk_proxy_settings()
+        if proxy:
+            launch_kwargs["proxy"] = proxy
+            print(f"[MAERSK] [Proxy] Routing the Maersk browser through {proxy['server']}.")
         else:
-            print("[MAERSK] [Proxy] Bright Data Proxy not configured in .env. Running on local system Chrome naturally...")
-        
+            print("[MAERSK] [Proxy] No proxy configured. Using this server's own connection.")
+
         # NOTE: Bright Data Web Unlocker proxies break Playwright browser sessions (returns empty pages)
         # because the Web Unlocker MITM-intercepts TLS and serves API-processed content, not live HTML.
         # Patchright's stealth-compiled Chromium engine is used instead to pass Akamai fingerprint checks.
