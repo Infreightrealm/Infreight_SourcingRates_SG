@@ -622,6 +622,16 @@ async def switch_carrier(
     return entry
 
 
+@admin_router.get("/workers")
+async def list_workers(actor: User = Depends(verify_admin_access)):
+    """Worker machines (e.g. the office laptop running Maersk) and whether they're online."""
+    from services.remote_worker import online_workers
+    try:
+        return {"workers": await online_workers()}
+    except Exception:
+        return {"workers": []}
+
+
 @admin_router.get("/carrier-session/{carrier}")
 async def get_carrier_session(carrier: str, actor: User = Depends(verify_admin_access)):
     """The uploaded saved login for a carrier, or null."""

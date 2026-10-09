@@ -21,6 +21,7 @@ import re
 import difflib
 from services.port_manager import search_port, COUNTRY_CODE_TO_NAME
 from services.queue_manager import queue_manager
+from services import remote_worker
 
 
 def _detect_port_mismatch(
@@ -189,11 +190,14 @@ async def run_carrier_search(
     search_id: UUID,
     carrier_code: str,
     request: RateSearchRequest,
+    local_only: bool = False,
 ):
     """
     Run a single carrier search job.
     Updates the CarrierSearchResult record throughout.
     Uses per-carrier lock to prevent profile collisions across concurrent searches.
+    When a worker machine is online for this carrier (services/remote_worker.py) the
+    search is handed to it; local_only=True is the worker running it itself.
     """
     carrier_lock = queue_manager.get_carrier_lock(carrier_code)
     async with carrier_lock:
@@ -217,6 +221,14 @@ async def run_carrier_search(
                 db_result.completed_at = datetime.utcnow()
                 await session.commit()
                 return
+
+            if not local_only and await remote_worker.should_delegate(carrier_code):
+                n_sizes = max(1, len(request.container_types or [request.container_type]))
+                if await remote_worker.delegate_and_wait(
+                    search_id, carrier_code, request, CARRIER_SEARCH_TIMEOUT_SEC * n_sizes + 120
+                ):
+                    return
+                await session.refresh(db_result)  # no worker took it: run it here
 
             # Mark as RUNNING
             db_result.status = CarrierResultStatus.RUNNING.value
