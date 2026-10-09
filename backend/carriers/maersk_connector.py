@@ -2780,19 +2780,29 @@ class MaerskConnector(BaseCarrierConnector):
             results_loaded = False
             spinner_time = 0
             deadlock_timeouts = 0
-            for i in range(90):
+            # 90 s for results, with the clock paused while a CAPTCHA is on screen so a
+            # person has up to 5 minutes to solve it in the live browser tab. (The Book
+            # button keeps spinning under the hCaptcha; counting that as a frozen spinner
+            # used to abort the search 20 s into solving it.)
+            i = -1
+            captcha_seconds = 0
+            while i < 89 and captcha_seconds < 300:
                 await asyncio.sleep(1)
-                if i % 4 == 1 and not self.captcha_detected:
-                    await self._idle_mouse()
-                
+
                 # Active challenge/captcha/2FA detection
                 if await self.check_captcha_challenge():
                     if not self.captcha_detected:
                         self.captcha_detected = True
                         print("[MAERSK] [ACTION REQUIRED] Bot challenge, CAPTCHA, or 2FA verification page detected! Please look at the VNC window.")
-                    if i % 10 == 0:
-                        print("[MAERSK] [ACTION REQUIRED] Solving captcha challenge in VNC window...")
-                
+                    if captcha_seconds % 15 == 0:
+                        print(f"[MAERSK] [ACTION REQUIRED] Waiting for the CAPTCHA to be solved in the live browser tab ({300 - captcha_seconds}s left)...")
+                    captcha_seconds += 1
+                    spinner_time = 0
+                    continue
+                i += 1
+                if i % 4 == 1 and not self.captcha_detected:
+                    await self._idle_mouse()
+
                 # --- Watchdog Deadlock Check ---
                 try:
                     await self.page.evaluate("1", timeout=1500)
