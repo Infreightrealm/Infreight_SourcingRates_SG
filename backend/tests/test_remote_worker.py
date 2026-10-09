@@ -119,18 +119,71 @@ def test_worker_runs_the_handed_over_search(db, monkeypatch):
     assert r.worker == "laptop" and r.status == "NO_QUOTES_AVAILABLE"
 
 
-def test_server_runs_it_when_no_worker_claims_it(db, monkeypatch):
+def test_server_runs_it_when_the_worker_goes_offline_unclaimed(db, monkeypatch):
     setup, row, calls = db
     monkeypatch.setattr(remote_worker, "CLAIM_TIMEOUT_SEC", 0.2)
 
     async def run():
-        sid = await setup(5)
-        await asyncio.wait_for(job_service.run_carrier_search(sid, "MAERSK", REQ), 5)
+        sid = await setup(remote_worker.ONLINE_WITHIN_SEC - 1)  # online now, stale a second later
+        await asyncio.wait_for(job_service.run_carrier_search(sid, "MAERSK", REQ), 10)
 
     asyncio.run(run())
     r = asyncio.run(row())
     assert calls == ["MAERSK"]
     assert r.worker is None and r.status == "NO_QUOTES_AVAILABLE"
+
+
+def test_busy_online_worker_is_waited_for_then_server_takes_over(db, monkeypatch):
+    setup, row, calls = db
+    monkeypatch.setattr(remote_worker, "CLAIM_TIMEOUT_SEC", 0.1)
+    monkeypatch.setattr(remote_worker, "BUSY_CLAIM_LIMIT_SEC", 1.0)
+
+    async def run():
+        sid = await setup(5)  # online for the whole test, but never claims
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        await asyncio.wait_for(job_service.run_carrier_search(sid, "MAERSK", REQ), 10)
+        return loop.time() - t0
+
+    waited = asyncio.run(run())
+    assert waited >= 1.0  # not taken back at the 0.1 s claim timeout while the worker is online
+    assert calls == ["MAERSK"]
+    assert asyncio.run(row()).worker is None
+
+
+def test_heartbeat_thread_beats_while_the_event_loop_is_blocked(tmp_path, monkeypatch):
+    import threading
+    import time
+    from sqlalchemy.ext.asyncio import create_async_engine as cae
+    db_file = tmp_path / "hb.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_file}")
+    monkeypatch.setattr(remote_worker, "HEARTBEAT_EVERY_SEC", 1)
+
+    async def make_tables():
+        e = cae(f"sqlite+aiosqlite:///{db_file}")
+        async with e.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await e.dispose()
+
+    asyncio.run(make_tables())
+    stop = threading.Event()
+    t = threading.Thread(target=remote_worker._heartbeat_thread, args=({"MAERSK"}, "laptop", stop), daemon=True)
+    t.start()
+    time.sleep(2.5)  # the main thread is blocked, like a profile copy blocking the app's loop
+    stop.set()
+    t.join(5)
+
+    async def read():
+        e = cae(f"sqlite+aiosqlite:///{db_file}")
+        maker = async_sessionmaker(e, class_=AsyncSession, expire_on_commit=False)
+        async with maker() as s:
+            hb = await s.get(WorkerHeartbeat, "laptop")
+        await e.dispose()
+        return hb
+
+    hb = asyncio.run(read())
+    assert hb is not None and hb.carriers == "MAERSK"
+    assert (datetime.utcnow() - hb.last_seen).total_seconds() < 3
 
 
 def test_worker_ignores_rows_the_server_gave_up_on(db):
