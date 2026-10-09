@@ -71,10 +71,11 @@ async def main():
         "args": [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
         ]
     }
+    if sys.platform != "win32":
+        launch_kwargs["args"].extend(["--no-sandbox", "--disable-setuid-sandbox"])
+
     if sys.platform == "win32":
         launch_kwargs["channel"] = "chrome"
 
@@ -108,48 +109,13 @@ async def main():
     except Exception:
         pass
 
-    # Try pre-filling credentials if username/password inputs are present
-    try:
-        if username and password:
-            curr_url = page.url.lower()
-            if "login" in curr_url or "auth" in curr_url:
-                user_host = page.locator('#mc-input-username, input#signInName, input[name*="username" i]').first
-                if await user_host.is_visible(timeout=3000):
-                    print("[MAERSK] Pre-filling username...")
-                    try:
-                        inner_user = page.locator('#mc-input-username input').first
-                        if await inner_user.is_visible(timeout=1000):
-                            await inner_user.fill(username)
-                        else:
-                            await user_host.fill(username)
-                    except:
-                        await user_host.fill(username)
-
-                pass_host = page.locator('#mc-input-password, input#password, input[type="password"]').first
-                if await pass_host.is_visible(timeout=3000):
-                    print("[MAERSK] Pre-filling password...")
-                    try:
-                        inner_pass = page.locator('#mc-input-password input').first
-                        if await inner_pass.is_visible(timeout=1000):
-                            await inner_pass.fill(password)
-                        else:
-                            await pass_host.fill(password)
-                    except:
-                        await pass_host.fill(password)
-
-                # Try clicking submit
-                submit_btn = page.locator('mc-button#button-submit, button#next, button[type="submit"]:has-text("Log in"), button:has-text("Sign in")').first
-                if await submit_btn.is_visible(timeout=2000):
-                    print("[MAERSK] Submitting login form...")
-                    await submit_btn.click()
-    except Exception as e:
-        print(f"[MAERSK] Note during auto-fill: {e}")
-
     print("\n" + "=" * 60)
     print(" >>> CHROME IS NOW OPEN <<<")
-    print(" Please complete any CAPTCHA, 2FA, or verification on screen.")
-    print(" The script is monitoring the page and will automatically detect")
-    print(" when you are logged in, or you can press Ctrl+C when done.")
+    print(" Please log in to Maersk using your keyboard and mouse:")
+    print("   1. Type username and password")
+    print("   2. Solve any hCaptcha or 2FA verification")
+    print(" Once logged in, the script will capture and save your session")
+    print(" to maersk_session.json for uploading to the server.")
     print("=" * 60 + "\n")
 
     # Monitor for login success
@@ -183,6 +149,22 @@ async def main():
         print("[MAERSK] Waiting 5 seconds to ensure all session tokens and cookies are saved to disk...")
         await page.wait_for_timeout(5000)
         print("[MAERSK] Session successfully persisted to backend/chrome_profile_maersk!")
+
+        # Export portable session state to maersk_session.json in project root
+        try:
+            root_dir = os.path.dirname(backend_dir)
+            out_file = os.path.join(root_dir, "maersk_session.json")
+            state = await context.storage_state()
+            state["cookies"] = [c for c in state.get("cookies", []) if "maersk.com" in c.get("domain", "")]
+            state["origins"] = [o for o in state.get("origins", []) if "maersk.com" in o.get("origin", "")]
+            with open(out_file, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+            print("=" * 60)
+            print(f"[MAERSK] Portable session saved to: {out_file}")
+            print("[MAERSK] Upload this file to Admin > Carriers on / off > Maersk > Upload saved login")
+            print("=" * 60)
+        except Exception as export_err:
+            print(f"[MAERSK] Warning: Could not export maersk_session.json: {export_err}")
     else:
         print("[MAERSK] Login was not detected within timeout.")
 
