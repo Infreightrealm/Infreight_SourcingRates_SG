@@ -693,37 +693,29 @@ class MaerskConnector(BaseCarrierConnector):
         if is_prod:
             browser_env["DISPLAY"] = ":99"
 
-        # Fingerprint hygiene (Akamai scores these before the Search click):
-        # - no --disable-blink-features=AutomationControlled: Patchright already hides
-        #   automation, and the flag itself is a known bot tell;
-        # - no_viewport: the page size follows the real window instead of a fixed
-        #   viewport that disagrees with the window/screen size;
-        # - real Google Chrome (installed in the Docker image and on Windows) rather than
-        #   the bundled Chromium, which claims to be Chrome but lacks Chrome's codecs.
-        args = [
-            "--window-size=1920,1080",
-            "--window-position=0,0",
-            "--disable-dev-shm-usage",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-        ]
-        if is_prod:
-            # Chrome refuses to start as root in Docker without it. (--disable-setuid-sandbox
-            # is left out: real Chrome shows an "unsupported command-line flag" bar for it.)
-            args.append("--no-sandbox")
-        self._disable_password_manager(self.temp_profile_dir)
+        # Launch settings as before #26: real Google Chrome on the Railway server caused
+        # Maersk login failures ("null user", then "Something went wrong" with the
+        # login page unstyled), so prod stays on Patchright's bundled Chromium.
         launch_kwargs = {
             "user_data_dir": self.temp_profile_dir,
             "headless": False,  # Always non-headless: local = real screen, prod = Xvfb virtual display
             "ignore_https_errors": True,
             "slow_mo": random.randint(80, 150),
-            "no_viewport": True,
+            "viewport": {"width": 1920, "height": 1080},
             "env": browser_env,
-            "channel": "chrome",
-            "args": args,
+            "args": [
+                "--disable-blink-features=AutomationControlled",  # Mask automation flag
+                "--no-sandbox",  # Required for Docker
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+            ]
         }
-        
+        if not is_prod:
+            launch_kwargs["channel"] = "chrome"
+
         # Check if Bright Data Web Unlocker or Residential proxy credentials are set
         proxy_user = os.getenv("MAERSK_PROXY_USER") or os.getenv("BRIGHTDATA_PROXY_USER")
         proxy_pass = os.getenv("MAERSK_PROXY_PASS") or os.getenv("BRIGHTDATA_PROXY_PASS")
@@ -753,13 +745,7 @@ class MaerskConnector(BaseCarrierConnector):
         # Patchright's stealth-compiled Chromium engine is used instead to pass Akamai fingerprint checks.
         print("[MAERSK] Running via Patchright stealth engine (non-headless on Xvfb for VNC HITL).")
             
-        try:
-            self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
-        except Exception as chrome_err:
-            # Google Chrome missing on this machine: fall back to Patchright's bundled Chromium.
-            print(f"[MAERSK] Google Chrome unavailable ({chrome_err}); using bundled Chromium.")
-            launch_kwargs.pop("channel", None)
-            self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
+        self.context = await self.playwright.chromium.launch_persistent_context(**launch_kwargs)
         self.browser = None  # Handled by persistent context
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         self.page.set_default_timeout(30000)
@@ -901,33 +887,8 @@ class MaerskConnector(BaseCarrierConnector):
         # Post-typing pause
         await self.page.wait_for_timeout(random.randint(800, 1500))
 
-    @staticmethod
-    def _disable_password_manager(profile_dir: str):
-        """Turn off Chrome's password manager and autofill in this profile.
-
-        Real Chrome autofills the saved Maersk login, but keeps autofilled values hidden
-        from the page until a real user gesture, so Maersk receives an empty username
-        ("You can not login under undefined tenant as you are null user").
-        """
-        import json
-        prefs_path = os.path.join(profile_dir, "Default", "Preferences")
-        try:
-            prefs = {}
-            if os.path.exists(prefs_path):
-                with open(prefs_path, encoding="utf-8") as f:
-                    prefs = json.load(f)
-            prefs["credentials_enable_service"] = False
-            prefs["credentials_enable_autosignin"] = False
-            prefs.setdefault("profile", {})["password_manager_enabled"] = False
-            prefs.setdefault("autofill", {}).update({"profile_enabled": False, "credit_card_enabled": False})
-            os.makedirs(os.path.dirname(prefs_path), exist_ok=True)
-            with open(prefs_path, "w", encoding="utf-8") as f:
-                json.dump(prefs, f)
-        except Exception as e:
-            print(f"[MAERSK] Could not turn off Chrome's password manager: {e}")
-
     async def _viewport(self) -> dict:
-        """Visible page size. With no_viewport the size comes from the real window."""
+        """Visible page size, read from the page."""
         try:
             w, h = await self.page.evaluate("[window.innerWidth, window.innerHeight]")
             if w and h:
