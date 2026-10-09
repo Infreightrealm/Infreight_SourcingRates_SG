@@ -624,6 +624,18 @@ export async function setCarrierSwitch(code: string, enabled: boolean, reason?: 
   return res.json();
 }
 
+/** Delete a carrier's saved browser profile (cookies and login) so the next search starts clean. */
+export async function resetCarrierProfile(carrier: string, adminPassword?: string): Promise<{ message: string; purged_directories: string[] }> {
+  const headers: Record<string, string> = {};
+  if (adminPassword) headers["x-admin-password"] = adminPassword;
+  const res = await failoverFetch(`/api/admin/reset-profile/${encodeURIComponent(carrier)}`, { method: "POST", headers });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to reset ${carrier}: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getExchangeRates(adminPassword?: string): Promise<Record<string, { code: string; name: string; rate_per_usd: number; usd_per_unit: number; symbol: string }>> {
   const headers: Record<string, string> = {};
   if (adminPassword) {
