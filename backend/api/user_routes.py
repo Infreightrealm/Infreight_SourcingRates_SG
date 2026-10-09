@@ -622,6 +622,57 @@ async def switch_carrier(
     return entry
 
 
+@admin_router.get("/carrier-session/{carrier}")
+async def get_carrier_session(carrier: str, actor: User = Depends(verify_admin_access)):
+    """The uploaded saved login for a carrier, or null."""
+    from services.carrier_sessions import session_info
+    return {"session": session_info(carrier.lower())}
+
+
+@admin_router.post("/carrier-session/{carrier}")
+async def upload_carrier_session(
+    carrier: str,
+    request: Request,
+    actor: User = Depends(verify_admin_access),
+    session: AsyncSession = Depends(get_session),
+):
+    """Upload a saved login (Playwright storage-state JSON from scripts/export_maersk_login.py)."""
+    from services.carrier_sessions import save_session
+    try:
+        state = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="The file isn't valid JSON.")
+    try:
+        info = save_session(carrier.lower(), state, actor.username or "admin")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await record_audit_event(
+        session,
+        actor_username=actor.username or "admin",
+        action="upload_carrier_session",
+        detail=f"Uploaded a saved {carrier.lower()} login ({info['cookies']} cookies)",
+    )
+    return {"session": info}
+
+
+@admin_router.delete("/carrier-session/{carrier}")
+async def remove_carrier_session(
+    carrier: str,
+    actor: User = Depends(verify_admin_access),
+    session: AsyncSession = Depends(get_session),
+):
+    from services.carrier_sessions import delete_session
+    removed = delete_session(carrier.lower())
+    if removed:
+        await record_audit_event(
+            session,
+            actor_username=actor.username or "admin",
+            action="delete_carrier_session",
+            detail=f"Removed the uploaded {carrier.lower()} login",
+        )
+    return {"removed": removed}
+
+
 # Carrier codes on search results -> the keys port name fixes are stored under.
 _FIX_CARRIER_KEYS = {
     "MAERSK": "maersk",

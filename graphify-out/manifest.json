@@ -96,9 +96,9 @@
     "semantic_hash": ""
   },
   "backend/api/user_routes.py": {
-    "mtime": 1791446325.3604069,
-    "seen": 1791446976.6190689,
-    "ast_hash": "1accdf6532cc9a1fccd325586b0c2c60",
+    "mtime": 1791531661.9475527,
+    "seen": 1791531824.0970798,
+    "ast_hash": "1607938c6740a4573d0a000447f750a2",
     "semantic_hash": ""
   },
   "backend/auto_updater.py": {
@@ -150,9 +150,9 @@
     "semantic_hash": ""
   },
   "backend/carriers/maersk_connector.py": {
-    "mtime": 1791530137.3050883,
-    "seen": 1791530171.437143,
-    "ast_hash": "316c893bb920f1c96f98dcfefe5d8f26",
+    "mtime": 1791531718.9163964,
+    "seen": 1791531824.0973022,
+    "ast_hash": "301b62f16ac197aa452f63a09a1a4015",
     "semantic_hash": ""
   },
   "backend/carriers/mock_connector.py": {
@@ -1194,9 +1194,9 @@
     "semantic_hash": ""
   },
   "frontend/src/lib/api.ts": {
-    "mtime": 1791530655.6306067,
-    "seen": 1791530671.2621236,
-    "ast_hash": "694fddcaeba630c9349daf5bb05e274f",
+    "mtime": 1791531661.9475527,
+    "seen": 1791531824.103598,
+    "ast_hash": "adc76d339608b1ad7fc35713a713723b",
     "semantic_hash": ""
   },
   "frontend/src/lib/excelExport.ts": {
@@ -1476,15 +1476,33 @@
     "semantic_hash": ""
   },
   "frontend/src/components/admin/AdminCarriers.tsx": {
-    "mtime": 1791530655.6306067,
-    "seen": 1791530671.2613895,
-    "ast_hash": "14fbf4e9baad466c240dfaada47937ad",
+    "mtime": 1791531661.9475527,
+    "seen": 1791531824.1025856,
+    "ast_hash": "078db274821f434a89afefe0330c070b",
     "semantic_hash": ""
   },
   "frontend/src/lib/carrierSwitches.ts": {
     "mtime": 1791446789.0613918,
     "seen": 1791446976.6264036,
     "ast_hash": "4b83c08930a99586e3b2df391c21f281",
+    "semantic_hash": ""
+  },
+  "backend/scripts/export_maersk_login.py": {
+    "mtime": 1791531626.410349,
+    "seen": 1791531824.0982764,
+    "ast_hash": "6a2d13474f145d450ac4f913a0b6fe1f",
+    "semantic_hash": ""
+  },
+  "backend/services/carrier_sessions.py": {
+    "mtime": 1791531569.1585858,
+    "seen": 1791531824.0985818,
+    "ast_hash": "2d413116c4e13073d9cadfcf72323e3c",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_carrier_sessions.py": {
+    "mtime": 1791531679.2225833,
+    "seen": 1791531824.100527,
+    "ast_hash": "38749d4bfffa57541a2722ff39911531",
     "semantic_hash": ""
   }
 }
