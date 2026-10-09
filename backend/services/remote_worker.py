@@ -13,6 +13,7 @@ booking search but not a real PC's Chrome. So the laptop runs as a worker for MA
 import asyncio
 import os
 import socket
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -26,6 +27,8 @@ REMOTE = "remote"
 HEARTBEAT_EVERY_SEC = 10
 ONLINE_WITHIN_SEC = 45
 CLAIM_TIMEOUT_SEC = float(os.getenv("WORKER_CLAIM_TIMEOUT_SEC", "60"))
+# While the worker is online but busy, wait this long for it before running the search here.
+BUSY_CLAIM_LIMIT_SEC = float(os.getenv("WORKER_BUSY_CLAIM_LIMIT_SEC", "900"))
 POLL_SEC = 2.0
 
 FINISHED = {
@@ -120,14 +123,17 @@ async def delegate_and_wait(search_id: UUID, carrier_code: str, request, total_t
                 print(f"[WORKER] {carrier_code}: the worker finished ({status}).")
                 return True
             waited = loop.time() - started
-            if wid == REMOTE and waited > CLAIM_TIMEOUT_SEC:
+            # Not claimed yet: take it back if the worker is offline, or has been busy too long.
+            if wid == REMOTE and waited > CLAIM_TIMEOUT_SEC and (
+                waited > BUSY_CLAIM_LIMIT_SEC or not await _worker_online_for(carrier_code)
+            ):
                 async with _maker()() as s:
                     res = await s.execute(
                         update(CarrierSearchResult).where(*where, CarrierSearchResult.worker == REMOTE).values(worker=None)
                     )
                     await s.commit()
                 if res.rowcount:
-                    print(f"[WORKER] {carrier_code}: no worker picked it up in {CLAIM_TIMEOUT_SEC:.0f}s; running it on this server.")
+                    print(f"[WORKER] {carrier_code}: the worker didn't pick it up ({waited:.0f}s); running it on this server.")
                     return False
                 continue  # claimed just now
             if wid not in (None, REMOTE) and not await _worker_online_for(carrier_code, wid):
@@ -144,20 +150,45 @@ async def delegate_and_wait(search_id: UUID, carrier_code: str, request, total_t
         raise
 
 
-async def _heartbeat_loop(carriers: set[str], wid: str) -> None:
-    while True:
+async def heartbeat_once(maker, carriers: set[str], wid: str) -> None:
+    async with maker() as s:
+        hb = await s.get(WorkerHeartbeat, wid)
+        if hb is None:
+            s.add(WorkerHeartbeat(worker_id=wid, carriers=",".join(sorted(carriers)), last_seen=datetime.utcnow()))
+        else:
+            hb.carriers = ",".join(sorted(carriers))
+            hb.last_seen = datetime.utcnow()
+        await s.commit()
+
+
+def _heartbeat_thread(carriers: set[str], wid: str, stop: threading.Event) -> None:
+    """Heartbeat from its own thread, event loop and database connection.
+
+    The connectors copy Chrome profiles with blocking calls that can freeze the app's
+    event loop for tens of seconds; a heartbeat on that loop went stale, so the API
+    server thought the worker was offline and ran Maersk itself.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    async def beat() -> None:
+        url = database._get_database_url()
+        kwargs = {"connect_args": {"check_same_thread": False}} if "sqlite" in url else {"pool_size": 1, "max_overflow": 0}
+        engine = create_async_engine(url, **kwargs)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         try:
-            async with _maker()() as s:
-                hb = await s.get(WorkerHeartbeat, wid)
-                if hb is None:
-                    s.add(WorkerHeartbeat(worker_id=wid, carriers=",".join(sorted(carriers)), last_seen=datetime.utcnow()))
-                else:
-                    hb.carriers = ",".join(sorted(carriers))
-                    hb.last_seen = datetime.utcnow()
-                await s.commit()
-        except Exception as e:
-            print(f"[WORKER] Heartbeat failed: {e}")
-        await asyncio.sleep(HEARTBEAT_EVERY_SEC)
+            while not stop.is_set():
+                try:
+                    await heartbeat_once(maker, carriers, wid)
+                except Exception as e:
+                    print(f"[WORKER] Heartbeat failed: {e}")
+                for _ in range(HEARTBEAT_EVERY_SEC * 2):
+                    if stop.is_set():
+                        break
+                    await asyncio.sleep(0.5)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(beat())
 
 
 async def claim_next(carriers: set[str], wid: str) -> Optional[tuple[UUID, str, str]]:
@@ -217,11 +248,23 @@ async def _claim_loop(carriers: set[str], wid: str) -> None:
             await asyncio.sleep(5)
 
 
-def start_worker() -> list[asyncio.Task]:
-    """Start the heartbeat and claim loops when WORKER_CARRIERS is set (call from app startup)."""
+class _StopThread:
+    """Lets app shutdown stop the heartbeat thread like it cancels a task."""
+
+    def __init__(self, stop: threading.Event):
+        self._stop = stop
+
+    def cancel(self) -> None:
+        self._stop.set()
+
+
+def start_worker() -> list:
+    """Start the heartbeat thread and claim loop when WORKER_CARRIERS is set (call from app startup)."""
     carriers = worker_carriers()
     if not carriers:
         return []
     wid = worker_id()
     print(f"[WORKER] This machine is a worker '{wid}' for {', '.join(sorted(carriers))}.")
-    return [asyncio.create_task(_heartbeat_loop(carriers, wid)), asyncio.create_task(_claim_loop(carriers, wid))]
+    stop = threading.Event()
+    threading.Thread(target=_heartbeat_thread, args=(carriers, wid, stop), name="worker-heartbeat", daemon=True).start()
+    return [_StopThread(stop), asyncio.create_task(_claim_loop(carriers, wid))]

@@ -1512,15 +1512,15 @@
     "semantic_hash": ""
   },
   "backend/services/remote_worker.py": {
-    "mtime": 1791535331.6281626,
-    "seen": 1791535645.1666439,
-    "ast_hash": "9c4be855fb77552445d3df4f09fd2f7f",
+    "mtime": 1791564525.5371454,
+    "seen": 1791564674.0994508,
+    "ast_hash": "fc7113a3484a508dc6e91d822247b4a3",
     "semantic_hash": ""
   },
   "backend/tests/test_remote_worker.py": {
-    "mtime": 1791535465.53903,
-    "seen": 1791535645.1687143,
-    "ast_hash": "a49af44ed4d4433ff8b45f22a29d6324",
+    "mtime": 1791564548.4339445,
+    "seen": 1791564674.1014912,
+    "ast_hash": "1130998850b7993493957f31aa704d5c",
     "semantic_hash": ""
   }
 }
