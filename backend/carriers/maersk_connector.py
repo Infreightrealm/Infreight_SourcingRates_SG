@@ -1075,14 +1075,37 @@ class MaerskConnector(BaseCarrierConnector):
     # LOGIN & VERIFICATION GATEWAY
     # ────────────────────────────────────────
 
+    async def _click_continue_as_signed_in(self) -> bool:
+        """Maersk's "You are authenticated / Continue as <name>" page: the account is
+        still signed in, it just asks to confirm. Click Continue; True if it was there."""
+        try:
+            if not await self.page.get_by_text("You are authenticated").first.is_visible(timeout=300):
+                return False
+            btn = self.page.get_by_role("button", name="Continue", exact=True).first
+            if not await btn.is_visible(timeout=1000):
+                btn = self.page.locator('mc-button:has-text("Continue"), button:has-text("Continue")').first
+            print("[MAERSK] 'You are authenticated' page: clicking Continue to resume the saved session...")
+            await self._human_click(btn)
+            return True
+        except Exception as e:
+            print(f"[MAERSK] Could not click Continue on the 'You are authenticated' page: {e}")
+            return False
+
     async def _wait_for_session_or_login_form(self, timeout_sec: float = 20.0) -> str:
         """Wait until the login page either redirects to a signed-in page or shows
-        its form. Returns "session", "form", or "unknown" on timeout."""
+        its form. Returns "session", "form", or "unknown" on timeout. Clicks through
+        Maersk's "You are authenticated / Continue as" page on the way."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout_sec
+        continue_clicks = 0
         while loop.time() < deadline:
             if _is_logged_in_url(self.page.url):
                 return "session"
+            if continue_clicks < 2 and await self._click_continue_as_signed_in():
+                continue_clicks += 1
+                deadline = max(deadline, loop.time() + 20)  # give the redirect time
+                await asyncio.sleep(2)
+                continue
             try:
                 if await self.page.locator('#mc-input-username, input[type="password"]').count() > 0:
                     return "form"
@@ -1340,9 +1363,15 @@ class MaerskConnector(BaseCarrierConnector):
             # Verification Loop (HITL Bypassing)
             print("[MAERSK] Waiting for verification gate or redirect...")
             tenant_retry_done = False
+            continue_clicks = 0
             for i in range(300):
                 await asyncio.sleep(1)
                 curr_url = self.page.url
+
+                # The submit can also land on "You are authenticated / Continue as".
+                if continue_clicks < 2 and i % 2 == 0 and await self._click_continue_as_signed_in():
+                    continue_clicks += 1
+                    continue
 
                 # "You can not login under undefined tenant as you are null user": Maersk got
                 # an empty username or a stale login flow. Start over once with fresh login
