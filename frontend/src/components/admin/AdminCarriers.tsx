@@ -207,7 +207,7 @@ export default function AdminCarriers({ adminPassword }: { adminPassword?: strin
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-muted/50 px-3 py-2 text-sm">
                     <span className="min-w-0 flex-[1_1_240px] text-muted-foreground">
                       {maerskSession
-                        ? `Saved login from ${when(maerskSession.uploaded_at)}${maerskSession.uploaded_by ? ` by ${maerskSession.uploaded_by}` : ""} · ${maerskSession.cookies} cookies`
+                        ? `Saved login uploaded ${when(maerskSession.uploaded_at)}${maerskSession.uploaded_by ? ` by ${maerskSession.uploaded_by}` : ""} · ${maerskSession.cookies} cookies`
                         : "No saved login uploaded. Run EXPORT_MAERSK_LOGIN.bat on your PC, log in, then upload maersk_session.json."}
                     </span>
                     <input
