@@ -764,8 +764,27 @@ class MaerskConnector(BaseCarrierConnector):
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         self.page.set_default_timeout(30000)
 
+    async def _save_session_cookies(self):
+        """After a logged-in search, keep this browser's Maersk cookies for the next launch.
+
+        Maersk keeps the login in session cookies, which Chrome drops when it closes, so
+        the saved profile alone came back logged out and every search had to log in
+        again. They go to the same saved-login file an admin can upload, and
+        _apply_uploaded_session() restores the missing ones at the next launch.
+        """
+        if not getattr(self, "is_login_successful", False) or not getattr(self, "context", None):
+            return
+        try:
+            import socket
+            from services.carrier_sessions import save_session
+            state = await asyncio.wait_for(self.context.storage_state(), timeout=10)
+            info = await asyncio.to_thread(save_session, "maersk", state, f"auto ({socket.gethostname()})")
+            print(f"[MAERSK] Saved this browser's Maersk login ({info['cookies']} cookies) for the next search.")
+        except Exception as e:
+            print(f"[MAERSK] Could not save the Maersk login cookies: {e}")
+
     async def _apply_uploaded_session(self):
-        """Load the saved login an admin uploaded (Admin > Carriers on / off) into this browser.
+        """Load the saved login (uploaded by an admin, or saved by the last search) into this browser.
 
         Runs on every launch and only adds uploaded cookies the profile doesn't have:
         cookies the profile already holds (possibly refreshed since the upload) are left
@@ -791,7 +810,7 @@ class MaerskConnector(BaseCarrierConnector):
                     " localStorage.setItem('__infreight_session', tag); } catch (e) {} })();"
                     % (_json.dumps(origins), _json.dumps(saved.get("uploaded_at", "")))
                 )
-            print(f"[MAERSK] Uploaded saved login (from {saved.get('uploaded_at')} by {saved.get('uploaded_by')}): added {len(missing)} of {len(saved['cookies'])} cookies.")
+            print(f"[MAERSK] Saved Maersk login (from {saved.get('uploaded_at')} by {saved.get('uploaded_by')}): added {len(missing)} of {len(saved['cookies'])} cookies.")
         except Exception as e:
             print(f"[MAERSK] Could not load the uploaded saved login: {e}")
 
@@ -3737,6 +3756,7 @@ class MaerskConnector(BaseCarrierConnector):
     async def close(self, force: bool = False, *args, **kwargs):
         if getattr(self, "is_batch_active", False) and not force:
             return
+        await self._save_session_cookies()
         await super().close(force=force)
 
         # Concurrency cleanup: Copy successful login data back to master profile and remove temporary profile directory
