@@ -37,3 +37,12 @@ def test_default_free_time_is_marked_estimated():
     assert c._lookup_freetime("JOAQJ", "Al 'Aqabah, Jordan [JOAQJ]", "DRY 20") == (4, True)  # Jordan not in the table
     assert c._lookup_freetime("NGAPP", "Apapa", "DRY 20") == (7, False)
     assert c._lookup_freetime("USLAX", "Los Angeles", "DRY 40") == (4, False)  # set figure, not a guess
+
+
+def test_turkey_has_seven_days():
+    # Hapag-Lloyd Turkey tariff (effective 1 Jul 2026, all ports): import demurrage
+    # combined with detention, 7 days for 20GP and 40GP/40HC.
+    for text in ("Mersin, Turkey [TRMER]", "Mersin, Türkiye", "Ambarli, Turkiye"):
+        assert days(text) == 7 and days(text, "DRY 40H") == 7
+    c = HapagLloydAPIConnector()
+    assert c._lookup_freetime("TRMER", "Mersin", "DRY 40") == (7, False)
