@@ -10,6 +10,7 @@ import { CalendarDays, CircleDollarSign, Download, Inbox, MoveRight, Timer, Tria
 import { generateRatesExportFilename } from "@/lib/excelExport";
 import { routingLabel } from "@/lib/routing";
 import { formatQuoteDate as formatDate } from "@/lib/formatQuoteDate";
+import { getBookingStatus, cleanVesselName } from "@/lib/bookingStatus";
 
 interface ResultsTableProps {
   data: RateSearchResultResponse | null;
@@ -652,14 +653,26 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                           ) : <span className="text-[11px] text-muted-foreground/50">—</span>}
                         </td>
                         <td className="px-1 py-2">
-                          <div className="text-[11px] font-medium leading-tight text-foreground">{row.quote.service_name || "—"}</div>
-                          <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{row.quote.vessel || ""}</div>
-                          {row.quote.warning_message && (
-                            <div className="mt-0.5 flex items-center gap-1 text-[9px] text-warning-foreground font-medium" title={row.quote.warning_message}>
-                              <span>⚠️</span>
-                              <span className="truncate max-w-[200px]">{row.quote.warning_message}</span>
-                            </div>
-                          )}
+                          {(() => {
+                            const bStatus = getBookingStatus(row.quote);
+                            return (
+                              <>
+                                <div className="text-[11px] font-medium leading-tight text-foreground">{row.quote.service_name || "—"}</div>
+                                <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{cleanVesselName(row.quote.vessel) || ""}</div>
+                                {bStatus.isAmberAlert ? (
+                                  <div className="mt-1 flex items-center gap-1 rounded border border-warning/35 bg-warning/12 px-1.5 py-0.5 text-[9px] font-medium text-warning-foreground" title={bStatus.description}>
+                                    <span className="shrink-0">⚠️</span>
+                                    <span className="font-bold shrink-0">{bStatus.badgeLabel}:</span>
+                                    <span className="truncate max-w-[200px]">{bStatus.description}</span>
+                                  </div>
+                                ) : bStatus.isSpot ? (
+                                  <div className="mt-0.5 flex items-center gap-1 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                    <span>✅ Spot Guaranteed</span>
+                                  </div>
+                                ) : null}
+                              </>
+                            );
+                          })()}
                         </td>
                         <td className="px-1.5 py-2 text-right font-mono tabular-nums text-foreground">
                           {row.quote.final_freight_value === 0.0 ? "—" : row.quote.basic_ocean_freight.toLocaleString(undefined, { minimumFractionDigits: 2 })}

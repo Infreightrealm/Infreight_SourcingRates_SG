@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { CARRIERS, containerLabel, type ChargeSchema, type QuoteSchema, type RateSearchResultResponse } from "@/lib/types";
 import { formatQuoteDate } from "@/lib/formatQuoteDate";
 import { routingLabel, transitVia } from "@/lib/routing";
+import { getBookingStatus, cleanVesselName } from "@/lib/bookingStatus";
 import { cn } from "@/lib/utils";
 
 type SortKey = "price" | "transit" | "departure";
@@ -40,7 +41,7 @@ function isSoldOut(q: QuoteSchema) {
 }
 
 function isSpot(q: QuoteSchema) {
-  return `${q.vessel ?? ""} ${q.service_name ?? ""}`.toUpperCase().includes("SPOT");
+  return getBookingStatus(q).isSpot;
 }
 
 function freeTimeText(q: QuoteSchema) {
@@ -66,12 +67,16 @@ function ChargeList({ charges, empty }: { charges: ChargeSchema[]; empty: string
 }
 
 function Breakdown({ q, onDetails }: { q: QuoteSchema; onDetails: () => void }) {
+  const bookingStatus = getBookingStatus(q);
   return (
     <div className="flex flex-col gap-3 px-4 pb-4 sm:pl-16">
-      {(q.warning_message || q.is_breakdown_unavailable) && (
-        <p className="flex items-start gap-2 rounded-lg bg-warning/12 px-3 py-2 text-xs text-warning-foreground">
+      {(bookingStatus.isAmberAlert || q.is_breakdown_unavailable) && (
+        <p className="flex items-start gap-2 rounded-lg bg-warning/12 px-3 py-2 text-xs text-warning-foreground border border-warning/30">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-          {q.warning_message || "The carrier did not show a charge breakdown for this sailing."}
+          <span>
+            <strong className="font-semibold">{bookingStatus.badgeLabel ? `${bookingStatus.badgeLabel}: ` : ""}</strong>
+            {bookingStatus.description || q.warning_message || "The carrier did not show a charge breakdown for this sailing."}
+          </span>
         </p>
       )}
       <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
@@ -462,6 +467,7 @@ export default function RateResults({ data }: RateResultsProps) {
                 const isPicked = picked.includes(r.key);
                 const isBest = best?.key === r.key;
                 const isFastest = fastest?.key === r.key && !isBest;
+                const bookingStatus = getBookingStatus(q);
                 return (
                   <li key={r.key}>
                     <Card className={cn("flex flex-col gap-2.5 p-3.5", isPicked && "border-primary ring-1 ring-primary")}>
@@ -488,19 +494,35 @@ export default function RateResults({ data }: RateResultsProps) {
                             {r.carrierName}
                             {isBest && <span className="rounded bg-warning/15 px-1.5 text-[11px] font-bold text-warning-foreground">Best price</span>}
                             {isFastest && <span className="rounded bg-primary/10 px-1.5 text-[11px] font-bold text-primary">Fastest</span>}
-                            {isSpot(q) && <span className="rounded bg-secondary px-1.5 text-[11px] font-semibold text-muted-foreground">Spot</span>}
+                            {bookingStatus.isSpot && (
+                              <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                Spot
+                              </span>
+                            )}
+                            {bookingStatus.isAmberAlert && (
+                              <span className="rounded border border-warning/40 bg-warning/20 px-1.5 text-[11px] font-bold text-warning-foreground">
+                                Tariff Only
+                              </span>
+                            )}
                           </p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {[routingLabel(q, data.destination), transitVia(q, data.destination) && `via ${transitVia(q, data.destination)}`, q.service_name, q.vessel]
+                            {[routingLabel(q, data.destination), transitVia(q, data.destination) && `via ${transitVia(q, data.destination)}`, q.service_name, cleanVesselName(q.vessel)]
                               .filter(Boolean)
                               .join(" · ")}
                           </p>
-                          {q.warning_message && (
-                            <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-warning-foreground" title={q.warning_message}>
-                              <span>⚠️</span>
-                              <span className="truncate">{q.warning_message}</span>
-                            </p>
-                          )}
+                          {bookingStatus.isAmberAlert ? (
+                            <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-warning/35 bg-warning/12 p-2 text-xs text-warning-foreground">
+                              <TriangleAlert className="size-3.5 shrink-0 mt-0.5" />
+                              <div className="min-w-0">
+                                <p className="font-bold">{bookingStatus.badgeLabel}</p>
+                                <p className="text-[11px] text-muted-foreground leading-tight">{bookingStatus.description}</p>
+                              </div>
+                            </div>
+                          ) : bookingStatus.isSpot ? (
+                            <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 w-fit">
+                              <span>✅ Spot Space Guaranteed</span>
+                            </div>
+                          ) : null}
                         </div>
                         <div className="shrink-0 text-right">
                           {isSoldOut(q) ? (
@@ -574,6 +596,7 @@ export default function RateResults({ data }: RateResultsProps) {
                     const isPicked = picked.includes(r.key);
                     const isBest = best?.key === r.key;
                     const isFastest = fastest?.key === r.key && !isBest;
+                    const bookingStatus = getBookingStatus(q);
                     return (
                       <div key={r.key} className={cn("border-b border-border last:border-0", isPicked ? "bg-primary/5" : isOpen && "bg-muted/50")}>
                         <div className="grid grid-cols-[3rem_9rem_minmax(14rem,2fr)_7rem_5rem_8rem_9rem_3.25rem] items-center gap-x-3 px-4 py-2.5 text-sm">
@@ -606,14 +629,19 @@ export default function RateResults({ data }: RateResultsProps) {
                               {transitVia(q, data.destination) && <span className="font-normal text-muted-foreground"> · via {transitVia(q, data.destination)}</span>}
                             </p>
                             <p className="truncate text-xs text-muted-foreground">
-                              {[q.service_name, q.vessel].filter(Boolean).join(" · ") || "—"}
+                              {[q.service_name, cleanVesselName(q.vessel)].filter(Boolean).join(" · ") || "—"}
                             </p>
-                            {q.warning_message && (
-                              <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-warning-foreground" title={q.warning_message}>
-                                <span>⚠️</span>
-                                <span className="truncate max-w-[280px]">{q.warning_message}</span>
-                              </p>
-                            )}
+                            {bookingStatus.isAmberAlert ? (
+                              <div className="mt-1 flex items-center gap-1.5 rounded-md border border-warning/35 bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning-foreground max-w-full" title={bookingStatus.description}>
+                                <TriangleAlert className="size-3.5 shrink-0" />
+                                <span className="font-bold shrink-0">{bookingStatus.badgeLabel}:</span>
+                                <span className="truncate">{bookingStatus.description}</span>
+                              </div>
+                            ) : bookingStatus.isSpot ? (
+                              <div className="mt-1 flex items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 w-fit">
+                                <span>✅ Spot Space Guaranteed</span>
+                              </div>
+                            ) : null}
                           </div>
                           <span className="text-foreground">{formatQuoteDate(q.etd)}</span>
                           <span className="text-foreground">{q.transit_time_days ? `${q.transit_time_days} d` : "—"}</span>
@@ -629,7 +657,16 @@ export default function RateResults({ data }: RateResultsProps) {
                                 <div className="flex flex-wrap justify-end gap-1">
                                   {isBest && <span className="rounded bg-warning/15 px-1.5 text-[11px] font-bold text-warning-foreground">Best price</span>}
                                   {isFastest && <span className="rounded bg-primary/10 px-1.5 text-[11px] font-bold text-primary">Fastest</span>}
-                                  {isSpot(q) && <span className="rounded bg-secondary px-1.5 text-[11px] font-semibold text-muted-foreground">Spot</span>}
+                                  {bookingStatus.isSpot && (
+                                    <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                      Spot
+                                    </span>
+                                  )}
+                                  {bookingStatus.isAmberAlert && (
+                                    <span className="rounded border border-warning/40 bg-warning/20 px-1.5 text-[11px] font-bold text-warning-foreground">
+                                      Tariff Only
+                                    </span>
+                                  )}
                                 </div>
                               </>
                             )}
@@ -731,7 +768,7 @@ export default function RateResults({ data }: RateResultsProps) {
           [
             `departs ${formatQuoteDate(sheetRow.quote.etd)}`,
             sheetRow.quote.transit_time_days && `${sheetRow.quote.transit_time_days} days`,
-            [sheetRow.quote.service_name, sheetRow.quote.vessel].filter(Boolean).join(" · "),
+            [sheetRow.quote.service_name, cleanVesselName(sheetRow.quote.vessel)].filter(Boolean).join(" · "),
           ]
             .filter(Boolean)
             .join(" · ")

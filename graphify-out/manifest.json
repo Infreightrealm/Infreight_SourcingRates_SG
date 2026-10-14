@@ -1014,9 +1014,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/RateResults.tsx": {
-    "mtime": 1791958086.0713842,
-    "seen": 1791958172.5446782,
-    "ast_hash": "dc5c977e7ab93b5269817ce83f313d9b",
+    "mtime": 1791959187.5659378,
+    "seen": 1791959290.6860862,
+    "ast_hash": "7f13f47581237c17f4812df83277e618",
     "semantic_hash": ""
   },
   "frontend/src/components/RateSearchForm.tsx": {
@@ -1026,9 +1026,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/ResultsTable.tsx": {
-    "mtime": 1791957886.6538174,
-    "seen": 1791958172.5456748,
-    "ast_hash": "12db12766d270816636a8066b565714a",
+    "mtime": 1791959213.9099896,
+    "seen": 1791959290.6870892,
+    "ast_hash": "f9e79af4c892bee4f4ce4a2191ba3e2a",
     "semantic_hash": ""
   },
   "frontend/src/components/RfqInputSection.tsx": {
@@ -1701,6 +1701,12 @@
     "mtime": 1785380699.4607491,
     "seen": 1791951932.1921015,
     "ast_hash": "45357f024f46789e27ac019e604656da",
+    "semantic_hash": ""
+  },
+  "frontend/src/lib/bookingStatus.ts": {
+    "mtime": 1791959064.747471,
+    "seen": 1791959290.7108328,
+    "ast_hash": "e355662b969f0c3ca1e3a98c03a27fbf",
     "semantic_hash": ""
   }
 }
