@@ -296,6 +296,96 @@ async def test_registry_integration():
     print("  [OK] Registry integration passed.")
 
 
+async def test_dcsa_commercial_schedules_cross_validation():
+    print("\n--- TEST 5: DCSA Commercial Schedules & Booking Cutoff Cross-Validation ---")
+    connector = HapagLloydAPIConnector()
+    
+    # Mock DCSA schedules data
+    now = datetime.now(timezone.utc)
+    expired_dco = (now - timedelta(days=2)).isoformat()
+    future_dco = (now + timedelta(days=5)).isoformat()
+    
+    mock_dcsa_schedules = [
+        {
+            "transit_time": 38,
+            "receipt_dt": "2026-09-11T12:00:00Z",
+            "receipt_locode": "SGSIN",
+            "delivery_dt": "2026-10-19T14:00:00Z",
+            "delivery_locode": "DEHAM",
+            "cutoffs": {
+                "DCO": expired_dco,
+                "FCO": (now - timedelta(days=1)).isoformat(),
+            },
+            "legs": [
+                {
+                    "sequence": 1,
+                    "vessel_name": "Hapag Vessel",
+                    "voyage": "2638W",
+                    "service_name": "FE4",
+                    "departure_locode": "SGSIN",
+                    "arrival_locode": "DEHAM",
+                }
+            ]
+        }
+    ]
+    
+    # 1. Parse with expired cutoff schedule
+    quotes = connector._parse_offer_response_to_quotes(
+        api_data=SAMPLE_HAPAG_OFFER_RESPONSE,
+        requested_container_type="DRY 40H",
+        destination_locode="DEHAM",
+        destination_name="Hamburg",
+        dcsa_schedules=mock_dcsa_schedules,
+    )
+    assert len(quotes) == 2
+    expired_quote = quotes[0]
+    assert "[BOOKING CLOSED - CUTOFF EXPIRED]" in expired_quote.vessel
+    assert "Booking cutoff expired" in (expired_quote.warning_message or "")
+    print("  [OK] Successfully detected expired booking cutoff from DCSA schedules.")
+
+    # 2. Test Spot Capacity error correlation
+    capacity_offer_response = {
+        "offers": [
+            {
+                "productIdentifier": "QUICK_QUOTES",
+                "placeOfReceiptDate": "2026-11-20T00:00:00Z",
+                "placeOfDeliveryDateTime": "2026-12-05T00:00:00Z",
+                "legs": [{"vesselName": "Test Vessel", "carrierServiceName": "CIX"}],
+                "equipments": [
+                    {
+                        "requestedEquipment": {"requestedEquipmentSizeType": "45GP"},
+                        "rates": [{"chargeTypeCode": "SEA", "amount": 1400.0, "currency": "USD", "seaFreightIndicator": True}]
+                    }
+                ]
+            },
+            {
+                "productIdentifier": "QUICK_QUOTES_SPOT",
+                "placeOfReceiptDate": "2026-11-20T00:00:00Z",
+                "placeOfDeliveryDateTime": "2026-12-05T00:00:00Z",
+                "legs": [{"vesselName": "Test Vessel", "carrierServiceName": "CIX"}],
+                "equipments": [
+                    {
+                        "requestedEquipment": {"requestedEquipmentSizeType": "45GP"},
+                        "errorReason": "CAPACITY",
+                        "rates": []
+                    }
+                ]
+            }
+        ]
+    }
+    cap_quotes = connector._parse_offer_response_to_quotes(
+        api_data=capacity_offer_response,
+        requested_container_type="DRY 40H",
+        destination_locode="INTUT",
+        destination_name="Tuticorin",
+        dcsa_schedules=[],
+    )
+    assert len(cap_quotes) == 1
+    assert "[TARIFF ONLY - SPOT FULL]" in cap_quotes[0].vessel
+    assert "CAPACITY" in (cap_quotes[0].warning_message or "")
+    print("  [OK] Successfully detected Spot CAPACITY exhaustion and flagged tariff quote.")
+
+
 async def main():
     print("==================================================================")
     print("  RUNNING HAPAG-LLOYD REST API CONNECTOR VERIFICATION SUITE")
@@ -304,6 +394,7 @@ async def main():
     await test_payload_generation()
     await test_response_parsing_and_normalization()
     await test_registry_integration()
+    await test_dcsa_commercial_schedules_cross_validation()
     print("\n==================================================================")
     print("  ALL VERIFICATION TESTS PASSED SUCCESSFULLY! ")
     print("==================================================================")
@@ -311,3 +402,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

@@ -123,15 +123,18 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
     supported_container_types = DRY_CONTAINER_TYPES | REEFER_CONTAINER_TYPES
 
     DEFAULT_BASE_URL = "https://api.hlag.com/hlag/external/v2/quotation-booking-engine/external"
+    DEFAULT_SCHEDULES_BASE_URL = "https://api.hlag.com/hlag/external/v1"
     MOCK_BASE_URL = "https://mock.api-portal.hlag.com/v2/quotation-booking-engine/external"
+    MOCK_SCHEDULES_BASE_URL = "https://mock.api-portal.hlag.com/v1"
 
     def __init__(self):
         super().__init__()
         self.port_manager = PortManager()
         self.client_id = os.getenv("HAPAG_API_CLIENT_ID", "").strip()
         self.client_secret = os.getenv("HAPAG_API_CLIENT_SECRET", "").strip()
-        self.customer_email = os.getenv("HAPAG_API_CUSTOMER_EMAIL", "BOOKINGSG@IN-FREIGHT.COM").strip()
+        self.customer_email = os.getenv("HAPAG_API_CUSTOMER_EMAIL", "sgpricing05@infreight-logistics.com").strip()
         self.base_url = os.getenv("HAPAG_API_BASE_URL", self.DEFAULT_BASE_URL).rstrip("/")
+        self.schedules_base_url = os.getenv("HAPAG_API_SCHEDULES_BASE_URL", self.DEFAULT_SCHEDULES_BASE_URL).rstrip("/")
         self.use_mock_api = os.getenv("HAPAG_API_USE_MOCK", "false").lower() in ("true", "1", "yes")
 
         # job_service calls run_full_search once per container type; all sizes are fetched on the
@@ -405,6 +408,158 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         except Exception as ex:
             return None, f"Hapag-Lloyd Prices API network error: {str(ex)}", CarrierResultStatus.FAILED
 
+    async def fetch_commercial_schedules(
+        self,
+        client: httpx.AsyncClient,
+        origin_locode: str,
+        destination_locode: str,
+        departure_date: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Queries Hapag-Lloyd DCSA Commercial Schedules API (v1.0.2) to retrieve point-to-point routes,
+        physical vessel rotations, cut-off deadlines (STA, DCO, FCO, VCO), and feeder connections.
+        """
+        endpoint = f"{self.schedules_base_url}/point-to-point-routes"
+        if self.use_mock_api:
+            endpoint = f"{self.MOCK_SCHEDULES_BASE_URL}/point-to-point-routes"
+
+        headers = {
+            "Accept": "application/json",
+        }
+        if self.client_id:
+            headers["X-IBM-Client-Id"] = self.client_id
+        if self.client_secret:
+            headers["X-IBM-Client-Secret"] = self.client_secret
+
+        params = {
+            "placeOfReceipt": origin_locode,
+            "placeOfDelivery": destination_locode,
+            "departureStartDate": departure_date,
+            "receiptTypeAtOrigin": "CY",
+            "deliveryTypeAtDestination": "CY",
+        }
+
+        await _HAPAG_RATE_LIMITER.acquire()
+
+        try:
+            start_t = time.perf_counter()
+            response = await client.get(endpoint, params=params, headers=headers, timeout=25.0)
+            elapsed_ms = (time.perf_counter() - start_t) * 1000
+            print(f"[HAPAG_API] GET /point-to-point-routes returned HTTP {response.status_code} ({elapsed_ms:.1f}ms)")
+
+            if response.status_code != 200:
+                print(f"[HAPAG_API] DCSA Schedules returned HTTP {response.status_code}: {response.text[:200]}")
+                return []
+
+            raw_solutions = response.json()
+            if not isinstance(raw_solutions, list):
+                return []
+
+            solutions: List[Dict[str, Any]] = []
+            for sol in raw_solutions:
+                rec = sol.get("placeOfReceipt", {})
+                deliv = sol.get("placeOfDelivery", {})
+                cutoffs = {}
+                for co in sol.get("cutOffTimes", []):
+                    code = co.get("cutOffDateTimeCode")
+                    dt_val = co.get("cutOffDateTime")
+                    if code and dt_val:
+                        cutoffs[code] = dt_val
+
+                legs_parsed = []
+                for leg in sol.get("legs", []):
+                    dep = leg.get("departure", {})
+                    arr = leg.get("arrival", {})
+                    transport = leg.get("transport", {})
+                    vessel_obj = transport.get("vessel", {})
+                    partners = transport.get("servicePartners", [{}])
+                    partner = partners[0] if partners else {}
+                    legs_parsed.append({
+                        "sequence": leg.get("sequenceNumber", 1),
+                        "vessel_name": vessel_obj.get("name") or transport.get("vesselName"),
+                        "vessel_imo": vessel_obj.get("vesselIMONumber"),
+                        "voyage": partner.get("carrierExportVoyageNumber") or partner.get("carrierImportVoyageNumber") or transport.get("carrierVoyageNumber"),
+                        "service_name": partner.get("carrierServiceName") or transport.get("carrierServiceName"),
+                        "service_code": partner.get("carrierServiceCode") or transport.get("carrierServiceCode"),
+                        "departure_locode": (dep.get("location", {}).get("UNLocationCode") or "").upper(),
+                        "departure_terminal": dep.get("location", {}).get("facility", {}).get("facilityCode"),
+                        "departure_dt": dep.get("dateTime"),
+                        "arrival_locode": (arr.get("location", {}).get("UNLocationCode") or "").upper(),
+                        "arrival_terminal": arr.get("location", {}).get("facility", {}).get("facilityCode"),
+                        "arrival_dt": arr.get("dateTime"),
+                    })
+
+                solutions.append({
+                    "transit_time": sol.get("transitTime"),
+                    "receipt_dt": rec.get("dateTime"),
+                    "receipt_locode": (rec.get("location", {}).get("UNLocationCode") or "").upper(),
+                    "delivery_dt": deliv.get("dateTime"),
+                    "delivery_locode": (deliv.get("location", {}).get("UNLocationCode") or "").upper(),
+                    "cutoffs": cutoffs,
+                    "legs": legs_parsed,
+                })
+
+            return solutions
+
+        except Exception as e:
+            print(f"[HAPAG_API] Error querying DCSA Commercial Schedules: {e}")
+            return []
+
+    @staticmethod
+    def _match_dcsa_schedule(
+        raw_etd_str: Optional[str],
+        offer_vessels: List[str],
+        dcsa_schedules: List[Dict[str, Any]],
+        first_voyage: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Correlates an offer from the Prices API to a physical solution in DCSA Commercial Schedules.
+        Matches primarily by departure date window (+/- 48 hours), scored by departure vessel and voyage.
+        """
+        if not dcsa_schedules or not raw_etd_str:
+            return None
+
+        try:
+            offer_dt = datetime.fromisoformat(str(raw_etd_str).replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+        first_vessel = offer_vessels[0].strip().upper() if offer_vessels else ""
+        if "HAPAG VESSEL" in first_vessel:
+            first_vessel = ""
+
+        candidates: List[Tuple[float, Dict[str, Any]]] = []
+        for sol in dcsa_schedules:
+            rec_dt_str = sol.get("receipt_dt")
+            if not rec_dt_str:
+                continue
+            try:
+                sol_dt = datetime.fromisoformat(str(rec_dt_str).replace("Z", "+00:00"))
+                diff_hours = abs((sol_dt - offer_dt).total_seconds()) / 3600.0
+                if diff_hours <= 48.0:
+                    score = 100.0 - diff_hours
+                    legs = sol.get("legs", [])
+                    sol_v1 = (legs[0].get("vessel_name") or "").strip().upper() if legs else ""
+                    sol_voy1 = (legs[0].get("voyage") or "").strip().upper() if legs else ""
+
+                    if first_vessel and sol_v1:
+                        if first_vessel == sol_v1:
+                            score += 80.0
+                        elif first_vessel in sol_v1 or sol_v1 in first_vessel:
+                            score += 50.0
+                    if first_voyage and sol_voy1 and first_voyage.strip().upper() == sol_voy1:
+                        score += 60.0
+
+                    candidates.append((score, sol))
+            except Exception:
+                continue
+
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            return candidates[0][1]
+
+        return None
+
     @staticmethod
     def _classify_rate(rate: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """
@@ -499,9 +654,11 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         destination_locode: str,
         destination_name: str,
         weight_kg: Optional[float] = None,
+        dcsa_schedules: Optional[List[Dict[str, Any]]] = None,
     ) -> List[QuoteSchema]:
         """
-        Parses Hapag-Lloyd OfferResponse JSON into InFreight QuoteSchema objects.
+        Parses Hapag-Lloyd OfferResponse JSON into InFreight QuoteSchema objects,
+        cross-referencing with DCSA Commercial Schedules for cutoff and spot space validation.
         """
         quotes: List[QuoteSchema] = []
         offers = api_data.get("offers", [])
@@ -511,6 +668,24 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             return quotes
 
         free_time_days, free_time_estimated = self._lookup_freetime(destination_locode, destination_name, requested_container_type)
+
+        # Index offers by departure date to correlate Spot vs Quick Quotes availability
+        sailing_spot_meta: Dict[str, Dict[str, Any]] = {}
+        for off in offers:
+            raw_dep = off.get("placeOfReceiptDate") or off.get("portOfLoadingDateTime") or ""
+            dep_key = str(raw_dep)[:10]
+            if not dep_key:
+                continue
+            prod = off.get("productIdentifier", "")
+            if prod == "QUICK_QUOTES_SPOT":
+                has_rates = any(bool(eq.get("rates")) for eq in off.get("equipments", []))
+                spot_errs = [eq.get("errorReason") for eq in off.get("equipments", []) if eq.get("errorReason")]
+                if off.get("errorReason"):
+                    spot_errs.append(off.get("errorReason"))
+                sailing_spot_meta[dep_key] = {
+                    "has_spot_rates": has_rates,
+                    "spot_errors": spot_errs,
+                }
 
         for offer in offers:
             if offer.get("errorReason") and not offer.get("equipments"):
@@ -558,6 +733,54 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             pod_code = offer.get("portOfDischarge") or (self._leg_locode(ocean_legs[-1].get("arrivalLocation")) if ocean_legs else None)
             port_of_discharge = self._port_display_name(pod_code) if pod_code else None
 
+            # Cross-reference with DCSA Commercial Schedules
+            matched_schedule: Optional[Dict[str, Any]] = None
+            if dcsa_schedules:
+                offer_vessels = [l.get("vesselName", "") for l in ocean_legs if l.get("vesselName")]
+                first_voy = ocean_legs[0].get("scheduleVoyageNumber") if ocean_legs else None
+                matched_schedule = self._match_dcsa_schedule(raw_etd, offer_vessels, dcsa_schedules, first_voy)
+
+            # Evaluate cutoffs & schedule viability
+            cutoff_warning: Optional[str] = None
+            active_cutoffs: List[str] = []
+            is_cutoff_expired = False
+
+            if matched_schedule:
+                # Enrich transit time if missing
+                if not transit_time and matched_schedule.get("transit_time"):
+                    transit_time = matched_schedule.get("transit_time")
+
+                # Enrich transshipment ports if offer had missing feeder legs
+                if not transshipment_ports and len(matched_schedule.get("legs", [])) > 1:
+                    for d_leg in matched_schedule["legs"][:-1]:
+                        arr_loc = d_leg.get("arrival_locode")
+                        term = d_leg.get("arrival_terminal")
+                        p_name = self._port_display_name(arr_loc) if arr_loc else ""
+                        if term:
+                            p_name = f"{p_name} ({term})"
+                        if p_name and p_name not in transshipment_ports:
+                            transshipment_ports.append(p_name)
+
+                # Check cutoffs
+                now_utc = datetime.now(timezone.utc)
+                cutoffs = matched_schedule.get("cutoffs", {})
+                expired_codes = []
+                for code, dt_str in cutoffs.items():
+                    try:
+                        c_dt = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00"))
+                        if c_dt < now_utc:
+                            if code in ("DCO", "STA", "FCO"):
+                                expired_codes.append(f"{code} ({c_dt.strftime('%d %b %H:%M')})")
+                        else:
+                            if code in ("DCO", "STA"):
+                                active_cutoffs.append(f"{code} {c_dt.strftime('%d %b')}")
+                    except Exception:
+                        pass
+
+                if expired_codes:
+                    is_cutoff_expired = True
+                    cutoff_warning = f"Booking cutoff expired [{', '.join(expired_codes)}]. Sailing closed on carrier website."
+
             # Format Vessel String. Many offers share the same origin feeder but connect to different
             # mother vessels / transshipment ports, so name the main vessel and the via-ports too;
             # otherwise those rows look identical in the results table and Excel Remark column.
@@ -566,8 +789,39 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                 vessel_display = f"{vessel_display} | via {', '.join(transshipment_ports)}"
             if first_ocean and first_ocean is not main_ocean:
                 vessel_display = f"{vessel_display} | feeder {self._vessel_label(first_ocean)}"
-            if is_spot:
-                vessel_display = f"{vessel_display} (SPOT)"
+
+            # Booking availability warning & tag determination
+            booking_warning: Optional[str] = None
+            dep_key = str(raw_etd)[:10]
+            spot_meta = sailing_spot_meta.get(dep_key, {})
+            spot_errs = spot_meta.get("spot_errors", [])
+
+            if is_cutoff_expired:
+                booking_warning = cutoff_warning
+                vessel_display = f"{vessel_display} [BOOKING CLOSED - CUTOFF EXPIRED]"
+            elif is_spot:
+                vessel_display = f"{vessel_display} (SPOT) [SPOT GUARANTEED]"
+                if active_cutoffs:
+                    booking_warning = f"Spot space guaranteed. Cut-off: {', '.join(active_cutoffs)}"
+            else:
+                # product_id == "QUICK_QUOTES"
+                if "CAPACITY" in spot_errs:
+                    booking_warning = "Tariff quote (QQ). Online Spot booking unavailable (Vessel at CAPACITY on carrier portal). Space subject to manual confirmation."
+                    vessel_display = f"{vessel_display} [TARIFF ONLY - SPOT FULL]"
+                elif any(e in ("RESTRICTIONS", "CAN_NOT_BE_OFFERED") for e in spot_errs):
+                    err_c = next(e for e in spot_errs if e in ("RESTRICTIONS", "CAN_NOT_BE_OFFERED"))
+                    booking_warning = f"Tariff quote (QQ). Online Spot booking restricted on carrier portal ({err_c}). Booking requires manual/offline confirmation."
+                    vessel_display = f"{vessel_display} [TARIFF ONLY - {err_c}]"
+                elif dcsa_schedules is not None and len(dcsa_schedules) == 0:
+                    booking_warning = "No active commercial sailing found in Hapag-Lloyd schedule engine for this corridor. Offline enquiry required."
+                    vessel_display = f"{vessel_display} [NO ONLINE SCHEDULE]"
+                elif dcsa_schedules and not matched_schedule:
+                    booking_warning = "Tariff quote. Departure date not verified against active carrier schedules."
+                    vessel_display = f"{vessel_display} [UNVERIFIED SCHEDULE]"
+                else:
+                    vessel_display = f"{vessel_display} (QQ Tariff)"
+                    if active_cutoffs:
+                        booking_warning = f"Schedule active. Booking cut-off: {', '.join(active_cutoffs)}"
 
             # Process Equipments & Rates
             equipments = offer.get("equipments", [])
@@ -633,11 +887,12 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                 ]
                 final_freight_value = round(sum(c["amount"] for c in totalled if c["currency"].upper() == currency), 2)
                 other_currency = [c for c in totalled if c["currency"].upper() != currency]
-                warning_message = None
+                warning_message = booking_warning
                 if other_currency:
-                    warning_message = "Not in total (different currency): " + ", ".join(
+                    curr_note = "Not in total (different currency): " + ", ".join(
                         f"{c['name']} {c['amount']:g} {c['currency']}" for c in other_currency
                     )
+                    warning_message = f"{warning_message} | {curr_note}" if warning_message else curr_note
 
                 # Check Value Added Services for Free Time Override
                 vas_list = equip.get("valueAddedServices", [])
@@ -756,6 +1011,19 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
         missing_notes: List[str] = []
 
         async with httpx.AsyncClient(timeout=30.0) as client:
+            # Query DCSA Commercial Schedules to verify physical vessel rotations and booking cutoffs
+            dcsa_schedules: List[Dict[str, Any]] = []
+            try:
+                dcsa_schedules = await self.fetch_commercial_schedules(
+                    client=client,
+                    origin_locode=origin_locode,
+                    destination_locode=destination_locode,
+                    departure_date=departure_date,
+                )
+                print(f"[HAPAG_API] Retrieved {len(dcsa_schedules)} DCSA commercial schedule solution(s) for {origin_locode} -> {destination_locode}")
+            except Exception as ex:
+                print(f"[HAPAG_API] Warning: Failed to retrieve DCSA commercial schedules: {ex}")
+
             for iso in iso_types:
                 mapped_container_name = ISO_TO_CONTAINER[iso]
                 if mapped_container_name in collected:
@@ -781,6 +1049,7 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                         destination_locode=destination_locode,
                         destination_name=request.destination,
                         weight_kg=request.weight_per_container_kg,
+                        dcsa_schedules=dcsa_schedules,
                     )
                     by_type: Dict[str, List[QuoteSchema]] = {}
                     for q in parsed:
