@@ -669,7 +669,11 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                                   <div className="mt-0.5 flex items-center gap-1 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">
                                     <span>✅ Spot Guaranteed</span>
                                   </div>
-                                ) : null}
+                                ) : (
+                                  <div className="mt-0.5 flex items-center gap-1 text-[9px] font-medium text-muted-foreground">
+                                    <span>Standard Tariff</span>
+                                  </div>
+                                )}
                               </>
                             );
                           })()}

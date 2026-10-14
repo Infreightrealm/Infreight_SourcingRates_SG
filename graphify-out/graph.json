@@ -9712,7 +9712,7 @@
       "file_type": "code",
       "norm_label": "getbookingstatus()",
       "source_file": "frontend/src/lib/bookingStatus.ts",
-      "source_location": "L41"
+      "source_location": "L42"
     },
     {
       "id": "frontend_src_lib_excelexport_buildsinglesearchemailtable",
@@ -43385,7 +43385,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/components/RateResults.tsx",
-      "source_location": "L509",
+      "source_location": "L514",
       "weight": 1.0
     },
     {
@@ -43397,7 +43397,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/components/RateResults.tsx",
-      "source_location": "L509",
+      "source_location": "L514",
       "weight": 1.0
     },
     {
@@ -43409,7 +43409,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/components/RateResults.tsx",
-      "source_location": "L509",
+      "source_location": "L514",
       "weight": 1.0
     },
     {
@@ -43421,7 +43421,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/components/RateResults.tsx",
-      "source_location": "L551",
+      "source_location": "L560",
       "weight": 1.0
     },
     {
@@ -87711,7 +87711,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/bookingStatus.ts",
-      "source_location": "L41",
+      "source_location": "L42",
       "weight": 1.0
     },
     {
@@ -103074,5 +103074,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "777b293dab1a5f1dd8f79853e43b7a3b9d830c23"
+  "built_at_commit": "36bc6c835e7077d28aa0a3cc90d3b219792950e5"
 }

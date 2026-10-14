@@ -504,6 +504,11 @@ export default function RateResults({ data }: RateResultsProps) {
                                 Tariff Only
                               </span>
                             )}
+                            {!bookingStatus.isSpot && !bookingStatus.isAmberAlert && (
+                              <span className="rounded border border-border bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">
+                                Standard
+                              </span>
+                            )}
                           </p>
                           <p className="truncate text-xs text-muted-foreground">
                             {[routingLabel(q, data.destination), transitVia(q, data.destination) && `via ${transitVia(q, data.destination)}`, q.service_name, cleanVesselName(q.vessel)]
@@ -522,7 +527,11 @@ export default function RateResults({ data }: RateResultsProps) {
                             <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 w-fit">
                               <span>✅ Spot Space Guaranteed</span>
                             </div>
-                          ) : null}
+                          ) : (
+                            <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground w-fit">
+                              <span>Standard Tariff</span>
+                            </div>
+                          )}
                         </div>
                         <div className="shrink-0 text-right">
                           {isSoldOut(q) ? (
@@ -641,7 +650,11 @@ export default function RateResults({ data }: RateResultsProps) {
                               <div className="mt-1 flex items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 w-fit">
                                 <span>✅ Spot Space Guaranteed</span>
                               </div>
-                            ) : null}
+                            ) : (
+                              <div className="mt-1 flex items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground w-fit">
+                                <span>Standard Tariff</span>
+                              </div>
+                            )}
                           </div>
                           <span className="text-foreground">{formatQuoteDate(q.etd)}</span>
                           <span className="text-foreground">{q.transit_time_days ? `${q.transit_time_days} d` : "—"}</span>
@@ -665,6 +678,11 @@ export default function RateResults({ data }: RateResultsProps) {
                                   {bookingStatus.isAmberAlert && (
                                     <span className="rounded border border-warning/40 bg-warning/20 px-1.5 text-[11px] font-bold text-warning-foreground">
                                       Tariff Only
+                                    </span>
+                                  )}
+                                  {!bookingStatus.isSpot && !bookingStatus.isAmberAlert && (
+                                    <span className="rounded border border-border bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">
+                                      Standard
                                     </span>
                                   )}
                                 </div>

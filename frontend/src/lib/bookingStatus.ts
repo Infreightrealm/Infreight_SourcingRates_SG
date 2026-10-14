@@ -35,8 +35,9 @@ export function cleanVesselName(vessel?: string | null): string {
  * Categorizes a quote's booking and space availability status.
  *
  * Rules:
- * - If spot space is guaranteed: isAmberAlert = false (no warning shown).
- * - If tariff-only (spot full, restrictions, closed): isAmberAlert = true (prominent amber alert).
+ * - If spot space is guaranteed: isAmberAlert = false (renders ✅ Spot Space Guaranteed).
+ * - If tariff-only (spot full, restrictions, closed): isAmberAlert = true (renders ⚠️ Amber Alert).
+ * - If normal regular tariff without errors: isAmberAlert = false (renders neutral Standard Tariff).
  */
 export function getBookingStatus(q: QuoteSchema): BookingStatusInfo {
   const vesselText = (q.vessel || "").toUpperCase();
@@ -103,11 +104,10 @@ export function getBookingStatus(q: QuoteSchema): BookingStatusInfo {
     };
   }
 
-  // 5. Generic Tariff Only / Quick Quotes
+  // 5. Explicit Tariff Only / Unconfirmed Space (when tagged [TARIFF ONLY])
   if (
     vesselText.includes("TARIFF ONLY") ||
-    vesselText.includes("QQ TARIFF") ||
-    warningText.includes("TARIFF QUOTE")
+    warningText.includes("TARIFF QUOTE (QQ)")
   ) {
     return {
       type: "tariff_general",
@@ -132,12 +132,12 @@ export function getBookingStatus(q: QuoteSchema): BookingStatusInfo {
     };
   }
 
-  // 7. Standard
+  // 7. Standard Regular Tariff (normal healthy quotation without spot or errors)
   return {
     type: "standard",
-    badgeLabel: "",
-    isAmberAlert: Boolean(q.warning_message),
+    badgeLabel: "Standard Tariff",
+    isAmberAlert: false,
     isSpot: false,
-    description: q.warning_message || "",
+    description: q.warning_message || "Standard published tariff rate on active schedule.",
   };
 }
