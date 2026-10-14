@@ -3,10 +3,8 @@ import type { QuoteSchema } from "./types";
 export type BookingStatusType =
   | "spot_guaranteed"
   | "tariff_spot_full"
-  | "tariff_restricted"
-  | "tariff_can_not_be_offered"
   | "booking_closed"
-  | "tariff_general"
+  | "no_online_schedule"
   | "standard";
 
 export interface BookingStatusInfo {
@@ -36,14 +34,14 @@ export function cleanVesselName(vessel?: string | null): string {
  *
  * Rules:
  * - If spot space is guaranteed: isAmberAlert = false (renders ✅ Spot Space Guaranteed).
- * - If tariff-only (spot full, restrictions, closed): isAmberAlert = true (renders ⚠️ Amber Alert).
- * - If normal regular tariff without errors: isAmberAlert = false (renders neutral Standard Tariff).
+ * - If normal Quick Quotes tariff (even if Spot product is unavailable): isAmberAlert = false (renders clean Standard Tariff).
+ * - Only genuine operational blockers (Vessel Full CAPACITY, Cut-off Expired, or No Online Schedule) trigger an Amber Alert.
  */
 export function getBookingStatus(q: QuoteSchema): BookingStatusInfo {
   const vesselText = (q.vessel || "").toUpperCase();
   const warningText = (q.warning_message || "").toUpperCase();
 
-  // 1. Cutoff Expired / Booking Closed
+  // 1. Cutoff Expired / Booking Closed (Operational Hard Stop)
   if (
     vesselText.includes("BOOKING CLOSED") ||
     vesselText.includes("CUTOFF EXPIRED") ||
@@ -59,11 +57,12 @@ export function getBookingStatus(q: QuoteSchema): BookingStatusInfo {
     };
   }
 
-  // 2. Spot Full / Capacity
+  // 2. Spot Full / Capacity (Vessel is physically 100% full)
   if (
     vesselText.includes("TARIFF ONLY - SPOT FULL") ||
     vesselText.includes("SPOT FULL") ||
-    warningText.includes("CAPACITY")
+    warningText.includes("VESSEL AT CAPACITY") ||
+    warningText.includes("AT CAPACITY")
   ) {
     return {
       type: "tariff_spot_full",
@@ -74,51 +73,21 @@ export function getBookingStatus(q: QuoteSchema): BookingStatusInfo {
     };
   }
 
-  // 3. Online Restrictions (e.g., trade desk lock, embargo, quota)
+  // 3. No online schedule found in schedule engine
   if (
-    vesselText.includes("TARIFF ONLY - RESTRICTIONS") ||
-    vesselText.includes("RESTRICTIONS") ||
-    warningText.includes("RESTRICTIONS")
+    vesselText.includes("NO ONLINE SCHEDULE") ||
+    warningText.includes("NO ACTIVE COMMERCIAL SAILING")
   ) {
     return {
-      type: "tariff_restricted",
-      badgeLabel: "Tariff Only · Restricted",
+      type: "no_online_schedule",
+      badgeLabel: "No Online Schedule",
       isAmberAlert: true,
       isSpot: false,
-      description: q.warning_message || "Online spot booking restricted on carrier portal. Booking requires manual confirmation.",
+      description: q.warning_message || "No active sailing found in schedule engine. Offline enquiry required.",
     };
   }
 
-  // 4. Can Not Be Offered
-  if (
-    vesselText.includes("TARIFF ONLY - CAN_NOT_BE_OFFERED") ||
-    vesselText.includes("CAN_NOT_BE_OFFERED") ||
-    warningText.includes("CAN_NOT_BE_OFFERED")
-  ) {
-    return {
-      type: "tariff_can_not_be_offered",
-      badgeLabel: "Tariff Only · Unavailable",
-      isAmberAlert: true,
-      isSpot: false,
-      description: q.warning_message || "Routing currently unavailable for online booking. Manual enquiry required.",
-    };
-  }
-
-  // 5. Explicit Tariff Only / Unconfirmed Space (when tagged [TARIFF ONLY])
-  if (
-    vesselText.includes("TARIFF ONLY") ||
-    warningText.includes("TARIFF QUOTE (QQ)")
-  ) {
-    return {
-      type: "tariff_general",
-      badgeLabel: "Tariff Only",
-      isAmberAlert: true,
-      isSpot: false,
-      description: q.warning_message || "Published tariff rate. Online space allocation not confirmed.",
-    };
-  }
-
-  // 6. Spot Space Guaranteed
+  // 4. Spot Space Guaranteed
   if (
     vesselText.includes("SPOT GUARANTEED") ||
     (vesselText.includes("SPOT") && !vesselText.includes("TARIFF"))
@@ -132,7 +101,7 @@ export function getBookingStatus(q: QuoteSchema): BookingStatusInfo {
     };
   }
 
-  // 7. Standard Regular Tariff (normal healthy quotation without spot or errors)
+  // 5. Standard Regular Tariff (Quick Quotes rate active & bookable online — NO AMBER ALERT)
   return {
     type: "standard",
     badgeLabel: "Standard Tariff",

@@ -1,7 +1,7 @@
 # Graph Report - Infreight_Sourcing_New  (2026-10-14)
 
 ## Corpus Check
-- 282 files · ~1,189,721 words
+- 282 files · ~1,189,692 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 27 file(s) not represented in the graph (top: (none) 10, .bat 9, .conf 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `36bc6c83`
+- Built from commit: `4e2b9e26`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 

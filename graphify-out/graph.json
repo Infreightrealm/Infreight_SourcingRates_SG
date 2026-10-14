@@ -1418,7 +1418,7 @@
       "file_type": "code",
       "norm_label": "bookingstatusinfo",
       "source_file": "frontend/src/lib/bookingStatus.ts",
-      "source_location": "L12"
+      "source_location": "L10"
     },
     {
       "id": "frontend_src_lib_bookingstatus_bookingstatustype",
@@ -4000,7 +4000,7 @@
       "file_type": "code",
       "norm_label": "._fetch_all_container_types()",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L946"
+      "source_location": "L954"
     },
     {
       "id": "backend_carriers_hapag_lloyd_api_connector_hapaglloydapiconnector_query_prices_api",
@@ -4012,7 +4012,7 @@
       "file_type": "code",
       "norm_label": "._query_prices_api()",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L961"
+      "source_location": "L969"
     },
     {
       "id": "backend_carriers_hapag_lloyd_api_connector_hapaglloydapiconnector_run_batch_route",
@@ -4036,7 +4036,7 @@
       "file_type": "code",
       "norm_label": ".run_full_search()",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L935"
+      "source_location": "L943"
     },
     {
       "id": "backend_carriers_hapag_lloyd_api_connector_hapaglloydapiconnector_search_quotes",
@@ -9700,7 +9700,7 @@
       "file_type": "code",
       "norm_label": "cleanvesselname()",
       "source_file": "frontend/src/lib/bookingStatus.ts",
-      "source_location": "L24"
+      "source_location": "L22"
     },
     {
       "id": "frontend_src_lib_bookingstatus_getbookingstatus",
@@ -9712,7 +9712,7 @@
       "file_type": "code",
       "norm_label": "getbookingstatus()",
       "source_file": "frontend/src/lib/bookingStatus.ts",
-      "source_location": "L42"
+      "source_location": "L40"
     },
     {
       "id": "frontend_src_lib_excelexport_buildsinglesearchemailtable",
@@ -17281,7 +17281,7 @@
       "source_location": "L357"
     },
     {
-      "id": "backend_carriers_hapag_lloyd_api_connector_rationale_936",
+      "id": "backend_carriers_hapag_lloyd_api_connector_rationale_944",
       "label": "Called by job_service once per container type (request.container_type). All\u2026",
       "_origin": "ast",
       "community": 12,
@@ -17289,10 +17289,10 @@
       "file_type": "rationale",
       "norm_label": "called by job_service once per container type (request.container_type). all...",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L936"
+      "source_location": "L944"
     },
     {
-      "id": "backend_carriers_hapag_lloyd_api_connector_rationale_947",
+      "id": "backend_carriers_hapag_lloyd_api_connector_rationale_955",
       "label": "Executes full rate search against Hapag-Lloyd Prices API. Queries each\u2026",
       "_origin": "ast",
       "community": 12,
@@ -17300,7 +17300,7 @@
       "file_type": "rationale",
       "norm_label": "executes full rate search against hapag-lloyd prices api. queries each...",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L947"
+      "source_location": "L955"
     },
     {
       "id": "backend_carriers_mock_connector_rationale_1",
@@ -32657,7 +32657,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L957",
+      "source_location": "L965",
       "weight": 1.0
     },
     {
@@ -32825,7 +32825,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L850",
+      "source_location": "L858",
       "weight": 1.0
     },
     {
@@ -32837,7 +32837,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L854",
+      "source_location": "L862",
       "weight": 1.0
     },
     {
@@ -32849,7 +32849,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L872",
+      "source_location": "L880",
       "weight": 1.0
     },
     {
@@ -32861,7 +32861,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L1017",
+      "source_location": "L1025",
       "weight": 1.0
     },
     {
@@ -32873,7 +32873,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L1033",
+      "source_location": "L1041",
       "weight": 1.0
     },
     {
@@ -32885,7 +32885,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L1043",
+      "source_location": "L1051",
       "weight": 1.0
     },
     {
@@ -32897,7 +32897,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L1046",
+      "source_location": "L1054",
       "weight": 1.0
     },
     {
@@ -32909,7 +32909,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L971",
+      "source_location": "L979",
       "weight": 1.0
     },
     {
@@ -32921,7 +32921,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L985",
+      "source_location": "L993",
       "weight": 1.0
     },
     {
@@ -32945,7 +32945,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L940",
+      "source_location": "L948",
       "weight": 1.0
     },
     {
@@ -48497,7 +48497,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L946",
+      "source_location": "L954",
       "weight": 1.0
     },
     {
@@ -48509,7 +48509,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L946",
+      "source_location": "L954",
       "weight": 1.0
     },
     {
@@ -48581,7 +48581,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L961",
+      "source_location": "L969",
       "weight": 1.0
     },
     {
@@ -48593,7 +48593,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L961",
+      "source_location": "L969",
       "weight": 1.0
     },
     {
@@ -48629,7 +48629,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L935",
+      "source_location": "L943",
       "weight": 1.0
     },
     {
@@ -48641,7 +48641,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L935",
+      "source_location": "L943",
       "weight": 1.0
     },
     {
@@ -74549,7 +74549,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L946",
+      "source_location": "L954",
       "weight": 1.0
     },
     {
@@ -74585,7 +74585,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L961",
+      "source_location": "L969",
       "weight": 1.0
     },
     {
@@ -74609,7 +74609,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L935",
+      "source_location": "L943",
       "weight": 1.0
     },
     {
@@ -87678,7 +87678,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/bookingStatus.ts",
-      "source_location": "L12",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
@@ -87689,7 +87689,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/bookingStatus.ts",
-      "source_location": "L24",
+      "source_location": "L22",
       "weight": 1.0
     },
     {
@@ -87711,7 +87711,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/bookingStatus.ts",
-      "source_location": "L42",
+      "source_location": "L40",
       "weight": 1.0
     },
     {
@@ -91467,7 +91467,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L935",
+      "source_location": "L943",
       "weight": 1.0
     },
     {
@@ -91478,7 +91478,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L946",
+      "source_location": "L954",
       "weight": 1.0
     },
     {
@@ -91489,7 +91489,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L961",
+      "source_location": "L969",
       "weight": 1.0
     },
     {
@@ -95442,25 +95442,25 @@
       "weight": 1.0
     },
     {
-      "source": "backend_carriers_hapag_lloyd_api_connector_rationale_936",
+      "source": "backend_carriers_hapag_lloyd_api_connector_rationale_944",
       "target": "backend_carriers_hapag_lloyd_api_connector_hapaglloydapiconnector_run_full_search",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L936",
+      "source_location": "L944",
       "weight": 1.0
     },
     {
-      "source": "backend_carriers_hapag_lloyd_api_connector_rationale_947",
+      "source": "backend_carriers_hapag_lloyd_api_connector_rationale_955",
       "target": "backend_carriers_hapag_lloyd_api_connector_hapaglloydapiconnector_fetch_all_container_types",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/carriers/hapag_lloyd_api_connector.py",
-      "source_location": "L947",
+      "source_location": "L955",
       "weight": 1.0
     },
     {
@@ -103074,5 +103074,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "36bc6c835e7077d28aa0a3cc90d3b219792950e5"
+  "built_at_commit": "4e2b9e266b1f7db2bc7c87abf66737ab4e9efd72"
 }

@@ -808,10 +808,18 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
                 if "CAPACITY" in spot_errs:
                     booking_warning = "Tariff quote (QQ). Online Spot booking unavailable (Vessel at CAPACITY on carrier portal). Space subject to manual confirmation."
                     vessel_display = f"{vessel_display} [TARIFF ONLY - SPOT FULL]"
-                elif any(e in ("RESTRICTIONS", "CAN_NOT_BE_OFFERED") for e in spot_errs):
-                    err_c = next(e for e in spot_errs if e in ("RESTRICTIONS", "CAN_NOT_BE_OFFERED"))
-                    booking_warning = f"Tariff quote (QQ). Online Spot booking restricted on carrier portal ({err_c}). Booking requires manual/offline confirmation."
-                    vessel_display = f"{vessel_display} [TARIFF ONLY - {err_c}]"
+                elif "CAN_NOT_BE_OFFERED" in spot_errs:
+                    # Spot product is not offered on this specific routing, but Quick Quotes IS actively bookable online
+                    vessel_display = f"{vessel_display} (QQ Tariff)"
+                    booking_warning = "Standard Quick Quotes rate (Spot rate not offered on this routing)."
+                    if active_cutoffs:
+                        booking_warning = f"{booking_warning} Cut-off: {', '.join(active_cutoffs)}"
+                elif "RESTRICTIONS" in spot_errs:
+                    # Spot rate restricted on carrier portal, but Quick Quotes remains bookable
+                    vessel_display = f"{vessel_display} (QQ Tariff)"
+                    booking_warning = "Standard Quick Quotes rate (Spot rate restricted on carrier portal)."
+                    if active_cutoffs:
+                        booking_warning = f"{booking_warning} Cut-off: {', '.join(active_cutoffs)}"
                 elif dcsa_schedules is not None and len(dcsa_schedules) == 0:
                     booking_warning = "No active commercial sailing found in Hapag-Lloyd schedule engine for this corridor. Offline enquiry required."
                     vessel_display = f"{vessel_display} [NO ONLINE SCHEDULE]"
