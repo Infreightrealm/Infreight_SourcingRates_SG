@@ -653,7 +653,13 @@ export default function ResultsTable({ data }: ResultsTableProps) {
                         </td>
                         <td className="px-1 py-2">
                           <div className="text-[11px] font-medium leading-tight text-foreground">{row.quote.service_name || "—"}</div>
-                          <div className="mt-0.5 text-[10px] leading-none text-muted-foreground">{row.quote.vessel || ""}</div>
+                          <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{row.quote.vessel || ""}</div>
+                          {row.quote.warning_message && (
+                            <div className="mt-0.5 flex items-center gap-1 text-[9px] text-warning-foreground font-medium" title={row.quote.warning_message}>
+                              <span>⚠️</span>
+                              <span className="truncate max-w-[200px]">{row.quote.warning_message}</span>
+                            </div>
+                          )}
                         </td>
                         <td className="px-1.5 py-2 text-right font-mono tabular-nums text-foreground">
                           {row.quote.final_freight_value === 0.0 ? "—" : row.quote.basic_ocean_freight.toLocaleString(undefined, { minimumFractionDigits: 2 })}

@@ -104,21 +104,27 @@ export default function QuoteBreakdownDrawer({ quote, carrier, onClose }: QuoteB
             ))}
           </div>
 
-          {/* Breakdown Unavailable Warning Banner */}
-          {quote.is_breakdown_unavailable && (
+          {/* Notice / Warning Banner */}
+          {(quote.is_breakdown_unavailable || quote.warning_message) && (
             <div className="animate-fade-in-up flex items-start gap-3 rounded-2xl border border-warning/35 bg-warning/12 p-4 text-xs text-warning-foreground">
               <span className="text-xl leading-none">⚠️</span>
               <div className="space-y-1">
-                <p className="text-sm font-bold">Quote Surcharges Incomplete</p>
+                <p className="text-sm font-bold">
+                  {quote.is_breakdown_unavailable ? "Quote Surcharges Incomplete" : "Booking & Space Notice"}
+                </p>
                 <p className="leading-relaxed text-muted-foreground">
-                  This quote cannot accurately provide the final freight value because the price breakdown is disabled on the carrier portal:
+                  {quote.is_breakdown_unavailable
+                    ? "This quote cannot accurately provide the final freight value because the price breakdown is disabled on the carrier portal:"
+                    : "Carrier schedule and space booking notice:"}
                 </p>
                 <div className="mt-1.5 rounded-lg border border-warning/25 bg-warning/10 p-2 text-[11px] font-medium italic">
                   "{quote.warning_message || 'Some selected container types are currently unavailable for this sailing. Please update the container type or select another departure date.'}"
                 </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  * Line-item surcharges (ETS, EBS, Terminal Handling) could not be scraped. The value below reflects only the basic ocean rate.
-                </p>
+                {quote.is_breakdown_unavailable && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    * Line-item surcharges (ETS, EBS, Terminal Handling) could not be scraped. The value below reflects only the basic ocean rate.
+                  </p>
+                )}
               </div>
             </div>
           )}

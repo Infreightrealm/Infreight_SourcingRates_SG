@@ -495,6 +495,12 @@ export default function RateResults({ data }: RateResultsProps) {
                               .filter(Boolean)
                               .join(" · ")}
                           </p>
+                          {q.warning_message && (
+                            <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-warning-foreground" title={q.warning_message}>
+                              <span>⚠️</span>
+                              <span className="truncate">{q.warning_message}</span>
+                            </p>
+                          )}
                         </div>
                         <div className="shrink-0 text-right">
                           {isSoldOut(q) ? (
@@ -602,6 +608,12 @@ export default function RateResults({ data }: RateResultsProps) {
                             <p className="truncate text-xs text-muted-foreground">
                               {[q.service_name, q.vessel].filter(Boolean).join(" · ") || "—"}
                             </p>
+                            {q.warning_message && (
+                              <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-warning-foreground" title={q.warning_message}>
+                                <span>⚠️</span>
+                                <span className="truncate max-w-[280px]">{q.warning_message}</span>
+                              </p>
+                            )}
                           </div>
                           <span className="text-foreground">{formatQuoteDate(q.etd)}</span>
                           <span className="text-foreground">{q.transit_time_days ? `${q.transit_time_days} d` : "—"}</span>

@@ -1008,15 +1008,15 @@
     "semantic_hash": ""
   },
   "frontend/src/components/QuoteBreakdownDrawer.tsx": {
-    "mtime": 1788831029.3229942,
-    "seen": 1791951932.1921015,
-    "ast_hash": "9f178ed0e180a6a3df030fbb4fe3656f",
+    "mtime": 1791957907.7460845,
+    "seen": 1791958172.5446782,
+    "ast_hash": "6538bbc5332e2d0a349b845591a0160f",
     "semantic_hash": ""
   },
   "frontend/src/components/RateResults.tsx": {
-    "mtime": 1791532007.3046596,
-    "seen": 1791951932.1921015,
-    "ast_hash": "0654998a305e0fcf129fd0a4383b8823",
+    "mtime": 1791958086.0713842,
+    "seen": 1791958172.5446782,
+    "ast_hash": "dc5c977e7ab93b5269817ce83f313d9b",
     "semantic_hash": ""
   },
   "frontend/src/components/RateSearchForm.tsx": {
@@ -1026,9 +1026,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/ResultsTable.tsx": {
-    "mtime": 1791532007.3052125,
-    "seen": 1791951932.1921015,
-    "ast_hash": "8bed8dcdda56b565bc408a0ee83d4e2e",
+    "mtime": 1791957886.6538174,
+    "seen": 1791958172.5456748,
+    "ast_hash": "12db12766d270816636a8066b565714a",
     "semantic_hash": ""
   },
   "frontend/src/components/RfqInputSection.tsx": {
