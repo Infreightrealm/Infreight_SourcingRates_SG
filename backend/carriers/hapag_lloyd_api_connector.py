@@ -381,6 +381,10 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             if response.status_code in (200, 201):
                 data = response.json()
                 return data, None, CarrierResultStatus.AVAILABLE_QUOTES_FOUND
+            elif response.status_code == 204:
+                # HTTP 204 No Content: Server successfully processed the request, but no rates/offers exist for this corridor/equipment
+                print(f"[HAPAG_API] POST /prices returned HTTP 204: No rates published for this lane/date.")
+                return {"offers": []}, "No quotes available on this lane from carrier", CarrierResultStatus.NO_QUOTES_AVAILABLE
 
             # Handle 4xx / 5xx error responses
             try:
