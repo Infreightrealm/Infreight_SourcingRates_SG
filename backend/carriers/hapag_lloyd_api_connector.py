@@ -585,6 +585,29 @@ class HapagLloydAPIConnector(BaseCarrierConnector):
             # Listed for transparency, never added again.
             return False, ChargeCategory.UNCERTAIN_EXCLUDED.value
         proposal = rate.get("locationProposal")
+        desc = (rate.get("chargeTypeShortDescription") or rate.get("chargeTypeCode") or "").strip().lower()
+
+        # Origin Landfreight must always be added to all-in freight (included freight surcharges)
+        # instead of sitting in excluded origin charges.
+        is_origin_landfreight = (
+            "origin landfreight" in desc
+            or "origin land freight" in desc
+            or "landfreight origin" in desc
+            or "land freight origin" in desc
+            or "pre-carriage landfreight" in desc
+            or "precarriage landfreight" in desc
+            or (("landfreight" in desc or "land freight" in desc) and (
+                proposal in ("BASE_PORT_FROM", "PC_CARRIAGE")
+                or "origin" in desc
+                or "orig" in desc
+                or "pre-carriage" in desc
+                or "precarriage" in desc
+                or "export" in desc
+            ))
+        )
+        if is_origin_landfreight:
+            return False, ChargeCategory.FREIGHT_SURCHARGE_INCLUDED.value
+
         if proposal == "BASE_PORT_FROM":
             return False, ChargeCategory.ORIGIN_CHARGE_EXCLUDED.value
         if proposal == "BASE_PORT_TO":

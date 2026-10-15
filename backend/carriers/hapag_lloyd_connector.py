@@ -4380,7 +4380,7 @@ class HapagLloydConnector(BaseCarrierConnector):
 
                         let determinedCategory = null;
                         const nameClean = name.toLowerCase().replace(/\s+/g, " ");
-                        if (/origin\s*landfreight\s*rail|landfreight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail|emergency\s*operational|inland\s*haulage/.test(nameClean)) {
+                        if (/origin\s*land\s*freight|land\s*freight\s*origin|origin\s*landfreight|landfreight\s*origin|landfreight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail|emergency\s*operational|inland\s*haulage/.test(nameClean)) {
                             determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";
                         } else if (currentSection === "freight_charges") determinedCategory = "BASIC_OCEAN_FREIGHT";
                         else if (currentSection === "surcharges") determinedCategory = "FREIGHT_SURCHARGE_INCLUDED";

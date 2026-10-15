@@ -161,8 +161,8 @@ def classify_charge(
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Red Sea/Suez/Gulf/Contingency Surcharge override to freight surcharge included"
     if "premium cargo service" in name_clean:
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Premium Cargo Service override to freight surcharge"
-    if re.search(r"origin\s*landfreight\s*rail|landfreight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail", name_clean):
-        return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Origin Rail surcharge override to freight surcharge included"
+    if re.search(r"origin\s*land\s*freight|land\s*freight\s*origin|origin\s*landfreight|landfreight\s*origin|landfreight\s*rail|land\s*freight\s*rail|emergency\s*fuel\s*origin\s*rail|fuel\s*origin\s*rail", name_clean):
+        return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Origin Landfreight surcharge override to freight surcharge included"
     if "panama canal" in name_clean or "canal surcharge" in name_clean or re.search(r"\bpcs\b", name_clean):
         return ChargeCategory.FREIGHT_SURCHARGE_INCLUDED, "Forced Panama Canal Surcharge override to freight surcharge included"
     if "arbitrary tariff at destination" in name_clean or "arbitrary" in name_clean and ("destination" in name_clean or "dest" in name_clean):

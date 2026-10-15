@@ -386,6 +386,105 @@ async def test_dcsa_commercial_schedules_cross_validation():
     print("  [OK] Successfully detected Spot CAPACITY exhaustion and flagged tariff quote.")
 
 
+async def test_origin_landfreight_inclusion():
+    print("\n--- TEST 6: Origin Landfreight Inclusion in All-In Freight ---")
+    connector = HapagLloydAPIConnector()
+    offer_with_origin_landfreight = {
+        "offers": [
+            {
+                "productIdentifier": "QUICK_QUOTES",
+                "placeOfReceipt": "SGSIN",
+                "placeOfReceiptDate": "2026-09-11T00:00:00.000Z",
+                "placeOfDelivery": "DEHAM",
+                "placeOfDeliveryDateTime": "2026-10-19T00:00:00.000Z",
+                "transitTime": 38,
+                "legs": [
+                    {
+                        "modeOfTransport": "VESSEL",
+                        "departureLocation": "SGSIN",
+                        "arrivalLocation": "DEHAM",
+                        "vesselName": "Hapag Test",
+                        "carrierServiceName": "FE4"
+                    }
+                ],
+                "equipments": [
+                    {
+                        "requestedEquipment": {
+                            "requestedEquipmentSizeType": "45GP",
+                            "requestedEquipmentUnits": 1,
+                        },
+                        "rates": [
+                            {
+                                "chargeTypeCode": "BAS",
+                                "chargeTypeShortDescription": "Basic Ocean Freight",
+                                "amount": 2500.00,
+                                "currency": "USD",
+                                "seaFreightIndicator": True,
+                                "included": False
+                            },
+                            {
+                                "chargeTypeCode": "OLF",
+                                "chargeTypeShortDescription": "Origin Landfreight",
+                                "amount": 350.00,
+                                "currency": "USD",
+                                "seaFreightIndicator": False,
+                                "included": False,
+                                "locationProposal": "PC_CARRIAGE"
+                            },
+                            {
+                                "chargeTypeCode": "THO",
+                                "chargeTypeShortDescription": "Terminal Handling Charge Origin",
+                                "amount": 180.00,
+                                "currency": "USD",
+                                "seaFreightIndicator": False,
+                                "included": False,
+                                "locationProposal": "BASE_PORT_FROM"
+                            },
+                            {
+                                "chargeTypeCode": "THD",
+                                "chargeTypeShortDescription": "Terminal Handling Charge Destination",
+                                "amount": 200.00,
+                                "currency": "USD",
+                                "seaFreightIndicator": False,
+                                "included": False,
+                                "locationProposal": "BASE_PORT_TO"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    quotes = connector._parse_offer_response_to_quotes(
+        api_data=offer_with_origin_landfreight,
+        requested_container_type="DRY 40H",
+        destination_locode="DEHAM",
+        destination_name="Hamburg, Germany",
+        dcsa_schedules=[]
+    )
+
+    assert len(quotes) == 1
+    q = quotes[0]
+    # Basic Ocean Freight: $2500.00
+    # Origin Landfreight ($350.00) MUST be in included_freight_surcharges and added to final_freight_value ($2850.00)
+    assert q.basic_ocean_freight == 2500.00
+    assert q.final_freight_value == 2850.00  # 2500 + 350
+
+    included_names = [s.name for s in q.included_freight_surcharges]
+    assert "Origin Landfreight" in included_names
+    olf_surcharge = next(s for s in q.included_freight_surcharges if s.name == "Origin Landfreight")
+    assert olf_surcharge.amount == 350.00
+
+    # THO and THD must remain in excluded charges
+    excluded_names = [c.name for c in q.excluded_charges]
+    assert "Origin Landfreight" not in excluded_names
+    assert any("Terminal Handling Charge Origin" in name for name in excluded_names)
+    assert any("Terminal Handling Charge Destination" in name for name in excluded_names)
+
+    print("  [OK] Origin Landfreight verified included in All-In freight total (final_freight_value).")
+
+
 async def main():
     print("==================================================================")
     print("  RUNNING HAPAG-LLOYD REST API CONNECTOR VERIFICATION SUITE")
@@ -395,6 +494,7 @@ async def main():
     await test_response_parsing_and_normalization()
     await test_registry_integration()
     await test_dcsa_commercial_schedules_cross_validation()
+    await test_origin_landfreight_inclusion()
     print("\n==================================================================")
     print("  ALL VERIFICATION TESTS PASSED SUCCESSFULLY! ")
     print("==================================================================")

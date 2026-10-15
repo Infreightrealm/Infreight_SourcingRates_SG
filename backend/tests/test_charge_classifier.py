@@ -141,6 +141,15 @@ def test_short_keyword_boundaries():
 
 
 def test_hapag_origin_rail_charges_surcharge_override():
+    cat, _ = classify_charge("Origin Landfreight", 250, "export_surcharges")
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+    cat, _ = classify_charge("Origin Land Freight", 250, "origin charges")
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+    cat, _ = classify_charge("Landfreight Origin", 200, "export_surcharges")
+    assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
     cat, _ = classify_charge("Origin Landfreight Rail", 120, "export_surcharges")
     assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
 
@@ -149,6 +158,10 @@ def test_hapag_origin_rail_charges_surcharge_override():
 
     cat, _ = classify_charge("Emergency Fuel OriginRail", 10, "export_surcharges")
     assert cat == ChargeCategory.FREIGHT_SURCHARGE_INCLUDED
+
+    # Destination Landfreight should still be excluded
+    cat, _ = classify_charge("Destination Landfreight", 250, "import_surcharges")
+    assert cat == ChargeCategory.DESTINATION_CHARGE_EXCLUDED
 
 
 def test_maersk_inland_haulage_and_emergency_operational_cost_override():
