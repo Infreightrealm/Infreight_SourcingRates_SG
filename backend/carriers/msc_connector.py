@@ -208,6 +208,59 @@ def resolve_msc_port(text: str) -> tuple[str, str]:
     return query_text, extracted_locode
 
 
+def map_requested_containers_to_msc_sizes(
+    container_types: Optional[list[str]] = None,
+    container_type: Optional[str] = None
+) -> set[str]:
+    """
+    Map requested container type strings (e.g. '20GP', 'DRY 20', '40HQ', 'DRY 40H')
+    to MSC's three equipment size codes: '20DV', '40DV', '40HC'.
+    
+    If no recognizable container types are provided, defaults to all three:
+    {'20DV', '40DV', '40HC'}.
+    """
+    types_to_inspect: list[str] = []
+    if container_types:
+        types_to_inspect.extend(container_types)
+    elif container_type:
+        types_to_inspect.append(container_type)
+
+    if not types_to_inspect:
+        return {"20DV", "40DV", "40HC"}
+
+    target_sizes: set[str] = set()
+    for raw in types_to_inspect:
+        if not raw or not isinstance(raw, str):
+            continue
+        c = raw.upper().strip()
+        # High Cube (40HC)
+        if any(k in c for k in ["40H", "40'H", "40 H", "HQ", "HC", "HIGH CUBE", "HIGH-CUBE", "HIGHCUBE"]):
+            target_sizes.add("40HC")
+        # Standard 40 (40DV)
+        elif any(k in c for k in ["40GP", "40DV", "DRY 40", "40'", "40FT", "40 STD", "40STD"]) or c == "40":
+            target_sizes.add("40DV")
+        # Standard 20 (20DV)
+        elif any(k in c for k in ["20GP", "20DV", "DRY 20", "20'", "20FT", "20 STD", "20STD"]) or c == "20":
+            target_sizes.add("20DV")
+        elif "20" in c:
+            target_sizes.add("20DV")
+        elif "40" in c:
+            target_sizes.add("40DV")
+
+    return target_sizes if target_sizes else {"20DV", "40DV", "40HC"}
+
+
+def is_same_container_type(t1: Optional[str], t2: Optional[str]) -> bool:
+    """Checks whether two container type representations map to the same MSC equipment size."""
+    if not t1 or not t2:
+        return False
+    if t1 == t2:
+        return True
+    s1 = map_requested_containers_to_msc_sizes(container_types=[t1])
+    s2 = map_requested_containers_to_msc_sizes(container_types=[t2])
+    return bool(s1 and s2 and s1 == s2)
+
+
 class MSCConnector(BaseCarrierConnector):
     """
     Playwright-based automation for MSC (Mediterranean Shipping Company).
@@ -219,6 +272,9 @@ class MSCConnector(BaseCarrierConnector):
         super().__init__()
         self.SEARCH_URL = "https://www.msc.com/en/solutions/instant-quote"
         self.playwright = None
+        self._cached_quotes = None
+        self._cached_status = None
+        self._searched_msc_sizes = None
 
     def log(self, msg: str):
         print(f"[MSC] {msg}")
@@ -317,8 +373,8 @@ class MSCConnector(BaseCarrierConnector):
             await self.page.locator("text='Equipment Type'").first.wait_for(state="visible", timeout=20000)
             await self.page.wait_for_timeout(2000)
 
-            # 1. Equipment Size (leave default 20DV, 40DV, 40HC checked to search all simultaneously)
-            self.log("Leaving all equipment sizes checked (20DV, 40DV, 40HC)")
+            # 1. Equipment Size (uncheck sizes not requested by user)
+            self._searched_msc_sizes = await self._set_msc_equipment_sizes(request)
 
             # 2. Cargo Weight
             self.log(f"Setting cargo weight to {request.weight_per_container_kg}...")
@@ -534,14 +590,150 @@ class MSCConnector(BaseCarrierConnector):
             self.log(f"[MSC] Notice: Ramp selection check encountered non-fatal error: {e}")
         return False
 
+    async def _set_msc_equipment_sizes(self, request: RateSearchRequest) -> set[str]:
+        """
+        Ensures that only requested container sizes ('20DV', '40DV', '40HC') are checked
+        on the MSC Instant Quote form. MSC defaults to all 3 checked, so non-applicable
+        sizes are unchecked (clicked).
+        """
+        target_sizes = map_requested_containers_to_msc_sizes(
+            container_types=request.container_types,
+            container_type=request.container_type
+        )
+        self.log(f"[MSC] Target equipment sizes based on request: {sorted(target_sizes)}")
+
+        try:
+            await self.page.wait_for_timeout(500)
+        except Exception:
+            pass
+
+        for eq_code in ["20DV", "40DV", "40HC"]:
+            should_be_checked = eq_code in target_sizes
+
+            # Determine current checked state via page DOM evaluation
+            try:
+                state_info = await self.page.evaluate(
+                    """(code) => {
+                        const xpath = `//*[(self::label or self::span or self::div or self::p) and contains(normalize-space(.), "${code}")]`;
+                        const res = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                        for (let i = 0; i < res.snapshotLength; i++) {
+                            const node = res.snapshotItem(i);
+                            const text = (node.innerText || node.textContent || "").trim();
+                            if (text.includes("20DV") && text.includes("40DV")) continue;
+                            if (text.includes("40DV") && text.includes("40HC")) continue;
+
+                            const input = node.querySelector('input[type="checkbox"]') ||
+                                          (node.tagName === 'INPUT' ? node : null) ||
+                                          node.parentElement?.querySelector('input[type="checkbox"]') ||
+                                          node.previousElementSibling;
+                            if (input && input.tagName === 'INPUT') {
+                                return { found: true, checked: input.checked, hasInput: true };
+                            }
+
+                            const aria = node.getAttribute('aria-checked') ||
+                                         node.parentElement?.getAttribute('aria-checked') ||
+                                         node.closest('[role="checkbox"]')?.getAttribute('aria-checked');
+                            if (aria !== null && aria !== undefined) {
+                                return { found: true, checked: aria === 'true', hasAria: true };
+                            }
+
+                            const classStr = (node.className || "") + " " + (node.parentElement?.className || "");
+                            if (/checked|active|selected|is-checked/i.test(classStr)) {
+                                return { found: true, checked: true, hasClass: true };
+                            }
+                        }
+                        // Default on MSC page: all 3 start checked
+                        return { found: false, checked: true };
+                    }""",
+                    eq_code
+                )
+            except Exception as eval_err:
+                self.log(f"[MSC] Notice: JS state evaluation error for {eq_code}: {eval_err}")
+                state_info = {"found": False, "checked": True}
+
+            current_checked = state_info.get("checked", True)
+            self.log(f"[MSC] Checkbox '{eq_code}': current={current_checked}, target={should_be_checked}")
+
+            if current_checked != should_be_checked:
+                action_str = "Checking" if should_be_checked else "Unchecking"
+                self.log(f"[MSC] {action_str} {eq_code}...")
+
+                clicked = False
+                locators_to_try = [
+                    self.page.locator(f"xpath=//label[contains(., '{eq_code}')]"),
+                    self.page.locator(f"label:has-text('{eq_code}')"),
+                    self.page.locator(f"[role='checkbox']:has-text('{eq_code}')"),
+                    self.page.locator(f"xpath=//*[(self::span or self::div) and normalize-space(text())='{eq_code}']"),
+                ]
+
+                for loc in locators_to_try:
+                    try:
+                        if await loc.count() > 0:
+                            el = loc.first
+                            if await el.is_visible(timeout=800):
+                                input_child = el.locator("input[type='checkbox']")
+                                if await input_child.count() > 0 and await input_child.first.is_visible(timeout=400):
+                                    await input_child.first.click(force=True)
+                                else:
+                                    await el.click(force=True)
+                                clicked = True
+                                await self.page.wait_for_timeout(350)
+                                break
+                    except Exception as click_err:
+                        self.log(f"[MSC] Notice: locator click attempt failed for {eq_code}: {click_err}")
+
+                # Verify and fallback to JS toggle if not yet in target state
+                try:
+                    post_state = await self.page.evaluate(
+                        """(args) => {
+                            const [code, expected] = args;
+                            const xpath = `//*[(self::label or self::span or self::div) and contains(normalize-space(.), "${code}")]`;
+                            const res = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                            for (let i = 0; i < res.snapshotLength; i++) {
+                                const node = res.snapshotItem(i);
+                                const text = (node.innerText || node.textContent || "").trim();
+                                if (text.includes("20DV") && text.includes("40DV")) continue;
+                                if (text.includes("40DV") && text.includes("40HC")) continue;
+
+                                const input = node.querySelector('input[type="checkbox"]') ||
+                                              (node.tagName === 'INPUT' ? node : null) ||
+                                              node.parentElement?.querySelector('input[type="checkbox"]');
+                                if (input && input.tagName === 'INPUT') {
+                                    if (input.checked !== expected) {
+                                        input.click();
+                                        return { toggled_by_js: true, checked: input.checked };
+                                    }
+                                    return { verified: true, checked: input.checked };
+                                }
+
+                                if (node.click) {
+                                    node.click();
+                                    return { clicked_node: true };
+                                }
+                            }
+                            return { not_found: true };
+                        }""",
+                        [eq_code, should_be_checked]
+                    )
+                    await self.page.wait_for_timeout(300)
+                    self.log(f"[MSC] State after toggle for {eq_code}: {post_state}")
+                except Exception as post_err:
+                    self.log(f"[MSC] Notice: Post-toggle evaluation error for {eq_code}: {post_err}")
+
+        return target_sizes
+
     async def run_full_search(self, request: RateSearchRequest) -> tuple[CarrierResultStatus, list[QuoteSchema]]:
         if not hasattr(self, "_cached_quotes"):
             self._cached_quotes = None
             self._cached_status = None
+            self._searched_msc_sizes = None
 
         if self._cached_quotes is not None:
             self.log(f"Returning cached quotes for '{request.container_type}' (avoiding redundant browser search).")
-            matching_quotes = [q for q in self._cached_quotes if q.container_type == request.container_type]
+            matching_quotes = [
+                q for q in self._cached_quotes
+                if is_same_container_type(q.container_type, request.container_type) or q.container_type == request.container_type
+            ]
             return self._cached_status, matching_quotes
 
         quotes: list[QuoteSchema] = []
@@ -640,7 +832,19 @@ class MSCConnector(BaseCarrierConnector):
                     elif "20' Dry Van" in card_text or "20DV" in card_text:
                         container_type = "DRY 20"
                     else:
-                        container_type = request.container_type
+                        searched = getattr(self, "_searched_msc_sizes", None)
+                        if searched and len(searched) == 1:
+                            only_size = next(iter(searched))
+                            if only_size == "20DV":
+                                container_type = "DRY 20"
+                            elif only_size == "40DV":
+                                container_type = "DRY 40"
+                            elif only_size == "40HC":
+                                container_type = "DRY 40H"
+                            else:
+                                container_type = request.container_type
+                        else:
+                            container_type = request.container_type
                         
                     card_validity = None
                     if card_text:
@@ -951,7 +1155,12 @@ class MSCConnector(BaseCarrierConnector):
             if quotes:
                 self._cached_quotes = quotes
                 self._cached_status = CarrierResultStatus.AVAILABLE_QUOTES_FOUND
-                matching_quotes = [q for q in quotes if q.container_type == request.container_type]
+                matching_quotes = [
+                    q for q in quotes
+                    if is_same_container_type(q.container_type, request.container_type) or q.container_type == request.container_type
+                ]
+                if not matching_quotes and getattr(self, "_searched_msc_sizes", None) and len(self._searched_msc_sizes) == 1:
+                    matching_quotes = quotes
                 return CarrierResultStatus.AVAILABLE_QUOTES_FOUND, matching_quotes
             
             self._cached_quotes = []

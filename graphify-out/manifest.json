@@ -162,9 +162,9 @@
     "semantic_hash": ""
   },
   "backend/carriers/msc_connector.py": {
-    "mtime": 1788775982.375896,
-    "seen": 1791951932.1921015,
-    "ast_hash": "1ff0bb79016863e5777cdc69c3e1e559",
+    "mtime": 1792116683.0306742,
+    "seen": 1792116759.5047228,
+    "ast_hash": "32611af33b6f72e13ba826b93f425724",
     "semantic_hash": ""
   },
   "backend/carriers/one_connector.py": {
@@ -1713,6 +1713,12 @@
     "mtime": 1792115743.0387805,
     "seen": 1792115816.0897906,
     "ast_hash": "58ebf13b595a39efae4965cb795798c0",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_msc_equipment_selection.py": {
+    "mtime": 1792116700.88584,
+    "seen": 1792116759.5437925,
+    "ast_hash": "015b0a4cce7c47ecc8bbb61a3f5ba54f",
     "semantic_hash": ""
   }
 }
