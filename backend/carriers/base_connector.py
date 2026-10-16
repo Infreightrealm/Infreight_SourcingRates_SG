@@ -7,6 +7,7 @@ the carrier's quote portal via Playwright browser automation.
 from abc import ABC, abstractmethod
 from typing import Optional, Any
 import asyncio
+from datetime import date, datetime, timedelta
 from models.schemas import RateSearchRequest, QuoteSchema, CarrierResultStatus, DRY_CONTAINER_TYPES
 
 
@@ -317,6 +318,26 @@ class BaseCarrierConnector(ABC):
     # ────────────────────────────────────────────────────────────────────
     # QUICK SEARCH (multi-port RFQ) — shared, per-container-type correct
     # ────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def get_booking_start_date(departure_date_str: Optional[str]) -> date:
+        """Parse user departure date string ('today', 'tomorrow', 'YYYY-MM-DD') into a date object."""
+        from datetime import date, timedelta, datetime
+        today_d = date.today()
+        if not departure_date_str:
+            return today_d
+        val = str(departure_date_str).strip().lower()
+        if val in ("today", "now"):
+            return today_d
+        if val == "tomorrow":
+            return today_d + timedelta(days=1)
+        try:
+            return date.fromisoformat(val[:10])
+        except Exception:
+            try:
+                return datetime.strptime(val[:10], "%Y-%m-%d").date()
+            except Exception:
+                return today_d
 
     @staticmethod
     def _card_etd_date(q: dict):

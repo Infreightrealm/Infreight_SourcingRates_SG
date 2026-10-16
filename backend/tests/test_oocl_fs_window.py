@@ -109,3 +109,19 @@ def test_oocl_serve_for_cycle_matches_container():
     q_40h = conn._serve_for_cycle(req_40h)
     assert len(q_40h) == 1
     assert q_40h[0].final_freight_value == 3740.0
+
+
+def test_oocl_connector_has_get_booking_start_date():
+    conn = OOCLConnector()
+    assert hasattr(conn, "get_booking_start_date")
+    assert callable(conn.get_booking_start_date)
+
+    d_iso = conn.get_booking_start_date("2026-11-13")
+    assert d_iso == date(2026, 11, 13)
+
+    d_today = conn.get_booking_start_date("today")
+    assert d_today == date.today()
+
+    d_none = conn.get_booking_start_date(None)
+    assert d_none == date.today()
+

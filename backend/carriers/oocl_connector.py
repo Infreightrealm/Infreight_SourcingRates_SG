@@ -171,6 +171,10 @@ class OOCLConnector(BaseCarrierConnector):
     carrier_name = "OOCL"
     SEARCH_URL = "https://www.oocl.com/eng/ourservices/eservices/sailingschedule/Pages/default.aspx"
 
+    @staticmethod
+    def get_booking_start_date(departure_date_str: str) -> date:
+        return get_booking_start_date(departure_date_str)
+
     def __init__(self):
         super().__init__()
         self.browser = None
@@ -1726,7 +1730,7 @@ class OOCLConnector(BaseCarrierConnector):
         """
         if request and request.departure_date:
             try:
-                start_date = self.get_booking_start_date(request.departure_date)
+                start_date = get_booking_start_date(request.departure_date)
             except Exception:
                 start_date = date.today()
         else:
@@ -2372,7 +2376,7 @@ class OOCLConnector(BaseCarrierConnector):
                 print("[OOCL] OOCL_QUERY_FREIGHTSMART=false — schedules-only mode.")
 
             # Step 3: Pair & select per business rules
-            start_d = self.get_booking_start_date(request.departure_date) if request and request.departure_date else date.today()
+            start_d = get_booking_start_date(request.departure_date) if request and request.departure_date else date.today()
             window_days = max(request.search_window_days or 14, 28)
             merged_dicts = self._fs_pair_and_select(
                 fs_rows, schedule_dicts,
