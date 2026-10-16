@@ -1724,9 +1724,15 @@ class OOCLConnector(BaseCarrierConnector):
         6. Fallback: if the calendar cannot be opened or cells can't be read, fall back to
            scanning the visible date strip.
         """
-        today = date.today()
-        start_date = today  # Always scan from today onwards to capture all upcoming sailings (e.g. 13 Aug and 20 Aug)
-        window_days = (request.search_window_days if request and request.search_window_days else 28)
+        if request and request.departure_date:
+            try:
+                start_date = self.get_booking_start_date(request.departure_date)
+            except Exception:
+                start_date = date.today()
+        else:
+            start_date = date.today()
+
+        window_days = max(request.search_window_days or 14, 28) if request else 28
         horizon = start_date + timedelta(days=window_days)
 
         MONTH_ABBR = {
@@ -1874,7 +1880,7 @@ class OOCLConnector(BaseCarrierConnector):
                         item_date = datetime.strptime(dt_text, "%Y-%m-%d").date()
                     except Exception:
                         continue
-                    if not (today <= item_date <= horizon):
+                    if not (start_date <= item_date <= horizon):
                         continue
                     price_els = item.locator(".price-text")
                     pc = await price_els.count()
@@ -1890,7 +1896,7 @@ class OOCLConnector(BaseCarrierConnector):
                 print(f"[OOCL] [FS] Date strip scan failed: {e}")
 
         date_strings = sorted(set(d for d, _ in available_dates))
-        print(f"[OOCL] [FS] Dates with availability in next 14 days: {date_strings}")
+        print(f"[OOCL] [FS] Dates with availability in next {window_days} days: {date_strings}")
 
         if not date_strings:
             print("[OOCL] [FS] No dated availability found — extracting current active date only.")
@@ -2073,16 +2079,25 @@ class OOCLConnector(BaseCarrierConnector):
         today = today or date.today()
         horizon = today + timedelta(days=window_days)
 
-        def _in_window(etd: Optional[str]) -> bool:
+        def _in_window(etd: Optional[str], h: date) -> bool:
             if not etd:
                 return True
             try:
                 d = datetime.strptime(etd, "%Y-%m-%d").date()
             except ValueError:
                 return True
-            return today <= d <= horizon
+            return today <= d <= h
 
-        rows = [r for r in fs_rows if _in_window(r.get("etd"))]
+        # First check the specified window (e.g. 14 days)
+        rows = [r for r in fs_rows if _in_window(r.get("etd"), horizon)]
+        if not rows and fs_rows:
+            # Fall back to 28-day horizon (2nd window) matching BaseCarrierConnector
+            extended_horizon = today + timedelta(days=max(window_days, 28))
+            rows = [r for r in fs_rows if _in_window(r.get("etd"), extended_horizon)]
+            # If still empty (e.g. active date was extracted because it was the earliest available date),
+            # preserve the extracted rows so they aren't discarded into a false NO_QUOTES_AVAILABLE.
+            if not rows:
+                rows = fs_rows
         espots = [r for r in rows if r.get("kind") == "E-Spot"]
         equotes = [r for r in rows if r.get("kind") != "E-Spot"]
 
@@ -2357,9 +2372,11 @@ class OOCLConnector(BaseCarrierConnector):
                 print("[OOCL] OOCL_QUERY_FREIGHTSMART=false — schedules-only mode.")
 
             # Step 3: Pair & select per business rules
-            window_days = min(request.search_window_days or 14, 28)
+            start_d = self.get_booking_start_date(request.departure_date) if request and request.departure_date else date.today()
+            window_days = max(request.search_window_days or 14, 28)
             merged_dicts = self._fs_pair_and_select(
                 fs_rows, schedule_dicts,
+                today=start_d,
                 window_days=window_days,
                 espot_vessels=getattr(self, "espot_vessels", None)
             )
